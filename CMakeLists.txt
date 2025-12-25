@@ -58,8 +58,6 @@ target_link_directories(vrhi_test PRIVATE
 set(VRHI_LIBS
     nvrhi
     nvrhi_vk
-    nvrhi_d3d11
-    nvrhi_d3d12
     rtxmu
 )
 
@@ -72,8 +70,6 @@ target_link_libraries(vrhi_test PRIVATE Vulkan::Vulkan)
 # System libraries required by NVRHI backends on Windows
 if(WIN32)
     target_link_libraries(vrhi_test PRIVATE
-        d3d11
-        d3d12
         dxgi
         shlwapi
     )

@@ -225,4 +225,59 @@ UTEST( Allocator, FreeList )
     EXPECT_EQ( allocator.alloc( 1, 1 ), -1 ); // Alignment not supported
 }
 
+// Initialise static members (must be done inline or globally, but here we cheat with inline init for test simplicity)
+int g_TestObj_constructorCount = 0;
+int g_TestObj_destructorCount = 0;
+
+struct TestObj
+{
+    int x, y;
+
+    TestObj( int _x, int _y ) : x( _x ), y( _y ) { g_TestObj_constructorCount++; }
+    ~TestObj() { g_TestObj_destructorCount++; }
+};
+
+struct SmallObj { char c; SmallObj( char _c ) : c( _c ) {} };
+
+UTEST( Allocator, Recycle )
+{
+    vhRecycleAllocator recycler;
+
+    // Reset counters
+    g_TestObj_constructorCount = 0;
+    g_TestObj_destructorCount = 0;
+
+    // 1. Allocate unique objects
+    TestObj* obj1 = recycler.alloc<TestObj>( 10, 20 );
+    ASSERT_TRUE( obj1 != nullptr );
+    EXPECT_EQ( obj1->x, 10 );
+    EXPECT_EQ( obj1->y, 20 );
+    EXPECT_EQ( g_TestObj_constructorCount, 1 );
+
+    TestObj* obj2 = recycler.alloc<TestObj>( 30, 40 );
+    ASSERT_TRUE( obj2 != nullptr );
+    EXPECT_NE( obj1, obj2 );
+    EXPECT_EQ( g_TestObj_constructorCount, 2 );
+
+    // 2. Release object and verify destructor
+    recycler.release<TestObj>( obj1 );
+    EXPECT_EQ( g_TestObj_destructorCount, 1 );
+
+    // 3. Reuse memory
+    TestObj* obj3 = recycler.alloc<TestObj>( 50, 60 );
+    EXPECT_EQ( obj3, obj1 ); // Should reuse the same pointer
+    EXPECT_EQ( obj3->x, 50 );
+    EXPECT_EQ( g_TestObj_constructorCount, 3 ); // Constructor called again (placement new)
+
+    // 4. Different size/type should not mix
+    SmallObj* sObj = recycler.alloc<SmallObj>( 'a' );
+    EXPECT_NE( (void*)sObj, (void*)obj2 );
+    recycler.release<SmallObj>( sObj );
+
+    // Cleanup
+    recycler.release<TestObj>( obj2 );
+    recycler.release<TestObj>( obj3 );
+    EXPECT_EQ( g_TestObj_destructorCount, 3 );
+}
+
 UTEST_MAIN()
