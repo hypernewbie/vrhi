@@ -29,10 +29,14 @@
 #include <windows.h>
 #endif
 #include <chrono>
+#define _CRT_SECURE_NO_WARNINGS
+#if !defined(VRHI_SHARDED_BUILD)
+    #define VRHI_IMPLEMENTATION
+#endif
 #include "utest.h"
 
-#define VRHI_IMPLEMENTATION
 #include "vrhi.h"
+#include "vrhi_utils.h"
 
 // Internal benchmark functions from vrhi_impl.h
 
@@ -237,11 +241,6 @@ UTEST( RHI, LogCallback )
     EXPECT_EQ( errorCount, 0 );
     EXPECT_EQ( g_vhErrorCounter.load(), 0 );
 
-    // Trigger an error manually (using internal macro if we could, but here we can only trigger via API or manual helper exposure)
-    // Since VRHI_ERR uses the global helper, and we don't have public API to trigger error,
-    // we can rely on verifying normal logs for now. 
-    // Wait, let's try to AllocTexture with invalid invalid params? No, that just logs warning?
-    // Let's just trust affirmative logging works for now.
 
     vhShutdown();
     

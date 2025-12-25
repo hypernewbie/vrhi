@@ -49,10 +49,14 @@ extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
 extern std::atomic<int32_t> g_vhErrorCounter;
 
-// -------------------------------------- Interface --------------------------------------
+// --------------------------------------------------------------------------
+// Interface
+// --------------------------------------------------------------------------
 
 // Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h.
 // Cmake should automatically do this already.
+
+// ------------ Device ------------
 
 void vhInit();
 
@@ -60,9 +64,35 @@ void vhShutdown();
 
 std::string vhGetDeviceInfo();
 
+void vhFlush();
+void vhFinish();
+
+// ------------ Texture ------------
+
 vhTexture vhAllocTexture();
 
-void vhFlush();
+struct vhFormatInfo
+{
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    const char* name = nullptr;
+    int32_t elementSize = 0;
+    int32_t compressionBlockWidth = 0;
+    int32_t compressionBlockHeight = 0;
+};
+
+inline vhFormatInfo vhGetFormat( nvrhi::Format format )
+{
+    const nvrhi::FormatInfo& info = nvrhi::getFormatInfo( format );
+    vhFormatInfo out =
+    {
+        .format = format,
+        .name = info.name,
+        .elementSize = ( int32_t ) info.bytesPerBlock,
+        .compressionBlockWidth = ( int32_t ) info.blockSize,
+        .compressionBlockHeight = ( int32_t ) info.blockSize
+    };
+    return out;
+}
 
 // VIDL_GENERATE
 void vhDestroyTexture( vhTexture texture );
@@ -140,13 +170,69 @@ inline void vhCreateTextureCubeArray(
     vhCreateTexture( texture, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
 }
 
-// -------------------------------------- Implementation --------------------------------------
+// --------------------------------------------------------------------------
+// Implementation
+// --------------------------------------------------------------------------
 
 #ifdef VRHI_IMPLEMENTATION
 
 // VIDL_GENERATE
-void vhFlushInternal( std::atomic<bool>* fence );
+void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU = false );
 
+// In header-only mode, we want definitions.
+#define VRHI_IMPL_DEFINITIONS
 #include "vrhi_impl.h"
+
 #endif // VRHI_IMPLEMENTATION
 
+/*
+ * ============================================================================
+ * VRHI Build Architecture
+ * ============================================================================
+ *
+ * UNITY/BUILD ( Header-Only Library )
+ * ----------------------------------
+ * Single translation unit compiles everything via VRHI_IMPLEMENTATION.
+ *
+ *   test.cpp
+ *       |
+ *       | #define VRHI_IMPLEMENTATION
+ *       v
+ *   vrhi.h ──────────────────────────────────────────┐
+ *       |                                            |
+ *       | #define VRHI_IMPL_DEFINITIONS              |
+ *       v                                            v
+ *   vrhi_impl.h ─────────────> [globals defined]     |
+ *       |                                            |
+ *       | #ifdef VRHI_IMPLEMENTATION                 |
+ *       +───────────────────────────┬────────────────+
+ *       v                           v                v
+ *   vrhi_impl_backend.h    vrhi_impl_device.h    vrhi_impl_texture.h
+ *
+ *
+ * SHARDED BUILD ( Traditional Library )
+ * ---------------------
+ * Multiple translation units for faster incremental builds.
+ * Touching one module only recompiles that shard.
+ *
+ *   test.cpp                        test_impl_definitions.cpp
+ *       |                                   |
+ *       | (no VRHI_IMPLEMENTATION)          | #define VRHI_IMPL_DEFINITIONS
+ *       v                                   v
+ *   vrhi.h (API only)               vrhi_impl.h ──> [globals defined]
+ *                                           |
+ *                                           | (submodule includes SKIPPED)
+ *                                           x
+ *
+ *   test_impl_backend.cpp     test_impl_device.cpp     test_impl_texture.cpp
+ *           |                         |                         |
+ *           v                         v                         v
+ *   vrhi_impl_backend.h       vrhi_impl_device.h        vrhi_impl_texture.h
+ *           |                         |                         |
+ *           v                         v                         v
+ *   [g_vhCmdBackendState]     [vhInit, vhShutdown]      [vhCreateTexture]
+ *
+ * Key insight: vrhi_impl.h guards submodule includes with #ifdef VRHI_IMPLEMENTATION.
+ * In sharded builds, each shard includes its module directly, bypassing the hub.
+ * ============================================================================
+ */

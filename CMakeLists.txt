@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Use Static C Runtime (/MT for Release, /MTd for Debug)
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    add_compile_options(/W3 /wd4100) # W3: Standard warning level, wd4100: Ignore unused parameters
+    add_compile_options(/W3 /wd4100 /MP) # W3: Standard warning level, wd4100: Ignore unused parameters, MP: Multi-processor compilation
 endif()
 
 # Find Python Interpreter (Optional)
@@ -27,16 +27,25 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 # Source files
+# Source files
 set(SOURCES
     test.cpp
     vrhi.h
     vrhi_impl.h
     utest.h
     "${GENERATED_HEADER}"
+    test_impl_backend.cpp
+    test_impl_device.cpp
+    test_impl_texture.cpp
+    test_impl_definitions.cpp
 )
 
 # Add executable
 add_executable(vrhi_test ${SOURCES})
+
+target_compile_definitions(vrhi_test PRIVATE 
+    $<$<CONFIG:Debug>:VRHI_SHARDED_BUILD>
+)
 
 # Include directories
 target_include_directories(vrhi_test PRIVATE 
