@@ -88,6 +88,7 @@ std::mutex g_vhTextureIDListMutex;
 moodycamel::BlockingReaderWriterCircularBuffer< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;
 std::thread g_vhCmdThread;
+vhRecycleAllocator g_vhCmdAlloc;
 
 // Logging
 #define VRHI_LOG( fmt, ... ) printf( fmt, ##__VA_ARGS__ )
