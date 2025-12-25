@@ -14,8 +14,8 @@ Vrhi uses CMake for its build system. On Windows with MSVC, you can build the pr
 
 ```powershell
 cmake -S . -B build
-cmake --build build --config Debug
-cmake --build build --config Release
+cmake --build build -j --config Debug
+cmake --build build -j --config Release
 ```
 
 After building, you can run the tests using `ctest` or by executing the test binary directly:

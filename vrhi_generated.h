@@ -37,11 +37,12 @@ struct VIDL_vhFlushInternal
     static constexpr uint64_t kMagic = 0x83140D26;
     uint64_t MAGIC = kMagic;
     std::atomic<bool>* fence;
+    bool waitForGPU = false;
 
     VIDL_vhFlushInternal() = default;
 
-    VIDL_vhFlushInternal(std::atomic<bool>* _fence)
-        : fence(_fence) {}
+    VIDL_vhFlushInternal(std::atomic<bool>* _fence, bool _waitForGPU)
+        : fence(_fence), waitForGPU(_waitForGPU) {}
 };
 
 struct VIDLHandler
