@@ -287,6 +287,47 @@ UTEST( Texture, CreateDestroyError )
     vhDestroyTexture( tex );
 }
 
+UTEST( Texture, CreateHelpers )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 2D
+    vhTexture tex2D = vhAllocTexture();
+    vhCreateTexture2D( tex2D, glm::ivec2( 128, 128 ), 1, nvrhi::Format::RGBA8_UNORM );
+
+    // 3D
+    vhTexture tex3D = vhAllocTexture();
+    vhCreateTexture3D( tex3D, glm::ivec3( 32, 32, 32 ), 1, nvrhi::Format::RGBA8_UNORM );
+
+    // Cube
+    vhTexture texCube = vhAllocTexture();
+    vhCreateTextureCube( texCube, 128, 1, nvrhi::Format::RGBA8_UNORM );
+
+    // 2D Array
+    vhTexture tex2DArray = vhAllocTexture();
+    vhCreateTexture2DArray( tex2DArray, glm::ivec2( 128, 128 ), 4, 1, nvrhi::Format::RGBA8_UNORM );
+
+    // Cube Array
+    vhTexture texCubeArray = vhAllocTexture();
+    vhCreateTextureCubeArray( texCubeArray, 128, 12, 1, nvrhi::Format::RGBA8_UNORM );
+
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyTexture( tex2D );
+    vhDestroyTexture( tex3D );
+    vhDestroyTexture( texCube );
+    vhDestroyTexture( tex2DArray );
+    vhDestroyTexture( texCubeArray );
+}
+
 UTEST( Allocator, FreeList )
 {
     vhAllocatorObjectFreeList allocator( 10 );

@@ -33,6 +33,7 @@
 #include "vrhi_defines.h"
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
+#define VRHI_MIPMAP_COMPLETE -1
 
 struct vhInitData
 {
@@ -50,6 +51,9 @@ extern std::atomic<int32_t> g_vhErrorCounter;
 
 // -------------------------------------- Interface --------------------------------------
 
+// Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h.
+// Cmake should automatically do this already.
+
 void vhInit();
 
 void vhShutdown();
@@ -57,9 +61,6 @@ void vhShutdown();
 std::string vhGetDeviceInfo();
 
 vhTexture vhAllocTexture();
-
-// Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h.
-// Cmake should automatically do this already.
 
 void vhFlush();
 
@@ -76,6 +77,68 @@ void vhCreateTexture(
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
     const std::vector<uint8_t> *data = nullptr
 );
+
+inline void vhCreateTexture2D(
+    vhTexture texture,
+    glm::ivec2 dimensions,
+    int numMips,
+    nvrhi::Format format,
+    uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
+    const std::vector<uint8_t> *data = nullptr
+)
+{
+    vhCreateTexture( texture, nvrhi::TextureDimension::Texture2D, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data );
+}
+
+inline void vhCreateTexture3D(
+    vhTexture texture,
+    glm::ivec3 dimensions,
+    int numMips,
+    nvrhi::Format format,
+    uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
+    const std::vector<uint8_t> *data = nullptr
+)
+{
+    vhCreateTexture( texture, nvrhi::TextureDimension::Texture3D, dimensions, numMips, 1, format, flag, data );
+}
+
+inline void vhCreateTextureCube(
+    vhTexture texture,
+    int dimension,
+    int numMips,
+    nvrhi::Format format,
+    uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
+    const std::vector<uint8_t> *data = nullptr
+)
+{
+    vhCreateTexture( texture, nvrhi::TextureDimension::TextureCube, glm::ivec3( dimension, dimension, 1 ), numMips, 6, format, flag, data );
+}
+
+inline void vhCreateTexture2DArray(
+    vhTexture texture,
+    glm::ivec2 dimensions,
+    int numLayers,
+    int numMips,
+    nvrhi::Format format,
+    uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
+    const std::vector<uint8_t> *data = nullptr
+)
+{
+    vhCreateTexture( texture, nvrhi::TextureDimension::Texture2DArray, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data );
+}
+
+inline void vhCreateTextureCubeArray(
+    vhTexture texture,
+    int dimension,
+    int numLayers,
+    int numMips,
+    nvrhi::Format format,
+    uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
+    const std::vector<uint8_t> *data = nullptr
+)
+{
+    vhCreateTexture( texture, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
+}
 
 // -------------------------------------- Implementation --------------------------------------
 
