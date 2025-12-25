@@ -1,4 +1,4 @@
-# Vrhi - Immediate Vulkan RHI Interface For NVRHI
+# Vrhi - Immediate Mode Vulkan RHI Interface For NVRHI
 
 Vrhi is a Vulkan RHI interface for cross-platform graphics and compute rendering. It is inspired by the bgfx library, powered by the NVRHI library. It is currently in development and is not yet feature complete.
 
