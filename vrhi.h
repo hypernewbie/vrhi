@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <functional>
 #include <glm/glm.hpp>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
@@ -39,11 +40,13 @@ struct vhInitData
     bool debug = false;
     int deviceIndex = -1; // -1 for auto-selection (Discrete > Integrated > CPU)
     glm::ivec2 resolution = glm::ivec2( 1280, 720 );
+    std::function<void( bool error, const std::string& )> fnLogCallback = nullptr;
 };
 
 typedef uint32_t vhTexture;
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
+extern std::atomic<int32_t> g_vhErrorCounter;
 
 // -------------------------------------- Interface --------------------------------------
 
@@ -57,6 +60,8 @@ vhTexture vhAllocTexture();
 
 // Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h.
 // Cmake should automatically do this already.
+
+void vhFlush();
 
 // VIDL_GENERATE
 void vhDestroyTexture( vhTexture texture );
@@ -75,6 +80,10 @@ void vhCreateTexture(
 // -------------------------------------- Implementation --------------------------------------
 
 #ifdef VRHI_IMPLEMENTATION
+
+// VIDL_GENERATE
+void vhFlushInternal( std::atomic<bool>* fence );
+
 #include "vrhi_impl.h"
 #endif // VRHI_IMPLEMENTATION
 

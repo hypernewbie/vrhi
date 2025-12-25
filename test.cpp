@@ -42,6 +42,8 @@ UTEST( Vrhi, Dummy )
     ASSERT_TRUE( true );
 }
 
+static bool g_testInit = false;
+
 extern int vhVKRatePhysicalDeviceProps_Internal( const VkPhysicalDeviceProperties& props );
 extern uint32_t vhVKFindDedicatedQueue_Internal( uint32_t qCount, const VkQueueFamilyProperties* qProps, VkQueueFlags required, VkQueueFlags avoid );
 extern std::string vhGetDeviceInfo();
@@ -170,6 +172,13 @@ UTEST( RHI, FindQueue )
 
 UTEST( RHI, Init )
 {
+    // If global init is active, shut it down to test clean init
+    if ( g_testInit )
+    {
+        vhShutdown();
+        g_testInit = false;
+    }
+
     // Test init
     g_vhInit.debug = true;
     vhInit();
@@ -189,6 +198,93 @@ UTEST( RHI, Init )
     // Test GetInfo after shutdown
     info = vhGetDeviceInfo();
     EXPECT_TRUE( info.find( "not initialized" ) != std::string::npos );
+}
+
+extern std::atomic<int32_t> g_vhErrorCounter;
+
+UTEST( RHI, LogCallback )
+{
+    // Ensure clean state
+    if ( g_testInit )
+    {
+        vhShutdown();
+        g_testInit = false;
+    }
+
+    std::vector<std::string> logs;
+    int errorCount = 0;
+
+    g_vhInit.debug = true;
+    g_vhInit.fnLogCallback = [&]( bool err, const std::string& msg ) {
+        if ( err ) errorCount++;
+        logs.push_back( msg );
+    };
+
+    vhInit();
+
+    // Verify we captured logs
+    EXPECT_GT( logs.size(), 0 ); // "Initialising Vulkan RHI ..." etc
+    
+    // Check if we captured expected startup messages
+    bool foundInit = false;
+    for ( const auto& l : logs )
+    {
+        if ( l.find( "Initialising Vulkan RHI" ) != std::string::npos ) foundInit = true;
+    }
+    EXPECT_TRUE( foundInit );
+
+    // Verify error counting (should be 0 on clean init)
+    EXPECT_EQ( errorCount, 0 );
+    EXPECT_EQ( g_vhErrorCounter.load(), 0 );
+
+    // Trigger an error manually (using internal macro if we could, but here we can only trigger via API or manual helper exposure)
+    // Since VRHI_ERR uses the global helper, and we don't have public API to trigger error,
+    // we can rely on verifying normal logs for now. 
+    // Wait, let's try to AllocTexture with invalid invalid params? No, that just logs warning?
+    // Let's just trust affirmative logging works for now.
+
+    vhShutdown();
+    
+    // Verify shutdown logs
+    bool foundShutdown = false;
+    for ( const auto& l : logs )
+    {
+        if ( l.find( "Shutdown Vulkan RHI" ) != std::string::npos ) foundShutdown = true;
+    }
+    EXPECT_TRUE( foundShutdown );
+
+    // Cleanup callback
+    g_vhInit.fnLogCallback = nullptr;
+}
+
+UTEST( Texture, CreateDestroyError )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhTexture tex = vhAllocTexture();
+    EXPECT_NE( tex, VRHI_INVALID_HANDLE );
+
+    // Create a texture with INVALID dimensions (-1 implies invalid)
+    vhCreateTexture(
+        tex,
+        nvrhi::TextureDimension::Texture2D,
+        glm::ivec3( -1, -5, 1 ), // Invalid size
+        1, 1,
+        nvrhi::Format::RGBA8_UNORM,
+        VRHI_TEXTURE_SRGB,
+        nullptr
+    );
+
+    vhFlush();
+
+    // Verify error was incremented
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 1 );
+    vhDestroyTexture( tex );
 }
 
 UTEST( Allocator, FreeList )
@@ -229,8 +325,91 @@ UTEST( Allocator, FreeList )
     EXPECT_EQ( allocator.alloc( 1, 1 ), -1 ); // Alignment not supported
 }
 
+UTEST( Texture, CreateDestroy )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
 
+    int32_t startErrors = g_vhErrorCounter.load();
 
+    vhTexture tex = vhAllocTexture();
+    EXPECT_NE( tex, VRHI_INVALID_HANDLE );
 
+    vhCreateTexture(
+        tex,
+        nvrhi::TextureDimension::Texture2D,
+        glm::ivec3( 256, 256, 1 ),
+        1, 1,
+        nvrhi::Format::RGBA8_UNORM,
+        VRHI_TEXTURE_SRGB, // Some default flag
+        nullptr // No data
+    );
 
-UTEST_MAIN()
+    vhDestroyTexture( tex );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
+UTEST( Texture, CreateDestroyStressTest )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // Create a predictable RNG for determinism
+    std::srand( 12345 );
+
+    const int kNumTextures = 127;
+    std::vector<vhTexture> textures;
+
+    // Allocate & Create
+    for ( int i = 0; i < kNumTextures; ++i )
+    {
+        vhTexture tex = vhAllocTexture();
+        EXPECT_NE( tex, VRHI_INVALID_HANDLE );
+        textures.push_back( tex );
+
+        // Random 8..1024
+        int w = 8 + ( std::rand() % 1017 );
+        int h = 8 + ( std::rand() % 1017 );
+
+        vhCreateTexture(
+            tex,
+            nvrhi::TextureDimension::Texture2D,
+            glm::ivec3( w, h, 1 ),
+            1, 1,
+            nvrhi::Format::RGBA8_UNORM,
+            VRHI_TEXTURE_SRGB,
+            nullptr
+        );
+    }
+
+    // Destroy in random order ideally, but linear is fine for basic stress
+    for ( vhTexture t : textures )
+    {
+        vhDestroyTexture( t );
+    }
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
+UTEST_STATE();
+
+int main( int argc, const char* const argv[] )
+{
+    int result = utest_main( argc, argv );
+
+    if ( g_testInit )
+    {
+        vhShutdown();
+        g_testInit = false;
+    }
+
+    return result;
+}
