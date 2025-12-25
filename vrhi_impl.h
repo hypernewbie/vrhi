@@ -47,7 +47,7 @@
 #include <functional>
 #include <thread>
 #include <atomic>
-#include <readerwriterqueue/readerwritercircularbuffer.h>
+#include <concurrentqueue/blockingconcurrentqueue.h>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
 // Required by NVRHI Vulkan backend - defines vk::DispatchLoaderDynamic storage
@@ -85,11 +85,10 @@ std::unordered_map< vhTexture, bool > g_vhTextureIDValid;
 std::mutex g_vhTextureIDListMutex;
 
 // RHI Command Buffer Queue
-moodycamel::BlockingReaderWriterCircularBuffer< void* > g_vhCmds( 32 * 1024 );
+moodycamel::BlockingConcurrentQueue< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;
 std::thread g_vhCmdThread;
-vhRecycleAllocator g_vhCmdAllocator;
-std::mutex g_vhCmdAllocatorMutex;
+
 
 // Logging
 #define VRHI_LOG( fmt, ... ) printf( fmt, ##__VA_ARGS__ )
@@ -99,16 +98,14 @@ std::mutex g_vhCmdAllocatorMutex;
 template< typename T, typename... Args >
 T* vhCmdAlloc( Args&&... args )
 {
-    std::lock_guard<std::mutex> lock( g_vhCmdAllocatorMutex );
-    return g_vhCmdAllocator.alloc<T>( std::forward<Args>(args)... );
+    return new T( std::forward<Args>(args)... );
 }
 
 template< typename T >
 void vhCmdRelease( T* cmd )
 {
     if ( !cmd ) return;
-    std::lock_guard<std::mutex> lock( g_vhCmdAllocatorMutex );
-    g_vhCmdAllocator.release<T>( cmd );
+    delete cmd;
 }
 
 struct vhCmdBackend_DeferredDeleteEntry
@@ -212,7 +209,7 @@ void vhCmdEnqueue( void* cmd )
         if ( g_vhCmds.try_enqueue( cmd ) ) return;
         std::this_thread::yield();
     }
-    g_vhCmds.wait_enqueue( cmd );
+    g_vhCmds.enqueue( cmd );
 }
 
 void vhCmdRHIThreadEntry( std::function<void()> initCallback )
@@ -235,24 +232,8 @@ void vhCmdRHIThreadEntry( std::function<void()> initCallback )
     VRHI_LOG( "    RHI Thread exiting.\n" );
 }
 
-void* vhCmdAlloc_UnitTest_Internal()
-{
-    // Allocate VIDL_vhCreateTexture with dummy data to mimic vhCreateTexture overhead
-    return vhCmdAlloc< VIDL_vhCreateTexture >( 
-        0, 
-        nvrhi::TextureDimension::Texture2D, 
-        glm::ivec3(1024, 1024, 1), 
-        1, 1, 
-        nvrhi::Format::RGBA8_UNORM, 
-        0, 
-        nullptr 
-    );
-}
 
-void vhCmdRelease_UnitTest_Internal( void* ptr )
-{
-    vhCmdRelease( (VIDL_vhCreateTexture*)ptr );
-}
+
 
 // -------------------------------------------------------- Vulkan Utils --------------------------------------------------------
 
@@ -868,7 +849,6 @@ void vhShutdown()
 
     // Clear resources
     g_vhTextureIDList.purge();
-    g_vhCmdAllocator.purge();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
