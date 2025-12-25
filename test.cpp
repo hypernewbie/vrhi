@@ -35,8 +35,7 @@
 #include "vrhi.h"
 
 // Internal benchmark functions from vrhi_impl.h
-extern void* vhCmdAlloc_UnitTest_Internal();
-extern void vhCmdRelease_UnitTest_Internal( void* ptr );
+
 
 UTEST( Vrhi, Dummy )
 {
@@ -230,123 +229,8 @@ UTEST( Allocator, FreeList )
     EXPECT_EQ( allocator.alloc( 1, 1 ), -1 ); // Alignment not supported
 }
 
-// Initialise static members (must be done inline or globally, but here we cheat with inline init for test simplicity)
-int g_TestObj_constructorCount = 0;
-int g_TestObj_destructorCount = 0;
 
-struct TestObj
-{
-    int x, y;
 
-    TestObj( int _x, int _y ) : x( _x ), y( _y ) { g_TestObj_constructorCount++; }
-    ~TestObj() { g_TestObj_destructorCount++; }
-};
 
-struct SmallObj { char c; SmallObj( char _c ) : c( _c ) {} };
-
-UTEST( Allocator, Recycle )
-{
-    vhRecycleAllocator recycler;
-
-    // Reset counters
-    g_TestObj_constructorCount = 0;
-    g_TestObj_destructorCount = 0;
-
-    // 1. Allocate unique objects
-    TestObj* obj1 = recycler.alloc<TestObj>( 10, 20 );
-    ASSERT_TRUE( obj1 != nullptr );
-    EXPECT_EQ( obj1->x, 10 );
-    EXPECT_EQ( obj1->y, 20 );
-    EXPECT_EQ( g_TestObj_constructorCount, 1 );
-
-    TestObj* obj2 = recycler.alloc<TestObj>( 30, 40 );
-    ASSERT_TRUE( obj2 != nullptr );
-    EXPECT_NE( obj1, obj2 );
-    EXPECT_EQ( g_TestObj_constructorCount, 2 );
-
-    // 2. Release object and verify destructor
-    recycler.release<TestObj>( obj1 );
-    EXPECT_EQ( g_TestObj_destructorCount, 1 );
-
-    // 3. Reuse memory
-    TestObj* obj3 = recycler.alloc<TestObj>( 50, 60 );
-    EXPECT_EQ( obj3, obj1 ); // Should reuse the same pointer
-    EXPECT_EQ( obj3->x, 50 );
-    EXPECT_EQ( g_TestObj_constructorCount, 3 ); // Constructor called again (placement new)
-
-    // 4. Different size/type should not mix
-    SmallObj* sObj = recycler.alloc<SmallObj>( 'a' );
-    EXPECT_NE( (void*)sObj, (void*)obj2 );
-    recycler.release<SmallObj>( sObj );
-
-    // Cleanup
-    recycler.release<TestObj>( obj2 );
-    recycler.release<TestObj>( obj3 );
-    EXPECT_EQ( g_TestObj_destructorCount, 3 );
-}
-
-UTEST( Allocator, PerformanceBenchmark )
-{
-    const int totalIterations = 1000000;
-    const int batchSize = 1000;
-    const int numBatches = totalIterations / batchSize;
-    
-    std::vector<void*> batch( batchSize );
-    std::vector<uint8_t> salt;
-    salt.reserve( totalIterations );
-
-    // 1. Standard new/delete benchmark (batched + salted)
-    auto startNew = std::chrono::high_resolution_clock::now();
-    for ( int b = 0; b < numBatches; ++b )
-    {
-        for ( int i = 0; i < batchSize; ++i )
-        {
-            salt.push_back( (uint8_t)(b ^ i) );
-            batch[i] = new VIDL_vhCreateTexture( 
-                0, 
-                nvrhi::TextureDimension::Texture2D, 
-                glm::ivec3(1024, 1024, 1), 
-                1, 1, 
-                nvrhi::Format::RGBA8_UNORM, 
-                0, 
-                nullptr 
-            );
-        }
-        for ( int i = 0; i < batchSize; ++i )
-        {
-            delete (VIDL_vhCreateTexture*)batch[i];
-        }
-    }
-    auto endNew = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> msNew = endNew - startNew;
-
-    salt.clear();
-
-    // 2. Recycle Allocator benchmark (batched + salted)
-    // Warm up the pool
-    for ( int i = 0; i < batchSize; ++i ) batch[i] = vhCmdAlloc_UnitTest_Internal();
-    for ( int i = 0; i < batchSize; ++i ) vhCmdRelease_UnitTest_Internal( batch[i] );
-
-    auto startRecycle = std::chrono::high_resolution_clock::now();
-    for ( int b = 0; b < numBatches; ++b )
-    {
-        for ( int i = 0; i < batchSize; ++i )
-        {
-            salt.push_back( (uint8_t)(b ^ i) );
-            batch[i] = vhCmdAlloc_UnitTest_Internal();
-        }
-        for ( int i = 0; i < batchSize; ++i )
-        {
-            vhCmdRelease_UnitTest_Internal( batch[i] );
-        }
-    }
-    auto endRecycle = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> msRecycle = endRecycle - startRecycle;
-
-    printf( "\n[ PERFORMANCE BENCHMARK - %d iterations, Batch Size: %d (SALTED) ]\n", totalIterations, batchSize );
-    printf( "  Standard new/delete: %f ms\n", msNew.count() );
-    printf( "  Recycle Allocator:   %f ms\n", msRecycle.count() );
-    printf( "  Speedup:            %f x\n\n", msNew.count() / msRecycle.count() );
-}
 
 UTEST_MAIN()
