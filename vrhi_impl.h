@@ -89,11 +89,27 @@ moodycamel::BlockingReaderWriterCircularBuffer< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;
 std::thread g_vhCmdThread;
 vhRecycleAllocator g_vhCmdAllocator;
+std::mutex g_vhCmdAllocatorMutex;
 
 // Logging
 #define VRHI_LOG( fmt, ... ) printf( fmt, ##__VA_ARGS__ )
 
 // -------------------------------------------------------- Cmd Buffer Utils --------------------------------------------------------
+
+template< typename T, typename... Args >
+T* vhCmdAlloc( Args&&... args )
+{
+    std::lock_guard<std::mutex> lock( g_vhCmdAllocatorMutex );
+    return g_vhCmdAllocator.alloc<T>( std::forward<Args>(args)... );
+}
+
+template< typename T >
+void vhCmdRelease( T* cmd )
+{
+    if ( !cmd ) return;
+    std::lock_guard<std::mutex> lock( g_vhCmdAllocatorMutex );
+    g_vhCmdAllocator.release<T>( cmd );
+}
 
 struct vhCmdBackend_DeferredDeleteEntry
 {
@@ -120,14 +136,14 @@ public:
         
         if ( !cmd->texture )
         {
-            delete cmd;
+            vhCmdRelease( cmd );
             return;
         }
 
         if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
         {
             VRHI_LOG( "vhDestroyTexture() : Texture %d not found!\n", cmd->texture );
-            delete cmd;
+            vhCmdRelease( cmd );
             return;
         }
 
@@ -137,7 +153,7 @@ public:
             backendTextures.erase( cmd->texture );
         }
 
-        delete cmd;
+        vhCmdRelease( cmd );
     }
 
     void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override
@@ -147,7 +163,7 @@ public:
             cmd->numMips == 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
         {
             VRHI_LOG( "vhCreateTexture() : Invalid parameters!\n" );
-            delete cmd;
+            vhCmdRelease( cmd );
             return;
         }
 
@@ -173,12 +189,12 @@ public:
         if ( !texture )
         {
             VRHI_LOG( "vhCreateTexture() : Failed to create texture!\n" );
-            delete cmd;
+            vhCmdRelease( cmd );
             return;
         }
 
         backendTextures[ cmd->texture ] = texture;
-        delete cmd;
+        vhCmdRelease( cmd );
     }
 
     void stepFrame()
@@ -219,10 +235,23 @@ void vhCmdRHIThreadEntry( std::function<void()> initCallback )
     VRHI_LOG( "    RHI Thread exiting.\n" );
 }
 
-template< typename T >
-T* vhCmdAlloc()
+void* vhCmdAlloc_UnitTest_Internal()
 {
-    return (T*) g_vhCmdAllocator.alloc<T>();
+    // Allocate VIDL_vhCreateTexture with dummy data to mimic vhCreateTexture overhead
+    return vhCmdAlloc< VIDL_vhCreateTexture >( 
+        0, 
+        nvrhi::TextureDimension::Texture2D, 
+        glm::ivec3(1024, 1024, 1), 
+        1, 1, 
+        nvrhi::Format::RGBA8_UNORM, 
+        0, 
+        nullptr 
+    );
+}
+
+void vhCmdRelease_UnitTest_Internal( void* ptr )
+{
+    vhCmdRelease( (VIDL_vhCreateTexture*)ptr );
 }
 
 // -------------------------------------------------------- Vulkan Utils --------------------------------------------------------
@@ -839,6 +868,7 @@ void vhShutdown()
 
     // Clear resources
     g_vhTextureIDList.purge();
+    g_vhCmdAllocator.purge();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
@@ -917,7 +947,7 @@ void vhDestroyTexture( vhTexture texture )
     g_vhTextureIDList.release( texture );
 
     // Queue up command to destroy texture
-    auto cmd = new VIDL_vhDestroyTexture( texture );
+    auto cmd = vhCmdAlloc<VIDL_vhDestroyTexture>( texture );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
@@ -932,7 +962,7 @@ void vhCreateTexture(
     const std::vector<uint8_t> *data
 )
 {
-    auto cmd = new VIDL_vhCreateTexture( texture, target, dimensions, numMips, numLayers, format, flag, data );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, target, dimensions, numMips, numLayers, format, flag, data );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
