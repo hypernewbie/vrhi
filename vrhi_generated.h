@@ -32,10 +32,23 @@ struct VIDL_vhCreateTexture
         : texture(_texture), target(_target), dimensions(_dimensions), numMips(_numMips), numLayers(_numLayers), format(_format), flag(_flag), data(_data) {}
 };
 
+struct VIDL_vhFlushInternal
+{
+    static constexpr uint64_t kMagic = 0x83140D26;
+    uint64_t MAGIC = kMagic;
+    std::atomic<bool>* fence;
+
+    VIDL_vhFlushInternal() = default;
+
+    VIDL_vhFlushInternal(std::atomic<bool>* _fence)
+        : fence(_fence) {}
+};
+
 struct VIDLHandler
 {
     virtual void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) { (void) cmd; };
+    virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
 
     virtual void HandleCmd( void* cmd )
     {
@@ -47,6 +60,9 @@ struct VIDLHandler
             break;
         case 0xB40533D3:
             Handle_vhCreateTexture( (VIDL_vhCreateTexture*) cmd );
+            break;
+        case 0x83140D26:
+            Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );
             break;
         }
     }

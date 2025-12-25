@@ -89,9 +89,31 @@ moodycamel::BlockingConcurrentQueue< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;
 std::thread g_vhCmdThread;
 
-
 // Logging
-#define VRHI_LOG( fmt, ... ) printf( fmt, ##__VA_ARGS__ )
+std::atomic<int32_t> g_vhErrorCounter = 0;
+
+void vhLog( bool error, const char* fmt, ... )
+{
+    if ( error ) g_vhErrorCounter++;
+
+    char buffer[2048];
+    va_list args;
+    va_start( args, fmt );
+    vsnprintf( buffer, sizeof( buffer ), fmt, args );
+    va_end( args );
+
+    if ( g_vhInit.fnLogCallback )
+    {
+        g_vhInit.fnLogCallback( error, std::string( buffer ) );
+    }
+    else
+    {
+        printf( "%s", buffer );
+    }
+}
+
+#define VRHI_LOG( fmt, ... ) vhLog( false, fmt, ##__VA_ARGS__ )
+#define VRHI_ERR( fmt, ... ) vhLog( true, fmt, ##__VA_ARGS__ )
 
 // -------------------------------------------------------- Cmd Buffer Utils --------------------------------------------------------
 
@@ -126,6 +148,7 @@ public:
 
     void shutdown()
     {
+        backendTextures.clear();
     }
 
     void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override
@@ -139,7 +162,7 @@ public:
 
         if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
         {
-            VRHI_LOG( "vhDestroyTexture() : Texture %d not found!\n", cmd->texture );
+            VRHI_ERR( "vhDestroyTexture() : Texture %d not found!\n", cmd->texture );
             vhCmdRelease( cmd );
             return;
         }
@@ -155,11 +178,12 @@ public:
 
     void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override
     {
-        if ( !cmd->texture ||
+        if ( cmd->texture == VRHI_INVALID_HANDLE ||
             cmd->dimensions.x <= 0 || cmd->dimensions.y <= 0 || cmd->dimensions.z <= 0 ||
             cmd->numMips == 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
         {
-            VRHI_LOG( "vhCreateTexture() : Invalid parameters!\n" );
+            VRHI_ERR( "vhCreateTexture() : Invalid parameters! TexID %u %d x %d x %d mips %d layers %d format %d\n",
+                cmd->texture, cmd->dimensions.x, cmd->dimensions.y, cmd->dimensions.z, cmd->numMips, cmd->numLayers, cmd->format );
             vhCmdRelease( cmd );
             return;
         }
@@ -185,12 +209,20 @@ public:
         }
         if ( !texture )
         {
-            VRHI_LOG( "vhCreateTexture() : Failed to create texture!\n" );
+            VRHI_ERR( "vhCreateTexture() : Failed to create texture!\n" );
             vhCmdRelease( cmd );
             return;
         }
 
         backendTextures[ cmd->texture ] = texture;
+        vhCmdRelease( cmd );
+    }
+
+    void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
+    {
+        // Safety: fence is from stack of caller
+        if ( cmd->fence )
+            cmd->fence->store( true );
         vhCmdRelease( cmd );
     }
 
@@ -223,7 +255,8 @@ void vhCmdRHIThreadEntry( std::function<void()> initCallback )
         if ( !g_vhCmds.try_dequeue( cmd ) )
         {
             // Block until there is a command to process
-            g_vhCmds.wait_dequeue( cmd );
+            if ( ! g_vhCmds.wait_dequeue_timed( cmd, std::chrono::milliseconds( 8 ) ) )
+                continue;
         }
         if ( cmd == nullptr ) continue;
         s_vhCmdDeviceState.HandleCmd( cmd );
@@ -836,28 +869,35 @@ void vhShutdown()
     VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
 
     // Join RHI Command Buffer Thread
+    VRHI_LOG( "    Joining RHI Thread...\n" );
     g_vhCmdsQuit = true;
     g_vhCmdThread.join();
     s_vhCmdDeviceState.shutdown();
+    g_vhDevice->runGarbageCollection();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
+        VRHI_LOG( "    Allowing Vulkan Device to finish...\n" );
         vkDeviceWaitIdle( g_vulkanDevice );
     }
 
+    VRHI_LOG( "    Destroying NVRHI Device...\n" );
     g_vhDevice = nullptr; // RefCountPtr handles the release()
 
     // Clear resources
+    VRHI_LOG( "    Clearing resources...\n" );
     g_vhTextureIDList.purge();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
+        VRHI_LOG( "    Destroying Vulkan Device...\n" );
         vkDestroyDevice( g_vulkanDevice, nullptr );
         g_vulkanDevice = VK_NULL_HANDLE;
     }
 
     if ( g_vulkanDebugMessenger != VK_NULL_HANDLE )
     {
+        VRHI_LOG( "    Destroying Vulkan Debug Messenger...\n" );
         auto func = ( PFN_vkDestroyDebugUtilsMessengerEXT ) vkGetInstanceProcAddr( g_vulkanInstance, "vkDestroyDebugUtilsMessengerEXT" );
         if ( func ) func( g_vulkanInstance, g_vulkanDebugMessenger, nullptr );
         g_vulkanDebugMessenger = VK_NULL_HANDLE;
@@ -865,6 +905,7 @@ void vhShutdown()
 
     if ( g_vulkanInstance != VK_NULL_HANDLE )
     {
+        VRHI_LOG( "    Destroying Vulkan Instance...\n" );
         vkDestroyInstance( g_vulkanInstance, nullptr );
         g_vulkanInstance = VK_NULL_HANDLE;
     }
@@ -903,6 +944,27 @@ std::string vhGetDeviceInfo()
         g_vulkanEnabledExtensionCount
     );
     return std::string(buffer);
+}
+
+void vhFlushInternal( std::atomic<bool>* fence )
+{
+    // Fence memory must be valid until signaled! 
+    // Usually stack memory of the caller waiting on it.
+    VIDL_vhFlushInternal* cmd = vhCmdAlloc<VIDL_vhFlushInternal>();
+    cmd->fence = fence;
+    vhCmdEnqueue( cmd );
+}
+
+void vhFlush()
+{
+    std::atomic<bool> fence = false;
+    vhFlushInternal( &fence );
+
+    // Wait for fence to be signaled
+    while ( !fence.load() )
+    {
+        std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+    }
 }
 
 vhTexture vhAllocTexture()
