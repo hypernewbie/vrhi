@@ -1,0 +1,53 @@
+# CMake
+build/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# MSVC
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.db
+*.opendb
+*.ipch
+*.aps
+*.ncb
+*.user
+*.pdf
+*.log
+*.tlog
+*.lastbuildstate
+*.idb
+*.pdb
+*.obj
+*.ilk
+*.exp
+*.lib
+!lib/
+!lib/**/*.lib
+*.exe
+*.dll
+
+# Build Artifacts
+bin/
+lib_out/
+out/
+
+# OS/Temp files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.swp
+desktop.ini
