@@ -183,14 +183,14 @@ def main():
         return
 
     input_file = sys.argv[1]
-    with open(input_file, 'r') as f:
+    with open(input_file, 'r', encoding='utf-8') as f:
         content = f.read()
 
     result = generate_source(content)
     
     if len(sys.argv) >= 3:
         output_file = sys.argv[2]
-        with open(output_file, 'w') as f:
+        with open(output_file, 'w', encoding='utf-8') as f:
             f.write(result)
     else:
         print(result)

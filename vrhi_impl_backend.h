@@ -29,6 +29,13 @@ private:
     char temps[1024];
     std::map< vhTexture, nvrhi::TextureHandle > backendTextures;
 
+    void BE_UpdateTexture( nvrhi::TextureHandle texh, const std::vector<uint8_t> *data )
+    {
+        if ( !texh || !data ) return;
+        auto cmdlist = vhCmdListGet();
+        //cmdlist->updateTexture( texh, data );
+    }
+
 public:
     void init()
     {
