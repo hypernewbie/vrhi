@@ -55,10 +55,16 @@ std::string vhGetDeviceInfo();
 
 vhTexture vhAllocTexture();
 
+// Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h.
+// Cmake should automatically do this already.
+
+// VIDL_GENERATE
 void vhDestroyTexture( vhTexture texture );
 
+// VIDL_GENERATE
 void vhCreateTexture(
     vhTexture texture,
+    nvrhi::TextureDimension target,
     glm::ivec3 dimensions,
     int numMips, int numLayers,
     nvrhi::Format format,

@@ -24,6 +24,8 @@
 
 // -------------------------------------------------------- Utils --------------------------------------------------------
 
+// Allocator for list of object IDs.
+// Works be using a free list.
 class vhAllocatorObjectFreeList
 {
     vhAllocatorObjectFreeList( const vhAllocatorObjectFreeList& ) = delete;
@@ -72,5 +74,63 @@ public:
         m_freeList.clear( );
         m_end = 0;
         m_allocCount = 0;
+    }
+};
+
+// Allocator for hot objects that have low number of unique sizes.
+// Works by using a free list of objects that have been previously allocated, and reusing them when possible.
+// Thread-unsafe; protect with external lock if needed.
+class vhRecycleAllocator
+{
+    vhRecycleAllocator( const vhRecycleAllocator& ) = delete;
+    vhRecycleAllocator& operator=( const vhRecycleAllocator& ) = delete;
+
+    std::unordered_map< size_t, std::vector< void* > > m_freeListBySize;
+
+public:
+    vhRecycleAllocator() {};
+    virtual ~vhRecycleAllocator() { purge(); };
+
+    // Allocates and constructs an object T using arguments Args...
+    template< typename T, typename... Args >
+    T* alloc( Args&&... args )
+    {
+        size_t size = sizeof(T);
+        void* ptr = nullptr;
+
+        // 1. Try to reuse memory
+        auto it = m_freeListBySize.find( size );
+        if ( it != m_freeListBySize.end() && !it->second.empty() )
+        {
+            ptr = it->second.back();
+            it->second.pop_back();
+        }
+        else
+        {
+            ptr = ::operator new(size);
+        }
+
+        return new ( ptr ) T( std::forward<Args>(args)... );
+    }
+
+    // Destroys and releases an object T
+    template< typename T >
+    void release( T* obj )
+    {
+        if ( !obj ) return;
+        obj->~T();
+        m_freeListBySize[sizeof(T)].push_back( (void*)obj );
+    }
+
+    void purge()
+    {
+        for ( auto& pair : m_freeListBySize )
+        {
+            for ( void* ptr : pair.second )
+            {
+                ::operator delete(ptr);
+            }
+        }
+        m_freeListBySize.clear();
     }
 };

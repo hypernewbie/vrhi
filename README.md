@@ -12,17 +12,12 @@ Vrhi is a Vulkan RHI interface for cross-platform graphics and compute rendering
 
 Vrhi uses CMake for its build system. On Windows with MSVC, you can build the project using the following commands:
 
-### Debug Build
 ```powershell
 cmake -S . -B build
 cmake --build build --config Debug
-```
-
-### Release Build
-```powershell
-cmake -S . -B build
 cmake --build build --config Release
 ```
+
 After building, you can run the tests using `ctest` or by executing the test binary directly:
 
 ```powershell

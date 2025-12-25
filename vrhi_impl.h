@@ -37,11 +37,17 @@
 #include <cstring>
 #include <set>
 #include <unordered_set>
+#include <unordered_map>
+#include <map>
 #include <algorithm>
 #include <climits>
 #include <string>
 #include <cstdio>
 #include <mutex>
+#include <functional>
+#include <thread>
+#include <atomic>
+#include <readerwriterqueue/readerwritercircularbuffer.h>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
 // Required by NVRHI Vulkan backend - defines vk::DispatchLoaderDynamic storage
@@ -49,6 +55,7 @@
 #include <vulkan/vulkan.hpp>
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "vrhi_utils.h"
+#include "vrhi_generated.h"
 
 // Global State
 vhInitData g_vhInit;
@@ -60,6 +67,7 @@ static VkPhysicalDevice g_vulkanPhysicalDevice = VK_NULL_HANDLE;
 static VkDevice g_vulkanDevice = VK_NULL_HANDLE;
 static VkDebugUtilsMessengerEXT g_vulkanDebugMessenger = VK_NULL_HANDLE;
 static uint32_t g_vulkanEnabledExtensionCount = 0;
+std::mutex g_nvRHIStateMutex;
 
 // Queue Handles
 static VkQueue g_vulkanGraphicsQueue = VK_NULL_HANDLE;
@@ -71,15 +79,144 @@ static uint32_t g_QueueFamilyGraphics = (uint32_t)-1;
 static uint32_t g_QueueFamilyCompute = (uint32_t)-1;
 static uint32_t g_QueueFamilyTransfer = (uint32_t)-1;
 
+// Resource State
 vhAllocatorObjectFreeList g_vhTextureIDList( 256 );
+std::unordered_map< vhTexture, bool > g_vhTextureIDValid;
 std::mutex g_vhTextureIDListMutex;
+
+// RHI Command Buffer Queue
+moodycamel::BlockingReaderWriterCircularBuffer< void* > g_vhCmds( 32 * 1024 );
+std::atomic<bool> g_vhCmdsQuit = false;
+std::thread g_vhCmdThread;
 
 // Logging
 #define VRHI_LOG( fmt, ... ) printf( fmt, ##__VA_ARGS__ )
 
 // -------------------------------------------------------- Cmd Buffer Utils --------------------------------------------------------
 
+struct vhCmdBackend_DeferredDeleteEntry
+{
+    std::vector< nvrhi::TextureHandle > textures;
+};
 
+struct vhCmdBackendState : public VIDLHandler
+{
+private:
+    char temps[1024];
+    std::map< vhTexture, nvrhi::TextureHandle > backendTextures;
+
+public:
+    void init()
+    {
+    }
+
+    void shutdown()
+    {
+    }
+
+    void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override
+    {
+        
+        if ( !cmd->texture )
+        {
+            delete cmd;
+            return;
+        }
+
+        if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
+        {
+            VRHI_LOG( "vhDestroyTexture() : Texture %d not found!\n", cmd->texture );
+            delete cmd;
+            return;
+        }
+
+        // Destroy texture by releasing our reference. NVRHI handles GPU destruction safety.
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            backendTextures.erase( cmd->texture );
+        }
+
+        delete cmd;
+    }
+
+    void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override
+    {
+        if ( !cmd->texture ||
+            cmd->dimensions.x <= 0 || cmd->dimensions.y <= 0 || cmd->dimensions.z <= 0 ||
+            cmd->numMips == 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
+        {
+            VRHI_LOG( "vhCreateTexture() : Invalid parameters!\n" );
+            delete cmd;
+            return;
+        }
+
+
+        sprintf_s( temps, "Texture %d\n", cmd->texture );
+        auto textureDesc = nvrhi::TextureDesc()
+            .setDimension( cmd->target )
+            .setWidth( cmd->dimensions.x )
+            .setHeight( cmd->dimensions.y )
+            .setDepth( cmd->dimensions.z )
+            .setFormat( cmd->format )
+            .setMipLevels( cmd->numMips )
+            .setArraySize( cmd->numLayers )
+            .enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource )
+            .setDebugName( temps );
+
+        nvrhi::TextureHandle texture = nullptr;
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            // RefCountPtr handle will be released automatically by NVRHI.
+            texture = g_vhDevice->createTexture(textureDesc);
+        }
+        if ( !texture )
+        {
+            VRHI_LOG( "vhCreateTexture() : Failed to create texture!\n" );
+            delete cmd;
+            return;
+        }
+
+        backendTextures[ cmd->texture ] = texture;
+        delete cmd;
+    }
+
+    void stepFrame()
+    {
+        // This cleans up any resources that are no longer in use.
+        g_vhDevice->runGarbageCollection();
+    }
+};
+static vhCmdBackendState s_vhCmdDeviceState;
+
+void vhCmdEnqueue( void* cmd )
+{
+    for ( int i = 0; i < 128; i++ )
+    {
+        if ( g_vhCmds.try_enqueue( cmd ) ) return;
+        std::this_thread::yield();
+    }
+    g_vhCmds.wait_enqueue( cmd );
+}
+
+void vhCmdRHIThreadEntry( std::function<void()> initCallback )
+{
+    VRHI_LOG( "    RHI Thread started.\n" );
+    if ( initCallback ) initCallback();
+
+    while ( !g_vhCmdsQuit )
+    {
+        void* cmd = nullptr;
+        if ( !g_vhCmds.try_dequeue( cmd ) )
+        {
+            // Block until there is a command to process
+            g_vhCmds.wait_dequeue( cmd );
+        }
+        if ( cmd == nullptr ) continue;
+        s_vhCmdDeviceState.HandleCmd( cmd );
+    }
+
+    VRHI_LOG( "    RHI Thread exiting.\n" );
+}
 
 // -------------------------------------------------------- Vulkan Utils --------------------------------------------------------
 
@@ -344,7 +481,8 @@ uint32_t vhVKFindDedicatedQueue_Internal( uint32_t qCount, const VkQueueFamilyPr
 void vhInit()
 {
     VRHI_LOG( "Initialising Vulkan RHI ...\n" );
-    
+
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
     if ( g_vhDevice ) 
     {
         VRHI_LOG( "vhInit() : RHI already initialised!\n" );
@@ -664,11 +802,26 @@ void vhInit()
         VRHI_LOG( "Failed to create NVRHI device!\n" );
         exit(1);
     }
+
+    // 6. Create RHI Command Buffer Thread
+    VRHI_LOG( "    Creating RHI Thread...\n" );
+    // g_vhCmds was initialized with default, we need to ensure it has capacity.
+    // moodcamel::BlockingReaderWriterCircularBuffer ctor takes size.
+    // However, it's global. We can't easily re-init.
+    // Let's change the global definition to use a pointer or init with constant.
+    // Checking definition...
+    s_vhCmdDeviceState.init();
+    g_vhCmdThread = std::thread( vhCmdRHIThreadEntry, nullptr /* TODO: Pass in a callback */ );
 }
 
 void vhShutdown()
 {
     VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
+
+    // Join RHI Command Buffer Thread
+    g_vhCmdsQuit = true;
+    g_vhCmdThread.join();
+    s_vhCmdDeviceState.shutdown();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
@@ -737,18 +890,34 @@ std::string vhGetDeviceInfo()
 
 vhTexture vhAllocTexture()
 {
-    std::lock_guard<std::mutex> lock( g_vhTextureIDListMutex );
-    return g_vhTextureIDList.alloc();
+    std::lock_guard< std::mutex > lock( g_vhTextureIDListMutex );
+    uint32_t id = g_vhTextureIDList.alloc();
+    g_vhTextureIDValid[id] = true;
+    return id;
 }
 
 void vhDestroyTexture( vhTexture texture )
 {
-    std::lock_guard<std::mutex> lock( g_vhTextureIDListMutex );
+    std::lock_guard< std::mutex > lock( g_vhTextureIDListMutex );
+
+    if ( g_vhTextureIDValid.find( texture ) == g_vhTextureIDValid.end() )
+    {
+        // Invalid texture handle
+        return;
+    }
+
+    g_vhTextureIDValid.erase( texture );
     g_vhTextureIDList.release( texture );
+
+    // Queue up command to destroy texture
+    auto cmd = new VIDL_vhDestroyTexture( texture );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
 }
 
 void vhCreateTexture(
     vhTexture texture,
+    nvrhi::TextureDimension target,
     glm::ivec3 dimensions,
     int numMips, int numLayers,
     nvrhi::Format format,
@@ -756,53 +925,8 @@ void vhCreateTexture(
     const std::vector<uint8_t> *data
 )
 {
-    /*
-    if ( texture >= g_vhTextures.size() )
-    {
-        VRHI_LOG( "vhCreateTexture: Invalid texture handle %u\n", texture );
-        return;
-    }
-
-    nvrhi::ResourceStates state = nvrhi::ResourceStates::ShaderResource;
-    if ( flag & VRHI_TEXTURE_RT ) state = nvrhi::ResourceStates::RenderTarget;
-    if ( flag & VRHI_TEXTURE_COMPUTE_WRITE ) state = nvrhi::ResourceStates::UnorderedAccess;
-    if ( flag & VRHI_TEXTURE_BLIT_DST ) state = nvrhi::ResourceStates::CopySource | nvrhi::ResourceStates::CopyDest;
-
-    auto textureDesc = nvrhi::TextureDesc()
-        .setDimension( nvrhi::TextureDimension::Texture2D ) // Assuming 2D for now as per previous code, though dimensions is ivec3
-        .setWidth( dimensions.x )
-        .setHeight( dimensions.y )
-        .setDepth( dimensions.z ) // Set depth if 3D? Or is it layers? logic usually infers dim from depth > 1
-        .setMipLevels( numMips )
-        .setArraySize( numLayers )
-        .setFormat( format )
-        .enableAutomaticStateTracking( state )
-        .setDebugName( "VRHI Texture" );
-
-    if ( dimensions.z > 1 ) 
-        textureDesc.setDimension( nvrhi::TextureDimension::Texture3D );
-    
-    // NVRHI texture creation
-    nvrhi::TextureHandle handle = g_vhDevice->createTexture( textureDesc );
-
-    if ( !handle )
-    {
-        VRHI_LOG( "vhCreateTexture: Failed to create NVRHI texture.\n" );
-        return;
-    }
-
-    g_vhTextures[texture] = handle;
-
-    if ( data && !data->empty() )
-    {
-        // Simple upload for now - usage of command list typically required for better performance
-        // But for initialization nvrhi allows writing directly if we have a command list
-        // NVRHI doesn't have a direct "writeTexture" on device without a command list usually, 
-        // effectively we need a staging texture or use the immediate context if available.
-        // For simplicity in this port, we will skip the data upload implementation or 
-        // assume the user handles it via a separate command list flow, as the original code didn't fully implement it either.
-        // However, we can warn.
-        VRHI_LOG( "vhCreateTexture: Initial data upload not fully implemented in this port.\n" );
-    }
-        */
+    auto cmd = new VIDL_vhCreateTexture( texture, target, dimensions, numMips, numLayers, format, flag, data );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
 }
+
