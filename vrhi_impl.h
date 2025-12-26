@@ -126,6 +126,16 @@ extern nvrhi::CommandListHandle g_vhCmdLists[(uint64_t) nvrhi::CommandQueue::Cou
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 
+struct vhVertexLayoutDef
+{
+    std::string semantic;
+    std::string type;
+    int semanticIndex = 0;
+    int componentCount = 0;
+    int offset = 0;
+};
+bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhVertexLayoutDef >& outDefs );
+
 
 // --------------------------------------------------------------------------
 // Submodule Includes
@@ -272,7 +282,6 @@ void vhCmdListFlushTransferIfNeeded()
         g_vhCmdListTransferSizeHeuristic = 0;
     }
 }
-
 
 void vhCmdListFlushAll()
 {

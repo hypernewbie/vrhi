@@ -260,6 +260,17 @@ typedef std::string vhVertexLayout;
 // Validates a vertex layout string.
 bool vhValidateVertexLayout( const vhVertexLayout& layout );
 
+
+//VertexBufferHandle bgfx::createVertexBuffer(const Memory *_mem, const VertexLayout &_layout, uint16_t _flags = BGFX_BUFFER_NONE)
+
+// VIDL_GENERATE
+void vhCreateVertexBuffer(
+    const char* name,
+    const vhMem* mem,
+    const vhVertexLayout layout,
+    uint16_t flags = VRHI_BUFFER_NONE
+);
+
 // --------------------------------------------------------------------------
 // Implementation
 // --------------------------------------------------------------------------

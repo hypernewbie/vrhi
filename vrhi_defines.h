@@ -22,6 +22,17 @@
 
 // src: bgfx
 
+#define VRHI_BUFFER_NONE                          UINT16_C(0x0000)
+#define VRHI_BUFFER_COMPUTE_READ                  UINT16_C(0x0100) //!< Buffer will be read by shader.
+#define VRHI_BUFFER_COMPUTE_WRITE                 UINT16_C(0x0200) //!< Buffer will be used for writing.
+#define VRHI_BUFFER_DRAW_INDIRECT                 UINT16_C(0x0400) //!< Buffer will be used for storing draw indirect commands.
+#define VRHI_BUFFER_ALLOW_RESIZE                  UINT16_C(0x0800) //!< Allow dynamic index/vertex buffer resize during update.
+#define VRHI_BUFFER_INDEX32                       UINT16_C(0x1000) //!< Index buffer contains 32-bit indices.
+#define VRHI_BUFFER_COMPUTE_READ_WRITE (0 \
+	| VRHI_BUFFER_COMPUTE_READ \
+	| VRHI_BUFFER_COMPUTE_WRITE \
+	)
+
 #define VRHI_TEXTURE_NONE                         UINT64_C(0x0000000000000000)
 // #define VRHI_TEXTURE_MSAA_SAMPLE                  UINT64_C(0x0000000800000000) //!< Texture will be used for MSAA sampling.
 #define VRHI_TEXTURE_RT                           UINT64_C(0x0000001000000000) //!< Render target no MSAA.

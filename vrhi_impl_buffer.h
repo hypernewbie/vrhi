@@ -33,15 +33,6 @@
 #include <string>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
-struct vhVertexLayoutDef
-{
-    std::string semantic;
-    std::string type;
-    int semanticIndex;
-    int componentCount;
-    int offset;
-};
-
 // Helper to get element size of a base type
 int vhGetBaseTypeSize( const std::string& type )
 {
@@ -51,10 +42,10 @@ int vhGetBaseTypeSize( const std::string& type )
     return 0;
 }
 
-template <bool EmitOutput>
+template <bool EMIT_OUTPUT>
 bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayoutDef>* outDefs )
 {
-    if constexpr ( EmitOutput )
+    if constexpr ( EMIT_OUTPUT )
     {
         if ( outDefs ) outDefs->clear();
     }
@@ -151,7 +142,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
         int typeSize = vhGetBaseTypeSize( baseType );
         int sizeBytes = typeSize * componentCount;
 
-        if constexpr ( EmitOutput )
+        if constexpr ( EMIT_OUTPUT )
         {
             if ( outDefs )
             {
@@ -174,5 +165,11 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
 
 bool vhValidateVertexLayout( const vhVertexLayout& layout )
 {
-    return vhParseVertexLayout<false>( layout, nullptr );
+    return vhParseVertexLayout< false >( layout, nullptr );
 }
+
+bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhVertexLayoutDef >& outDefs )
+{
+    return vhParseVertexLayout< true >( layout, &outDefs );
+}
+

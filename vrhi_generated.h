@@ -64,6 +64,21 @@ struct VIDL_vhReadTextureSlow
         : texture(_texture), mip(_mip), layer(_layer), outData(_outData) {}
 };
 
+struct VIDL_vhCreateVertexBuffer
+{
+    static constexpr uint64_t kMagic = 0xBBF8D184;
+    uint64_t MAGIC = kMagic;
+    const char* name;
+    const vhMem* mem;
+    const vhVertexLayout layout;
+    uint16_t flags = VRHI_BUFFER_NONE;
+
+    VIDL_vhCreateVertexBuffer() = default;
+
+    VIDL_vhCreateVertexBuffer(const char* _name, const vhMem* _mem, const vhVertexLayout _layout, uint16_t _flags)
+        : name(_name), mem(_mem), layout(_layout), flags(_flags) {}
+};
+
 struct VIDL_vhFlushInternal
 {
     static constexpr uint64_t kMagic = 0x83140D26;
@@ -83,6 +98,7 @@ struct VIDLHandler
     virtual void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
 
     virtual void HandleCmd( void* cmd )
@@ -101,6 +117,9 @@ struct VIDLHandler
             break;
         case 0x3BDDAB67:
             Handle_vhReadTextureSlow( (VIDL_vhReadTextureSlow*) cmd );
+            break;
+        case 0xBBF8D184:
+            Handle_vhCreateVertexBuffer( (VIDL_vhCreateVertexBuffer*) cmd );
             break;
         case 0x83140D26:
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );
