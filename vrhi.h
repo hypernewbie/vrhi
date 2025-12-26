@@ -170,6 +170,14 @@ inline void vhCreateTextureCubeArray(
     vhCreateTexture( texture, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
 }
 
+// VIDL_GENERATE
+void vhUpdateTexture(
+    vhTexture texture,
+    int startMips = 0, int startLayers = 0,
+    int numMips = 1, int numLayers = 1,
+    const std::vector<uint8_t> *fullImageData = nullptr
+);
+
 // --------------------------------------------------------------------------
 // Implementation
 // --------------------------------------------------------------------------

@@ -76,3 +76,48 @@ public:
     }
 };
 
+
+// ------------ Texture Utilities ------------
+
+// Mip level info for texture
+struct vhTextureMipInfo
+{
+    glm::ivec3 dimensions = glm::ivec3( 0, 0, 0 );
+    int32_t offset = 0;
+    int32_t size = 0;
+    int32_t slice_size = 0;
+    int32_t pitch = 0;
+};
+
+// Texture info for texture
+struct vhTexInfo
+{
+    nvrhi::TextureDimension target = nvrhi::TextureDimension::Texture2D;
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    glm::ivec3 dimensions = glm::ivec3( 0, 0, 0 );
+    int32_t arrayLayers = 0;
+    int32_t mipLevels = 0;
+    int32_t samples = 0;
+};
+
+// Get next mipmap dimension
+inline int vhGetImageNextMipmapDim( int x )
+{
+	return ( x > 1 ) ? ( x >> 1 ) : 1;
+}
+
+// Get next mipmap dimension
+inline glm::ivec3 vhGetImageNextMipmapDim( const glm::ivec3& dimensions )
+{
+	return glm::ivec3(
+        vhGetImageNextMipmapDim( dimensions.x ),
+        vhGetImageNextMipmapDim( dimensions.y ),
+        vhGetImageNextMipmapDim( dimensions.z )
+    );
+}
+
+// Get the size of a single array slice of the image
+glm::ivec2 vhGetImageSliceSize( const vhFormatInfo& info, const glm::ivec3& dimensions );
+
+// Get the mip level info for the entire texture
+void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t &pitchSize, int64_t& arraySize, const vhTexInfo& info );
