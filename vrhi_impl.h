@@ -135,6 +135,8 @@ struct vhVertexLayoutDef
     int offset = 0;
 };
 bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhVertexLayoutDef >& outDefs );
+int vhVertexLayoutDefSize( const vhVertexLayoutDef& def );
+int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
 
 
 // --------------------------------------------------------------------------

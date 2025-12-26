@@ -36,6 +36,7 @@
 #include "utest.h"
 
 #include "vrhi.h"
+#include "vrhi_impl.h"
 #include "vrhi_utils.h"
 
 // Internal benchmark functions from vrhi_impl.h
@@ -585,6 +586,52 @@ UTEST( Buffer, ValidateLayout )
     EXPECT_FALSE( vhValidateVertexLayout( "float3" ) );           // Missing semantic
     EXPECT_FALSE( vhValidateVertexLayout( "POSITION" ) );         // Missing type
     EXPECT_FALSE( vhValidateVertexLayout( "" ) );                 // Empty
+}
+
+UTEST( Buffer, VertexLayoutInternals )
+{
+    // Test 1: Simple Logic
+    {
+        std::vector< vhVertexLayoutDef > defs;
+        bool res = vhParseVertexLayoutInternal( "float3 POSITION", defs );
+        EXPECT_TRUE( res );
+        EXPECT_EQ( defs.size(), 1 );
+        EXPECT_EQ( vhVertexLayoutDefSize( defs ), 12 );
+
+        if ( defs.size() > 0 )
+        {
+             EXPECT_STREQ( defs[0].semantic.c_str(), "POSITION" );
+             EXPECT_STREQ( defs[0].type.c_str(), "float" );
+             EXPECT_EQ( defs[0].componentCount, 3 );
+             EXPECT_EQ( defs[0].semanticIndex, 0 );
+             EXPECT_EQ( defs[0].offset, 0 );
+             EXPECT_EQ( vhVertexLayoutDefSize( defs[0] ), 12 );
+        }
+    }
+
+    // Test 2: Complex Logic
+    {
+        std::vector< vhVertexLayoutDef > defs;
+        bool res = vhParseVertexLayoutInternal( "float3 POSITION float2 TEXCOORD0 ubyte4 COLOR", defs );
+        EXPECT_TRUE( res );
+        EXPECT_EQ( defs.size(), 3 );
+        
+        // float3 POSITION (12 bytes)
+        EXPECT_EQ( defs[0].offset, 0 );
+        EXPECT_STREQ( defs[0].semantic.c_str(), "POSITION" );
+        
+        // float2 TEXCOORD0 (8 bytes) -> offset 12
+        EXPECT_EQ( defs[1].offset, 12 );
+        EXPECT_STREQ( defs[1].semantic.c_str(), "TEXCOORD" );
+        EXPECT_EQ( defs[1].semanticIndex, 0 );
+        
+        // ubyte4 COLOR (4 bytes) -> offset 20
+        EXPECT_EQ( defs[2].offset, 20 );
+        EXPECT_STREQ( defs[2].semantic.c_str(), "COLOR" );
+        
+        // Total Stride = 24
+        EXPECT_EQ( vhVertexLayoutDefSize( defs ), 24 );
+    }
 }
 
 UTEST_STATE();
