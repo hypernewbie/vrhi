@@ -558,6 +558,35 @@ UTEST( Texture, Readback )
     vhDestroyTexture( tex );
 }
 
+UTEST( Buffer, ValidateLayout )
+{
+    // Valid cases
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION float2 TEXCOORD0" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "ubyte4 COLOR" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "half2 TEXCOORD" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "float POSITION" ) ); // Scalar
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION0 float3 NORMAL int4 BLENDINDICES float4 BLENDWEIGHTS" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 BANANA" ) ); // Custom semantic
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 BANANA0" ) ); // Custom semantic with index
+
+    // Invalid cases - Types
+    EXPECT_FALSE( vhValidateVertexLayout( "double3 POSITION" ) ); // Invalid type
+    EXPECT_FALSE( vhValidateVertexLayout( "float5 POSITION" ) );  // Invalid suffix
+    EXPECT_FALSE( vhValidateVertexLayout( "float1 POSITION" ) );  // Invalid suffix (1 should be empty)
+    EXPECT_FALSE( vhValidateVertexLayout( "vec3 POSITION" ) );    // Invalid type
+
+    // Invalid cases - Semantics
+    EXPECT_FALSE( vhValidateVertexLayout( "float3 position" ) );  // Lowercase semantic
+    EXPECT_FALSE( vhValidateVertexLayout( "float3 0POSITION" ) ); // Starts with digit
+    EXPECT_FALSE( vhValidateVertexLayout( "float3 PO_SITION" ) ); // Underscore not alphanumeric (std::isalnum check)
+
+    // Invalid cases - Formatting
+    EXPECT_FALSE( vhValidateVertexLayout( "float3" ) );           // Missing semantic
+    EXPECT_FALSE( vhValidateVertexLayout( "POSITION" ) );         // Missing type
+    EXPECT_FALSE( vhValidateVertexLayout( "" ) );                 // Empty
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
