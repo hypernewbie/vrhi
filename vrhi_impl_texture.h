@@ -134,7 +134,7 @@ void vhCreateTexture(
     int numMips, int numLayers,
     nvrhi::Format format,
     uint64_t flag,
-    const std::vector<uint8_t> *data
+    const vhMem* data
 )
 {
     if ( texture == VRHI_INVALID_HANDLE ) return;
@@ -159,7 +159,41 @@ void vhCreateTexture(
         dimensions.z = 1;
     }
     
+    // Queue up command to create texture
     auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, target, dimensions, numMips, numLayers, format, flag, data );
     assert( cmd );
     vhCmdEnqueue( cmd );
+}
+
+void vhUpdateTexture(
+    vhTexture texture,
+    int startMips, int startLayers,
+    int numMips, int numLayers,
+    const vhMem* fullImageData
+)
+{
+    if ( !fullImageData ) return;
+
+    // Queue up command to update texture
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateTexture>( texture, startMips, startLayers, numMips, numLayers, fullImageData );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhReadTextureSlow(
+    vhTexture texture,
+    int mip, int layer,
+    vhMem* outData
+)
+{
+    // Ensure all pending GPU work is complete before reading
+    vhFinish();
+    
+    // Queue up command to read texture
+    auto cmd = vhCmdAlloc<VIDL_vhReadTextureSlow>( texture, mip, layer, outData );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+    
+    // Wait for readback to complete
+    vhFinish();
 }

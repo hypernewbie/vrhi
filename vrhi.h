@@ -38,6 +38,7 @@
 struct vhInitData
 {
     std::string appName = "VRHI_APP";
+    std::string engineName = "VRHI_ENGINE";
     bool debug = false;
     int deviceIndex = -1; // -1 for auto-selection (Discrete > Integrated > CPU)
     glm::ivec2 resolution = glm::ivec2( 1280, 720 );
@@ -45,6 +46,7 @@ struct vhInitData
 };
 
 typedef uint32_t vhTexture;
+typedef std::vector<uint8_t> vhMem;
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
 extern std::atomic<int32_t> g_vhErrorCounter;
@@ -58,17 +60,48 @@ extern std::atomic<int32_t> g_vhErrorCounter;
 
 // ------------ Device ------------
 
+// Initializes the Vulkan RHI and starts the backend command thread.
+//
+// Must be called before any other RHI functions. Uses |g_vhInit| for configuration.
 void vhInit();
 
+// Shuts down the Vulkan RHI and stops the backend command thread.
+//
+// Cleans up all resources and waits for the GPU to finish.
 void vhShutdown();
 
+// Returns a string containing information about the selected physical device and queues.
 std::string vhGetDeviceInfo();
 
+// Blocks until all commands currently in the queue have been processed by the backend.
+//
+// This does not wait for the GPU to finish execution.
 void vhFlush();
+
+// Blocks until all commands have been processed and the GPU has reached an idle state.
 void vhFinish();
+
+// Helper to allocate memory for data upload or download.
+// The caller is responsible for allocating data to feed into vh* API functions, but not responsible for freeing it.
+// This is freed by the backend every flush when the commands are processed.
+inline vhMem* vhAllocMem( uint64_t size )
+{
+    return new vhMem( size );
+}
+
+// Helper to allocate memory for data upload or download, copying the data from the provided vector.
+// The caller is responsible for allocating data to feed into vh* API functions, but not responsible for freeing it.
+// This is freed by the backend every flush when the commands are processed.
+inline vhMem* vhAllocMem( const std::vector< uint8_t >& data )
+{
+    return new vhMem( data );
+}
 
 // ------------ Texture ------------
 
+// Allocates a unique texture handle.
+//
+// Returns a valid |vhTexture| handle, or |VRHI_INVALID_HANDLE| on failure.
 vhTexture vhAllocTexture();
 
 struct vhFormatInfo
@@ -80,6 +113,7 @@ struct vhFormatInfo
     int32_t compressionBlockHeight = 0;
 };
 
+// Returns metadata for the specified |format|.
 inline vhFormatInfo vhGetFormat( nvrhi::Format format )
 {
     const nvrhi::FormatInfo& info = nvrhi::getFormatInfo( format );
@@ -94,9 +128,21 @@ inline vhFormatInfo vhGetFormat( nvrhi::Format format )
     return out;
 }
 
+// Enqueues a command to destroy the texture associated with |texture|.
+//
+// |texture| is the handle to the texture to be destroyed.
 // VIDL_GENERATE
 void vhDestroyTexture( vhTexture texture );
 
+// Enqueues a command to create a texture with the specified parameters.
+//
+// |texture| must be a handle allocated via |vhAllocTexture|.
+// |target| specifies the texture dimensionality.
+// |dimensions| specifies width, height, and depth.
+// |numMips| and |numLayers| specify mip count and array size.
+// |format| is the pixel format.
+// |flag| specifies usage and sampling options.
+// |data| is optional initial pixel data. Takes ownership of the memory.
 // VIDL_GENERATE
 void vhCreateTexture(
     vhTexture texture,
@@ -105,45 +151,49 @@ void vhCreateTexture(
     int numMips, int numLayers,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const std::vector<uint8_t> *data = nullptr
+    const vhMem* data = nullptr
 );
 
+// Helper to create a 2D texture.
 inline void vhCreateTexture2D(
     vhTexture texture,
     glm::ivec2 dimensions,
     int numMips,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const std::vector<uint8_t> *data = nullptr
+    const vhMem* data = nullptr
 )
 {
     vhCreateTexture( texture, nvrhi::TextureDimension::Texture2D, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data );
 }
 
+// Helper to create a 3D texture.
 inline void vhCreateTexture3D(
     vhTexture texture,
     glm::ivec3 dimensions,
     int numMips,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const std::vector<uint8_t> *data = nullptr
+    const vhMem* data = nullptr
 )
 {
     vhCreateTexture( texture, nvrhi::TextureDimension::Texture3D, dimensions, numMips, 1, format, flag, data );
 }
 
+// Helper to create a Cube texture.
 inline void vhCreateTextureCube(
     vhTexture texture,
     int dimension,
     int numMips,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const std::vector<uint8_t> *data = nullptr
+    const vhMem* data = nullptr
 )
 {
     vhCreateTexture( texture, nvrhi::TextureDimension::TextureCube, glm::ivec3( dimension, dimension, 1 ), numMips, 6, format, flag, data );
 }
 
+// Helper to create a 2D texture array.
 inline void vhCreateTexture2DArray(
     vhTexture texture,
     glm::ivec2 dimensions,
@@ -151,12 +201,13 @@ inline void vhCreateTexture2DArray(
     int numMips,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const std::vector<uint8_t> *data = nullptr
+    const vhMem* data = nullptr
 )
 {
     vhCreateTexture( texture, nvrhi::TextureDimension::Texture2DArray, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data );
 }
 
+// Helper to create a Cube texture array.
 inline void vhCreateTextureCubeArray(
     vhTexture texture,
     int dimension,
@@ -164,18 +215,37 @@ inline void vhCreateTextureCubeArray(
     int numMips,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const std::vector<uint8_t> *data = nullptr
+    const vhMem* data = nullptr
 )
 {
     vhCreateTexture( texture, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
 }
 
+// Enqueues a command to update a subresource range of a texture.
+//
+// |texture| is the handle to the texture to update.
+// |startMips| and |startLayers| define the beginning of the range.
+// |numMips| and |numLayers| define the size of the range.
+// |fullImageData| contains the pixel data for the entire texture. Takes ownership of the memory.
 // VIDL_GENERATE
 void vhUpdateTexture(
     vhTexture texture,
     int startMips = 0, int startLayers = 0,
     int numMips = 1, int numLayers = 1,
-    const std::vector<uint8_t> *fullImageData = nullptr
+    const vhMem* fullImageData = nullptr
+);
+
+// Enqueues a command to read a subresource range of a texture.
+// WARNING: This is a slow path operation, generally for debugging or screenshot purposes.
+//
+// |texture| is the handle to the texture to read.
+// |mip| and |layer| define the subresource to read.
+// |outData| is the destination for the pixel data. DOES NOT take ownership of the memory.
+// VIDL_GENERATE
+void vhReadTextureSlow(
+    vhTexture texture,
+    int mip = 0, int layer = 0,
+    vhMem* outData = nullptr
 );
 
 // --------------------------------------------------------------------------

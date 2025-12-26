@@ -26,12 +26,14 @@
 #endif // VRHI_IMPLEMENTATION
 #include "vrhi_impl_backend.h"
 #include "vrhi_utils.h"
+#include <nvrhi/validation.h>
 
 struct vhVKDeviceScore
 {
     bool isSuitable = false;
     int deviceClass = 0;      // 3=discrete, 2=integrated, 1=virtual, 0=cpu/other
     uint64_t totalScore = 0;  // weighted sum for micro-sort
+    
     uint32_t apiVersion = 0;  // packed VK version
     uint64_t vramBytes = 0;   // local heap size
     uint32_t vendorId = 0;
@@ -301,7 +303,7 @@ void vhInit()
     VkApplicationInfo appInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
     appInfo.pApplicationName = g_vhInit.appName.c_str();
     appInfo.applicationVersion = VK_MAKE_VERSION( 1, 0, 0 );
-    appInfo.pEngineName = "VRHI Engine";
+    appInfo.pEngineName = g_vhInit.engineName.c_str();
     appInfo.apiVersion = VK_API_VERSION_1_3;
 
     std::vector< const char* > instanceExtensions;
@@ -609,6 +611,12 @@ void vhInit()
         VRHI_LOG( "Failed to create NVRHI device!\n" );
         exit(1);
     }
+    if ( g_vhInit.debug )
+    {
+        // Wrap with validation layer in debug builds - catches state tracking errors
+        VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
+        g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
+    }
 
     // 6. Create RHI Command Buffer Thread
     VRHI_LOG( "    Creating RHI Thread...\n" );
@@ -735,3 +743,4 @@ void vhFinish()
         std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
     }
 }
+

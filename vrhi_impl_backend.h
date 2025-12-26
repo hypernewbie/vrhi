@@ -46,13 +46,19 @@ struct vhBackendTexture
 // This mutex guards access to vhCmdBackendState members. It does not guard the nvRHI state, which is g_nvRHIStateMutex.
 // g_nvRHIStateMutex still needs to be locked when accessing the nvRHI state.
 //
-class vhCmdBackendState : public VIDLHandler
+struct vhCmdBackendState : public VIDLHandler
 {
     std::mutex backendMutex;
     char temps[1024];
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
 
-    void BE_UpdateTexture( vhBackendTexture& btex, const std::vector<uint8_t> *data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) )
+    // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
+    std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
+    {
+        return std::unique_ptr< vhMem >( const_cast< vhMem* >( mem ) );
+    }
+
+    void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) )
     {
         if ( !btex.handle || !data || !data->size() ) return;
         if ( data->size() != btex.arraySize * btex.info.arrayLayers )
@@ -74,6 +80,13 @@ class vhCmdBackendState : public VIDLHandler
         // Update the texture.
         {
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            
+            // Disable auto barriers on Copy queue - transfer-only queues can't do shader barriers
+            if ( queueType == nvrhi::CommandQueue::Copy )
+            {
+                cmdlist->setEnableAutomaticBarriers( false );
+            }
+            
             for ( int32_t layer = layerStart; layer < layerEnd; ++layer )
             {
                 const uint8_t* srcPtr = data->data() + ( size_t ) layer * btex.arraySize;
@@ -87,12 +100,100 @@ class vhCmdBackendState : public VIDLHandler
                     cmdlist->writeTexture( btex.handle, layer, mip, srcPtr + mipData.offset, mipData.pitch, depthPitch );
                 }
             }
+            
+            // Re-enable for next operations on this command list
+            if ( queueType == nvrhi::CommandQueue::Copy )
+            {
+                cmdlist->setEnableAutomaticBarriers( true );
+            }
         }
 
-        if ( queueType == nvrhi::CommandQueue::Transfer )
+        if ( queueType == nvrhi::CommandQueue::Copy )
         {
             g_vhCmdListTransferSizeHeuristic += data->size();
             vhCmdListFlushTransferIfNeeded();
+        }
+    }
+
+    void BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer )
+    {
+        if ( !btex.handle || !outData ) return;
+
+        // Staging Texture
+        auto desc = btex.handle->getDesc();
+        desc.isVirtual = false;
+        desc.isRenderTarget = false;
+        desc.isUAV = false;
+        desc.keepInitialState = true;
+        desc.initialState = nvrhi::ResourceStates::CopyDest; 
+        
+        nvrhi::StagingTextureHandle stagingTex;
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            stagingTex = g_vhDevice->createStagingTexture(desc, nvrhi::CpuAccessMode::Read);
+        }
+
+        if ( !stagingTex ) return;
+
+        // For this slow-path operation, just use Graphics queue for everything
+        // (avoids complexity with transfer queue barriers)
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            
+            nvrhi::CommandListParameters params = { .queueType = nvrhi::CommandQueue::Graphics };
+            auto cmdList = g_vhDevice->createCommandList( params );
+            cmdList->open();
+            
+            nvrhi::TextureSlice slice;
+            slice.mipLevel = mip;
+            slice.arraySlice = layer;
+
+            // Make sure source is in CopySource state
+            cmdList->setTextureState( btex.handle, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource );
+            cmdList->commitBarriers();
+
+            cmdList->copyTexture( stagingTex, slice, btex.handle, slice );
+            
+            cmdList->close();
+            g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
+            g_vhDevice->waitForIdle();
+        }
+
+        // CPU copy
+        void* pData = nullptr;
+        size_t rowPitch = 0;
+        
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            nvrhi::TextureSlice slice;
+            slice.mipLevel = mip;
+            slice.arraySlice = layer;
+            pData = g_vhDevice->mapStagingTexture( stagingTex, slice, nvrhi::CpuAccessMode::Read, &rowPitch );
+        }
+
+        if ( pData )
+        {
+            const auto& mipInfo = btex.mipInfo[mip];
+            int height = mipInfo.dimensions.y;
+            int expectedPitch = mipInfo.pitch;
+
+            if ( outData->size() < ( size_t ) mipInfo.slice_size )
+            {
+                outData->resize( mipInfo.slice_size );
+            }
+
+            uint8_t* src = ( uint8_t* ) pData;
+            uint8_t* dst = outData->data();
+
+            for ( int y = 0; y < height; ++y )
+            {
+                memcpy( dst + ( size_t ) y * expectedPitch, src + ( size_t ) y * rowPitch, expectedPitch );
+            }
+
+            {
+                std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+                g_vhDevice->unmapStagingTexture( stagingTex );
+            }
         }
     }
 
@@ -135,6 +236,8 @@ public:
 
     void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override
     {
+        auto dataRAII = BE_MemRAII( cmd->data );
+
         if ( cmd->texture == VRHI_INVALID_HANDLE ||
             cmd->dimensions.x <= 0 || cmd->dimensions.y <= 0 || cmd->dimensions.z <= 0 ||
             cmd->numMips == 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
@@ -155,6 +258,7 @@ public:
             .setFormat( cmd->format )
             .setMipLevels( cmd->numMips )
             .setArraySize( cmd->numLayers )
+            .setInitialState( nvrhi::ResourceStates::Common )
             .enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource )
             .setDebugName( temps );
 
@@ -180,7 +284,6 @@ public:
         btex->info.mipLevels = cmd->numMips;
         btex->info.arrayLayers = cmd->numLayers;
         vhTextureMiplevelInfo( btex->mipInfo, btex->pitchSize, btex->arraySize, btex->info );
-        backendTextures[ cmd->texture ] = std::move( btex );
 
         if ( cmd->data )
         {
@@ -189,11 +292,14 @@ public:
             BE_UpdateTexture( *btex, cmd->data, nvrhi::CommandQueue::Graphics );
         }
 
+        backendTextures[ cmd->texture ] = std::move( btex );
         vhCmdRelease( cmd );
     }
 
     void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override
     {
+        auto dataRAII = BE_MemRAII( cmd->fullImageData );
+    
         if ( !cmd->texture )
         {
             vhCmdRelease( cmd );
@@ -208,12 +314,39 @@ public:
         }
 
         glm::ivec4 range = glm::ivec4( cmd->startMips, cmd->startMips + cmd->numMips, cmd->startLayers, cmd->startLayers + cmd->numLayers );
-        BE_UpdateTexture( backendTextures[ cmd->texture ], cmd->fullImageData, nvrhi::CommandQueue::Transfer, range );
+        BE_UpdateTexture( *backendTextures[ cmd->texture ], cmd->fullImageData, nvrhi::CommandQueue::Graphics, range );
+        vhCmdRelease( cmd );
+    }
+
+    void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override
+    {
+        // NO dataRAII here - outData is owned by the caller.
+
+        if ( cmd->texture == VRHI_INVALID_HANDLE )
+        {
+            vhCmdRelease( cmd );
+            return;
+        }
+
+        if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
+        {
+            VRHI_ERR( "vhReadTextureSlow() : Texture %d not found!\n", cmd->texture );
+            vhCmdRelease( cmd );
+            return;
+        }
+
+        BE_ReadTextureSlow( *backendTextures[ cmd->texture ], cmd->outData, cmd->mip, cmd->layer );
         vhCmdRelease( cmd );
     }
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
     {
+        // Free all cmd memory allocations, because hitting this flush means all previous commands have been processed.
+        {
+            std::lock_guard<std::mutex> lock( g_vhMemListMutex );
+            g_vhMemList.clear();
+        }
+
         if ( cmd->waitForGPU )
         {
             // This uses g_nvRHIStateMutex then gives it up, we need to avoid double-locking.

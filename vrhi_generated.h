@@ -24,11 +24,11 @@ struct VIDL_vhCreateTexture
     int numLayers;
     nvrhi::Format format;
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE;
-    const std::vector<uint8_t>* data = nullptr;
+    const vhMem* data = nullptr;
 
     VIDL_vhCreateTexture() = default;
 
-    VIDL_vhCreateTexture(vhTexture _texture, nvrhi::TextureDimension _target, glm::ivec3 _dimensions, int _numMips, int _numLayers, nvrhi::Format _format, uint64_t _flag, const std::vector<uint8_t>* _data)
+    VIDL_vhCreateTexture(vhTexture _texture, nvrhi::TextureDimension _target, glm::ivec3 _dimensions, int _numMips, int _numLayers, nvrhi::Format _format, uint64_t _flag, const vhMem* _data)
         : texture(_texture), target(_target), dimensions(_dimensions), numMips(_numMips), numLayers(_numLayers), format(_format), flag(_flag), data(_data) {}
 };
 
@@ -41,12 +41,27 @@ struct VIDL_vhUpdateTexture
     int startLayers = 0;
     int numMips = 1;
     int numLayers = 1;
-    const std::vector<uint8_t>* fullImageData = nullptr;
+    const vhMem* fullImageData = nullptr;
 
     VIDL_vhUpdateTexture() = default;
 
-    VIDL_vhUpdateTexture(vhTexture _texture, int _startMips, int _startLayers, int _numMips, int _numLayers, const std::vector<uint8_t>* _fullImageData)
+    VIDL_vhUpdateTexture(vhTexture _texture, int _startMips, int _startLayers, int _numMips, int _numLayers, const vhMem* _fullImageData)
         : texture(_texture), startMips(_startMips), startLayers(_startLayers), numMips(_numMips), numLayers(_numLayers), fullImageData(_fullImageData) {}
+};
+
+struct VIDL_vhReadTextureSlow
+{
+    static constexpr uint64_t kMagic = 0x3BDDAB67;
+    uint64_t MAGIC = kMagic;
+    vhTexture texture;
+    int mip = 0;
+    int layer = 0;
+    vhMem* outData = nullptr;
+
+    VIDL_vhReadTextureSlow() = default;
+
+    VIDL_vhReadTextureSlow(vhTexture _texture, int _mip, int _layer, vhMem* _outData)
+        : texture(_texture), mip(_mip), layer(_layer), outData(_outData) {}
 };
 
 struct VIDL_vhFlushInternal
@@ -67,6 +82,7 @@ struct VIDLHandler
     virtual void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) { (void) cmd; };
+    virtual void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
 
     virtual void HandleCmd( void* cmd )
@@ -82,6 +98,9 @@ struct VIDLHandler
             break;
         case 0x79B006BB:
             Handle_vhUpdateTexture( (VIDL_vhUpdateTexture*) cmd );
+            break;
+        case 0x3BDDAB67:
+            Handle_vhReadTextureSlow( (VIDL_vhReadTextureSlow*) cmd );
             break;
         case 0x83140D26:
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );
