@@ -248,6 +248,18 @@ void vhReadTextureSlow(
     vhMem* outData = nullptr
 );
 
+// ------------ Buffer ------------
+
+// Vertex layouts are defines as standard strings.
+// Supported base types: float, half, int, uint, short, ushort, byte, ubyte
+// Supported suffixes: 2, 3, 4
+// Example: "float3 POSITION half4 NORMAL half4 TANGENT half4 BINORMAL half4 TEXCOORD half4 COLOR";
+//
+typedef std::string vhVertexLayout;
+
+// Validates a vertex layout string.
+bool vhValidateVertexLayout( const vhVertexLayout& layout );
+
 // --------------------------------------------------------------------------
 // Implementation
 // --------------------------------------------------------------------------
