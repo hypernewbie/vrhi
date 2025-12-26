@@ -173,3 +173,16 @@ bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhV
     return vhParseVertexLayout< true >( layout, &outDefs );
 }
 
+int vhVertexLayoutDefSize( const vhVertexLayoutDef& def )
+{
+    int typeSize = vhGetBaseTypeSize( def.type );
+    return typeSize * def.componentCount;
+}
+
+int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def )
+{
+    if ( def.empty() ) return 0;
+    auto& lastDef = def.back();
+    return lastDef.offset + vhVertexLayoutDefSize( lastDef );
+}
+
