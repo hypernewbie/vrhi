@@ -204,12 +204,14 @@ void vhCmdEnqueue( void* cmd )
 }
 
 nvrhi::CommandListHandle g_vhCmdLists[(uint64_t) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };
+uint64_t g_vhCmdListTransferSizeHeuristic = 0;
 
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
 {
     auto typeIdx = ( uint64_t ) type;
     if ( !g_vhCmdLists[typeIdx] )
     {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         nvrhi::CommandListParameters params = { .queueType = ( nvrhi::CommandQueue ) type };
         g_vhCmdLists[typeIdx] = g_vhDevice->createCommandList( params );
         g_vhCmdLists[typeIdx]->open();
@@ -222,9 +224,20 @@ void vhCmdListFlush( nvrhi::CommandQueue type )
     auto typeIdx = ( uint64_t ) type;
     if ( g_vhCmdLists[typeIdx] )
     {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         g_vhCmdLists[typeIdx]->close();
         g_vhDevice->executeCommandList( g_vhCmdLists[typeIdx] );
         g_vhCmdLists[typeIdx] = nullptr;
+    }
+}
+
+void vhCmdListFlushTransferIfNeeded()
+{
+    const uint64_t transferSizeThreshold = 1024 * 1024 * 16; // 16 MB
+    if ( g_vhCmdListTransferSizeHeuristic > transferSizeThreshold )
+    {
+        vhCmdListFlush( nvrhi::CommandQueue::Transfer );
+        g_vhCmdListTransferSizeHeuristic = 0;
     }
 }
 

@@ -21,7 +21,9 @@
 
 #pragma once
 
+#ifndef VRHI_IMPLEMENTATION
 #include "vrhi_impl.h"
+#endif // VRHI_IMPLEMENTATION
 #include "vrhi_impl_backend.h"
 #include "vrhi_utils.h"
 
