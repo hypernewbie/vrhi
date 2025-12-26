@@ -27,16 +27,27 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 # Source files
-# Source files
 set(SOURCES
     test.cpp
     vrhi.h
     vrhi_impl.h
+    vrhi_defines.h
+    vrhi_generated.h
+    vrhi_utils.h
     utest.h
-    "${GENERATED_HEADER}"
+    
+    vrhi_impl_backend.h
     test_impl_backend.cpp
+    
+    vrhi_impl_device.h
     test_impl_device.cpp
+    
+    vrhi_impl_texture.h
     test_impl_texture.cpp
+
+    vrhi_impl_buffer.h
+    test_impl_buffer.cpp
+    
     test_impl_definitions.cpp
 )
 

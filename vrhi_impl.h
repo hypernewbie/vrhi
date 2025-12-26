@@ -135,6 +135,7 @@ void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 #include "vrhi_impl_backend.h"
 #include "vrhi_impl_device.h"
 #include "vrhi_impl_texture.h"
+#include "vrhi_impl_buffer.h"
 #endif
 
 
