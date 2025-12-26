@@ -184,7 +184,6 @@ UTEST( RHI, Init )
     }
 
     // Test init
-    g_vhInit.debug = true;
     vhInit();
 
     // Verify globals
@@ -439,10 +438,133 @@ UTEST( Texture, CreateDestroyStressTest )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
+UTEST( Texture, Update )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhTexture tex = vhAllocTexture();
+    EXPECT_NE( tex, VRHI_INVALID_HANDLE );
+
+    const int width = 64;
+    const int height = 64;
+    const size_t dataSize = width * height * 4; // RGBA8
+    auto initialData = vhAllocMem( dataSize );
+    
+    // Fill with gibberish
+    for ( size_t i = 0; i < dataSize; ++i ) (*initialData)[i] = (uint8_t)( rand() % 256 );
+
+    vhCreateTexture2D(
+        tex,
+        glm::ivec2( width, height ),
+        1,
+        nvrhi::Format::RGBA8_UNORM,
+        VRHI_TEXTURE_SRGB,
+        initialData
+    );
+    vhFinish();
+
+    // Test 3 updates
+    for ( int i = 0; i < 3; ++i )
+    {
+        // New gibberish
+        auto updateData = vhAllocMem( dataSize );
+        for ( size_t k = 0; k < dataSize; ++k ) (*updateData)[k] = (uint8_t)( rand() % 256 );
+        
+        // Full update
+        vhUpdateTexture(
+            tex,
+            0, 0, // start mip, start layer
+            1, 1, // num mips, num layers
+            updateData
+        );
+                 
+        // Process
+        vhFinish();
+    }
+    
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+    
+    vhDestroyTexture( tex );
+    vhFinish();
+}
+
+UTEST( Texture, Readback )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhTexture tex = vhAllocTexture();
+    EXPECT_NE( tex, VRHI_INVALID_HANDLE );
+
+    const int width = 32;
+    const int height = 32;
+    const size_t dataSize = width * height * 4; // RGBA8
+    auto initialData = vhAllocMem( dataSize );
+    
+    // Fill with known pattern
+    for ( size_t i = 0; i < dataSize; ++i ) (*initialData)[i] = (uint8_t)( i % 255 );
+
+    vhCreateTexture2D(
+        tex,
+        glm::ivec2( width, height ),
+        1,
+        nvrhi::Format::RGBA8_UNORM,
+        VRHI_TEXTURE_SRGB,
+        initialData
+    );
+
+    // Initial data is freed by backend eventually, but we used new vhMem so the pointer is ours until passed
+    // Actually vhCreateTexture takes a pointer, we used helper vhAllocMem which does 'new', so it's a pointer.
+    // The previous code for CreateTexture2D takes const vhMem*.
+    // And Handle_vhCreateTexture uses BE_MemRAII. So it will be deleted.
+    // BUT wait, we want to VERIFY it. So we need a COPY of the data to compare against.
+    
+    std::vector<uint8_t> refData = *initialData; // Copy for verification
+
+    // Flush to ensure creation happens
+    vhFlush();
+
+    // Read back
+    vhMem readData;
+    vhReadTextureSlow( tex, 0, 0, &readData );
+
+    // Finish ensures GPU is done and readback is complete
+    vhFinish();
+
+    // Compare
+    EXPECT_EQ( readData.size(), dataSize );
+    if ( readData.size() == dataSize )
+    {
+        for ( size_t i = 0; i < dataSize; ++i )
+        {
+             EXPECT_EQ( readData[i], refData[i] );
+             if ( readData[i] != refData[i] ) break; // Fail fast
+        }
+    }
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+    
+    vhDestroyTexture( tex );
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
 {
+#ifndef NDEBUG
+    g_vhInit.debug = true;
+#endif
     int result = utest_main( argc, argv );
 
     if ( g_testInit )

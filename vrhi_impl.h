@@ -95,6 +95,9 @@ extern moodycamel::BlockingConcurrentQueue< void* > g_vhCmds;
 extern std::atomic<bool> g_vhCmdsQuit;
 extern std::thread g_vhCmdThread;
 extern std::atomic<bool> g_vhCmdThreadReady;
+extern std::vector< std::vector<uint8_t>* > g_vhMemList;
+extern std::mutex g_vhMemListMutex;
+extern uint64_t g_vhCmdListTransferSizeHeuristic;
 
 // Backend state struct forward declaration
 struct vhCmdBackendState;
@@ -116,6 +119,7 @@ void vhCmdRelease( T* cmd ) { if (cmd) delete cmd; }
 
 void vhCmdEnqueue( void* cmd );
 void vhCmdListFlushAll();
+void vhCmdListFlushTransferIfNeeded();
 
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[(uint64_t) nvrhi::CommandQueue::Count];
@@ -168,6 +172,8 @@ moodycamel::BlockingConcurrentQueue< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;
 std::thread g_vhCmdThread;
 std::atomic<bool> g_vhCmdThreadReady = false;
+std::vector< vhMem* > g_vhMemList;
+std::mutex g_vhMemListMutex;
 
 #ifndef VRHI_SHARDED_BUILD
 vhCmdBackendState g_vhCmdBackendState;
@@ -219,15 +225,40 @@ nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
     return g_vhCmdLists[typeIdx];
 }
 
+// Returns the instance ID of the executed command list.
+// Automatically inserts semaphore waits for downstream queues:
+// - Copy feeds Compute and Graphics
+// - Compute feeds Graphics
+//
 void vhCmdListFlush( nvrhi::CommandQueue type )
 {
     auto typeIdx = ( uint64_t ) type;
+    uint64_t instance = 0;
+
     if ( g_vhCmdLists[typeIdx] )
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         g_vhCmdLists[typeIdx]->close();
-        g_vhDevice->executeCommandList( g_vhCmdLists[typeIdx] );
+        
+        // Execute and get the instance ID for synchronization
+        instance = g_vhDevice->executeCommandList( g_vhCmdLists[typeIdx], type );
         g_vhCmdLists[typeIdx] = nullptr;
+        
+        // Automatic Synchronization
+        if ( instance )
+        {
+            if ( type == nvrhi::CommandQueue::Copy )
+            {
+                // Copy feeds Compute and Graphics
+                g_vhDevice->queueWaitForCommandList( nvrhi::CommandQueue::Compute, nvrhi::CommandQueue::Copy, instance );
+                g_vhDevice->queueWaitForCommandList( nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Copy, instance );
+            }
+            else if ( type == nvrhi::CommandQueue::Compute )
+            {
+                // Compute feeds Graphics
+                g_vhDevice->queueWaitForCommandList( nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, instance );
+            }
+        }
     }
 }
 
@@ -236,17 +267,20 @@ void vhCmdListFlushTransferIfNeeded()
     const uint64_t transferSizeThreshold = 1024 * 1024 * 16; // 16 MB
     if ( g_vhCmdListTransferSizeHeuristic > transferSizeThreshold )
     {
-        vhCmdListFlush( nvrhi::CommandQueue::Transfer );
+        vhCmdListFlush( nvrhi::CommandQueue::Copy );
         g_vhCmdListTransferSizeHeuristic = 0;
     }
 }
 
+
 void vhCmdListFlushAll()
 {
-    for ( uint64_t i = 0; i < (uint64_t) nvrhi::CommandQueue::Count; i++ )
-    {
-        vhCmdListFlush( ( nvrhi::CommandQueue ) i );
-    }
+    // The order here matters slightly for efficiency ( Flush upsteam first ),
+    // but the actual dependency correctness is handled by the waits inserted inside vhCmdListFlush.
+    
+    vhCmdListFlush( nvrhi::CommandQueue::Copy );
+    vhCmdListFlush( nvrhi::CommandQueue::Compute );
+    vhCmdListFlush( nvrhi::CommandQueue::Graphics );
 }
 
 #endif // VRHI_IMPL_DEFINITIONS
