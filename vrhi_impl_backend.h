@@ -58,6 +58,34 @@ struct vhCmdBackendState : public VIDLHandler
         return std::unique_ptr< vhMem >( const_cast< vhMem* >( mem ) );
     }
 
+    // RAII helper for the VIDL_* commands. Helps with syntax.
+    // Usage: BE_CmdRAII cmdRAII( cmd );
+    template< typename T >
+    struct BE_CmdRAII
+    {
+        T* ptr = nullptr;
+        BE_CmdRAII( T* ptr ) : ptr( ptr ) {}
+        ~BE_CmdRAII() { if ( ptr ) vhCmdRelease( ptr ); }
+
+        // Non-copyable (prevents double-free)
+        BE_CmdRAII( const BE_CmdRAII& ) = delete;
+        BE_CmdRAII& operator=( const BE_CmdRAII& ) = delete;
+
+        // Movable
+        BE_CmdRAII( BE_CmdRAII&& other ) noexcept : ptr( other.ptr ) { other.ptr = nullptr; }
+        BE_CmdRAII& operator=( BE_CmdRAII&& other ) noexcept
+        {
+            if ( this != &other )
+            {
+                if ( ptr ) vhCmdRelease( ptr );
+                ptr = other.ptr;
+                other.ptr = nullptr;
+            }
+            return *this;
+        }
+    };
+    template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
+
     void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) )
     {
         if ( !btex.handle || !data || !data->size() ) return;
@@ -236,6 +264,7 @@ public:
 
     void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
 
         if ( cmd->texture == VRHI_INVALID_HANDLE ||
@@ -244,7 +273,6 @@ public:
         {
             VRHI_ERR( "vhCreateTexture() : Invalid parameters! TexID %u %d x %d x %d mips %d layers %d format %d\n",
                 cmd->texture, cmd->dimensions.x, cmd->dimensions.y, cmd->dimensions.z, cmd->numMips, cmd->numLayers, cmd->format );
-            vhCmdRelease( cmd );
             return;
         }
 
@@ -270,7 +298,6 @@ public:
         if ( !texture )
         {
             VRHI_ERR( "vhCreateTexture() : Failed to create texture!\n" );
-            vhCmdRelease( cmd );
             return;
         }
 
@@ -293,50 +320,68 @@ public:
         }
 
         backendTextures[ cmd->texture ] = std::move( btex );
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->fullImageData );
     
         if ( !cmd->texture )
         {
-            vhCmdRelease( cmd );
             return;
         }
 
         if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
         {
             VRHI_ERR( "vhUpdateTexture() : Texture %d not found!\n", cmd->texture );
-            vhCmdRelease( cmd );
             return;
         }
 
         glm::ivec4 range = glm::ivec4( cmd->startMips, cmd->startMips + cmd->numMips, cmd->startLayers, cmd->startLayers + cmd->numLayers );
         BE_UpdateTexture( *backendTextures[ cmd->texture ], cmd->fullImageData, nvrhi::CommandQueue::Graphics, range );
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         // NO dataRAII here - outData is owned by the caller.
 
         if ( cmd->texture == VRHI_INVALID_HANDLE )
         {
-            vhCmdRelease( cmd );
             return;
         }
 
         if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
         {
             VRHI_ERR( "vhReadTextureSlow() : Texture %d not found!\n", cmd->texture );
-            vhCmdRelease( cmd );
             return;
         }
 
         BE_ReadTextureSlow( *backendTextures[ cmd->texture ], cmd->outData, cmd->mip, cmd->layer );
-        vhCmdRelease( cmd );
+    }
+
+    virtual void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto memRAII = BE_MemRAII( cmd->mem );
+
+        std::vector< vhVertexLayoutDef > layoutDefs;
+        if ( !vhParseVertexLayoutInternal( cmd->layout, layoutDefs ) )
+        {
+            VRHI_ERR( "vhCreateVertexBuffer() : Invalid vertex layout!\n" );
+            return;
+        }
+        
+        /*
+        auto vertexBufferDesc = nvrhi::BufferDesc()
+    .setByteSize(sizeof(g_Vertices))
+    .setIsVertexBuffer(true)
+    .enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
+    .setDebugName("Vertex Buffer");
+
+nvrhi::BufferHandle vertexBuffer = nvrhiDevice->createBuffer(vertexBufferDesc);
+        */
     }
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
