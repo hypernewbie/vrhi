@@ -21,6 +21,10 @@
 
 #pragma once
 
+#if !defined(_WIN32) && !defined(VK_USE_PLATFORM_XLIB_KHR)
+    #define VK_USE_PLATFORM_XLIB_KHR
+#endif
+
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES // Define this if you have these in PCH already.
 #include <cstdint>
 #include <string>
