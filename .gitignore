@@ -44,6 +44,7 @@ _deps/
 bin/
 lib_out/
 out/
+dependencies/
 
 # OS/Temp files
 .DS_Store

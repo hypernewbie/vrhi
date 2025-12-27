@@ -21,6 +21,10 @@
 
 #pragma once
 
+#if !defined(_WIN32)
+    #define VK_USE_PLATFORM_XLIB_KHR
+#endif
+
 // --------------------------------------------------------------------------
 // Common Includes & Logic
 // --------------------------------------------------------------------------
@@ -34,6 +38,22 @@
     #include <vulkan/vulkan_win32.h>
 #else
     #include <vulkan/vulkan.h>
+    // Undefine X11 macros that conflict with NVRHI and other libs
+    #ifdef None
+        #undef None
+    #endif
+    #ifdef Always
+        #undef Always
+    #endif
+    #ifdef TileShape
+        #undef TileShape
+    #endif
+    #ifdef Success
+        #undef Success
+    #endif
+    #ifdef Status
+        #undef Status
+    #endif
 #endif
 
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES

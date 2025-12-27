@@ -277,7 +277,7 @@ public:
         }
 
         // Create the NVRHI texture.
-        sprintf_s( temps, "Texture %d\n", cmd->texture );
+        snprintf( temps, sizeof(temps), "Texture %d\n", cmd->texture );
         auto textureDesc = nvrhi::TextureDesc()
             .setDimension( cmd->target )
             .setWidth( cmd->dimensions.x )

@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
+
+if(NOT WIN32)
+    set(CMAKE_C_COMPILER clang CACHE STRING "")
+    set(CMAKE_CXX_COMPILER clang++ CACHE STRING "")
+endif()
+
 project(vrhi_test CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -8,6 +14,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     add_compile_options(/W3 /wd4100 /MP) # W3: Standard warning level, wd4100: Ignore unused parameters, MP: Multi-processor compilation
+else()
+    add_compile_options(-w -stdlib=libc++) # Squish all warnings and use libc++
+    add_link_options(-stdlib=libc++ -lc++abi)
 endif()
 
 # Find Python Interpreter (Optional)
@@ -71,6 +80,11 @@ target_link_directories(vrhi_test PRIVATE
     $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
     $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
     $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
+    # Linux paths
+    $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_debug>
+    $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
+    $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
+    $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
 )
 
 # NVRHI and helper libraries
