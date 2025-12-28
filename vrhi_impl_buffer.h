@@ -42,6 +42,34 @@ int vhGetBaseTypeSize( const std::string& type )
     return 0;
 }
 
+// Parses a vertex layout string.
+// The layout string defines the vertex attributes structure in a whitespace-separated format.
+//
+// Format:
+//   "<Type><Count?> <Semantic><Index?> ..."
+//
+// Components:
+//   Type:      Base type of the attribute.
+//              Supported: float, half, int, uint, short, ushort, byte, ubyte
+//   Count:     (Optional) Number of components (vector size). Supported: 2, 3, 4.
+//              If omitted, defaults to 1 (scalar).
+//   Semantic:  Usage of the attribute. Must be ALL UPPERCASE letters.
+//              Example: POSITION, NORMAL, TEXCOORD, COLOR.
+//   Index:     (Optional) Semantic index (digits) at the end of the semantic.
+//              If omitted, defaults to 0.
+//
+// Validation Rules:
+//   - Types must be one of the supported base types.
+//   - Component counts must be 1, 2, 3, or 4.
+//   - Semantics must be uppercase.
+//   - Invalid characters or malformed tokens make the function return false.
+//
+// Examples:
+//   "float3 POSITION"                      -> float3 Position (Index 0)
+//   "float3 POSITION float2 TEXCOORD0"     -> float3 Position (0), float2 TexCoord (0)
+//   "ubyte4 COLOR"                         -> ubyte4 Color (0)
+//   "float3 POSITION0 float3 NORMAL"       -> float3 Position (0), float3 Normal (0)
+//
 template <bool EMIT_OUTPUT>
 bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayoutDef>* outDefs )
 {
@@ -186,3 +214,66 @@ int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def )
     return lastDef.offset + vhVertexLayoutDefSize( lastDef );
 }
 
+vhBuffer vhAllocBuffer()
+{
+    std::lock_guard<std::mutex> lock( g_vhBufferIDListMutex );
+    uint32_t id = g_vhBufferIDList.alloc();
+    g_vhBufferIDValid[id] = true;
+
+    vhResetBuffer( id );
+    return id;
+}
+
+void vhResetBuffer( vhBuffer buffer )
+{
+    if ( buffer == VRHI_INVALID_HANDLE ) return;
+
+    auto cmd = vhCmdAlloc<VIDL_vhResetBuffer>( buffer );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhDestroyBuffer( vhBuffer buffer )
+{
+    std::lock_guard<std::mutex> lock( g_vhBufferIDListMutex );
+
+    if ( g_vhBufferIDValid.find( buffer ) == g_vhBufferIDValid.end() )
+    {
+        // Invalid buffer handle
+        return;
+    }
+
+    g_vhBufferIDValid.erase( buffer );
+    g_vhBufferIDList.release( buffer );
+
+    // Queue up command to destroy the buffer
+    auto cmd = vhCmdAlloc<VIDL_vhDestroyBuffer>( buffer );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhCreateVertexBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* mem,
+    const vhVertexLayout layout,
+    uint16_t flags
+)
+{
+    if ( buffer == VRHI_INVALID_HANDLE ) return;
+
+    // Queue up command to create vertex buffer
+    auto cmd = vhCmdAlloc<VIDL_vhCreateVertexBuffer>( buffer, name, mem, layout, flags );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhUpdateVertexBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset
+)
+{
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateVertexBuffer>( buffer, data, offset );
+    vhCmdEnqueue( cmd );
+}

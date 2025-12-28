@@ -105,7 +105,18 @@ vhTexture vhAllocTexture()
     std::lock_guard< std::mutex > lock( g_vhTextureIDListMutex );
     uint32_t id = g_vhTextureIDList.alloc();
     g_vhTextureIDValid[id] = true;
+    
+    vhResetTexture( id );
     return id;
+}
+
+void vhResetTexture( vhTexture texture )
+{
+    if ( texture == VRHI_INVALID_HANDLE ) return;
+
+    auto cmd = vhCmdAlloc<VIDL_vhResetTexture>( texture );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
 }
 
 void vhDestroyTexture( vhTexture texture )

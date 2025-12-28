@@ -36,6 +36,13 @@ struct vhBackendTexture
     std::vector< vhTextureMipInfo > mipInfo;
 };
 
+struct vhBackendBuffer
+{
+    std::string name;
+    nvrhi::BufferHandle handle;
+    nvrhi::BufferDesc desc;
+};
+
 // Main backend thread state.
 //
 // WARNING: Serious systems-level multithreading code ahead. Proceed with caution. Hard hats required.
@@ -51,6 +58,7 @@ struct vhCmdBackendState : public VIDLHandler
     std::mutex backendMutex;
     char temps[1024];
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
+    std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
 
     // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
     std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
@@ -225,6 +233,33 @@ struct vhCmdBackendState : public VIDLHandler
         }
     }
 
+    void BE_UpdateBuffer( vhBackendBuffer& bbuf, nvrhi::CommandQueue queueType, uint64_t offset, const vhMem* data )
+    {
+        if ( !bbuf.handle || !data || !data->size() ) return;
+        printf("BE_UpdateBuffer Dummy Implementation\n");
+        
+        /* Commented out implementation as per request:
+        if ( offset + data->size() > bbuf.desc.byteSize )
+        {
+            VRHI_ERR( "vhUpdateVertexBuffer() : Update range [%llu, %llu] exceeds buffer size %llu!\n", 
+                offset, offset + data->size(), bbuf.desc.byteSize );
+            return;
+        }
+
+        auto cmdlist = vhCmdListGet( queueType );
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            cmdlist->writeBuffer( bbuf.handle, data->data(), data->size(), offset );
+        }
+
+        if ( queueType == nvrhi::CommandQueue::Copy )
+        {
+            g_vhCmdListTransferSizeHeuristic += data->size();
+            vhCmdListFlushTransferIfNeeded();
+        }
+        */
+    }
+
 public:
     void init()
     {
@@ -238,9 +273,26 @@ public:
         backendTextures.clear();
     }
 
+    void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) override
+    {
+        if ( cmd->texture == VRHI_INVALID_HANDLE )
+        {
+            vhCmdRelease( cmd );
+            return;
+        }
+
+        // Ensure entry exists to make subsequent Destroy/Update safe
+        if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
+        {
+            backendTextures[ cmd->texture ] = std::make_unique<vhBackendTexture>();
+        }
+
+        vhCmdRelease( cmd );
+    }
+
     void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override
     {
-        if ( !cmd->texture )
+        if ( cmd->texture == VRHI_INVALID_HANDLE )
         {
             vhCmdRelease( cmd );
             return;
@@ -267,8 +319,12 @@ public:
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
 
-        if ( cmd->texture == VRHI_INVALID_HANDLE ||
-            cmd->dimensions.x <= 0 || cmd->dimensions.y <= 0 || cmd->dimensions.z <= 0 ||
+        if ( cmd->texture == VRHI_INVALID_HANDLE )
+        {
+            VRHI_ERR( "vhCreateTexture() : Invalid texture handle!\n" );
+            return;
+        }
+        if ( cmd->dimensions.x <= 0 || cmd->dimensions.y <= 0 || cmd->dimensions.z <= 0 ||
             cmd->numMips == 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
         {
             VRHI_ERR( "vhCreateTexture() : Invalid parameters! TexID %u %d x %d x %d mips %d layers %d format %d\n",
@@ -315,7 +371,6 @@ public:
         if ( cmd->data )
         {
             // Texture creation just uses graphics queue for simplicity, as these happen rarely.
-            // Continual per-frame updates can use transfer queue.
             BE_UpdateTexture( *btex, cmd->data, nvrhi::CommandQueue::Graphics );
         }
 
@@ -327,7 +382,7 @@ public:
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->fullImageData );
     
-        if ( !cmd->texture )
+        if ( cmd->texture == VRHI_INVALID_HANDLE )
         {
             return;
         }
@@ -361,27 +416,148 @@ public:
         BE_ReadTextureSlow( *backendTextures[ cmd->texture ], cmd->outData, cmd->mip, cmd->layer );
     }
 
-    virtual void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override
+    void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override
+    {
+        if ( cmd->buffer == VRHI_INVALID_HANDLE )
+        {
+            vhCmdRelease( cmd );
+            return;
+        }
+
+        // Ensure entry exists to make subsequent Destroy/Update safe
+        if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
+        {
+            backendBuffers[ cmd->buffer ] = std::make_unique<vhBackendBuffer>();
+        }
+
+        vhCmdRelease( cmd );
+    }
+
+    void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
         auto memRAII = BE_MemRAII( cmd->mem );
 
+        if ( cmd->buffer == VRHI_INVALID_HANDLE )
+        {
+            VRHI_ERR( "vhCreateVertexBuffer() : Invalid buffer handle!\n" );
+            return;
+        }
+        
         std::vector< vhVertexLayoutDef > layoutDefs;
         if ( !vhParseVertexLayoutInternal( cmd->layout, layoutDefs ) )
         {
             VRHI_ERR( "vhCreateVertexBuffer() : Invalid vertex layout!\n" );
             return;
         }
+        size_t layoutDefSize = vhVertexLayoutDefSize(layoutDefs);
+        if ( layoutDefSize == 0 )
+        {
+            VRHI_ERR( "vhCreateVertexBuffer() : Vertex layout has 0 size!\n" );
+            return;
+        }
         
-        /*
-        auto vertexBufferDesc = nvrhi::BufferDesc()
-    .setByteSize(sizeof(g_Vertices))
-    .setIsVertexBuffer(true)
-    .enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
-    .setDebugName("Vertex Buffer");
 
-nvrhi::BufferHandle vertexBuffer = nvrhiDevice->createBuffer(vertexBufferDesc);
-        */
+        /*
+        struct VIDL_vhCreateVertexBuffer
+{
+    static constexpr uint64_t kMagic = 0xBBF8D184;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const char* name;
+    const vhMem* mem;
+    const vhVertexLayout layout;
+    uint16_t flags = VRHI_BUFFER_NONE;*/
+
+        
+        
+        // Parse layout
+        // NOTE: We allow overwriting existing entry from Reset
+        if ( backendBuffers.find( cmd->buffer ) != backendBuffers.end() && backendBuffers[cmd->buffer]->handle )
+        {
+            VRHI_ERR( "vhCreateVertexBuffer() : Buffer %d already exists!\n", cmd->buffer );
+            return;
+        }
+
+        // Validate memory presence for static buffers (for now we assume all are static/initialized)
+        if ( !cmd->mem || cmd->mem->empty() )
+        {
+            VRHI_ERR( "vhCreateVertexBuffer() : Memory buffer is empty or null, cannot determine size!\n" );
+            return;
+        }
+        uint64_t byteSize = cmd->mem->size();
+
+        // Create the NVRHI buffer
+        if ( !cmd->name || !cmd->name[0] ) snprintf( temps, sizeof(temps), "VertexBuffer %d", cmd->buffer );
+        auto bufferDesc = nvrhi::BufferDesc()
+            .setByteSize( byteSize )
+            .setIsVertexBuffer( true )
+            .enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
+            .setDebugName( (cmd->name && cmd->name[0]) ? cmd->name : temps );
+
+        nvrhi::BufferHandle buffer = nullptr;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            buffer = g_vhDevice->createBuffer( bufferDesc );
+        }
+
+        if ( !buffer )
+        {
+            VRHI_ERR( "vhCreateVertexBuffer() : Failed to create buffer!\n" );
+            return;
+        }
+
+        auto bbuf = std::make_unique<vhBackendBuffer>();
+        bbuf->handle = buffer;
+        bbuf->name = (cmd->name && cmd->name[0]) ? cmd->name : temps;
+        bbuf->desc = bufferDesc;
+
+        // TODO: Upload initial data if cmd->mem is provided
+        if ( cmd->mem )
+        {
+            BE_UpdateBuffer( *bbuf, nvrhi::CommandQueue::Graphics, 0, cmd->mem );
+        }
+
+        backendBuffers[ cmd->buffer ] = std::move( bbuf );
+    }
+
+    void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+
+        if ( cmd->buffer == VRHI_INVALID_HANDLE ) return;
+
+        if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
+        {
+            VRHI_ERR( "vhUpdateVertexBuffer() : Buffer %d not found!\n", cmd->buffer );
+            return;
+        }
+
+        BE_UpdateBuffer( *backendBuffers[ cmd->buffer ], nvrhi::CommandQueue::Graphics, cmd->offset, cmd->data );
+    }
+
+    void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override
+    {
+        if ( cmd->buffer == VRHI_INVALID_HANDLE )
+        {
+            vhCmdRelease( cmd );
+            return;
+        }
+
+        if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
+        {
+            VRHI_ERR( "vhDestroyBuffer() : Buffer %d not found!\n", cmd->buffer );
+            vhCmdRelease( cmd );
+            return;
+        }
+
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            backendBuffers.erase( cmd->buffer );
+        }
+        
+        vhCmdRelease( cmd );
     }
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override

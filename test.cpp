@@ -634,6 +634,140 @@ UTEST( Buffer, VertexLayoutInternals )
     }
 }
 
+UTEST( Buffer, Allocation )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    vhBuffer b1 = vhAllocBuffer();
+    vhBuffer b2 = vhAllocBuffer();
+    vhBuffer b3 = vhAllocBuffer();
+
+    EXPECT_NE( b1, VRHI_INVALID_HANDLE );
+    EXPECT_NE( b2, VRHI_INVALID_HANDLE );
+    EXPECT_NE( b3, VRHI_INVALID_HANDLE );
+
+    EXPECT_NE( b1, b2 );
+    EXPECT_NE( b2, b3 );
+    EXPECT_NE( b1, b3 );
+
+    vhDestroyBuffer( b1 );
+    vhDestroyBuffer( b2 );
+    vhDestroyBuffer( b3 );
+    vhFlush();
+}
+
+UTEST( Texture, Allocation )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    vhTexture t1 = vhAllocTexture();
+    vhTexture t2 = vhAllocTexture();
+    vhTexture t3 = vhAllocTexture();
+
+    EXPECT_NE( t1, VRHI_INVALID_HANDLE );
+    EXPECT_NE( t2, VRHI_INVALID_HANDLE );
+    EXPECT_NE( t3, VRHI_INVALID_HANDLE );
+
+    EXPECT_NE( t1, t2 );
+    EXPECT_NE( t2, t3 );
+    EXPECT_NE( t1, t3 );
+
+    vhDestroyTexture( t1 );
+    vhDestroyTexture( t2 );
+    vhDestroyTexture( t3 );
+    vhFlush();
+}
+
+UTEST( Buffer, UpdateSafety )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    vhFlush(); // Ensure clean state from previous tests
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 1. Invalid Handle
+    vhUpdateVertexBuffer( VRHI_INVALID_HANDLE, nullptr, 0 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 2. Non-existent Buffer
+    vhUpdateVertexBuffer( 0xDEADC0DE, nullptr, 0 );
+    vhFlush();
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+    startErrors = g_vhErrorCounter.load();
+
+    // 3. Null Data
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "NullDataTest", vhAllocMem( 1024 ), "float3 POSITION" );
+    vhUpdateVertexBuffer( buf, nullptr, 0 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 4. Destroyed Buffer
+    vhDestroyBuffer( buf );
+    vhFlush();
+    vhUpdateVertexBuffer( buf, vhAllocMem( 100 ), 0 );
+    vhFlush();
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+}
+
+UTEST( Buffer, DoubleCreation )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "DoubleCreate", vhAllocMem( 1024 ), "float3 POSITION" );
+    vhCreateVertexBuffer( buf, "DoubleCreate2", vhAllocMem( 1024 ), "float3 POSITION" );
+    vhFlush();
+
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
+UTEST( Buffer, UpdateFunctionality )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "UpdateTest", vhAllocMem( 1024 ), "float3 POSITION" );
+    
+    // Basic Update
+    vhUpdateVertexBuffer( buf, vhAllocMem( 256 ), 0 );
+    
+    // Offset Update
+    vhUpdateVertexBuffer( buf, vhAllocMem( 100 ), 512 );
+    
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
