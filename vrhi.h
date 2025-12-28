@@ -33,6 +33,20 @@
 #include <glm/glm.hpp>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
+#ifdef VK_USE_PLATFORM_XLIB_KHR
+// We need to proactively include vulkan on Linux / mac and undefine the stupid common name macro defines from X11.
+#include <vulkan/vulkan.h>
+#ifdef None
+    #undef None
+#endif
+    #ifdef Always
+    #undef Always
+#endif
+    #ifdef TileShape
+    #undef TileShape
+#endif
+#endif // #if VK_USE_PLATFORM_XLIB_KHR
+
 #include <nvrhi/vulkan.h>
 #include "vrhi_defines.h"
 
