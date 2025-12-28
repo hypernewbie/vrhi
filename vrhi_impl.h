@@ -109,6 +109,9 @@ extern uint32_t g_QueueFamilyTransfer;
 extern vhAllocatorObjectFreeList g_vhTextureIDList;
 extern std::unordered_map< vhTexture, bool > g_vhTextureIDValid;
 extern std::mutex g_vhTextureIDListMutex;
+extern vhAllocatorObjectFreeList g_vhBufferIDList;
+extern std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
+extern std::mutex g_vhBufferIDListMutex;
 
 // Command Queue
 extern moodycamel::BlockingConcurrentQueue< void* > g_vhCmds;
@@ -200,6 +203,10 @@ uint32_t g_QueueFamilyTransfer = (uint32_t)-1;
 vhAllocatorObjectFreeList g_vhTextureIDList( 256 );
 std::unordered_map< vhTexture, bool > g_vhTextureIDValid;
 std::mutex g_vhTextureIDListMutex;
+
+vhAllocatorObjectFreeList g_vhBufferIDList( 256 );
+std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
+std::mutex g_vhBufferIDListMutex;
 
 moodycamel::BlockingConcurrentQueue< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;

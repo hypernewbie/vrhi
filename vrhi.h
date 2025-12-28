@@ -64,6 +64,7 @@ struct vhInitData
 };
 
 typedef uint32_t vhTexture;
+typedef uint32_t vhBuffer;
 typedef std::vector<uint8_t> vhMem;
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
@@ -73,7 +74,7 @@ extern std::atomic<int32_t> g_vhErrorCounter;
 // Interface
 // --------------------------------------------------------------------------
 
-// Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h.
+// Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h
 // Cmake should automatically do this already.
 
 // ------------ Device ------------
@@ -121,6 +122,17 @@ inline vhMem* vhAllocMem( const std::vector< uint8_t >& data )
 //
 // Returns a valid |vhTexture| handle, or |VRHI_INVALID_HANDLE| on failure.
 vhTexture vhAllocTexture();
+
+// VIDL_GENERATE
+void vhResetTexture( vhTexture texture );
+
+// Allocates a unique buffer handle.
+//
+// Returns a valid |vhBuffer| handle, or |VRHI_INVALID_HANDLE| on failure.
+vhBuffer vhAllocBuffer();
+
+// VIDL_GENERATE
+void vhResetBuffer( vhBuffer buffer );
 
 struct vhFormatInfo
 {
@@ -279,15 +291,37 @@ typedef std::string vhVertexLayout;
 bool vhValidateVertexLayout( const vhVertexLayout& layout );
 
 
-//VertexBufferHandle bgfx::createVertexBuffer(const Memory *_mem, const VertexLayout &_layout, uint16_t _flags = BGFX_BUFFER_NONE)
+// Allocates a unique buffer handle.
+//
+// Returns a valid |vhBuffer| handle, or |VRHI_INVALID_HANDLE| on failure.
+vhBuffer vhAllocBuffer();
 
 // VIDL_GENERATE
 void vhCreateVertexBuffer(
+    vhBuffer buffer,
     const char* name,
     const vhMem* mem,
     const vhVertexLayout layout,
     uint16_t flags = VRHI_BUFFER_NONE
 );
+
+// Enqueues a command to update a buffer with the specified data.
+//
+// |buffer| is the handle to the buffer to update.
+// |data| is the source data. Takes ownership of the memory.
+// |offset| is the byte offset within the buffer to start writing.
+// VIDL_GENERATE
+void vhUpdateVertexBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset = 0
+);
+
+// Enqueues a command to destroy the buffer associated with |buffer|.
+//
+// |buffer| is the handle to the buffer to be destroyed.
+// VIDL_GENERATE
+void vhDestroyBuffer( vhBuffer buffer );
 
 // --------------------------------------------------------------------------
 // Implementation
