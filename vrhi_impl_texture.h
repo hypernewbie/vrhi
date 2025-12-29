@@ -98,6 +98,14 @@ void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t &p
 	pitchSize = arraySize * info.arrayLayers;
 }
 
+int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel )
+{
+    ( void ) mipLevel;
+    if ( extent.x <= 0 || extent.y <= 0 || extent.z <= 0 ) return 0;
+    auto sinfo = vhGetImageSliceSize( info, extent );
+    return ( int64_t ) sinfo.x * extent.z;
+}
+
 // ------------ Texture Implementation ------------
 
 vhTexture vhAllocTexture()
@@ -180,13 +188,15 @@ void vhUpdateTexture(
     vhTexture texture,
     int startMips, int startLayers,
     int numMips, int numLayers,
-    const vhMem* fullImageData
+    const vhMem* fullImageData,
+    glm::ivec3 offset,
+    glm::ivec3 extent
 )
 {
     if ( !fullImageData ) return;
 
     // Queue up command to update texture
-    auto cmd = vhCmdAlloc<VIDL_vhUpdateTexture>( texture, startMips, startLayers, numMips, numLayers, fullImageData );
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateTexture>( texture, startMips, startLayers, numMips, numLayers, fullImageData, offset, extent );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
@@ -207,4 +217,20 @@ void vhReadTextureSlow(
     
     // Wait for readback to complete
     vhFinish();
+}
+
+void vhBlitTexture(
+    vhTexture dst, vhTexture src,
+    int dstMip, int srcMip,
+    int dstLayer, int srcLayer,
+    glm::ivec3 dstOffset, glm::ivec3 srcOffset,
+    glm::ivec3 extent
+)
+{
+    if ( dst == VRHI_INVALID_HANDLE || src == VRHI_INVALID_HANDLE ) return;
+
+    // Queue up command to blit texture
+    auto cmd = vhCmdAlloc<VIDL_vhBlitTexture>( dst, src, dstMip, srcMip, dstLayer, srcLayer, dstOffset, srcOffset, extent );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
 }
