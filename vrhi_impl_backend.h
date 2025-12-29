@@ -434,21 +434,51 @@ public:
     void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto dataRAII = BE_MemRAII( cmd->fullImageData );
+        auto dataRAII = BE_MemRAII( cmd->data );
     
         if ( cmd->texture == VRHI_INVALID_HANDLE )
         {
             return;
         }
 
-        if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
+        auto it = backendTextures.find( cmd->texture );
+        if ( it == backendTextures.end() )
         {
             VRHI_ERR( "vhUpdateTexture() : Texture %d not found!\n", cmd->texture );
             return;
         }
+        auto& btex = *it->second;
+
+        glm::ivec3 extent = cmd->extent;
+        if ( cmd->numMips == 1 )
+        {
+            if ( extent.x == -1 ) extent.x = btex.mipInfo[cmd->startMips].dimensions.x - cmd->offset.x;
+            if ( extent.y == -1 ) extent.y = btex.mipInfo[cmd->startMips].dimensions.y - cmd->offset.y;
+            if ( extent.z == -1 ) extent.z = btex.mipInfo[cmd->startMips].dimensions.z - cmd->offset.z;
+
+            if ( !vhVerifyRegionInTexture( vhGetFormat( btex.info.format ), btex.mipInfo[cmd->startMips].dimensions, cmd->offset, extent, "vhUpdateTexture" ) )
+            {
+                return;
+            }
+
+            int64_t expectedSize = vhGetRegionDataSize( vhGetFormat( btex.info.format ), extent, cmd->startMips ) * cmd->numLayers;
+            if ( ( int64_t ) cmd->data->size() < expectedSize )
+            {
+                VRHI_ERR( "vhUpdateTexture(): Data size %llu is too small for region [%d, %d, %d], expected %llu\n", ( uint64_t ) cmd->data->size(), extent.x, extent.y, extent.z, ( uint64_t ) expectedSize );
+                return;
+            }
+        }
+        else
+        {
+            if ( cmd->offset != glm::ivec3( 0 ) || cmd->extent != glm::ivec3( -1 ) )
+            {
+                VRHI_ERR( "vhUpdateTexture(): Partial region updates are only supported for single mip updates.\n" );
+                return;
+            }
+        }
 
         glm::ivec4 range = glm::ivec4( cmd->startMips, cmd->startMips + cmd->numMips, cmd->startLayers, cmd->startLayers + cmd->numLayers );
-        BE_UpdateTexture( *backendTextures[ cmd->texture ], cmd->fullImageData, nvrhi::CommandQueue::Graphics, range, cmd->offset, cmd->extent );
+        BE_UpdateTexture( btex, cmd->data, nvrhi::CommandQueue::Graphics, range, cmd->offset, extent );
     }
 
     void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override
@@ -479,16 +509,44 @@ public:
             return;
         }
 
-        if ( backendTextures.find( cmd->dst ) == backendTextures.end() ||
-             backendTextures.find( cmd->src ) == backendTextures.end() )
+        auto itDst = backendTextures.find( cmd->dst );
+        auto itSrc = backendTextures.find( cmd->src );
+        if ( itDst == backendTextures.end() || itSrc == backendTextures.end() )
         {
             VRHI_ERR( "vhBlitTexture() : Texture handle(s) %d or %d not found!\n", cmd->dst, cmd->src );
             return;
         }
+        auto& bdst = *itDst->second;
+        auto& bsrc = *itSrc->second;
 
-        BE_BlitTexture( *backendTextures[ cmd->dst ], *backendTextures[ cmd->src ], 
-                        cmd->dstMip, cmd->srcMip, cmd->dstLayer, cmd->srcLayer, 
-                        cmd->dstOffset, cmd->srcOffset, cmd->extent );
+        glm::ivec3 extent = cmd->extent;
+        if ( extent.x <= 0 || extent.y <= 0 )
+        {
+            if ( cmd->srcMip >= 0 && cmd->srcMip < ( int ) bsrc.mipInfo.size() )
+                extent = bsrc.mipInfo[cmd->srcMip].dimensions;
+        }
+
+        if ( cmd->srcMip < 0 || cmd->srcMip >= ( int ) bsrc.mipInfo.size() )
+        {
+            VRHI_ERR( "vhBlitTexture: srcMip %d out of range (0..%d)\n", cmd->srcMip, ( int ) bsrc.mipInfo.size() - 1 );
+            return;
+        }
+        if ( !vhVerifyRegionInTexture( vhGetFormat( bsrc.info.format ), bsrc.mipInfo[cmd->srcMip].dimensions, cmd->srcOffset, extent, "vhBlitTexture Source" ) )
+        {
+            return;
+        }
+
+        if ( cmd->dstMip < 0 || cmd->dstMip >= ( int ) bdst.mipInfo.size() )
+        {
+            VRHI_ERR( "vhBlitTexture: dstMip %d out of range (0..%d)\n", cmd->dstMip, ( int ) bdst.mipInfo.size() - 1 );
+            return;
+        }
+        if ( !vhVerifyRegionInTexture( vhGetFormat( bdst.info.format ), bdst.mipInfo[cmd->dstMip].dimensions, cmd->dstOffset, extent, "vhBlitTexture Dest" ) )
+        {
+            return;
+        }
+
+        BE_BlitTexture( bdst, bsrc, cmd->dstMip, cmd->srcMip, cmd->dstLayer, cmd->srcLayer, cmd->dstOffset, cmd->srcOffset, extent );
     }
 
     void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override

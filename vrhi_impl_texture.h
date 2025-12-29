@@ -106,6 +106,29 @@ int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mi
     return ( int64_t ) sinfo.x * extent.z;
 }
 
+bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions, glm::ivec3 offset, glm::ivec3 extent, const char* debugName )
+{
+    if ( extent.x < 0 || extent.y < 0 || extent.z < 0 )
+    {
+        VRHI_ERR( "%s: Invalid extent (%d, %d, %d)\n", debugName, extent.x, extent.y, extent.z );
+        return false;
+    }
+    if ( offset.x < 0 || offset.y < 0 || offset.z < 0 )
+    {
+        VRHI_ERR( "%s: Invalid offset (%d, %d, %d)\n", debugName, offset.x, offset.y, offset.z );
+        return false;
+    }
+    if ( offset.x + extent.x > mipDimensions.x ||
+         offset.y + extent.y > mipDimensions.y ||
+         offset.z + extent.z > mipDimensions.z )
+    {
+        VRHI_ERR( "%s: Region [%d, %d, %d] + [%d, %d, %d] exceeds mip dimensions [%d, %d, %d]\n",
+            debugName, offset.x, offset.y, offset.z, extent.x, extent.y, extent.z, mipDimensions.x, mipDimensions.y, mipDimensions.z );
+        return false;
+    }
+    return true;
+}
+
 // ------------ Texture Implementation ------------
 
 vhTexture vhAllocTexture()
@@ -188,15 +211,15 @@ void vhUpdateTexture(
     vhTexture texture,
     int startMips, int startLayers,
     int numMips, int numLayers,
-    const vhMem* fullImageData,
+    const vhMem* data,
     glm::ivec3 offset,
     glm::ivec3 extent
 )
 {
-    if ( !fullImageData ) return;
+    if ( !data ) return;
 
     // Queue up command to update texture
-    auto cmd = vhCmdAlloc<VIDL_vhUpdateTexture>( texture, startMips, startLayers, numMips, numLayers, fullImageData, offset, extent );
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateTexture>( texture, startMips, startLayers, numMips, numLayers, data, offset, extent );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }

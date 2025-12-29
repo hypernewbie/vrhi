@@ -1139,6 +1139,61 @@ UTEST( Texture, RegionDataSize_R8 )
     EXPECT_EQ( size, 10000 );
 }
 
+UTEST( Texture, RegionVerification )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( tex, glm::ivec2( 64, 64 ), 2, nvrhi::Format::RGBA8_UNORM );
+    vhFlush();
+
+    // 1. Valid Update
+    vhUpdateTexture( tex, 0, 0, 1, 1, vhAllocMem( 16 * 16 * 4 ), glm::ivec3( 0, 0, 0 ), glm::ivec3( 16, 16, 1 ) );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 2. Invalid Update (OOB)
+    vhUpdateTexture( tex, 0, 0, 1, 1, vhAllocMem( 16 * 16 * 4 ), glm::ivec3( 50, 50, 0 ), glm::ivec3( 20, 20, 1 ) );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 1 );
+    startErrors = g_vhErrorCounter.load();
+
+    // 3. Invalid Data Size
+    vhUpdateTexture( tex, 0, 0, 1, 1, vhAllocMem( 100 ), glm::ivec3( 0, 0, 0 ), glm::ivec3( 16, 16, 1 ) );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 1 );
+    startErrors = g_vhErrorCounter.load();
+
+    // 4. Valid Blit (Full)
+    vhTexture src = vhAllocTexture();
+    vhCreateTexture2D( src, glm::ivec2( 32, 32 ), 1, nvrhi::Format::RGBA8_UNORM );
+    vhBlitTexture( tex, src, 0, 0 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 5. Invalid Blit (OOB Src)
+    vhBlitTexture( tex, src, 0, 0, 0, 0, glm::ivec3( 0 ), glm::ivec3( 10, 10, 0 ), glm::ivec3( 30, 30, 1 ) );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 1 );
+    startErrors = g_vhErrorCounter.load();
+
+    // 6. Invalid Blit (OOB Dst)
+    vhBlitTexture( tex, src, 0, 0, 0, 0, glm::ivec3( 50, 50, 0 ), glm::ivec3( 0 ), glm::ivec3( 20, 20, 1 ) );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 1 );
+    startErrors = g_vhErrorCounter.load();
+
+    vhDestroyTexture( tex );
+    vhDestroyTexture( src );
+    vhFlush();
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )

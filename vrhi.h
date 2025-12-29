@@ -256,15 +256,15 @@ inline void vhCreateTextureCubeArray(
 // |texture| is the handle to the texture to update.
 // |startMips| and |startLayers| define the beginning of the range.
 // |numMips| and |numLayers| define the size of the range.
-// |fullImageData| contains the pixel data for the entire texture. Takes ownership of the memory.
+// |data| contains the pixel data for the entire texture. Takes ownership of the memory.
 // VIDL_GENERATE
 void vhUpdateTexture(
     vhTexture texture,
     int startMips = 0, int startLayers = 0,
     int numMips = 1, int numLayers = 1,
-    const vhMem* fullImageData = nullptr,
-    glm::ivec3 offset = glm::ivec3(0),
-    glm::ivec3 extent = glm::ivec3(-1)
+    const vhMem* data = nullptr,
+    glm::ivec3 offset = glm::ivec3( 0 ),
+    glm::ivec3 extent = glm::ivec3( -1 )
 );
 
 // Enqueues a command to read a subresource range of a texture.
