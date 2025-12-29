@@ -43,8 +43,10 @@ struct vhBackendBuffer
     nvrhi::BufferDesc desc;
 };
 
-// Main backend thread state.
-//
+// --------------------------------------------------------------------------
+// Main Backend State
+// --------------------------------------------------------------------------
+
 // WARNING: Serious systems-level multithreading code ahead. Proceed with caution. Hard hats required.
 // The backend thread is the thread that calls into NVRHI. It is the only thread that calls into NVRHI
 // other than init / shutdown special case when backend thread isn't running.
@@ -52,9 +54,13 @@ struct vhBackendBuffer
 // vhCmdBackendState is protected by backendMutex. It is the only place where backendMutex is used.
 // This mutex guards access to vhCmdBackendState members. It does not guard the nvRHI state, which is g_nvRHIStateMutex.
 // g_nvRHIStateMutex still needs to be locked when accessing the nvRHI state.
-//
+
 struct vhCmdBackendState : public VIDLHandler
 {
+    // --------------------------------------------------------------------------
+    // Backend :: State Management Variables
+    // --------------------------------------------------------------------------
+
     std::mutex backendMutex;
     char temps[1024];
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
@@ -65,6 +71,10 @@ struct vhCmdBackendState : public VIDLHandler
     {
         return std::unique_ptr< vhMem >( const_cast< vhMem* >( mem ) );
     }
+
+    // --------------------------------------------------------------------------
+    // Backend :: Utils & Helpers
+    // --------------------------------------------------------------------------
 
     // RAII helper for the VIDL_* commands. Helps with syntax.
     // Usage: BE_CmdRAII cmdRAII( cmd );
@@ -92,7 +102,13 @@ struct vhCmdBackendState : public VIDLHandler
             return *this;
         }
     };
-    template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
+
+    // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
+    template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; 
+
+    // --------------------------------------------------------------------------
+    // Backend :: Complex BE Low Level NVRHI Device Functions
+    // --------------------------------------------------------------------------
 
     void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ), glm::ivec3 offset = glm::ivec3( 0 ), glm::ivec3 extent = glm::ivec3( -1 ) )
     {
@@ -132,19 +148,75 @@ struct vhCmdBackendState : public VIDLHandler
             if ( queueType == nvrhi::CommandQueue::Copy )
             {
                 cmdlist->setEnableAutomaticBarriers( false );
+                cmdlist->setInitialState( nvrhi::ResourceStates::CopyDestination );
             }
             
             for ( int32_t layer = layerStart; layer < layerEnd; ++layer )
             {
-                const uint8_t* srcPtr = data->data() + ( size_t ) layer * btex.arraySize;
+                const uint8_t* layerSrcPtr = data->data() + ( size_t ) layer * btex.arraySize;
                 for ( int32_t mip = mipStart; mip < mipEnd; ++mip )
                 {
                     if ( mip >= ( int32_t ) btex.mipInfo.size() )
                         break;
 
                     const auto& mipData = btex.mipInfo[mip];
-                    size_t depthPitch = ( btex.info.target == nvrhi::TextureDimension::Texture3D ) ? mipData.slice_size : 0;
-                    cmdlist->writeTexture( btex.handle, layer, mip, srcPtr + mipData.offset, mipData.pitch, depthPitch );
+                    
+                    // Create staging texture for this mip/layer
+                    // Staging texture is a basic 1D / 2D / 3D resource
+                    nvrhi::TextureDesc stagingDesc = btex.handle->getDesc();
+                    stagingDesc.width = mipData.dimensions.x;
+                    stagingDesc.height = mipData.dimensions.y;
+                    stagingDesc.depth = mipData.dimensions.z;
+                    stagingDesc.mipLevels = 1;
+                    stagingDesc.arraySize = 1;
+                    stagingDesc.isVirtual = false;
+                    stagingDesc.isRenderTarget = false;
+                    stagingDesc.isUAV = false;
+                    stagingDesc.initialState = nvrhi::ResourceStates::Common;
+                    stagingDesc.keepInitialState = false;
+                    stagingDesc.debugName = "UpdateTexture Staging";
+                    if ( stagingDesc.dimension == nvrhi::TextureDimension::TextureCube || 
+                         stagingDesc.dimension == nvrhi::TextureDimension::TextureCubeArray ||
+                         stagingDesc.dimension == nvrhi::TextureDimension::Texture2DArray )
+                    {
+                        stagingDesc.dimension = nvrhi::TextureDimension::Texture2D;
+                    }
+                    else if ( stagingDesc.dimension == nvrhi::TextureDimension::Texture1DArray )
+                    {
+                        stagingDesc.dimension = nvrhi::TextureDimension::Texture1D;
+                    }
+
+                    nvrhi::StagingTextureHandle stagingTex = g_vhDevice->createStagingTexture( stagingDesc, nvrhi::CpuAccessMode::Write );
+                    if ( !stagingTex ) continue;
+
+                    const uint8_t* srcMipPtr = layerSrcPtr + mipData.offset;
+
+                    // Map and copy data slice by slice to handle 3D textures and potential pitch differences
+                    for ( int32_t z = 0; z < mipData.dimensions.z; ++z )
+                    {
+                        size_t rowPitch = 0;
+                        void* pMapped = g_vhDevice->mapStagingTexture( stagingTex, nvrhi::TextureSlice().setMipLevel( 0 ).setArraySlice( 0 ).setOrigin( 0, 0, z ).setSize( uint32_t( -1 ), uint32_t( -1 ), 1 ), nvrhi::CpuAccessMode::Write, &rowPitch );
+                        if ( pMapped )
+                        {
+                            const uint8_t* srcSlicePtr = srcMipPtr + ( size_t ) z * mipData.slice_size;
+                            uint8_t* dstSlicePtr = ( uint8_t* ) pMapped;
+                            for ( int32_t y = 0; y < mipData.dimensions.y; ++y )
+                            {
+                                memcpy( dstSlicePtr + ( size_t ) y * rowPitch, srcSlicePtr + ( size_t ) y * mipData.pitch, mipData.pitch );
+                            }
+                            g_vhDevice->unmapStagingTexture( stagingTex );
+                        }
+                    }
+
+                    nvrhi::TextureSlice dstSlice;
+                    dstSlice.mipLevel = mip;
+                    dstSlice.arraySlice = layer;
+                    dstSlice.x = 0; dstSlice.y = 0; dstSlice.z = 0;
+                    dstSlice.width = mipData.dimensions.x;
+                    dstSlice.height = mipData.dimensions.y;
+                    dstSlice.depth = mipData.dimensions.z;
+
+                    cmdlist->copyTexture( btex.handle, dstSlice, stagingTex, nvrhi::TextureSlice().setMipLevel( 0 ).setArraySlice( 0 ) );
                 }
             }
             
@@ -203,6 +275,30 @@ struct vhCmdBackendState : public VIDLHandler
         // Use cmdlist->copyTexture or a scaling blit if dimensions differ
         
         */
+        // Higher level layers should already handle the validation.
+        assert ( srcMip >= 0 && srcMip < bsrc.info.mipLevels );
+        assert ( dstMip >= 0 && dstMip < bdst.info.mipLevels );
+        assert ( srcLayer >= 0 && srcLayer < bsrc.info.arrayLayers );
+        assert ( dstLayer >= 0 && dstLayer < bdst.info.arrayLayers );
+
+        nvrhi::TextureSlice srcSlice;
+        srcSlice.mipLevel = srcMip;
+        srcSlice.arraySlice = srcLayer;
+        srcSlice.x = srcOffset.x; srcSlice.y = srcOffset.y; srcSlice.z = srcOffset.z;
+        srcSlice.width = extent.x; srcSlice.height = extent.y; srcSlice.depth = extent.z;
+
+        nvrhi::TextureSlice dstSlice;
+        dstSlice.mipLevel = dstMip;
+        dstSlice.arraySlice = dstLayer;
+        dstSlice.x = dstOffset.x; dstSlice.y = dstOffset.y; dstSlice.z = dstOffset.z;
+        dstSlice.width = extent.x; dstSlice.height = extent.y; dstSlice.depth = extent.z;
+
+        // Acquire command list and execute copy
+        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            cmdlist->copyTexture( bdst.handle, dstSlice, bsrc.handle, srcSlice );
+        }
     }
 
     void BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer )
@@ -326,6 +422,10 @@ public:
         std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
         backendTextures.clear();
     }
+
+    // --------------------------------------------------------------------------
+    // Backend :: VIDL Command Handlers
+    // --------------------------------------------------------------------------
 
     void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) override
     {
@@ -589,22 +689,6 @@ public:
             VRHI_ERR( "vhCreateVertexBuffer() : Vertex layout has 0 size!\n" );
             return;
         }
-        
-        /*
-        struct VIDL_vhCreateVertexBuffer
-{
-    static constexpr uint64_t kMagic = 0xBBF8D184;
-    uint64_t MAGIC = kMagic;
-    vhBuffer buffer;
-    const char* name;
-    const vhMem* mem;
-    const vhVertexLayout layout;
-    uint16_t flags = VRHI_BUFFER_NONE;*/
-
-        
-        
-        // Parse layout
-        // NOTE: We allow overwriting existing entry from Reset
         if ( backendBuffers.find( cmd->buffer ) != backendBuffers.end() && backendBuffers[cmd->buffer]->handle )
         {
             VRHI_ERR( "vhCreateVertexBuffer() : Buffer %d already exists!\n", cmd->buffer );
@@ -644,7 +728,6 @@ public:
         bbuf->name = (cmd->name && cmd->name[0]) ? cmd->name : temps;
         bbuf->desc = bufferDesc;
 
-        // TODO: Upload initial data if cmd->mem is provided
         if ( cmd->mem )
         {
             BE_UpdateBuffer( *bbuf, nvrhi::CommandQueue::Graphics, 0, cmd->mem );
@@ -722,6 +805,10 @@ public:
 
         vhCmdRelease( cmd );
     }
+
+    // --------------------------------------------------------------------------
+    // Backend :: RHIThreadEntry
+    // --------------------------------------------------------------------------
 
     void RHIThreadEntry( std::function<void()> initCallback )
     {
