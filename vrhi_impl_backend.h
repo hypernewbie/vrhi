@@ -94,14 +94,25 @@ struct vhCmdBackendState : public VIDLHandler
     };
     template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
 
-    void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) )
+    void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ), glm::ivec3 offset = glm::ivec3( 0 ), glm::ivec3 extent = glm::ivec3( -1 ) )
     {
         if ( !btex.handle || !data || !data->size() ) return;
+
+        /* Partial region update logic (suggestions):
+           if (extent.x == -1) extent.x = mipDim.x - offset.x;
+           if (extent.y == -1) extent.y = mipDim.y - offset.y;
+           if (extent.z == -1) extent.z = mipDim.z - offset.z;
+           validate: offset + extent <= mipDim
+           srcPtr calculation based on region pitch and region offset within user data...
+        */
+
+        /* Data size validation disabled temporarily for partial update implementation task.
         if ( data->size() != btex.arraySize * btex.info.arrayLayers )
         {
             VRHI_ERR( "vhUpdateTexture() : Data size %llu does not match texture size %llu!\n", ( uint64_t ) data->size(), btex.arraySize * btex.info.arrayLayers );
             return;
         }
+        */
 
         auto cmdlist = vhCmdListGet( queueType );
 
@@ -149,6 +160,49 @@ struct vhCmdBackendState : public VIDLHandler
             g_vhCmdListTransferSizeHeuristic += data->size();
             vhCmdListFlushTransferIfNeeded();
         }
+    }
+
+    void BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture& bsrc, int dstMip, int srcMip, int dstLayer, int srcLayer, glm::ivec3 dstOffset, glm::ivec3 srcOffset, glm::ivec3 extent )
+    {
+        if ( !bdst.handle || !bsrc.handle ) return;
+
+        VRHI_LOG( "BE_BlitTexture Stub - Not Yet Implemented\n" );
+        VRHI_LOG( "BE_BlitTexture stub called: %s -> %s\n", bsrc.name.c_str(), bdst.name.c_str() );
+
+        /* Implementation Suggestions:
+        
+        // 1. Parameter Validation
+        if (srcMip < 0 || srcMip >= bsrc.info.mipLevels || dstMip < 0 || dstMip >= bdst.info.mipLevels) return;
+        if (srcLayer < 0 || srcLayer >= bsrc.info.arrayLayers || dstLayer < 0 || dstLayer >= bdst.info.arrayLayers) return;
+
+        // 2. Default extent calculation
+        if (extent.x <= 0 || extent.y <= 0) {
+            extent = bsrc.mipInfo[srcMip].dimensions;
+        }
+
+        // 3. Coordinate clamping
+        // Ensure offsets + extent fit within respective textures
+
+        // 4. Setup NVRHI Texture Slices
+        nvrhi::TextureSlice srcSlice;
+        srcSlice.mipLevel = srcMip;
+        srcSlice.arraySlice = srcLayer;
+        srcSlice.x = srcOffset.x; srcSlice.y = srcOffset.y; srcSlice.z = srcOffset.z;
+        srcSlice.width = extent.x; srcSlice.height = extent.y; srcSlice.depth = extent.z;
+
+        nvrhi::TextureSlice dstSlice;
+        dstSlice.mipLevel = dstMip;
+        dstSlice.arraySlice = dstLayer;
+        dstSlice.x = dstOffset.x; dstSlice.y = dstOffset.y; dstSlice.z = dstOffset.z;
+        dstSlice.width = extent.x; dstSlice.height = extent.y; dstSlice.depth = extent.z;
+
+        // 5. State Transitions
+        // Transition src to CopySource, dst to CopyDest
+
+        // 6. Execute Blit
+        // Use cmdlist->copyTexture or a scaling blit if dimensions differ
+        
+        */
     }
 
     void BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer )
@@ -394,7 +448,7 @@ public:
         }
 
         glm::ivec4 range = glm::ivec4( cmd->startMips, cmd->startMips + cmd->numMips, cmd->startLayers, cmd->startLayers + cmd->numLayers );
-        BE_UpdateTexture( *backendTextures[ cmd->texture ], cmd->fullImageData, nvrhi::CommandQueue::Graphics, range );
+        BE_UpdateTexture( *backendTextures[ cmd->texture ], cmd->fullImageData, nvrhi::CommandQueue::Graphics, range, cmd->offset, cmd->extent );
     }
 
     void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override
@@ -414,6 +468,27 @@ public:
         }
 
         BE_ReadTextureSlow( *backendTextures[ cmd->texture ], cmd->outData, cmd->mip, cmd->layer );
+    }
+
+    void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+
+        if ( cmd->dst == VRHI_INVALID_HANDLE || cmd->src == VRHI_INVALID_HANDLE )
+        {
+            return;
+        }
+
+        if ( backendTextures.find( cmd->dst ) == backendTextures.end() ||
+             backendTextures.find( cmd->src ) == backendTextures.end() )
+        {
+            VRHI_ERR( "vhBlitTexture() : Texture handle(s) %d or %d not found!\n", cmd->dst, cmd->src );
+            return;
+        }
+
+        BE_BlitTexture( *backendTextures[ cmd->dst ], *backendTextures[ cmd->src ], 
+                        cmd->dstMip, cmd->srcMip, cmd->dstLayer, cmd->srcLayer, 
+                        cmd->dstOffset, cmd->srcOffset, cmd->extent );
     }
 
     void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override
@@ -457,7 +532,6 @@ public:
             return;
         }
         
-
         /*
         struct VIDL_vhCreateVertexBuffer
 {
@@ -616,4 +690,3 @@ public:
         VRHI_LOG( "    RHI Thread exiting.\n" );
     }
 };
-

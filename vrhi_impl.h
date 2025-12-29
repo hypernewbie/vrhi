@@ -161,6 +161,8 @@ bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhV
 int vhVertexLayoutDefSize( const vhVertexLayoutDef& def );
 int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
 
+int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel = 0 );
+
 
 // --------------------------------------------------------------------------
 // Submodule Includes

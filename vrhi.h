@@ -262,7 +262,9 @@ void vhUpdateTexture(
     vhTexture texture,
     int startMips = 0, int startLayers = 0,
     int numMips = 1, int numLayers = 1,
-    const vhMem* fullImageData = nullptr
+    const vhMem* fullImageData = nullptr,
+    glm::ivec3 offset = glm::ivec3(0),
+    glm::ivec3 extent = glm::ivec3(-1)
 );
 
 // Enqueues a command to read a subresource range of a texture.
@@ -276,6 +278,24 @@ void vhReadTextureSlow(
     vhTexture texture,
     int mip = 0, int layer = 0,
     vhMem* outData = nullptr
+);
+
+// Enqueues a command to blit (copy/resize/convert) a region from one texture to another.
+//
+// |dst| and |src| are the destination and source texture handles.
+// |dstMip| and |srcMip| specify the mip levels to use.
+// |dstLayer| and |srcLayer| specify the array layers to use.
+// |dstOffset| and |srcOffset| are the starting coordinates in the respective textures.
+// |extent| is the size of the region to blit. If width or height are <= 0, the full source mip size is used.
+// Note: Destination texture must have been created with the |VRHI_TEXTURE_BLIT_DST| flag.
+// VIDL_GENERATE
+void vhBlitTexture(
+    vhTexture dst, vhTexture src,
+    int dstMip = 0, int srcMip = 0,
+    int dstLayer = 0, int srcLayer = 0,
+    glm::ivec3 dstOffset = glm::ivec3( 0 ),
+    glm::ivec3 srcOffset = glm::ivec3( 0 ),
+    glm::ivec3 extent = glm::ivec3( 0 )
 );
 
 // ------------ Buffer ------------
