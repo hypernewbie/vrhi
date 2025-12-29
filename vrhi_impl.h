@@ -147,7 +147,7 @@ void vhCmdListFlushTransferIfNeeded();
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[(uint64_t) nvrhi::CommandQueue::Count];
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
-void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
+void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // WARNING: Should not use this directly, because it does not respect dependencies.
 
 struct vhVertexLayoutDef
 {
@@ -324,5 +324,7 @@ void vhCmdListFlushAll()
     vhCmdListFlush( nvrhi::CommandQueue::Compute );
     vhCmdListFlush( nvrhi::CommandQueue::Graphics );
 }
+
+
 
 #endif // VRHI_IMPL_DEFINITIONS
