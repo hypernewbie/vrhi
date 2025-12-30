@@ -111,11 +111,11 @@ struct vhCmdBackendState : public VIDLHandler
     // Backend :: Complex BE Low Level NVRHI Device Functions
     // --------------------------------------------------------------------------
 
-    void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) )
+    void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) )
     {
         if ( !btex.handle || !data || !data->size() ) return;
 
-        auto cmdlist = vhCmdListGet( queueType );
+        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
         // Clamp to texture mip / array boundaries.
         int32_t mipStart = arrayMipUpdateRange.x, mipEnd = arrayMipUpdateRange.y;
@@ -143,12 +143,6 @@ struct vhCmdBackendState : public VIDLHandler
                     cmdlist->writeTexture( btex.handle, layer, mip, srcMipPtr, mipData.pitch, mipData.slice_size );
                 }
             }
-        }
-
-        if ( queueType == nvrhi::CommandQueue::Copy )
-        {
-            g_vhCmdListTransferSizeHeuristic += data->size();
-            vhCmdListFlushTransferIfNeeded();
         }
     }
 
@@ -301,7 +295,7 @@ struct vhCmdBackendState : public VIDLHandler
         }
     }
 
-    void BE_UpdateBuffer( vhBackendBuffer& bbuf, nvrhi::CommandQueue queueType, uint64_t offset, const vhMem* data )
+    void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data )
     {
         if ( !bbuf.handle || !data || !data->size() ) return;
         printf("BE_UpdateBuffer Dummy Implementation\n");
@@ -314,16 +308,10 @@ struct vhCmdBackendState : public VIDLHandler
             return;
         }
 
-        auto cmdlist = vhCmdListGet( queueType );
+        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
         {
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
             cmdlist->writeBuffer( bbuf.handle, data->data(), data->size(), offset );
-        }
-
-        if ( queueType == nvrhi::CommandQueue::Copy )
-        {
-            g_vhCmdListTransferSizeHeuristic += data->size();
-            vhCmdListFlushTransferIfNeeded();
         }
         */
     }
@@ -414,7 +402,6 @@ public:
             .setFormat( cmd->format )
             .setMipLevels( cmd->numMips )
             .setArraySize( cmd->numLayers )
-            .setInitialState( nvrhi::ResourceStates::Common )
             .enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource )
             .setDebugName( temps );
 
@@ -443,7 +430,7 @@ public:
         if ( cmd->data )
         {
             // Texture creation just uses graphics queue for simplicity, as these happen rarely.
-            BE_UpdateTexture( *btex, cmd->data, nvrhi::CommandQueue::Graphics );
+            BE_UpdateTexture( *btex, cmd->data );
         }
 
         backendTextures[ cmd->texture ] = std::move( btex );
@@ -494,7 +481,7 @@ public:
         }
 
         glm::ivec4 range = glm::ivec4( cmd->startMips, cmd->startMips + cmd->numMips, cmd->startLayers, cmd->startLayers + cmd->numLayers );
-        BE_UpdateTexture( btex, cmd->data, nvrhi::CommandQueue::Graphics, range );
+        BE_UpdateTexture( btex, cmd->data, range );
     }
 
     void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override
@@ -624,7 +611,7 @@ public:
         auto bufferDesc = nvrhi::BufferDesc()
             .setByteSize( byteSize )
             .setIsVertexBuffer( true )
-            .enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
+            .enableAutomaticStateTracking( nvrhi::ResourceStates::VertexBuffer )
             .setDebugName( (cmd->name && cmd->name[0]) ? cmd->name : temps );
 
         nvrhi::BufferHandle buffer = nullptr;
@@ -646,7 +633,7 @@ public:
 
         if ( cmd->mem )
         {
-            BE_UpdateBuffer( *bbuf, nvrhi::CommandQueue::Graphics, 0, cmd->mem );
+            BE_UpdateBuffer( *bbuf, 0, cmd->mem );
         }
 
         backendBuffers[ cmd->buffer ] = std::move( bbuf );
@@ -665,7 +652,7 @@ public:
             return;
         }
 
-        BE_UpdateBuffer( *backendBuffers[ cmd->buffer ], nvrhi::CommandQueue::Graphics, cmd->offset, cmd->data );
+        BE_UpdateBuffer( *backendBuffers[ cmd->buffer ], cmd->offset, cmd->data );
     }
 
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override
