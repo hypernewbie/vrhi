@@ -131,13 +131,13 @@ struct VIDL_vhUpdateVertexBuffer
     uint64_t MAGIC = kMagic;
     vhBuffer buffer;
     const vhMem* data;
-    uint64_t offset = 0;
+    uint64_t offsetVerts = 0;
     uint64_t numVerts = 0;
 
     VIDL_vhUpdateVertexBuffer() = default;
 
-    VIDL_vhUpdateVertexBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offset, uint64_t _numVerts)
-        : buffer(_buffer), data(_data), offset(_offset), numVerts(_numVerts) {}
+    VIDL_vhUpdateVertexBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offsetVerts, uint64_t _numVerts)
+        : buffer(_buffer), data(_data), offsetVerts(_offsetVerts), numVerts(_numVerts) {}
 };
 
 struct VIDL_vhCreateIndexBuffer
@@ -162,13 +162,13 @@ struct VIDL_vhUpdateIndexBuffer
     uint64_t MAGIC = kMagic;
     vhBuffer buffer;
     const vhMem* data;
-    uint64_t offset = 0;
+    uint64_t offsetIndices = 0;
     uint64_t numIndices = 0;
 
     VIDL_vhUpdateIndexBuffer() = default;
 
-    VIDL_vhUpdateIndexBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offset, uint64_t _numIndices)
-        : buffer(_buffer), data(_data), offset(_offset), numIndices(_numIndices) {}
+    VIDL_vhUpdateIndexBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offsetIndices, uint64_t _numIndices)
+        : buffer(_buffer), data(_data), offsetIndices(_offsetIndices), numIndices(_numIndices) {}
 };
 
 struct VIDL_vhDestroyBuffer

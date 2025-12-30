@@ -631,7 +631,7 @@ public:
         backendBuffers[ buffer ] = std::move( bbuf );
     }
 
-    void Handle_vhUpdateBufferCommon_Internal( const char* fn, vhBuffer buffer, uint64_t offset, const vhMem* data, uint64_t count )
+    void Handle_vhUpdateBufferCommon_Internal( const char* fn, vhBuffer buffer, uint64_t offsetElements, const vhMem* data, uint64_t count, bool isVertexBuffer )
     {
         if ( buffer == VRHI_INVALID_HANDLE ) return;
 
@@ -642,21 +642,34 @@ public:
         }
         auto& bbuf = backendBuffers[ buffer ];
 
+        // Convert element offset to byte offset
+        uint64_t byteOffset = 0;
+        if ( isVertexBuffer )
+        {
+            byteOffset = offsetElements * bbuf->stride;
+        }
+        else
+        {
+            // Index buffer - determine index size from flags
+            uint64_t indexSize = (bbuf->flags & VRHI_BUFFER_INDEX32) ? sizeof(uint32_t) : sizeof(uint16_t);
+            byteOffset = offsetElements * indexSize;
+        }
+
         if ( data )
         {
-            if ( offset + data->size() > bbuf->desc.byteSize && !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
+            if ( byteOffset + data->size() > bbuf->desc.byteSize && !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
             {
-                VRHI_ERR( "%s() : Update range [%llu, %llu] exceeds bhandle size %llu!\n", 
-                    fn, offset, offset + data->size(), bbuf->desc.byteSize );
+                VRHI_ERR( "%s() : Update range [%llu, %llu] exceeds buffer size %llu!\n", 
+                    fn, byteOffset, byteOffset + data->size(), bbuf->desc.byteSize );
                 return;
             }
-            BE_UpdateBuffer( *bbuf, offset, data );
+            BE_UpdateBuffer( *bbuf, byteOffset, data );
         }
         else if ( count > 0 )
         {
             if ( !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
             {
-                VRHI_ERR( "%s() : resize requested but bhandle does not have ALLOW_RESIZE flag!\n", fn );
+                VRHI_ERR( "%s() : resize requested but buffer does not have ALLOW_RESIZE flag!\n", fn );
                 return;
             }
             BE_ResizeBuffer( *bbuf, count * bbuf->stride );
@@ -703,7 +716,8 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
-        Handle_vhUpdateBufferCommon_Internal( "vhUpdateVertexBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->numVerts );
+        
+        Handle_vhUpdateBufferCommon_Internal( "vhUpdateVertexBuffer", cmd->buffer, cmd->offsetVerts, cmd->data, cmd->numVerts, true );
     }
 
     void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) override
@@ -730,7 +744,8 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
-        Handle_vhUpdateBufferCommon_Internal( "vhUpdateIndexBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->numIndices );
+        
+        Handle_vhUpdateBufferCommon_Internal( "vhUpdateIndexBuffer", cmd->buffer, cmd->offsetIndices, cmd->data, cmd->numIndices, false );
     }
 
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override
