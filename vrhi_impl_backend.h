@@ -284,7 +284,7 @@ struct vhCmdBackendState : public VIDLHandler
 
         if ( !bbuf.handle )
         {
-            VRHI_ERR( "vhCreateVertexBuffer() : Failed to create buffer!\n" );
+            VRHI_ERR( "vhCreateVertexBuffer() : Failed to create bhandle!\n" );
             return;
         }
 
@@ -569,6 +569,105 @@ public:
         vhCmdRelease( cmd );
     }
 
+    void Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
+        const vhMem* data, uint64_t count, uint64_t stride, uint64_t flags )
+    {
+        if ( buffer == VRHI_INVALID_HANDLE ) return;
+
+        if ( backendBuffers.find( buffer ) != backendBuffers.end() && backendBuffers[buffer]->handle )
+        {
+            VRHI_ERR( "%s() : Buffer %d already exists!\n", fn, buffer );
+            return;
+        }
+
+        uint64_t byteSize = 0;
+        if ( data )
+        {
+            byteSize = data->size();
+        }
+        else
+        {
+            if ( count == 0 )
+            {
+                VRHI_ERR( "%s() : Memory bhandle is empty/null AND count is 0!\n", fn );
+                return;
+            }
+            byteSize = count * stride;
+        }
+
+        // Create the NVRHI bhandle
+        if ( !name || !name[0] ) snprintf( temps, sizeof(temps), "%s %d", autoname, buffer );
+        auto bufferDesc = desc
+            .setByteSize( byteSize )
+            .setCanHaveUAVs( flags & VRHI_BUFFER_COMPUTE_WRITE )
+            .setCanHaveTypedViews( flags & VRHI_BUFFER_COMPUTE_READ )
+            .setCanHaveRawViews( flags & VRHI_BUFFER_COMPUTE_READ )
+            .setIsDrawIndirectArgs( flags & VRHI_BUFFER_DRAW_INDIRECT )
+            .setDebugName( (name && name[0]) ? name : temps );
+
+        nvrhi::BufferHandle bhandle = nullptr;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            bhandle = g_vhDevice->createBuffer( bufferDesc );
+        }
+
+        if ( !bhandle )
+        {
+            VRHI_ERR( "%s() : Failed to create bhandle!\n", fn );
+            return;
+        }
+
+        auto bbuf = std::make_unique< vhBackendBuffer >();
+        bbuf->handle = bhandle;
+        bbuf->name = ( name && name[0] ) ? name : temps;
+        bbuf->desc = bufferDesc;
+        bbuf->stride = ( uint32_t ) stride;
+        bbuf->flags = flags;
+
+        if ( data )
+        {
+            BE_UpdateBuffer( *bbuf, 0, data );
+        }
+
+        backendBuffers[ buffer ] = std::move( bbuf );
+    }
+
+    void Handle_vhUpdateBufferCommon_Internal( const char* fn, vhBuffer buffer, uint64_t offset, const vhMem* data, uint64_t count )
+    {
+        if ( buffer == VRHI_INVALID_HANDLE ) return;
+
+        if ( backendBuffers.find( buffer ) == backendBuffers.end() )
+        {
+            VRHI_ERR( "%s() : Buffer %d not found!\n", fn, buffer );
+            return;
+        }
+        auto& bbuf = backendBuffers[ buffer ];
+
+        if ( data )
+        {
+            if ( offset + data->size() > bbuf->desc.byteSize && !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
+            {
+                VRHI_ERR( "%s() : Update range [%llu, %llu] exceeds bhandle size %llu!\n", 
+                    fn, offset, offset + data->size(), bbuf->desc.byteSize );
+                return;
+            }
+            BE_UpdateBuffer( *bbuf, offset, data );
+        }
+        else if ( count > 0 )
+        {
+            if ( !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
+            {
+                VRHI_ERR( "%s() : resize requested but bhandle does not have ALLOW_RESIZE flag!\n", fn );
+                return;
+            }
+            BE_ResizeBuffer( *bbuf, count * bbuf->stride );
+        }
+        else
+        {
+            VRHI_ERR( "%s() : Both data and count are null/zero.\n", fn );
+        }
+    }
+
     void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
@@ -576,10 +675,10 @@ public:
 
         if ( cmd->buffer == VRHI_INVALID_HANDLE )
         {
-            VRHI_ERR( "vhCreateVertexBuffer() : Invalid buffer handle!\n" );
+            VRHI_ERR( "vhCreateVertexBuffer() : Invalid bhandle handle!\n" );
             return;
         }
-        
+
         std::vector< vhVertexLayoutDef > layoutDefs;
         if ( !vhParseVertexLayoutInternal( cmd->layout, layoutDefs ) )
         {
@@ -592,106 +691,20 @@ public:
             VRHI_ERR( "vhCreateVertexBuffer() : Vertex layout has 0 size!\n" );
             return;
         }
-        if ( backendBuffers.find( cmd->buffer ) != backendBuffers.end() && backendBuffers[cmd->buffer]->handle )
-        {
-            VRHI_ERR( "vhCreateVertexBuffer() : Buffer %d already exists!\n", cmd->buffer );
-            return;
-        }
 
-        uint64_t byteSize = 0;
-        if ( cmd->data )
-        {
-            byteSize = cmd->data->size();
-        }
-        else
-        {
-            if ( cmd->numVerts == 0 )
-            {
-                VRHI_ERR( "vhCreateVertexBuffer() : Memory buffer is empty/null AND numVerts is 0!\n" );
-                return;
-            }
-            byteSize = cmd->numVerts * stride;
-        }
+        // Partially initialise the bhandle description 
+        nvrhi::BufferDesc desc; 
+        desc.setIsVertexBuffer( true );
+        desc.enableAutomaticStateTracking( nvrhi::ResourceStates::VertexBuffer );
 
-        // Create the NVRHI buffer
-        if ( !cmd->name || !cmd->name[0] ) snprintf( temps, sizeof(temps), "VertexBuffer %d", cmd->buffer );
-        auto bufferDesc = nvrhi::BufferDesc()
-            .setByteSize( byteSize )
-            .setIsVertexBuffer( true )
-            .setCanHaveUAVs( cmd->flags & VRHI_BUFFER_COMPUTE_WRITE )
-            .setCanHaveTypedViews( cmd->flags & VRHI_BUFFER_COMPUTE_READ )
-            .setCanHaveRawViews( cmd->flags & VRHI_BUFFER_COMPUTE_READ )
-            .setIsDrawIndirectArgs( cmd->flags & VRHI_BUFFER_DRAW_INDIRECT )
-            .enableAutomaticStateTracking( nvrhi::ResourceStates::VertexBuffer )
-            .setDebugName( (cmd->name && cmd->name[0]) ? cmd->name : temps );
-
-        nvrhi::BufferHandle buffer = nullptr;
-        {
-            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-            buffer = g_vhDevice->createBuffer( bufferDesc );
-        }
-
-        if ( !buffer )
-        {
-            VRHI_ERR( "vhCreateVertexBuffer() : Failed to create buffer!\n" );
-            return;
-        }
-
-        auto bbuf = std::make_unique< vhBackendBuffer >();
-        bbuf->handle = buffer;
-        bbuf->name = (cmd->name && cmd->name[0]) ? cmd->name : temps;
-        bbuf->desc = bufferDesc;
-        bbuf->stride = stride;
-        bbuf->flags = cmd->flags;
-
-        if ( cmd->data )
-        {
-            BE_UpdateBuffer( *bbuf, 0, cmd->data );
-        }
-
-        backendBuffers[ cmd->buffer ] = std::move( bbuf );
+        Handle_vhCreateBufferCommon_Internal( "vhCreateVertexBuffer", cmd->buffer, desc, cmd->name, "VertexBuffer", cmd->data, cmd->numVerts, stride, cmd->flags );
     }
 
     void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
-
-        if ( cmd->buffer == VRHI_INVALID_HANDLE ) return;
-
-        if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
-        {
-            VRHI_ERR( "vhUpdateVertexBuffer() : Buffer %d not found!\n", cmd->buffer );
-            return;
-        }
-        auto& bbuf = backendBuffers[ cmd->buffer ];
-
-        if ( cmd->data )
-        {
-            if ( cmd->offset + cmd->data->size() > bbuf->desc.byteSize && !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
-            {
-                VRHI_ERR( "vhUpdateVertexBuffer() : Update range [%llu, %llu] exceeds buffer size %llu!\n", 
-                    cmd->offset, cmd->offset + cmd->data->size(), bbuf->desc.byteSize );
-                return;
-            }
-
-            BE_UpdateBuffer( *bbuf, cmd->offset, cmd->data );
-        }
-        else if ( cmd->numVerts > 0 )
-        {
-            if ( !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
-            {
-                VRHI_ERR( "vhUpdateVertexBuffer() : numVerts resize requested but buffer does not have ALLOW_RESIZE flag!\n" );
-                return;
-            }
-
-            uint64_t newByteSize = cmd->numVerts * bbuf->stride;
-            BE_ResizeBuffer( *bbuf, newByteSize );
-        }
-        else
-        {
-            VRHI_ERR( "vhUpdateVertexBuffer() : Both data and numVerts are null/zero.\n");
-        }
+        Handle_vhUpdateBufferCommon_Internal( "vhUpdateVertexBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->numVerts );
     }
 
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override
