@@ -124,6 +124,14 @@ struct vhCmdBackendState : public VIDLHandler
         mipEnd = glm::clamp( mipEnd, 0, ( int32_t ) btex.info.mipLevels );
         layerStart = glm::clamp( layerStart, 0, btex.info.arrayLayers );
         layerEnd = glm::clamp( layerEnd, 0, ( int32_t ) btex.info.arrayLayers );
+        assert( mipStart <= mipEnd );
+
+        // Calculate layer size.
+        int64_t totalLayerSize = 0;
+        for ( int32_t mip = mipStart; mip < mipEnd; ++mip )
+        {
+            totalLayerSize += btex.mipInfo[mip].size;
+        }
 
         // Update the texture.
         {
@@ -131,14 +139,15 @@ struct vhCmdBackendState : public VIDLHandler
             
             for ( int32_t layer = layerStart; layer < layerEnd; ++layer )
             {
-                const uint8_t* layerSrcPtr = data->data() + ( size_t ) layer * btex.arraySize;
+                const uint8_t* layerSrcPtr = data->data() + ( size_t ) ( layer - layerStart ) * totalLayerSize;
+                const auto& mipStartData = btex.mipInfo[mipStart];
                 for ( int32_t mip = mipStart; mip < mipEnd; ++mip )
                 {
                     if ( mip >= ( int32_t ) btex.mipInfo.size() )
                         break;
 
                     const auto& mipData = btex.mipInfo[mip];
-                    const uint8_t* srcMipPtr = layerSrcPtr + mipData.offset;
+                    const uint8_t* srcMipPtr = layerSrcPtr + ( mipData.offset - mipStartData.offset );
 
                     cmdlist->writeTexture( btex.handle, layer, mip, srcMipPtr, mipData.pitch, mipData.slice_size );
                 }
@@ -150,43 +159,6 @@ struct vhCmdBackendState : public VIDLHandler
     {
         if ( !bdst.handle || !bsrc.handle ) return;
 
-        VRHI_LOG( "BE_BlitTexture Stub - Not Yet Implemented\n" );
-        VRHI_LOG( "BE_BlitTexture stub called: %s -> %s\n", bsrc.name.c_str(), bdst.name.c_str() );
-
-        /* Implementation Suggestions:
-        
-        // 1. Parameter Validation
-        if (srcMip < 0 || srcMip >= bsrc.info.mipLevels || dstMip < 0 || dstMip >= bdst.info.mipLevels) return;
-        if (srcLayer < 0 || srcLayer >= bsrc.info.arrayLayers || dstLayer < 0 || dstLayer >= bdst.info.arrayLayers) return;
-
-        // 2. Default extent calculation
-        if (extent.x <= 0 || extent.y <= 0) {
-            extent = bsrc.mipInfo[srcMip].dimensions;
-        }
-
-        // 3. Coordinate clamping
-        // Ensure offsets + extent fit within respective textures
-
-        // 4. Setup NVRHI Texture Slices
-        nvrhi::TextureSlice srcSlice;
-        srcSlice.mipLevel = srcMip;
-        srcSlice.arraySlice = srcLayer;
-        srcSlice.x = srcOffset.x; srcSlice.y = srcOffset.y; srcSlice.z = srcOffset.z;
-        srcSlice.width = extent.x; srcSlice.height = extent.y; srcSlice.depth = extent.z;
-
-        nvrhi::TextureSlice dstSlice;
-        dstSlice.mipLevel = dstMip;
-        dstSlice.arraySlice = dstLayer;
-        dstSlice.x = dstOffset.x; dstSlice.y = dstOffset.y; dstSlice.z = dstOffset.z;
-        dstSlice.width = extent.x; dstSlice.height = extent.y; dstSlice.depth = extent.z;
-
-        // 5. State Transitions
-        // Transition src to CopySource, dst to CopyDest
-
-        // 6. Execute Blit
-        // Use cmdlist->copyTexture or a scaling blit if dimensions differ
-        
-        */
         // Higher level layers should already handle the validation.
         assert ( srcMip >= 0 && srcMip < bsrc.info.mipLevels );
         assert ( dstMip >= 0 && dstMip < bdst.info.mipLevels );
@@ -417,7 +389,7 @@ public:
         }
 
         // Calculate metadata for the texture.
-        auto btex = std::make_unique<vhBackendTexture>();
+        auto btex = std::make_unique< vhBackendTexture >();
         btex->handle = texture;
         btex->name = temps;
         btex->info.target = cmd->target;
@@ -429,7 +401,6 @@ public:
 
         if ( cmd->data )
         {
-            // Texture creation just uses graphics queue for simplicity, as these happen rarely.
             BE_UpdateTexture( *btex, cmd->data );
         }
 
