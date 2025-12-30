@@ -315,12 +315,14 @@ bool vhValidateVertexLayout( const vhVertexLayout& layout );
 // Returns a valid |vhBuffer| handle, or |VRHI_INVALID_HANDLE| on failure.
 vhBuffer vhAllocBuffer();
 
+// |numVerts| is the number of vertices in the buffer. It is ignored if |data| is not null.
 // VIDL_GENERATE
 void vhCreateVertexBuffer(
     vhBuffer buffer,
     const char* name,
-    const vhMem* mem,
+    const vhMem* data,
     const vhVertexLayout layout,
+    uint64_t numVerts = 0,
     uint16_t flags = VRHI_BUFFER_NONE
 );
 
@@ -329,11 +331,13 @@ void vhCreateVertexBuffer(
 // |buffer| is the handle to the buffer to update.
 // |data| is the source data. Takes ownership of the memory.
 // |offset| is the byte offset within the buffer to start writing.
+// |numVerts| is the number of vertices in the buffer. It is ignored if |data| is not null.
 // VIDL_GENERATE
 void vhUpdateVertexBuffer(
     vhBuffer buffer,
     const vhMem* data,
-    uint64_t offset = 0
+    uint64_t offset = 0,
+    uint64_t numVerts = 0
 );
 
 // Enqueues a command to destroy the buffer associated with |buffer|.

@@ -1048,13 +1048,13 @@ UTEST( Buffer, Flags_Compute )
     int32_t startErrors = g_vhErrorCounter.load();
 
     vhBuffer bRead = vhAllocBuffer();
-    vhCreateVertexBuffer( bRead, "ComputeRead", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_COMPUTE_READ );
+    vhCreateVertexBuffer( bRead, "ComputeRead", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_COMPUTE_READ );
 
     vhBuffer bWrite = vhAllocBuffer();
-    vhCreateVertexBuffer( bWrite, "ComputeWrite", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_COMPUTE_WRITE );
+    vhCreateVertexBuffer( bWrite, "ComputeWrite", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_COMPUTE_WRITE );
 
     vhBuffer bReadWrite = vhAllocBuffer();
-    vhCreateVertexBuffer( bReadWrite, "ComputeReadWrite", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_COMPUTE_READ_WRITE );
+    vhCreateVertexBuffer( bReadWrite, "ComputeReadWrite", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_COMPUTE_READ_WRITE );
 
     vhFlush();
 
@@ -1075,7 +1075,7 @@ UTEST( Buffer, Flags_DrawIndirect )
     }
     int32_t startErrors = g_vhErrorCounter.load();
     vhBuffer bIndirect = vhAllocBuffer();
-    vhCreateVertexBuffer( bIndirect, "DrawIndirect", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_DRAW_INDIRECT );
+    vhCreateVertexBuffer( bIndirect, "DrawIndirect", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_DRAW_INDIRECT );
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
     vhDestroyBuffer( bIndirect );
@@ -1094,7 +1094,7 @@ UTEST( Buffer, Flags_Resize )
 
     // 1. Success case: ALLOW_RESIZE
     vhBuffer bResize = vhAllocBuffer();
-    vhCreateVertexBuffer( bResize, "AllowResize", vhAllocMem( 64 ), "float3 POSITION", VRHI_BUFFER_ALLOW_RESIZE );
+    vhCreateVertexBuffer( bResize, "AllowResize", vhAllocMem( 64 ), "float3 POSITION", 0, VRHI_BUFFER_ALLOW_RESIZE );
 
     // Update with larger data
     vhUpdateVertexBuffer( bResize, vhAllocMem( 128 ), 0 );
@@ -1103,7 +1103,7 @@ UTEST( Buffer, Flags_Resize )
 
     // 2. Failure case: No ALLOW_RESIZE
     vhBuffer bNoResize = vhAllocBuffer();
-    vhCreateVertexBuffer( bNoResize, "NoResize", vhAllocMem( 64 ), "float3 POSITION", VRHI_BUFFER_NONE );
+    vhCreateVertexBuffer( bNoResize, "NoResize", vhAllocMem( 64 ), "float3 POSITION", 0, VRHI_BUFFER_NONE );
 
     // Update with larger data - should trigger error in backend
     vhUpdateVertexBuffer( bNoResize, vhAllocMem( 128 ), 0 );
@@ -1383,6 +1383,31 @@ UTEST( Texture, Type_1D )
     }
 
     vhDestroyTexture( tex );
+    vhFlush();
+}
+
+UTEST( Buffer, NumVerts_CreateResize )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 1. Create Uninitialized
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "UninitCreate", nullptr, "float3 POSITION", 100, VRHI_BUFFER_ALLOW_RESIZE );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 2. Resize via numVerts
+    vhUpdateVertexBuffer( buf, nullptr, 0, 200 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( buf );
     vhFlush();
 }
 

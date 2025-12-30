@@ -114,14 +114,15 @@ struct VIDL_vhCreateVertexBuffer
     uint64_t MAGIC = kMagic;
     vhBuffer buffer;
     const char* name;
-    const vhMem* mem;
+    const vhMem* data;
     const vhVertexLayout layout;
+    uint64_t numVerts = 0;
     uint16_t flags = VRHI_BUFFER_NONE;
 
     VIDL_vhCreateVertexBuffer() = default;
 
-    VIDL_vhCreateVertexBuffer(vhBuffer _buffer, const char* _name, const vhMem* _mem, const vhVertexLayout _layout, uint16_t _flags)
-        : buffer(_buffer), name(_name), mem(_mem), layout(_layout), flags(_flags) {}
+    VIDL_vhCreateVertexBuffer(vhBuffer _buffer, const char* _name, const vhMem* _data, const vhVertexLayout _layout, uint64_t _numVerts, uint16_t _flags)
+        : buffer(_buffer), name(_name), data(_data), layout(_layout), numVerts(_numVerts), flags(_flags) {}
 };
 
 struct VIDL_vhUpdateVertexBuffer
@@ -131,11 +132,12 @@ struct VIDL_vhUpdateVertexBuffer
     vhBuffer buffer;
     const vhMem* data;
     uint64_t offset = 0;
+    uint64_t numVerts = 0;
 
     VIDL_vhUpdateVertexBuffer() = default;
 
-    VIDL_vhUpdateVertexBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offset)
-        : buffer(_buffer), data(_data), offset(_offset) {}
+    VIDL_vhUpdateVertexBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offset, uint64_t _numVerts)
+        : buffer(_buffer), data(_data), offset(_offset), numVerts(_numVerts) {}
 };
 
 struct VIDL_vhDestroyBuffer
