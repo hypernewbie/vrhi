@@ -147,7 +147,7 @@ void vhCmdListFlushTransferIfNeeded();
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[(uint64_t) nvrhi::CommandQueue::Count];
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
-void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // WARNING: Should not use this directly, because it does not respect dependencies.
+void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
 
 struct vhVertexLayoutDef
 {
@@ -275,7 +275,7 @@ nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
 // - Copy feeds Compute and Graphics
 // - Compute feeds Graphics
 //
-void vhCmdListFlush( nvrhi::CommandQueue type )
+void vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue type )
 {
     auto typeIdx = ( uint64_t ) type;
     uint64_t instance = 0;
@@ -307,6 +307,24 @@ void vhCmdListFlush( nvrhi::CommandQueue type )
     }
 }
 
+void vhCmdListFlush( nvrhi::CommandQueue type )
+{
+    // Both queues depend on copy, so flush copy first
+    if ( type == nvrhi::CommandQueue::Graphics || nvrhi::CommandQueue::Compute )
+    {
+        vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Copy );
+    }
+
+    // Graphics depends on compute, so flush compute first
+    if ( type == nvrhi::CommandQueue::Graphics )
+    {
+        vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Compute );
+    }
+
+    // Finally, flush the requested queue
+    vhCmdListFlush_SingleQueueInternal( type );
+}
+
 void vhCmdListFlushTransferIfNeeded()
 {
     const uint64_t transferSizeThreshold = 1024 * 1024 * 16; // 16 MB
@@ -321,10 +339,9 @@ void vhCmdListFlushAll()
 {
     // The order here matters slightly for efficiency ( Flush upsteam first ),
     // but the actual dependency correctness is handled by the waits inserted inside vhCmdListFlush.
-    
-    vhCmdListFlush( nvrhi::CommandQueue::Copy );
-    vhCmdListFlush( nvrhi::CommandQueue::Compute );
-    vhCmdListFlush( nvrhi::CommandQueue::Graphics );
+    vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Copy );
+    vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Compute );
+    vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Graphics );
 }
 
 
