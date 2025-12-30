@@ -202,7 +202,7 @@ struct vhCmdBackendState : public VIDLHandler
         nvrhi::StagingTextureHandle stagingTex;
         {
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-            stagingTex = g_vhDevice->createStagingTexture(desc, nvrhi::CpuAccessMode::Read);
+            stagingTex = g_vhDevice->createStagingTexture( desc, nvrhi::CpuAccessMode::Read );
         }
 
         if ( !stagingTex ) return;
@@ -295,7 +295,6 @@ struct vhCmdBackendState : public VIDLHandler
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data )
     {
         if ( !bbuf.handle || !data || !data->size() ) return;
-        printf("BE_UpdateBuffer Dummy Implementation\n");
 
         if ( offset + data->size() > bbuf.desc.byteSize )
         {
@@ -692,7 +691,7 @@ public:
             return;
         }
 
-        // Partially initialise the bhandle description 
+        // Partially initialise nvrhi::BufferDesc
         nvrhi::BufferDesc desc; 
         desc.setIsVertexBuffer( true );
         desc.enableAutomaticStateTracking( nvrhi::ResourceStates::VertexBuffer );
@@ -705,6 +704,33 @@ public:
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
         Handle_vhUpdateBufferCommon_Internal( "vhUpdateVertexBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->numVerts );
+    }
+
+    void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+        
+        if ( cmd->buffer == VRHI_INVALID_HANDLE )
+        {
+            VRHI_ERR( "vhCreateIndexBuffer() : Invalid bhandle handle!\n" );
+            return;
+        }
+
+        // Partially initialise nvrhi::BufferDesc
+        nvrhi::BufferDesc desc; 
+        desc.setIsIndexBuffer( true );
+        desc.enableAutomaticStateTracking( nvrhi::ResourceStates::IndexBuffer );
+        uint64_t stride = cmd->flags & VRHI_BUFFER_INDEX32 ? sizeof( uint32_t ) : sizeof( uint16_t );
+
+        Handle_vhCreateBufferCommon_Internal( "vhCreateIndexBuffer", cmd->buffer, desc, cmd->name, "IndexBuffer", cmd->data, cmd->numIndices, stride, cmd->flags );
+    }
+
+    void Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+        Handle_vhUpdateBufferCommon_Internal( "vhUpdateIndexBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->numIndices );
     }
 
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override

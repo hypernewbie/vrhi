@@ -51,6 +51,7 @@ UTEST( Vrhi, Dummy )
 }
 
 static bool g_testInit = false;
+static bool g_testInitQuiet = true;
 
 extern std::string vhGetDeviceInfo();
 
@@ -59,12 +60,12 @@ UTEST( RHI, Init )
     // If global init is active, shut it down to test clean init
     if ( g_testInit )
     {
-        vhShutdown();
+        vhShutdown( g_testInitQuiet );
         g_testInit = false;
     }
 
     // Test init
-    vhInit();
+    vhInit( g_testInitQuiet );
 
     // Verify globals
     EXPECT_NE( g_vhDevice.Get(), nullptr );
@@ -75,7 +76,7 @@ UTEST( RHI, Init )
     EXPECT_TRUE( info.find( "Device:" ) != std::string::npos );
 
     // Test shutdown
-    vhShutdown();
+    vhShutdown( g_testInitQuiet );
     EXPECT_EQ( g_vhDevice.Get(), nullptr );
 
     // Test GetInfo after shutdown
@@ -90,7 +91,7 @@ UTEST( RHI, LogCallback )
     // Ensure clean state
     if ( g_testInit )
     {
-        vhShutdown();
+        vhShutdown( g_testInitQuiet );
         g_testInit = false;
     }
 
@@ -103,7 +104,8 @@ UTEST( RHI, LogCallback )
         logs.push_back( msg );
     };
 
-    vhInit();
+    // We want logs here, so pass quiet=false explicitly.
+    vhInit( false );
 
     // Verify we captured logs
     EXPECT_GT( logs.size(), 0 ); // "Initialising Vulkan RHI ..." etc
@@ -121,7 +123,7 @@ UTEST( RHI, LogCallback )
     EXPECT_EQ( g_vhErrorCounter.load(), 0 );
 
 
-    vhShutdown();
+    vhShutdown( false );
     
     // Verify shutdown logs
     bool foundShutdown = false;
@@ -140,24 +142,24 @@ UTEST( RHI, RayTracingControl )
     // If global init is active, shut it down to test clean init
     if ( g_testInit )
     {
-        vhShutdown();
+        vhShutdown( g_testInitQuiet );
         g_testInit = false;
     }
 
     // Case 1: Disable RT
     g_vhInit.raytracing = false;
-    vhInit();
+    vhInit( g_testInitQuiet );
     EXPECT_FALSE( g_vhRayTracingEnabled );
-    vhShutdown();
+    vhShutdown( g_testInitQuiet );
 
     // Case 2: Enable RT
     g_vhInit.raytracing = true;
-    vhInit();
+    vhInit( g_testInitQuiet );
     // g_vhRayTracingEnabled should be true if HW supports it. 
     // If not, it will be false, but initialization shouldn't crash.
     // In our test environment, we expect this to match whether extensions were actually enabled.
     VRHI_LOG( "Ray Tracing Supported by HW: %s\n", g_vhRayTracingEnabled ? "YES" : "NO" );
-    vhShutdown();
+    vhShutdown( g_testInitQuiet );
 
     // Reset to default for other tests
     g_vhInit.raytracing = false;
@@ -167,7 +169,7 @@ UTEST( Texture, CreateDestroyError )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     int32_t startErrors = g_vhErrorCounter.load();
@@ -197,7 +199,7 @@ UTEST( Texture, CreateHelpers )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -276,7 +278,7 @@ UTEST( Texture, CreateDestroy )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -303,7 +305,7 @@ UTEST( Texture, CreateDestroyStressTest )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -350,7 +352,7 @@ UTEST( Texture, Update )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -406,7 +408,7 @@ UTEST( Texture, Readback )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -545,7 +547,7 @@ UTEST( Buffer, Allocation )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -571,7 +573,7 @@ UTEST( Texture, Allocation )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -597,7 +599,7 @@ UTEST( Buffer, UpdateSafety )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     vhFlush(); // Ensure clean state from previous tests
@@ -633,7 +635,7 @@ UTEST( Buffer, DoubleCreation )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     vhFlush();
@@ -653,7 +655,7 @@ UTEST( Buffer, UpdateFunctionality )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     vhFlush();
@@ -679,7 +681,7 @@ UTEST( Texture, BlitConnectivity )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -727,7 +729,7 @@ UTEST( Texture, BlitMipToMip )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -771,7 +773,7 @@ UTEST( Texture, BlitPartialRegion )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -832,7 +834,7 @@ UTEST( Texture, BlitFunctional )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -892,7 +894,7 @@ UTEST( Texture, BlitStress )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -1042,7 +1044,7 @@ UTEST( Buffer, Flags_Compute )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     int32_t startErrors = g_vhErrorCounter.load();
@@ -1070,7 +1072,7 @@ UTEST( Buffer, Flags_DrawIndirect )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     int32_t startErrors = g_vhErrorCounter.load();
@@ -1086,7 +1088,7 @@ UTEST( Buffer, Flags_Resize )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     vhFlush();
@@ -1119,7 +1121,7 @@ UTEST( Texture, Type_2DArray )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -1183,7 +1185,7 @@ UTEST( Texture, Type_Cube )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -1246,7 +1248,7 @@ UTEST( Texture, Type_3D )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -1283,7 +1285,7 @@ UTEST( Texture, MipChain )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -1358,7 +1360,7 @@ UTEST( Texture, Type_1D )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
 
@@ -1390,7 +1392,7 @@ UTEST( Buffer, NumVerts_CreateResize )
 {
     if ( !g_testInit )
     {
-        vhInit();
+        vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     vhFlush();
@@ -1411,6 +1413,134 @@ UTEST( Buffer, NumVerts_CreateResize )
     vhFlush();
 }
 
+UTEST( IndexBuffer, Basic16 )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhBuffer buf = vhAllocBuffer();
+    EXPECT_NE( buf, VRHI_INVALID_HANDLE );
+
+    const uint64_t kCount = 12;
+    std::vector<uint16_t> indices = { 0, 1, 2, 2, 1, 3, 4, 5, 6, 6, 5, 7 };
+    size_t dataSize = indices.size() * sizeof( uint16_t );
+
+    auto data = vhAllocMem( dataSize );
+    memcpy( data->data(), indices.data(), dataSize );
+
+    vhCreateIndexBuffer( buf, "Basic16", data, 0, VRHI_BUFFER_NONE );
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
+UTEST( IndexBuffer, Basic32 )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhBuffer buf = vhAllocBuffer();
+    EXPECT_NE( buf, VRHI_INVALID_HANDLE );
+
+    const uint64_t kCount = 6;
+    std::vector<uint32_t> indices = { 0, 1, 2, 2, 3, 0 };
+    size_t dataSize = indices.size() * sizeof( uint32_t );
+
+    auto data = vhAllocMem( dataSize );
+    memcpy( data->data(), indices.data(), dataSize );
+
+    vhCreateIndexBuffer( buf, "Basic32", data, 0, VRHI_BUFFER_INDEX32 );
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
+UTEST( IndexBuffer, Flags_Coverage )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // Compute Read
+    vhBuffer bCompRead = vhAllocBuffer();
+    vhCreateIndexBuffer( bCompRead, "CompRead", nullptr, 100, VRHI_BUFFER_COMPUTE_READ );
+    
+    // Compute Write
+    vhBuffer bCompWrite = vhAllocBuffer();
+    vhCreateIndexBuffer( bCompWrite, "CompWrite", nullptr, 100, VRHI_BUFFER_COMPUTE_WRITE );
+
+    // Draw Indirect
+    vhBuffer bIndirect = vhAllocBuffer();
+    vhCreateIndexBuffer( bIndirect, "DrawIndirect", nullptr, 100, VRHI_BUFFER_DRAW_INDIRECT );
+
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( bCompRead );
+    vhDestroyBuffer( bCompWrite );
+    vhDestroyBuffer( bIndirect );
+    vhFlush();
+}
+
+UTEST( IndexBuffer, Resize_And_Uninit )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 1. Uninitialized Creation with Resize
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateIndexBuffer( buf, "ResizeTest", nullptr, 100, VRHI_BUFFER_ALLOW_RESIZE | VRHI_BUFFER_INDEX32 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 2. Resize via Update
+    // Increasing size to 200 indices (32-bit)
+    vhUpdateIndexBuffer( buf, nullptr, 0, 200 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 3. Validation: Resize without flag
+    vhBuffer bufFixed = vhAllocBuffer();
+    vhCreateIndexBuffer( bufFixed, "FixedTest", nullptr, 100, VRHI_BUFFER_INDEX32 ); // No resize flag
+    vhFlush();
+    
+    // Attempt resize - should fail
+    vhUpdateIndexBuffer( bufFixed, nullptr, 0, 200 );
+    vhFlush();
+    
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( buf );
+    vhDestroyBuffer( bufFixed );
+    vhFlush();
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
@@ -1422,7 +1552,7 @@ int main( int argc, const char* const argv[] )
 
     if ( g_testInit )
     {
-        vhShutdown();
+        vhShutdown( g_testInitQuiet );
         g_testInit = false;
     }
 

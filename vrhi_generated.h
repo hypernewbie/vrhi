@@ -140,6 +140,37 @@ struct VIDL_vhUpdateVertexBuffer
         : buffer(_buffer), data(_data), offset(_offset), numVerts(_numVerts) {}
 };
 
+struct VIDL_vhCreateIndexBuffer
+{
+    static constexpr uint64_t kMagic = 0x22AE59E6;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const char* name;
+    const vhMem* data;
+    uint64_t numIndices = 0;
+    uint16_t flags = VRHI_BUFFER_NONE;
+
+    VIDL_vhCreateIndexBuffer() = default;
+
+    VIDL_vhCreateIndexBuffer(vhBuffer _buffer, const char* _name, const vhMem* _data, uint64_t _numIndices, uint16_t _flags)
+        : buffer(_buffer), name(_name), data(_data), numIndices(_numIndices), flags(_flags) {}
+};
+
+struct VIDL_vhUpdateIndexBuffer
+{
+    static constexpr uint64_t kMagic = 0x6B219F18;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const vhMem* data;
+    uint64_t offset = 0;
+    uint64_t numIndices = 0;
+
+    VIDL_vhUpdateIndexBuffer() = default;
+
+    VIDL_vhUpdateIndexBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offset, uint64_t _numIndices)
+        : buffer(_buffer), data(_data), offset(_offset), numIndices(_numIndices) {}
+};
+
 struct VIDL_vhDestroyBuffer
 {
     static constexpr uint64_t kMagic = 0x3A87A73E;
@@ -176,6 +207,8 @@ struct VIDLHandler
     virtual void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
 
@@ -210,6 +243,12 @@ struct VIDLHandler
             break;
         case 0x57AF47B4:
             Handle_vhUpdateVertexBuffer( (VIDL_vhUpdateVertexBuffer*) cmd );
+            break;
+        case 0x22AE59E6:
+            Handle_vhCreateIndexBuffer( (VIDL_vhCreateIndexBuffer*) cmd );
+            break;
+        case 0x6B219F18:
+            Handle_vhUpdateIndexBuffer( (VIDL_vhUpdateIndexBuffer*) cmd );
             break;
         case 0x3A87A73E:
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );

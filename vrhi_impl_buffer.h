@@ -257,3 +257,29 @@ void vhUpdateVertexBuffer(
     auto cmd = vhCmdAlloc<VIDL_vhUpdateVertexBuffer>( buffer, data, offset, numVerts );
     vhCmdEnqueue( cmd );
 }
+
+void vhCreateIndexBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t numIndices,
+    uint16_t flags
+)
+{
+    if ( buffer == VRHI_INVALID_HANDLE ) return;
+
+    auto cmd = vhCmdAlloc<VIDL_vhCreateIndexBuffer>( buffer, name, data, numIndices, flags );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhUpdateIndexBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset,
+    uint64_t numIndices
+)
+{
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateIndexBuffer>( buffer, data, offset, numIndices );
+    vhCmdEnqueue( cmd );
+}

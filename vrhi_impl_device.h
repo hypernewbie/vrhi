@@ -67,20 +67,20 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vhVKDebugCallback(
 
 // -------------------------------------------------------- RHI Device --------------------------------------------------------
 
-void vhInit()
+void vhInit( bool quiet )
 {
-    VRHI_LOG( "Initialising Vulkan RHI ...\n" );
+    if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
 
     std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
     if ( g_vhDevice )
     {
-        VRHI_LOG( "vhInit() : RHI already initialised!\n" );
+        if ( !quiet ) VRHI_LOG( "vhInit() : RHI already initialised!\n" );
         return;
     }
 
     // 1. Create VkInstance (via vk-bootstrap)
 
-    VRHI_LOG( "    Creating VK Instance (via vk-bootstrap)\n" );
+    if ( !quiet ) VRHI_LOG( "    Creating VK Instance (via vk-bootstrap)\n" );
     vkb::InstanceBuilder instBuilder;
     auto instRet = instBuilder.set_app_name( g_vhInit.appName.c_str() )
         .set_engine_name( g_vhInit.engineName.c_str() )
@@ -101,12 +101,12 @@ void vhInit()
     g_vulkanDebugMessenger = vkbInst.debug_messenger;
 
     // Initialise vulkan.hpp dynamic dispatcher with instance functions
-    VRHI_LOG( "    Initialising vulkan.hpp dynamic dispatcher with instance functions\n" );
+    if ( !quiet ) VRHI_LOG( "    Initialising vulkan.hpp dynamic dispatcher with instance functions\n" );
     VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr );
 
     // 2. Physical Device Selection (via vk-bootstrap)
 
-    VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
+    if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
     vkb::PhysicalDeviceSelector selector( vkbInst );
     
     VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
@@ -142,7 +142,7 @@ void vhInit()
     }
 
     g_vulkanPhysicalDevice = vkbPhys.physical_device;
-    VRHI_LOG( "    Selected GPU Device: %s\n", vkbPhys.name.c_str() );
+    if ( !quiet ) VRHI_LOG( "    Selected GPU Device: %s\n", vkbPhys.name.c_str() );
 
     // 3. Device Creation & Queues (via vk-bootstrap)
 
@@ -154,7 +154,7 @@ void vhInit()
                        vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
     }
 
-    VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
+    if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
     vkb::DeviceBuilder devBuilder( vkbPhys );
     
     VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
@@ -166,11 +166,11 @@ void vhInit()
         rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
         devBuilder.add_pNext( &accelFeatures );
         devBuilder.add_pNext( &rtPipelineFeatures );
-        VRHI_LOG( "    Ray Tracing extensions enabled.\n" );
+        if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions enabled.\n" );
     }
     else
     {
-        VRHI_LOG( "    Ray Tracing extensions missing. RT features disabled.\n" );
+        if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions missing. RT features disabled.\n" );
     }
 
     auto devRet = devBuilder.build();
@@ -190,7 +190,7 @@ void vhInit()
         if ( !fp )
         {
             rtExtEnabled = false;
-            VRHI_LOG( "    WARNING: RT extensions requested but vkCreateAccelerationStructureKHR not found. Disabling RT.\n" );
+            if ( !quiet ) VRHI_LOG( "    WARNING: RT extensions requested but vkCreateAccelerationStructureKHR not found. Disabling RT.\n" );
         }
     }
     g_vhRayTracingEnabled = rtExtEnabled;
@@ -244,12 +244,12 @@ void vhInit()
     s_enabledExtensionPointers.clear();
     for ( const auto& ext : s_enabledExtensions ) s_enabledExtensionPointers.push_back( ext.c_str() );
 
-    VRHI_LOG( "    Selected VK Queues: Graphics %d, Compute %d, Transfer %d\n", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
-    VRHI_LOG( "    Created VK Logical Device.\n" );
+    if ( !quiet ) VRHI_LOG( "    Selected VK Queues: Graphics %d, Compute %d, Transfer %d\n", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
+    if ( !quiet ) VRHI_LOG( "    Created VK Logical Device.\n" );
 
     // 4. NVRHI Handover
 
-    VRHI_LOG( "    Linking to nvRHI .... \n" );
+    if ( !quiet ) VRHI_LOG( "    Linking to nvRHI .... \n" );
 
     // Required by NVRHI Vulkan backend - initializes vk::DispatchLoaderDynamic for function pointers.
     VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr, g_vulkanDevice, vkGetDeviceProcAddr );
@@ -279,12 +279,12 @@ void vhInit()
     if ( g_vhInit.debug )
     {
         // Wrap with validation layer in debug builds - catches state tracking errors
-        VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
+        if ( !quiet ) VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
         g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
     }
 
     // 5. Create RHI Command Buffer Thread
-    VRHI_LOG( "    Creating RHI Thread...\n" );
+    if ( !quiet ) VRHI_LOG( "    Creating RHI Thread...\n" );
 
     g_vhCmdBackendState.init();
     g_vhCmdsQuit = false;
@@ -293,12 +293,12 @@ void vhInit()
     while ( !g_vhCmdThreadReady ) { std::this_thread::yield(); }
 }
 
-void vhShutdown()
+void vhShutdown( bool quiet )
 {
-    VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
+    if ( !quiet ) VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
 
     // Join RHI Command Buffer Thread
-    VRHI_LOG( "    Joining RHI Thread...\n" );
+    if ( !quiet ) VRHI_LOG( "    Joining RHI Thread...\n" );
     g_vhCmdsQuit = true;
     g_vhCmdThread.join();
     g_vhCmdThreadReady = false;
@@ -308,27 +308,27 @@ void vhShutdown()
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
-        VRHI_LOG( "    Allowing Vulkan Device to finish...\n" );
+        if ( !quiet ) VRHI_LOG( "    Allowing Vulkan Device to finish...\n" );
         vkDeviceWaitIdle( g_vulkanDevice );
     }
 
-    VRHI_LOG( "    Destroying NVRHI Device...\n" );
+    if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     g_vhDevice = nullptr; // RefCountPtr handles the release()
 
     // Clear resources
-    VRHI_LOG( "    Clearing resources...\n" );
+    if ( !quiet ) VRHI_LOG( "    Clearing resources...\n" );
     g_vhTextureIDList.purge();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
-        VRHI_LOG( "    Destroying Vulkan Device...\n" );
+        if ( !quiet ) VRHI_LOG( "    Destroying Vulkan Device...\n" );
         vkDestroyDevice( g_vulkanDevice, nullptr );
         g_vulkanDevice = VK_NULL_HANDLE;
     }
 
     if ( g_vulkanDebugMessenger != VK_NULL_HANDLE )
     {
-        VRHI_LOG( "    Destroying Vulkan Debug Messenger...\n" );
+        if ( !quiet ) VRHI_LOG( "    Destroying Vulkan Debug Messenger...\n" );
         auto func = ( PFN_vkDestroyDebugUtilsMessengerEXT ) vkGetInstanceProcAddr( g_vulkanInstance, "vkDestroyDebugUtilsMessengerEXT" );
         if ( func ) func( g_vulkanInstance, g_vulkanDebugMessenger, nullptr );
         g_vulkanDebugMessenger = VK_NULL_HANDLE;
@@ -336,7 +336,7 @@ void vhShutdown()
 
     if ( g_vulkanInstance != VK_NULL_HANDLE )
     {
-        VRHI_LOG( "    Destroying Vulkan Instance...\n" );
+        if ( !quiet ) VRHI_LOG( "    Destroying Vulkan Instance...\n" );
         vkDestroyInstance( g_vulkanInstance, nullptr );
         g_vulkanInstance = VK_NULL_HANDLE;
     }
