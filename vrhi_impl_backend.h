@@ -43,6 +43,28 @@ struct vhBackendBuffer
     nvrhi::BufferDesc desc;
 };
 
+// This thin class is used to manage staging resources for the backend. It is a singleton.
+// We allocate and recycle staging resources here to avoid constant allocation and deallocation.
+class vhBackendStagingAllocator
+{
+    /*
+    
+    // We bucket textures by pow2 size. 256², 512², 1024², 2048², 4096².
+    const int NUM_TEXTURE_BUCKETS = 5;
+    const int TEXTURE_BUCKET_TARGET_BUDGETS[ NUM_TEXTURE_BUCKETS ] = { 4, 4, 4, 2, 2 };
+    std::vector< std::unique_ptr< nvrhi::TextureHandle > > textureBucket[NUM_TEXTURE_BUCKETS];
+
+    */
+
+public:
+    /*
+    nvrhi::TextureHandle AllocateStagingTexture( const nvrhi::TextureDesc& desc )
+    {
+        
+    }
+    */
+};
+
 // --------------------------------------------------------------------------
 // Main Backend State
 // --------------------------------------------------------------------------
@@ -105,6 +127,7 @@ struct vhCmdBackendState : public VIDLHandler
 
     // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
     template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; 
+    
 
     // --------------------------------------------------------------------------
     // Backend :: Complex BE Low Level NVRHI Device Functions
@@ -112,27 +135,11 @@ struct vhCmdBackendState : public VIDLHandler
 
     void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, nvrhi::CommandQueue queueType, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ), glm::ivec3 offset = glm::ivec3( 0 ), glm::ivec3 extent = glm::ivec3( -1 ) )
     {
-        if ( btex.handle == VRHI_INVALID_HANDLE || !data || !data->size() ) return;
-
-        /* Partial region update logic (suggestions):
-           if (extent.x == -1) extent.x = mipDim.x - offset.x;
-           if (extent.y == -1) extent.y = mipDim.y - offset.y;
-           if (extent.z == -1) extent.z = mipDim.z - offset.z;
-           validate: offset + extent <= mipDim
-           srcPtr calculation based on region pitch and region offset within user data...
-        */
-
-        /* Data size validation disabled temporarily for partial update implementation task.
-        if ( data->size() != btex.arraySize * btex.info.arrayLayers )
-        {
-            VRHI_ERR( "vhUpdateTexture() : Data size %llu does not match texture size %llu!\n", ( uint64_t ) data->size(), btex.arraySize * btex.info.arrayLayers );
-            return;
-        }
-        */
+        if ( !btex.handle || !data || !data->size() ) return;
 
         auto cmdlist = vhCmdListGet( queueType );
 
-        // Clamp the update range to valid values.
+        // Clamp to texture mip / array boundaries.
         int32_t mipStart = arrayMipUpdateRange.x, mipEnd = arrayMipUpdateRange.y;
         int32_t layerStart = arrayMipUpdateRange.z, layerEnd = arrayMipUpdateRange.w;
         mipStart = glm::clamp( mipStart, 0, btex.info.mipLevels );
@@ -148,7 +155,6 @@ struct vhCmdBackendState : public VIDLHandler
             if ( queueType == nvrhi::CommandQueue::Copy )
             {
                 cmdlist->setEnableAutomaticBarriers( false );
-                cmdlist->setInitialState( nvrhi::ResourceStates::CopyDestination );
             }
             
             for ( int32_t layer = layerStart; layer < layerEnd; ++layer )
@@ -163,6 +169,7 @@ struct vhCmdBackendState : public VIDLHandler
                     
                     // Create staging texture for this mip/layer
                     // Staging texture is a basic 1D / 2D / 3D resource
+
                     nvrhi::TextureDesc stagingDesc = btex.handle->getDesc();
                     stagingDesc.width = mipData.dimensions.x;
                     stagingDesc.height = mipData.dimensions.y;
@@ -198,7 +205,12 @@ struct vhCmdBackendState : public VIDLHandler
                     for ( int32_t z = 0; z < mipData.dimensions.z; ++z )
                     {
                         size_t rowPitch = 0;
-                        void* pMapped = g_vhDevice->mapStagingTexture( stagingTex, nvrhi::TextureSlice().setMipLevel( 0 ).setArraySlice( 0 ).setOrigin( 0, 0, z ).setSize( uint32_t( -1 ), uint32_t( -1 ), 1 ), nvrhi::CpuAccessMode::Write, &rowPitch );
+                        nvrhi::TextureSlice slice = nvrhi::TextureSlice()
+                            .setMipLevel( 0 )
+                            .setArraySlice( 0 )
+                            .setOrigin( 0, 0, z )
+                            .setSize( uint32_t( -1 ), uint32_t( -1 ), 1 );
+                        void* pMapped = g_vhDevice->mapStagingTexture(stagingTex, slice, nvrhi::CpuAccessMode::Write, &rowPitch );
                         if ( pMapped )
                         {
                             const uint8_t* srcSlicePtr = srcMipPtr + ( size_t ) z * mipData.slice_size;
@@ -211,15 +223,15 @@ struct vhCmdBackendState : public VIDLHandler
                         }
                     }
 
-                    nvrhi::TextureSlice dstSlice;
-                    dstSlice.mipLevel = mip;
-                    dstSlice.arraySlice = layer;
-                    dstSlice.x = 0; dstSlice.y = 0; dstSlice.z = 0;
-                    dstSlice.width = mipData.dimensions.x;
-                    dstSlice.height = mipData.dimensions.y;
-                    dstSlice.depth = mipData.dimensions.z;
+                    nvrhi::TextureSlice dstSlice = nvrhi::TextureSlice()
+                        .setMipLevel( mip )
+                        .setArraySlice( layer )
+                        .setOrigin( 0, 0, 0 )
+                        .setSize( mipData.dimensions.x, mipData.dimensions.y, mipData.dimensions.z );
 
                     cmdlist->copyTexture( btex.handle, dstSlice, stagingTex, nvrhi::TextureSlice().setMipLevel( 0 ).setArraySlice( 0 ) );
+
+                    // stagingTex falls out of scope here and is automatically destroyed.
                 }
             }
             
@@ -239,7 +251,7 @@ struct vhCmdBackendState : public VIDLHandler
 
     void BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture& bsrc, int dstMip, int srcMip, int dstLayer, int srcLayer, glm::ivec3 dstOffset, glm::ivec3 srcOffset, glm::ivec3 extent )
     {
-        if ( bdst.handle == VRHI_INVALID_HANDLE || bsrc.handle == VRHI_INVALID_HANDLE ) return;
+        if ( !bdst.handle || !bsrc.handle ) return;
 
         VRHI_LOG( "BE_BlitTexture Stub - Not Yet Implemented\n" );
         VRHI_LOG( "BE_BlitTexture stub called: %s -> %s\n", bsrc.name.c_str(), bdst.name.c_str() );
@@ -306,7 +318,7 @@ struct vhCmdBackendState : public VIDLHandler
 
     void BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer )
     {
-        if ( btex.handle == VRHI_INVALID_HANDLE || !outData ) return;
+        if ( !btex.handle || !outData ) return;
 
         // Staging Texture
         auto desc = btex.handle->getDesc();
@@ -388,7 +400,7 @@ struct vhCmdBackendState : public VIDLHandler
 
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, nvrhi::CommandQueue queueType, uint64_t offset, const vhMem* data )
     {
-        if ( bbuf.handle == VRHI_INVALID_HANDLE || !data || !data->size() ) return;
+        if ( !bbuf.handle || !data || !data->size() ) return;
         printf("BE_UpdateBuffer Dummy Implementation\n");
         
         /* Commented out implementation as per request:

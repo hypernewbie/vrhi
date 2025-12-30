@@ -90,6 +90,7 @@ target_link_directories(vrhi_test PRIVATE
 # NVRHI and helper libraries
 # We link all backends (D3D11, D3D12, Vulkan) as they are available in the lib folder
 set(VRHI_LIBS
+    vk-bootstrap
     nvrhi_vk
     nvrhi
     rtxmu
