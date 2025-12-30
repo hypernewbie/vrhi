@@ -83,12 +83,12 @@ extern std::atomic<int32_t> g_vhErrorCounter;
 // Initializes the Vulkan RHI and starts the backend command thread.
 //
 // Must be called before any other RHI functions. Uses |g_vhInit| for configuration.
-void vhInit();
+void vhInit( bool quiet = false );
 
 // Shuts down the Vulkan RHI and stops the backend command thread.
 //
 // Cleans up all resources and waits for the GPU to finish.
-void vhShutdown();
+void vhShutdown( bool quiet = false );
 
 // Returns a string containing information about the selected physical device and queues.
 std::string vhGetDeviceInfo();
@@ -338,6 +338,23 @@ void vhUpdateVertexBuffer(
     const vhMem* data,
     uint64_t offset = 0,
     uint64_t numVerts = 0
+);
+
+// VIDL_GENERATE
+void vhCreateIndexBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t numIndices = 0,
+    uint16_t flags = VRHI_BUFFER_NONE
+);
+
+// VIDL_GENERATE
+void vhUpdateIndexBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset = 0,
+    uint64_t numIndices = 0
 );
 
 // Enqueues a command to destroy the buffer associated with |buffer|.
