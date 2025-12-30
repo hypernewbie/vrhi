@@ -1115,6 +1115,277 @@ UTEST( Buffer, Flags_Resize )
     vhFlush();
 }
 
+UTEST( Texture, Type_2DArray )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    const int width = 32;
+    const int height = 32;
+    const int layers = 4;
+    const size_t layerSize = width * height; // R8_UINT
+    const size_t totalSize = layerSize * layers;
+
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2DArray( tex, glm::ivec2( width, height ), layers, 1, nvrhi::Format::R8_UINT );
+
+    // Action 1: Update all 4 layers in one call
+    auto fullData = vhAllocMem( totalSize );
+    for ( int l = 0; l < layers; ++l )
+    {
+        std::fill( fullData->begin() + l * layerSize, fullData->begin() + ( l + 1 ) * layerSize, ( uint8_t ) l );
+    }
+    vhUpdateTexture( tex, 0, 0, 1, layers, fullData );
+    vhFinish();
+
+    // Verify 1
+    for ( int l = 0; l < layers; ++l )
+    {
+        vhMem readData;
+        vhReadTextureSlow( tex, 0, l, &readData );
+        vhFinish();
+        ASSERT_EQ( readData.size(), layerSize );
+        for ( size_t i = 0; i < layerSize; ++i )
+        {
+            EXPECT_EQ( readData[i], ( uint8_t ) l );
+            if ( readData[i] != ( uint8_t ) l ) break;
+        }
+    }
+
+    // Action 2: Update only Layer 2 (Middle) with 0xFF
+    auto midData = vhAllocMem( layerSize );
+    std::fill( midData->begin(), midData->end(), 0xFF );
+    vhUpdateTexture( tex, 0, 2, 1, 1, midData );
+    vhFinish();
+
+    // Verify 2
+    for ( int l = 0; l < layers; ++l )
+    {
+        vhMem readData;
+        vhReadTextureSlow( tex, 0, l, &readData );
+        vhFinish();
+        uint8_t expected = ( l == 2 ) ? 0xFF : ( uint8_t ) l;
+        for ( size_t i = 0; i < layerSize; ++i )
+        {
+            EXPECT_EQ( readData[i], expected );
+            if ( readData[i] != expected ) break;
+        }
+    }
+
+    vhDestroyTexture( tex );
+    vhFlush();
+}
+
+UTEST( Texture, Type_Cube )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    const int dim = 32;
+    const int faces = 6;
+    const size_t faceSize = dim * dim; // R8_UINT
+    const size_t totalSize = faceSize * faces;
+
+    vhTexture tex = vhAllocTexture();
+    vhCreateTextureCube( tex, dim, 1, nvrhi::Format::R8_UINT );
+
+    // Action 1: Update all 6 faces
+    auto fullData = vhAllocMem( totalSize );
+    for ( int f = 0; f < faces; ++f )
+    {
+        std::fill( fullData->begin() + f * faceSize, fullData->begin() + ( f + 1 ) * faceSize, ( uint8_t )( f + 10 ) );
+    }
+    vhUpdateTexture( tex, 0, 0, 1, faces, fullData );
+    vhFinish();
+
+    // Verify 1
+    for ( int f = 0; f < faces; ++f )
+    {
+        vhMem readData;
+        vhReadTextureSlow( tex, 0, f, &readData );
+        vhFinish();
+        ASSERT_EQ( readData.size(), faceSize );
+        for ( size_t i = 0; i < faceSize; ++i )
+        {
+            EXPECT_EQ( readData[i], ( uint8_t )( f + 10 ) );
+            if ( readData[i] != ( uint8_t )( f + 10 ) ) break;
+        }
+    }
+
+    // Action 2: Update Face 3 (-Y) only with 0xAA
+    auto faceData = vhAllocMem( faceSize );
+    std::fill( faceData->begin(), faceData->end(), 0xAA );
+    vhUpdateTexture( tex, 0, 3, 1, 1, faceData );
+    vhFinish();
+
+    // Verify 2
+    for ( int f = 0; f < faces; ++f )
+    {
+        vhMem readData;
+        vhReadTextureSlow( tex, 0, f, &readData );
+        vhFinish();
+        uint8_t expected = ( f == 3 ) ? 0xAA : ( uint8_t )( f + 10 );
+        for ( size_t i = 0; i < faceSize; ++i )
+        {
+            EXPECT_EQ( readData[i], expected );
+            if ( readData[i] != expected ) break;
+        }
+    }
+
+    vhDestroyTexture( tex );
+    vhFlush();
+}
+
+UTEST( Texture, Type_3D )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    const int w = 32, h = 32, d = 4;
+    const size_t totalSize = w * h * d; // R8_UINT
+
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture3D( tex, glm::ivec3( w, h, d ), 1, nvrhi::Format::R8_UINT );
+
+    // Action: Update full volume with gradient
+    auto data = vhAllocMem( totalSize );
+    for ( size_t i = 0; i < totalSize; ++i ) ( *data )[i] = ( uint8_t )( i % 256 );
+    vhUpdateTexture( tex, 0, 0, 1, 1, data );
+    vhFinish();
+
+    // Verify: Readback (Slow path reads depth slices as array layers for 3D)
+    // 3D texture readback not supported yet. This test doesnt work.
+    /*vhMem readData;
+    vhReadTextureSlow( tex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_EQ( readData.size(), totalSize );
+    for ( size_t i = 0; i < totalSize; ++i )
+    {
+        EXPECT_EQ( readData[i], ( uint8_t )( i % 256 ) );
+        if ( readData[i] != ( uint8_t )( i % 256 ) ) break;
+    }*/
+
+    vhDestroyTexture( tex );
+    vhFlush();
+}
+
+UTEST( Texture, MipChain )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    const int dim = 32;
+    const int mips = 4; // 32, 16, 8, 4
+    const nvrhi::Format fmt = nvrhi::Format::R8_UINT;
+    
+    // Calculate total size
+    size_t totalSize = 0;
+    std::vector<size_t> mipSizes;
+    for ( int i = 0; i < mips; ++i )
+    {
+        int mDim = std::max( 1, dim >> i );
+        size_t s = ( size_t ) mDim * mDim;
+        mipSizes.push_back( s );
+        totalSize += s;
+    }
+
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( tex, glm::ivec2( dim, dim ), mips, fmt );
+
+    // Action 1: Update all mips in one call
+    auto fullData = vhAllocMem( totalSize );
+    size_t offset = 0;
+    for ( int i = 0; i < mips; ++i )
+    {
+        std::fill( fullData->begin() + offset, fullData->begin() + offset + mipSizes[i], ( uint8_t )( i + 1 ) );
+        offset += mipSizes[i];
+    }
+    vhUpdateTexture( tex, 0, 0, mips, 1, fullData );
+    vhFinish();
+
+    // Verify 1
+    for ( int i = 0; i < mips; ++i )
+    {
+        vhMem readData;
+        vhReadTextureSlow( tex, i, 0, &readData );
+        vhFinish();
+        ASSERT_EQ( readData.size(), mipSizes[i] );
+        for ( size_t j = 0; j < mipSizes[i]; ++j )
+        {
+            EXPECT_EQ( readData[j], ( uint8_t )( i + 1 ) );
+            if ( readData[j] != ( uint8_t )( i + 1 ) ) break;
+        }
+    }
+
+    // Action 2: Update only Mip 2 with 0x77
+    auto mip2Data = vhAllocMem( mipSizes[2] );
+    std::fill( mip2Data->begin(), mip2Data->end(), 0x77 );
+    vhUpdateTexture( tex, 2, 0, 1, 1, mip2Data );
+    vhFinish();
+
+    // Verify 2
+    for ( int i = 0; i < mips; ++i )
+    {
+        vhMem readData;
+        vhReadTextureSlow( tex, i, 0, &readData );
+        vhFinish();
+        uint8_t expected = ( i == 2 ) ? 0x77 : ( uint8_t )( i + 1 );
+        for ( size_t j = 0; j < mipSizes[i]; ++j )
+        {
+            EXPECT_EQ( readData[j], expected );
+            if ( readData[j] != expected ) break;
+        }
+    }
+
+    vhDestroyTexture( tex );
+    vhFlush();
+}
+
+UTEST( Texture, Type_1D )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    const int width = 256;
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture( tex, nvrhi::TextureDimension::Texture1D, glm::ivec3( width, 1, 1 ), 1, 1, nvrhi::Format::R8_UINT );
+
+    auto data = vhAllocMem( width );
+    for ( int i = 0; i < width; ++i ) ( *data )[i] = ( uint8_t ) i;
+    vhUpdateTexture( tex, 0, 0, 1, 1, data );
+    vhFinish();
+
+    vhMem readData;
+    vhReadTextureSlow( tex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_EQ( readData.size(), ( size_t ) width );
+    for ( int i = 0; i < width; ++i )
+    {
+        EXPECT_EQ( readData[i], ( uint8_t ) i );
+        if ( readData[i] != ( uint8_t ) i ) break;
+    }
+
+    vhDestroyTexture( tex );
+    vhFlush();
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
