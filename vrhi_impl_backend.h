@@ -188,6 +188,7 @@ struct vhCmdBackendState : public VIDLHandler
     void BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer )
     {
         if ( !btex.handle || !outData ) return;
+        assert ( btex.info.target != nvrhi::TextureDimension::Texture3D );
 
         // Staging Texture
         auto desc = btex.handle->getDesc();
@@ -491,7 +492,14 @@ public:
             return;
         }
 
-        BE_ReadTextureSlow( *backendTextures[ cmd->texture ], cmd->outData, cmd->mip, cmd->layer );
+        auto& btex = *backendTextures[ cmd->texture ];
+        if ( btex.info.target == nvrhi::TextureDimension::Texture3D )
+        {
+            VRHI_ERR( "vhReadTextureSlow() : 3D textures are not supported for readback yet!\n" );
+            return;
+        }
+
+        BE_ReadTextureSlow( btex, cmd->outData, cmd->mip, cmd->layer );
     }
 
     void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) override
