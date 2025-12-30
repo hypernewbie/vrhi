@@ -183,6 +183,9 @@ bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions,
 
 #ifdef VRHI_IMPL_DEFINITIONS
 
+// WARNING: This must be locked before ANY access to ANY Vulkan state!
+std::mutex g_nvRHIStateMutex;
+
 // Global Variable Definitions
 vhInitData g_vhInit;
 nvrhi::DeviceHandle g_vhDevice = nullptr;
@@ -193,7 +196,6 @@ VkPhysicalDevice g_vulkanPhysicalDevice = VK_NULL_HANDLE;
 VkDevice g_vulkanDevice = VK_NULL_HANDLE;
 VkDebugUtilsMessengerEXT g_vulkanDebugMessenger = VK_NULL_HANDLE;
 uint32_t g_vulkanEnabledExtensionCount = 0;
-std::mutex g_nvRHIStateMutex;
 
 VkQueue g_vulkanGraphicsQueue = VK_NULL_HANDLE;
 VkQueue g_vulkanComputeQueue = VK_NULL_HANDLE;

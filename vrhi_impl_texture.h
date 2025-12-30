@@ -211,15 +211,13 @@ void vhUpdateTexture(
     vhTexture texture,
     int startMips, int startLayers,
     int numMips, int numLayers,
-    const vhMem* data,
-    glm::ivec3 offset,
-    glm::ivec3 extent
+    const vhMem* data
 )
 {
     if ( !data ) return;
 
     // Queue up command to update texture
-    auto cmd = vhCmdAlloc<VIDL_vhUpdateTexture>( texture, startMips, startLayers, numMips, numLayers, data, offset, extent );
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateTexture>( texture, startMips, startLayers, numMips, numLayers, data );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }

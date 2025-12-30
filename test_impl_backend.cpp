@@ -19,6 +19,7 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+#define VRHI_UNIT_TEST
 #ifdef VRHI_SHARDED_BUILD
     #include "vrhi_impl_backend.h"
     // Backend state defined here in sharded builds, in vrhi_impl.h for unity builds
