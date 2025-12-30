@@ -59,7 +59,7 @@ struct vhInitData
     std::string engineName = "VRHI_ENGINE";
     bool debug = false;
     int deviceIndex = -1; // -1 for auto-selection (Discrete > Integrated > CPU)
-    bool raytracing = false;
+    bool raytracing = true;
     glm::ivec2 resolution = glm::ivec2( 1280, 720 );
     std::function<void( bool error, const std::string& )> fnLogCallback = nullptr;
 };
