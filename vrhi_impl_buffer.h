@@ -43,34 +43,12 @@ int vhGetBaseTypeSize( const std::string& type )
 }
 
 // Parses a vertex layout string.
-// The layout string defines the vertex attributes structure in a whitespace-separated format.
+// Vertex layouts are defines as standard strings.
+// Supported base types: float, half, int, uint, short, ushort, byte, ubyte
+// Supported suffixes: 2, 3, 4
+// Example: "float3 POSITION half4 NORMAL half4 TANGENT half4 BINORMAL half4 TEXCOORD half4 COLOR";
 //
-// Format:
-//   "<Type><Count?> <Semantic><Index?> ..."
-//
-// Components:
-//   Type:      Base type of the attribute.
-//              Supported: float, half, int, uint, short, ushort, byte, ubyte
-//   Count:     (Optional) Number of components (vector size). Supported: 2, 3, 4.
-//              If omitted, defaults to 1 (scalar).
-//   Semantic:  Usage of the attribute. Must be ALL UPPERCASE letters.
-//              Example: POSITION, NORMAL, TEXCOORD, COLOR.
-//   Index:     (Optional) Semantic index (digits) at the end of the semantic.
-//              If omitted, defaults to 0.
-//
-// Validation Rules:
-//   - Types must be one of the supported base types.
-//   - Component counts must be 1, 2, 3, or 4.
-//   - Semantics must be uppercase.
-//   - Invalid characters or malformed tokens make the function return false.
-//
-// Examples:
-//   "float3 POSITION"                      -> float3 Position (Index 0)
-//   "float3 POSITION float2 TEXCOORD0"     -> float3 Position (0), float2 TexCoord (0)
-//   "ubyte4 COLOR"                         -> ubyte4 Color (0)
-//   "float3 POSITION0 float3 NORMAL"       -> float3 Position (0), float3 Normal (0)
-//
-template <bool EMIT_OUTPUT>
+template < bool EMIT_OUTPUT >
 bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayoutDef>* outDefs )
 {
     if constexpr ( EMIT_OUTPUT )

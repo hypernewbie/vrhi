@@ -135,6 +135,34 @@ UTEST( RHI, LogCallback )
     g_vhInit.fnLogCallback = nullptr;
 }
 
+UTEST( RHI, RayTracingControl )
+{
+    // If global init is active, shut it down to test clean init
+    if ( g_testInit )
+    {
+        vhShutdown();
+        g_testInit = false;
+    }
+
+    // Case 1: Disable RT
+    g_vhInit.raytracing = false;
+    vhInit();
+    EXPECT_FALSE( g_vhRayTracingEnabled );
+    vhShutdown();
+
+    // Case 2: Enable RT
+    g_vhInit.raytracing = true;
+    vhInit();
+    // g_vhRayTracingEnabled should be true if HW supports it. 
+    // If not, it will be false, but initialization shouldn't crash.
+    // In our test environment, we expect this to match whether extensions were actually enabled.
+    VRHI_LOG( "Ray Tracing Supported by HW: %s\n", g_vhRayTracingEnabled ? "YES" : "NO" );
+    vhShutdown();
+
+    // Reset to default for other tests
+    g_vhInit.raytracing = false;
+}
+
 UTEST( Texture, CreateDestroyError )
 {
     if ( !g_testInit )
@@ -655,17 +683,40 @@ UTEST( Texture, BlitConnectivity )
         g_testInit = true;
     }
 
+    const int width = 64;
+    const int height = 64;
+    const size_t dataSize = width * height * 4;
+
     vhTexture src = vhAllocTexture();
     vhTexture dst = vhAllocTexture();
 
-    vhCreateTexture2D( src, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM );
-    vhCreateTexture2D( dst, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM );
+    // Source: All 255
+    vhMem* whiteData = vhAllocMem( dataSize );
+    std::fill( whiteData->begin(), whiteData->end(), 255 );
+    vhCreateTexture2D( src, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, whiteData );
 
-    // Call blit - should reach backend stub
+    // Destination: All 0
+    vhMem* blackData = vhAllocMem( dataSize );
+    std::fill( blackData->begin(), blackData->end(), 0 );
+    vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, blackData );
+
+    vhFinish();
+
+    // Call blit
     vhBlitTexture( dst, src );
-    vhFlush();
+    vhFinish();
 
-    // Verification is manual check of stdout for "BE_BlitTexture Stub - Not Yet Implemented"
+    // Readback and verify
+    vhMem readData;
+    vhReadTextureSlow( dst, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_EQ( readData.size(), dataSize );
+    for ( size_t i = 0; i < dataSize; ++i )
+    {
+        EXPECT_EQ( readData[i], 255 );
+        if ( readData[i] != 255 ) break;
+    }
     
     vhDestroyTexture( src );
     vhDestroyTexture( dst );
@@ -688,9 +739,28 @@ UTEST( Texture, BlitMipToMip )
     // Dst: 64x64 with 1 mip
     vhCreateTexture2D( dst, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM );
 
+    // Fill Src Mip 1 with 128
+    const size_t mip1DataSize = 64 * 64 * 4;
+    vhMem* mipData = vhAllocMem( mip1DataSize );
+    std::fill( mipData->begin(), mipData->end(), 128 );
+    vhUpdateTexture( src, 1, 0, 1, 1, mipData );
+    vhFinish();
+
     // Blit Src Mip 1 to Dst Mip 0
     vhBlitTexture( dst, src, 0, 1 );
-    vhFlush();
+    vhFinish();
+
+    // Readback and verify
+    vhMem readData;
+    vhReadTextureSlow( dst, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_EQ( readData.size(), mip1DataSize );
+    for ( size_t i = 0; i < mip1DataSize; ++i )
+    {
+        EXPECT_EQ( readData[i], 128 );
+        if ( readData[i] != 128 ) break;
+    }
 
     vhDestroyTexture( src );
     vhDestroyTexture( dst );
@@ -705,22 +775,60 @@ UTEST( Texture, BlitPartialRegion )
         g_testInit = true;
     }
 
+    const int width = 64;
+    const int height = 64;
+    const size_t dataSize = width * height * 4;
+
     vhTexture src = vhAllocTexture();
     vhTexture dst = vhAllocTexture();
 
-    vhCreateTexture2D( src, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM );
-    vhCreateTexture2D( dst, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM );
+    // Source: 200
+    vhMem* srcData = vhAllocMem( dataSize );
+    std::fill( srcData->begin(), srcData->end(), 200 );
+    vhCreateTexture2D( src, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, srcData );
 
-    // Copy 32x32 region from Src(16,16) to Dst(0,0)
-    vhBlitTexture( dst, src, 0, 0, 0, 0, glm::ivec3( 0, 0, 0 ), glm::ivec3( 16, 16, 0 ), glm::ivec3( 32, 32, 1 ) );
-    vhFlush();
+    // Dest: 50
+    vhMem* dstData = vhAllocMem( dataSize );
+    std::fill( dstData->begin(), dstData->end(), 50 );
+    vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, dstData );
+
+    vhFinish();
+
+    // Copy 32x32 region from Src(16,16) to Dst(8,8)
+    glm::ivec3 extent( 32, 32, 1 );
+    glm::ivec3 srcOffset( 16, 16, 0 );
+    glm::ivec3 dstOffset( 8, 8, 0 );
+    vhBlitTexture( dst, src, 0, 0, 0, 0, dstOffset, srcOffset, extent );
+    vhFinish();
+
+    // Readback and verify
+    vhMem readData;
+    vhReadTextureSlow( dst, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_EQ( readData.size(), dataSize );
+    for ( int y = 0; y < height; ++y )
+    {
+        for ( int x = 0; x < width; ++x )
+        {
+            uint8_t val = readData[( y * width + x ) * 4];
+            if ( x >= 8 && x < 8 + 32 && y >= 8 && y < 8 + 32 )
+            {
+                EXPECT_EQ( val, 200 );
+            }
+            else
+            {
+                EXPECT_EQ( val, 50 );
+            }
+        }
+    }
 
     vhDestroyTexture( src );
     vhDestroyTexture( dst );
     vhFlush();
 }
 
-UTEST( Texture, BlitFunctionalStubFailure )
+UTEST( Texture, BlitFunctional )
 {
     if ( !g_testInit )
     {
@@ -756,7 +864,7 @@ UTEST( Texture, BlitFunctionalStubFailure )
     vhReadTextureSlow( dst, 0, 0, &readData );
     vhFinish();
 
-    // Functional failure check
+    // Functional check
     bool match = true;
     if ( readData.size() == dataSize )
     {
@@ -778,6 +886,106 @@ UTEST( Texture, BlitFunctionalStubFailure )
     vhDestroyTexture( src );
     vhDestroyTexture( dst );
     vhFlush();
+}
+
+UTEST( Texture, BlitStress )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+
+    struct FormatInfo {
+        nvrhi::Format format;
+        std::string name;
+    };
+
+    std::vector<FormatInfo> formats = {
+        { nvrhi::Format::RGBA8_UNORM, "RGBA8_UNORM" },
+        { nvrhi::Format::R8_UNORM, "R8_UNORM" },
+        { nvrhi::Format::RG8_UNORM, "RG8_UNORM" },
+        { nvrhi::Format::R8_UINT, "R8_UINT" },
+        { nvrhi::Format::RGBA32_FLOAT, "RGBA32_FLOAT" },
+        { nvrhi::Format::R32_FLOAT, "R32_FLOAT" }
+    };
+
+    const int width = 64;
+    const int height = 64;
+
+    for ( const auto& fmt : formats )
+    {
+        vhFormatInfo info = vhGetFormat( fmt.format );
+        const int pixelSize = info.elementSize;
+        const size_t dataSize = ( size_t ) width * height * pixelSize;
+
+        vhTexture src = vhAllocTexture();
+        vhTexture dst = vhAllocTexture();
+
+        // Background Color (all 0x55)
+        vhMem* bgData = vhAllocMem( dataSize );
+        std::fill( bgData->begin(), bgData->end(), 0x55 );
+        vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, bgData );
+
+        // Foreground Color (all 0xAA)
+        vhMem* fgData = vhAllocMem( dataSize );
+        std::fill( fgData->begin(), fgData->end(), 0xAA );
+        vhCreateTexture2D( src, glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, fgData );
+
+        vhFinish();
+
+        // Action 1: Full Blit
+        vhBlitTexture( dst, src );
+        vhFinish();
+
+        vhMem readData;
+        vhReadTextureSlow( dst, 0, 0, &readData );
+        vhFinish();
+
+        ASSERT_EQ( readData.size(), dataSize );
+        for ( size_t i = 0; i < dataSize; ++i )
+        {
+            EXPECT_EQ( readData[i], 0xAA );
+            if ( readData[i] != 0xAA ) break;
+        }
+
+        // Action 2: Region Blit
+        // Reset dst to background
+        vhMem* bgData2 = vhAllocMem( dataSize );
+        std::fill( bgData2->begin(), bgData2->end(), 0x55 );
+        vhUpdateTexture( dst, 0, 0, 1, 1, bgData2 );
+        vhFinish();
+
+        // Blit 16x16 at 8,8
+        glm::ivec3 extent( 16, 16, 1 );
+        glm::ivec3 offset( 8, 8, 0 );
+        vhBlitTexture( dst, src, 0, 0, 0, 0, offset, offset, extent );
+        vhFinish();
+
+        readData.clear();
+        vhReadTextureSlow( dst, 0, 0, &readData );
+        vhFinish();
+
+        ASSERT_EQ( readData.size(), dataSize );
+        for ( int y = 0; y < height; ++y )
+        {
+            for ( int x = 0; x < width; ++x )
+            {
+                size_t pixelOffset = ( size_t )( y * width + x ) * pixelSize;
+                bool inRegion = ( x >= 8 && x < 8 + 16 && y >= 8 && y < 8 + 16 );
+                uint8_t expected = inRegion ? 0xAA : 0x55;
+                for ( int c = 0; c < pixelSize; ++c )
+                {
+                    EXPECT_EQ( readData[pixelOffset + c], expected );
+                    if ( readData[pixelOffset + c] != expected ) break;
+                }
+            }
+        }
+
+        vhDestroyTexture( src );
+        vhDestroyTexture( dst );
+        vhFlush();
+    }
 }
 
 UTEST( Texture, RegionDataSize_SimpleRGBA8 )

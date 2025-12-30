@@ -112,6 +112,7 @@ extern std::mutex g_vhTextureIDListMutex;
 extern vhAllocatorObjectFreeList g_vhBufferIDList;
 extern std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
 extern std::mutex g_vhBufferIDListMutex;
+extern bool g_vhRayTracingEnabled;
 
 // Command Queue
 extern moodycamel::BlockingConcurrentQueue< void* > g_vhCmds;
@@ -212,6 +213,7 @@ std::mutex g_vhTextureIDListMutex;
 vhAllocatorObjectFreeList g_vhBufferIDList( 256 );
 std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
 std::mutex g_vhBufferIDListMutex;
+bool g_vhRayTracingEnabled = false;
 
 moodycamel::BlockingConcurrentQueue< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;
@@ -310,7 +312,7 @@ void vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue type )
 void vhCmdListFlush( nvrhi::CommandQueue type )
 {
     // Both queues depend on copy, so flush copy first
-    if ( type == nvrhi::CommandQueue::Graphics || nvrhi::CommandQueue::Compute )
+    if ( type == nvrhi::CommandQueue::Graphics || type == nvrhi::CommandQueue::Compute )
     {
         vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Copy );
     }

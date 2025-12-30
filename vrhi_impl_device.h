@@ -120,6 +120,7 @@ void vhInit()
 
     if ( g_vhInit.deviceIndex >= 0 )
     {
+        // User selected device.
         auto physRet = selector.select_devices();
         if ( !physRet || g_vhInit.deviceIndex >= ( int ) physRet.value().size() )
         {
@@ -130,6 +131,7 @@ void vhInit()
     }
     else
     {
+        // Auto selected device.
         auto physRet = selector.select();
         if ( !physRet )
         {
@@ -144,18 +146,21 @@ void vhInit()
 
     // 3. Device Creation & Queues (via vk-bootstrap)
 
+    bool rtExtEnabled = false;
+    if ( g_vhInit.raytracing )
+    {
+        rtExtEnabled = vkbPhys.enable_extension_if_present( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) &&
+                       vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
+                       vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+    }
+
     VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
     vkb::DeviceBuilder devBuilder( vkbPhys );
     
-    // Check for RT extensions
-    bool hasRT = vkbPhys.enable_extension_if_present( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) &&
-                 vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
-                 vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
-
     VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
 
-    if ( hasRT )
+    if ( rtExtEnabled )
     {
         accelFeatures.accelerationStructure = VK_TRUE;
         rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
@@ -177,6 +182,18 @@ void vhInit()
 
     g_vulkanBDevice = std::make_unique<vkb::Device>( devRet.value() );
     g_vulkanDevice = g_vulkanBDevice->device;
+
+    // Verify RT enablement via function pointers
+    if ( rtExtEnabled )
+    {
+        auto fp = vkGetDeviceProcAddr( g_vulkanDevice, "vkCreateAccelerationStructureKHR" );
+        if ( !fp )
+        {
+            rtExtEnabled = false;
+            VRHI_LOG( "    WARNING: RT extensions requested but vkCreateAccelerationStructureKHR not found. Disabling RT.\n" );
+        }
+    }
+    g_vhRayTracingEnabled = rtExtEnabled;
 
     // Get Queues
     auto graphicsQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::graphics );
@@ -212,12 +229,18 @@ void vhInit()
         g_QueueFamilyTransfer = g_QueueFamilyCompute;
     }
 
-    auto enabledExtensions = vkbPhys.get_extensions();
-    g_vulkanEnabledExtensionCount = ( uint32_t ) enabledExtensions.size();
-    
     static std::vector<std::string> s_enabledExtensions;
+    s_enabledExtensions.clear();
+    if ( g_vhRayTracingEnabled )
+    {
+        s_enabledExtensions.push_back( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME );
+        s_enabledExtensions.push_back( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME );
+        s_enabledExtensions.push_back( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+    }
+
+    g_vulkanEnabledExtensionCount = ( uint32_t ) s_enabledExtensions.size();
+    
     static std::vector<const char*> s_enabledExtensionPointers;
-    s_enabledExtensions = enabledExtensions;
     s_enabledExtensionPointers.clear();
     for ( const auto& ext : s_enabledExtensions ) s_enabledExtensionPointers.push_back( ext.c_str() );
 
