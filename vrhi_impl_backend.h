@@ -41,6 +41,7 @@ struct vhBackendBuffer
     std::string name;
     nvrhi::BufferHandle handle;
     nvrhi::BufferDesc desc;
+    uint64_t flags = 0;
 };
 
 // --------------------------------------------------------------------------
@@ -114,7 +115,6 @@ struct vhCmdBackendState : public VIDLHandler
     void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) )
     {
         if ( !btex.handle || !data || !data->size() ) return;
-
         auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
         // Clamp to texture mip / array boundaries.
@@ -267,17 +267,38 @@ struct vhCmdBackendState : public VIDLHandler
         }
     }
 
+    void BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size )
+    {
+        if ( !bbuf.handle ) return;
+
+        auto oldHandle = bbuf.handle;
+        auto oldSize = bbuf.desc.byteSize;
+
+        bbuf.desc.setByteSize( size );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            bbuf.handle = g_vhDevice->createBuffer( bbuf.desc );
+        }
+
+        if ( !bbuf.handle )
+        {
+            VRHI_ERR( "vhCreateVertexBuffer() : Failed to create buffer!\n" );
+            return;
+        }
+
+        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+        cmdlist->copyBuffer( bbuf.handle, 0, oldHandle, 0, glm::min( bbuf.desc.byteSize, oldSize ) );
+    }
+
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data )
     {
         if ( !bbuf.handle || !data || !data->size() ) return;
         printf("BE_UpdateBuffer Dummy Implementation\n");
-        
-        /* Commented out implementation as per request:
+
         if ( offset + data->size() > bbuf.desc.byteSize )
         {
-            VRHI_ERR( "vhUpdateVertexBuffer() : Update range [%llu, %llu] exceeds buffer size %llu!\n", 
-                offset, offset + data->size(), bbuf.desc.byteSize );
-            return;
+            assert( bbuf.flags & VRHI_BUFFER_ALLOW_RESIZE );
+            BE_ResizeBuffer( bbuf, offset + data->size() );
         }
 
         auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
@@ -285,7 +306,6 @@ struct vhCmdBackendState : public VIDLHandler
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
             cmdlist->writeBuffer( bbuf.handle, data->data(), data->size(), offset );
         }
-        */
     }
 
 public:
@@ -582,6 +602,10 @@ public:
         auto bufferDesc = nvrhi::BufferDesc()
             .setByteSize( byteSize )
             .setIsVertexBuffer( true )
+            .setCanHaveUAVs( cmd->flags & VRHI_BUFFER_COMPUTE_WRITE )
+            .setCanHaveTypedViews( cmd->flags & VRHI_BUFFER_COMPUTE_READ )
+            .setCanHaveRawViews( cmd->flags & VRHI_BUFFER_COMPUTE_READ )
+            .setIsDrawIndirectArgs( cmd->flags & VRHI_BUFFER_DRAW_INDIRECT )
             .enableAutomaticStateTracking( nvrhi::ResourceStates::VertexBuffer )
             .setDebugName( (cmd->name && cmd->name[0]) ? cmd->name : temps );
 
@@ -597,10 +621,11 @@ public:
             return;
         }
 
-        auto bbuf = std::make_unique<vhBackendBuffer>();
+        auto bbuf = std::make_unique< vhBackendBuffer >();
         bbuf->handle = buffer;
         bbuf->name = (cmd->name && cmd->name[0]) ? cmd->name : temps;
         bbuf->desc = bufferDesc;
+        bbuf->flags = cmd->flags;
 
         if ( cmd->mem )
         {
@@ -617,13 +642,26 @@ public:
 
         if ( cmd->buffer == VRHI_INVALID_HANDLE ) return;
 
+        if ( !cmd->data )
+        {
+            VRHI_ERR( "vhUpdateVertexBuffer() : NULL data.\n");
+            return;
+        }
         if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
         {
             VRHI_ERR( "vhUpdateVertexBuffer() : Buffer %d not found!\n", cmd->buffer );
             return;
         }
+        auto& bbuf = backendBuffers[ cmd->buffer ];
 
-        BE_UpdateBuffer( *backendBuffers[ cmd->buffer ], cmd->offset, cmd->data );
+        if ( cmd->offset + cmd->data->size() > bbuf->desc.byteSize && !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
+        {
+            VRHI_ERR( "vhUpdateVertexBuffer() : Update range [%llu, %llu] exceeds buffer size %llu!\n", 
+                cmd->offset, cmd->offset + cmd->data->size(), bbuf->desc.byteSize );
+            return;
+        }
+
+        BE_UpdateBuffer( *bbuf, cmd->offset, cmd->data );
     }
 
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override

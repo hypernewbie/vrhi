@@ -614,12 +614,12 @@ UTEST( Buffer, UpdateSafety )
     EXPECT_GT( g_vhErrorCounter.load(), startErrors );
     startErrors = g_vhErrorCounter.load();
 
-    // 3. Null Data
+    // 3. Null Data ( should error )
     vhBuffer buf = vhAllocBuffer();
     vhCreateVertexBuffer( buf, "NullDataTest", vhAllocMem( 1024 ), "float3 POSITION" );
     vhUpdateVertexBuffer( buf, nullptr, 0 );
     vhFlush();
-    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
 
     // 4. Destroyed Buffer
     vhDestroyBuffer( buf );
@@ -1036,6 +1036,83 @@ UTEST( Texture, RegionDataSize_R8 )
     auto info = vhGetFormat( nvrhi::Format::R8_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( 100, 100, 1 ), 0 );
     EXPECT_EQ( size, 10000 );
+}
+
+UTEST( Buffer, Flags_Compute )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhBuffer bRead = vhAllocBuffer();
+    vhCreateVertexBuffer( bRead, "ComputeRead", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_COMPUTE_READ );
+
+    vhBuffer bWrite = vhAllocBuffer();
+    vhCreateVertexBuffer( bWrite, "ComputeWrite", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_COMPUTE_WRITE );
+
+    vhBuffer bReadWrite = vhAllocBuffer();
+    vhCreateVertexBuffer( bReadWrite, "ComputeReadWrite", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_COMPUTE_READ_WRITE );
+
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( bRead );
+    vhDestroyBuffer( bWrite );
+    vhDestroyBuffer( bReadWrite );
+    vhFlush();
+}
+
+UTEST( Buffer, Flags_DrawIndirect )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    int32_t startErrors = g_vhErrorCounter.load();
+    vhBuffer bIndirect = vhAllocBuffer();
+    vhCreateVertexBuffer( bIndirect, "DrawIndirect", vhAllocMem( 1024 ), "float3 POSITION", VRHI_BUFFER_DRAW_INDIRECT );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( bIndirect );
+    vhFlush();
+}
+
+UTEST( Buffer, Flags_Resize )
+{
+    if ( !g_testInit )
+    {
+        vhInit();
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 1. Success case: ALLOW_RESIZE
+    vhBuffer bResize = vhAllocBuffer();
+    vhCreateVertexBuffer( bResize, "AllowResize", vhAllocMem( 64 ), "float3 POSITION", VRHI_BUFFER_ALLOW_RESIZE );
+
+    // Update with larger data
+    vhUpdateVertexBuffer( bResize, vhAllocMem( 128 ), 0 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // 2. Failure case: No ALLOW_RESIZE
+    vhBuffer bNoResize = vhAllocBuffer();
+    vhCreateVertexBuffer( bNoResize, "NoResize", vhAllocMem( 64 ), "float3 POSITION", VRHI_BUFFER_NONE );
+
+    // Update with larger data - should trigger error in backend
+    vhUpdateVertexBuffer( bNoResize, vhAllocMem( 128 ), 0 );
+    vhFlush();
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( bResize );
+    vhDestroyBuffer( bNoResize );
+    vhFlush();
 }
 
 UTEST_STATE();
