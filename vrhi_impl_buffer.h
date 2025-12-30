@@ -250,11 +250,11 @@ void vhCreateVertexBuffer(
 void vhUpdateVertexBuffer(
     vhBuffer buffer,
     const vhMem* data,
-    uint64_t offset,
+    uint64_t offsetVerts,
     uint64_t numVerts
 )
 {
-    auto cmd = vhCmdAlloc<VIDL_vhUpdateVertexBuffer>( buffer, data, offset, numVerts );
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateVertexBuffer>( buffer, data, offsetVerts, numVerts );
     vhCmdEnqueue( cmd );
 }
 
@@ -276,10 +276,10 @@ void vhCreateIndexBuffer(
 void vhUpdateIndexBuffer(
     vhBuffer buffer,
     const vhMem* data,
-    uint64_t offset,
+    uint64_t offsetIndices,
     uint64_t numIndices
 )
 {
-    auto cmd = vhCmdAlloc<VIDL_vhUpdateIndexBuffer>( buffer, data, offset, numIndices );
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateIndexBuffer>( buffer, data, offsetIndices, numIndices );
     vhCmdEnqueue( cmd );
 }

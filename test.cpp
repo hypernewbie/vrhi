@@ -667,8 +667,8 @@ UTEST( Buffer, UpdateFunctionality )
     // Basic Update
     vhUpdateVertexBuffer( buf, vhAllocMem( 256 ), 0 );
     
-    // Offset Update
-    vhUpdateVertexBuffer( buf, vhAllocMem( 100 ), 512 );
+    // Offset Update (512 bytes = ~42.67 vertices, round to 43 vertices for stride 12)
+    vhUpdateVertexBuffer( buf, vhAllocMem( 100 ), 43 );
     
     vhFlush();
 

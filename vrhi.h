@@ -330,13 +330,13 @@ void vhCreateVertexBuffer(
 //
 // |buffer| is the handle to the buffer to update.
 // |data| is the source data. Takes ownership of the memory.
-// |offset| is the byte offset within the buffer to start writing.
+// |offsetVerts| is the vertex offset within the buffer to start writing (in vertices, not bytes).
 // |numVerts| is the number of vertices in the buffer. It is ignored if |data| is not null.
 // VIDL_GENERATE
 void vhUpdateVertexBuffer(
     vhBuffer buffer,
     const vhMem* data,
-    uint64_t offset = 0,
+    uint64_t offsetVerts = 0,
     uint64_t numVerts = 0
 );
 
@@ -349,11 +349,17 @@ void vhCreateIndexBuffer(
     uint16_t flags = VRHI_BUFFER_NONE
 );
 
+// Enqueues a command to update an index buffer with the specified data.
+//
+// |buffer| is the handle to the buffer to update.
+// |data| is the source data. Takes ownership of the memory.
+// |offsetIndices| is the index offset within the buffer to start writing (in indices, not bytes).
+// |numIndices| is the number of indices in the buffer. It is ignored if |data| is not null.
 // VIDL_GENERATE
 void vhUpdateIndexBuffer(
     vhBuffer buffer,
     const vhMem* data,
-    uint64_t offset = 0,
+    uint64_t offsetIndices = 0,
     uint64_t numIndices = 0
 );
 
