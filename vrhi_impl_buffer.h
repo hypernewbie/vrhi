@@ -233,15 +233,16 @@ void vhDestroyBuffer( vhBuffer buffer )
 void vhCreateVertexBuffer(
     vhBuffer buffer,
     const char* name,
-    const vhMem* mem,
+    const vhMem* data,
     const vhVertexLayout layout,
+    uint64_t numVerts,
     uint16_t flags
 )
 {
     if ( buffer == VRHI_INVALID_HANDLE ) return;
 
     // Queue up command to create vertex buffer
-    auto cmd = vhCmdAlloc<VIDL_vhCreateVertexBuffer>( buffer, name, mem, layout, flags );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateVertexBuffer>( buffer, name, data, layout, numVerts, flags );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
@@ -249,9 +250,10 @@ void vhCreateVertexBuffer(
 void vhUpdateVertexBuffer(
     vhBuffer buffer,
     const vhMem* data,
-    uint64_t offset
+    uint64_t offset,
+    uint64_t numVerts
 )
 {
-    auto cmd = vhCmdAlloc<VIDL_vhUpdateVertexBuffer>( buffer, data, offset );
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateVertexBuffer>( buffer, data, offset, numVerts );
     vhCmdEnqueue( cmd );
 }
