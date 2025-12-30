@@ -66,13 +66,11 @@ struct VIDL_vhUpdateTexture
     int numMips = 1;
     int numLayers = 1;
     const vhMem* data = nullptr;
-    glm::ivec3 offset = glm::ivec3( 0 );
-    glm::ivec3 extent = glm::ivec3( -1 );
 
     VIDL_vhUpdateTexture() = default;
 
-    VIDL_vhUpdateTexture(vhTexture _texture, int _startMips, int _startLayers, int _numMips, int _numLayers, const vhMem* _data, glm::ivec3 _offset, glm::ivec3 _extent)
-        : texture(_texture), startMips(_startMips), startLayers(_startLayers), numMips(_numMips), numLayers(_numLayers), data(_data), offset(_offset), extent(_extent) {}
+    VIDL_vhUpdateTexture(vhTexture _texture, int _startMips, int _startLayers, int _numMips, int _numLayers, const vhMem* _data)
+        : texture(_texture), startMips(_startMips), startLayers(_startLayers), numMips(_numMips), numLayers(_numLayers), data(_data) {}
 };
 
 struct VIDL_vhReadTextureSlow

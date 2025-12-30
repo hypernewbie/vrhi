@@ -121,3 +121,17 @@ glm::ivec2 vhGetImageSliceSize( const vhFormatInfo& info, const glm::ivec3& dime
 
 // Get the mip level info for the entire texture
 void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t &pitchSize, int64_t& arraySize, const vhTexInfo& info );
+
+// Round the size to the next power of 2.
+
+inline uint32_t vhNextPow2( uint32_t v )
+
+{
+
+    if ( v == 0 ) return 1u;
+
+    v--; v |= v >> 1; v |= v >> 2; v |= v >> 4; v |= v >> 8; v |= v >> 16; v++;
+
+    return v;
+
+}

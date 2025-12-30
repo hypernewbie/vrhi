@@ -262,9 +262,7 @@ void vhUpdateTexture(
     vhTexture texture,
     int startMips = 0, int startLayers = 0,
     int numMips = 1, int numLayers = 1,
-    const vhMem* data = nullptr,
-    glm::ivec3 offset = glm::ivec3( 0 ),
-    glm::ivec3 extent = glm::ivec3( -1 )
+    const vhMem* data = nullptr
 );
 
 // Enqueues a command to read a subresource range of a texture.
