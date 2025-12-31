@@ -1,5 +1,7 @@
 # CMake
 build/
+build_debug/
+build_release/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
