@@ -385,6 +385,7 @@ void vhCreateUniformBuffer(
 // |data| is the source data. Takes ownership of the memory.
 // |offset| is the byte offset within the buffer to start writing.
 // |size| is the size in bytes. It is ignored if |data| is not null.
+// Note: While byte-level access is supported, using 4-byte aligned offsets/sizes is recommended for performance (hits the fast-path).
 // VIDL_GENERATE
 void vhUpdateUniformBuffer(
     vhBuffer buffer,
@@ -415,6 +416,7 @@ void vhCreateStorageBuffer(
 // |data| is the source data. Takes ownership of the memory.
 // |offset| is the byte offset within the buffer to start writing.
 // |size| is the size in bytes. It is ignored if |data| is not null.
+// Note: While byte-level access is supported, using 4-byte aligned offsets/sizes is recommended for performance (hits the fast-path).
 // VIDL_GENERATE
 void vhUpdateStorageBuffer(
     vhBuffer buffer,

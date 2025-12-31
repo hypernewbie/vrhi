@@ -39,7 +39,7 @@ public:
     {
         if ( severity >= nvrhi::MessageSeverity::Error )
         {
-            VRHI_LOG( "[NVRHI] %s\n", messageText );
+            VRHI_ERR( "[NVRHI] %s\n", messageText );
         }
         else
         {
