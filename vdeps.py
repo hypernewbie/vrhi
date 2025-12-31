@@ -56,7 +56,7 @@ def run_command(command, cwd=None, env=None):
         sys.exit(1)
 
 class Dependency:
-    def __init__(self, name, rel_path, cmake_options, libs=None, init_submodules=False):
+    def __init__(self, name, rel_path, cmake_options, libs=None, executables=None, init_submodules=False):
         """
         :param name: Display name.
         :param rel_path: Relative path from 'dependencies/'.
@@ -64,12 +64,15 @@ class Dependency:
         :param libs: List of library base names to copy (e.g. ['nvrhi']). 
                      Matches 'libnvrhi.a' (Linux) or 'nvrhi.lib'/'libnvrhi.lib' (Windows).
                      If None, copies all static libs found.
+        :param executables: List of executable base names to copy (e.g. ['nvrhi-scomp']).
+                            Matches 'nvrhi-scomp' (Linux) or 'nvrhi-scomp.exe' (Windows).
         :param init_submodules: Whether to init git submodules.
         """
         self.name = name
         self.rel_path = rel_path
         self.cmake_options = cmake_options
         self.libs = libs
+        self.executables = executables
         self.init_submodules = init_submodules
 
 # --- Definition of Dependencies ---
@@ -88,12 +91,25 @@ DEPENDENCIES = [
             "-DNVRHI_WITH_DX12=OFF",
             "-DNVRHI_WITH_NVAPI=OFF",
             "-DNVRHI_BUILD_SHARED=OFF",
-            "-RTXMU_WITH_D3D12=OFF",
+            "-DRTXMU_WITH_D3D12=OFF",
             "-DRTXMU_WITH_VULKAN=ON",
             "-DVULKAN_HEADERS_ENABLE_INSTALL=OFF",
         ],
         # Base names of libraries to extract
         libs=["nvrhi_vk", "rtxmu", "nvrhi"]
+    ),
+    Dependency(
+        name="ShaderMake",
+        rel_path="ShaderMake",
+        init_submodules=True,
+        cmake_options=[
+            "-DSHADERMAKE_FIND_DXC=OFF",
+            "-DSHADERMAKE_FIND_DXC_VK=OFF",
+            "-DSHADERMAKE_FIND_FXC=OFF",
+            "-DSHADERMAKE_FIND_SLANG=ON",
+            "-DSHADERMAKE_TOOL=OFF"
+        ],
+        executables=["ShaderMake"]
     ),
     Dependency(
         name="vk-bootstrap",
@@ -116,7 +132,7 @@ DEPENDENCIES = [
 
 def main():
     root_dir = os.path.dirname(os.path.abspath(__file__))
-    deps_root_dir = os.path.join(root_dir, "dependencies")
+    deps_root_dir = os.path.join(root_dir, "vdeps")
     env = os.environ.copy()
 
     print(f"Platform: {sys.platform} ({PLATFORM_TAG})")
@@ -148,9 +164,13 @@ def main():
             
             build_dir = os.path.join(dep_dir, f"build_{config['name']}")
             output_lib_dir = os.path.join(root_dir, "lib", f"{PLATFORM_TAG}_{config['name']}")
-            
+            output_tools_dir = os.path.join(root_dir, "tools", f"{PLATFORM_TAG}_{config['name']}")
+
             if not os.path.exists(output_lib_dir):
                 os.makedirs(output_lib_dir)
+            
+            if dep.executables and not os.path.exists(output_tools_dir):
+                os.makedirs(output_tools_dir)
 
             # CMake Configure
             cmake_args = ["cmake", "-S", ".", "-B", build_dir] + \
@@ -168,7 +188,7 @@ def main():
 
             run_command(build_cmd, cwd=dep_dir, env=env)
 
-            # Copy Artifacts
+            # Copy Artifacts (Libs)
             print(f"--- Copying artifacts to {output_lib_dir} ---")
             
             # Find all relevant files in build dir
@@ -176,31 +196,63 @@ def main():
             if IS_WINDOWS:
                 extensions.append(".pdb")
                 
-            found_files = []
-            for ext in extensions:
-                found_files.extend(glob.glob(os.path.join(build_dir, "**", f"*{ext}"), recursive=True))
+            found_files = glob.glob(os.path.join(build_dir, "**", "*"), recursive=True)
+            
+            # Also search in the 'bin' directory of the dependency if it exists (e.g. ShaderMake)
+            bin_dir = os.path.join(dep_dir, "bin")
+            if os.path.exists(bin_dir):
+                found_files.extend(glob.glob(os.path.join(bin_dir, "**", "*"), recursive=True))
 
             copied_count = 0
             
             for file_path in found_files:
+                if os.path.isdir(file_path): continue
                 filename = os.path.basename(file_path)
                 name_no_ext = os.path.splitext(filename)[0]
+                ext = os.path.splitext(filename)[1]
+
+                # --- Libs ---
+                should_copy_lib = False
+                if ext in extensions:
+                    if dep.libs is None:
+                        should_copy_lib = True
+                    else:
+                        for base_name in dep.libs:
+                            if name_no_ext == base_name or name_no_ext == f"lib{base_name}":
+                                should_copy_lib = True
+                                break
                 
-                # Check if this file matches our requested libs
-                should_copy = False
-                if dep.libs is None:
-                    should_copy = True
-                else:
-                    for base_name in dep.libs:
-                        # Match name_no_ext against base_name or lib+base_name
-                        if name_no_ext == base_name or name_no_ext == f"lib{base_name}":
-                            should_copy = True
-                            break
-                
-                if should_copy:
-                    print(f"Copying {filename}...")
+                if should_copy_lib:
+                    print(f"Copying lib {filename}...")
                     shutil.copy2(file_path, os.path.join(output_lib_dir, filename))
                     copied_count += 1
+                
+                # --- Executables ---
+                if dep.executables:
+                    should_copy_exe = False
+                    exe_ext = '.exe' if IS_WINDOWS else ''
+                    
+                    if ext == exe_ext or (IS_WINDOWS and ext == '.pdb'):
+                        # Check against executable names
+                        # For PDBs on windows, we match the basename of the exe
+                        for base_name in dep.executables:
+                            if name_no_ext == base_name:
+                                should_copy_exe = True
+                                break
+                    
+                    # On Linux, executables have no extension, so we check name match and executable permission (implied by being a build artifact usually, but name match is key)
+                    # If extension is empty and we are not on windows, match exact name
+                    if not IS_WINDOWS and ext == '':
+                         for base_name in dep.executables:
+                            if filename == base_name:
+                                should_copy_exe = True
+                                break
+
+                    if should_copy_exe:
+                         print(f"Copying tool {filename}...")
+                         shutil.copy2(file_path, os.path.join(output_tools_dir, filename))
+                         copied_count += 1
+
             
             if copied_count == 0:
                 print(f"Warning: No artifacts copied for {dep.name} [{config['type']}]")

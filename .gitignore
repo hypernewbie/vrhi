@@ -44,7 +44,6 @@ _deps/
 bin/
 lib_out/
 out/
-dependencies/
 tmp/
 
 # OS/Temp files

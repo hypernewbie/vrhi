@@ -1,0 +1,9 @@
+[submodule "vdeps/nvrhi"]
+	path = vdeps/nvrhi
+	url = https://github.com/NVIDIA-RTX/NVRHI.git
+[submodule "vdeps/ShaderMake"]
+	path = vdeps/ShaderMake
+	url = https://github.com/NVIDIA-RTX/ShaderMake
+[submodule "vdeps/vk-bootstrap"]
+	path = vdeps/vk-bootstrap
+	url = https://github.com/charles-lunarg/vk-bootstrap.git
