@@ -88,6 +88,9 @@ DEPENDENCIES = [
             "-DNVRHI_WITH_DX12=OFF",
             "-DNVRHI_WITH_NVAPI=OFF",
             "-DNVRHI_BUILD_SHARED=OFF",
+            "-RTXMU_WITH_D3D12=OFF",
+            "-DRTXMU_WITH_VULKAN=ON",
+            "-DVULKAN_HEADERS_ENABLE_INSTALL=OFF",
         ],
         # Base names of libraries to extract
         libs=["nvrhi_vk", "rtxmu", "nvrhi"]
