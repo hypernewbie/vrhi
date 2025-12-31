@@ -748,6 +748,66 @@ public:
         Handle_vhUpdateBufferCommon_Internal( "vhUpdateIndexBuffer", cmd->buffer, cmd->offsetIndices, cmd->data, cmd->numIndices, false );
     }
 
+    void Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+
+        if ( cmd->buffer == VRHI_INVALID_HANDLE )
+        {
+            VRHI_ERR( "vhCreateUniformBuffer() : Invalid buffer handle!\n" );
+            return;
+        }
+
+        // Partially initialize nvrhi::BufferDesc for uniform buffer
+        nvrhi::BufferDesc desc;
+        desc.setIsConstantBuffer( true );
+        desc.enableAutomaticStateTracking( nvrhi::ResourceStates::ConstantBuffer );
+
+        // Reuse common logic with stride = 1 (byte-oriented)
+        Handle_vhCreateBufferCommon_Internal( "vhCreateUniformBuffer", cmd->buffer, desc, cmd->name, "UniformBuffer", cmd->data, cmd->size, 1, cmd->flags );
+    }
+
+    void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+
+        // Reuse common update logic (isVertexBuffer = true uses stride from creation)
+        Handle_vhUpdateBufferCommon_Internal( "vhUpdateUniformBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->size, true );
+    }
+
+    void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+
+        if ( cmd->buffer == VRHI_INVALID_HANDLE )
+        {
+            VRHI_ERR( "vhCreateStorageBuffer() : Invalid buffer handle!\n" );
+            return;
+        }
+
+        // Partially initialize nvrhi::BufferDesc for storage buffer
+        nvrhi::BufferDesc desc;
+        desc.setByteSize( cmd->size );
+        desc.setCanHaveUAVs( true );
+        desc.setCanHaveRawViews( true );
+        desc.enableAutomaticStateTracking( nvrhi::ResourceStates::UnorderedAccess );
+
+        // Reuse common logic with stride = 1 (byte-oriented)
+        Handle_vhCreateBufferCommon_Internal( "vhCreateStorageBuffer", cmd->buffer, desc, cmd->name, "StorageBuffer", cmd->data, cmd->size, 1, cmd->flags );
+    }
+
+    void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+
+        // Reuse common update logic (isVertexBuffer = true uses stride from creation)
+        Handle_vhUpdateBufferCommon_Internal( "vhUpdateStorageBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->size, true );
+    }
+
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override
     {
         if ( cmd->buffer == VRHI_INVALID_HANDLE )

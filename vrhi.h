@@ -363,6 +363,66 @@ void vhUpdateIndexBuffer(
     uint64_t numIndices = 0
 );
 
+// Enqueues a command to create a uniform buffer with the specified parameters.
+//
+// |buffer| must be a handle allocated via |vhAllocBuffer|.
+// |name| is an optional debug name for the buffer.
+// |data| is optional initial data. Takes ownership of the memory.
+// |size| is the size in bytes. It is ignored if |data| is not null.
+// |flags| specifies usage options.
+// VIDL_GENERATE
+void vhCreateUniformBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t size = 0,
+    uint16_t flags = VRHI_BUFFER_NONE
+);
+
+// Enqueues a command to update a uniform buffer with the specified data.
+//
+// |buffer| is the handle to the buffer to update.
+// |data| is the source data. Takes ownership of the memory.
+// |offset| is the byte offset within the buffer to start writing.
+// |size| is the size in bytes. It is ignored if |data| is not null.
+// VIDL_GENERATE
+void vhUpdateUniformBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset = 0,
+    uint64_t size = 0
+);
+
+// Enqueues a command to create a storage buffer with the specified parameters.
+//
+// |buffer| must be a handle allocated via |vhAllocBuffer|.
+// |name| is an optional debug name for the buffer.
+// |data| is optional initial data. Takes ownership of the memory.
+// |size| is the size in bytes. It is ignored if |data| is not null.
+// |flags| specifies usage options.
+// VIDL_GENERATE
+void vhCreateStorageBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t size = 0,
+    uint16_t flags = VRHI_BUFFER_NONE
+);
+
+// Enqueues a command to update a storage buffer with the specified data.
+//
+// |buffer| is the handle to the buffer to update.
+// |data| is the source data. Takes ownership of the memory.
+// |offset| is the byte offset within the buffer to start writing.
+// |size| is the size in bytes. It is ignored if |data| is not null.
+// VIDL_GENERATE
+void vhUpdateStorageBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset = 0,
+    uint64_t size = 0
+);
+
 // Enqueues a command to destroy the buffer associated with |buffer|.
 //
 // |buffer| is the handle to the buffer to be destroyed.
