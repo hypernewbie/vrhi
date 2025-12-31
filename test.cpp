@@ -1541,6 +1541,66 @@ UTEST( IndexBuffer, Resize_And_Uninit )
     vhFlush();
 }
 
+UTEST( Buffer, UniformAlignment )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t baseline = g_vhErrorCounter.load();
+
+    // Step A: Creation Stress
+    vhBuffer b1 = vhAllocBuffer();
+    vhCreateUniformBuffer( b1, "AutoAlignCreate255", nullptr, 255 );
+    vhFlush();
+
+    // Un-aligned creation/access (e.g. 255 bytes) is supported by NVRHI. Expect Success.
+    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+
+    // Step B: Update Stress
+    vhMem* data255 = vhAllocMem( 255 );
+    vhUpdateUniformBuffer( b1, data255, 0, 255 );
+    vhFlush();
+
+    // Un-aligned creation/access (e.g. 255 bytes) is supported by NVRHI. Expect Success.
+    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+
+    vhDestroyBuffer( b1 );
+    vhFlush();
+}
+
+UTEST( Buffer, StorageAlignment )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t baseline = g_vhErrorCounter.load();
+
+    // Step A: Creation Stress
+    vhBuffer b1 = vhAllocBuffer();
+    vhCreateStorageBuffer( b1, "AutoAlignCreate15", nullptr, 15 );
+    vhFlush();
+
+    // Un-aligned creation/access (e.g. 255 bytes) is supported by NVRHI. Expect Success.
+    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+
+    // Step B: Update Stress
+    vhMem* data15 = vhAllocMem( 15 );
+    vhUpdateStorageBuffer( b1, data15, 0, 15 );
+    vhFlush();
+
+    // Un-aligned creation/access (e.g. 255 bytes) is supported by NVRHI. Expect Success.
+    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+
+    vhDestroyBuffer( b1 );
+    vhFlush();
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
