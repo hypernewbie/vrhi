@@ -112,6 +112,22 @@ extern std::mutex g_vhTextureIDListMutex;
 extern vhAllocatorObjectFreeList g_vhBufferIDList;
 extern std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
 extern std::mutex g_vhBufferIDListMutex;
+
+// Shader state
+extern vhAllocatorObjectFreeList g_vhShaderIDList;
+extern std::unordered_map< vhShader, bool > g_vhShaderIDValid;
+extern std::mutex g_vhShaderIDListMutex;
+
+// Program state
+extern vhAllocatorObjectFreeList g_vhProgramIDList;
+extern std::unordered_map< vhProgram, bool > g_vhProgramIDValid;
+extern std::mutex g_vhProgramIDListMutex;
+
+// Pipeline state
+extern vhAllocatorObjectFreeList g_vhPipelineIDList;
+extern std::unordered_map< vhPipeline, bool > g_vhPipelineIDValid;
+extern std::mutex g_vhPipelineIDListMutex;
+
 extern bool g_vhRayTracingEnabled;
 
 // Command Queue
@@ -175,6 +191,7 @@ bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions,
 #include "vrhi_impl_device.h"
 #include "vrhi_impl_texture.h"
 #include "vrhi_impl_buffer.h"
+#include "vrhi_impl_shader.h"
 #endif
 
 
@@ -187,7 +204,8 @@ bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions,
 // WARNING: This must be locked before ANY access to ANY Vulkan state!
 std::mutex g_nvRHIStateMutex;
 
-// Global Variable Definitions
+// # Device and Queues
+
 vhInitData g_vhInit;
 nvrhi::DeviceHandle g_vhDevice = nullptr;
 std::atomic<int32_t> g_vhErrorCounter = 0;
@@ -206,6 +224,8 @@ uint32_t g_QueueFamilyGraphics = (uint32_t)-1;
 uint32_t g_QueueFamilyCompute = (uint32_t)-1;
 uint32_t g_QueueFamilyTransfer = (uint32_t)-1;
 
+// # Graphics Resource Objects
+
 vhAllocatorObjectFreeList g_vhTextureIDList( 256 );
 std::unordered_map< vhTexture, bool > g_vhTextureIDValid;
 std::mutex g_vhTextureIDListMutex;
@@ -213,7 +233,25 @@ std::mutex g_vhTextureIDListMutex;
 vhAllocatorObjectFreeList g_vhBufferIDList( 256 );
 std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
 std::mutex g_vhBufferIDListMutex;
+
+// Shader
+vhAllocatorObjectFreeList g_vhShaderIDList( 256 );
+std::unordered_map< vhShader, bool > g_vhShaderIDValid;
+std::mutex g_vhShaderIDListMutex;
+
+// Program
+vhAllocatorObjectFreeList g_vhProgramIDList( 256 );
+std::unordered_map< vhProgram, bool > g_vhProgramIDValid;
+std::mutex g_vhProgramIDListMutex;
+
+// Pipeline
+vhAllocatorObjectFreeList g_vhPipelineIDList( 256 );
+std::unordered_map< vhPipeline, bool > g_vhPipelineIDValid;
+std::mutex g_vhPipelineIDListMutex;
+
 bool g_vhRayTracingEnabled = false;
+
+// # Backend Command List Thread
 
 moodycamel::BlockingConcurrentQueue< void* > g_vhCmds( 32 * 1024 );
 std::atomic<bool> g_vhCmdsQuit = false;

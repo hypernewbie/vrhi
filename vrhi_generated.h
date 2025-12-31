@@ -210,7 +210,7 @@ struct VIDL_vhCreateStorageBuffer
     const char* name;
     const vhMem* data;
     uint64_t size = 0;
-    uint16_t flags = VRHI_BUFFER_NONE;
+    uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE;
 
     VIDL_vhCreateStorageBuffer() = default;
 
@@ -245,6 +245,42 @@ struct VIDL_vhDestroyBuffer
         : buffer(_buffer) {}
 };
 
+struct VIDL_vhDestroyShader
+{
+    static constexpr uint64_t kMagic = 0x3328C9A7;
+    uint64_t MAGIC = kMagic;
+    vhShader shader;
+
+    VIDL_vhDestroyShader() = default;
+
+    VIDL_vhDestroyShader(vhShader _shader)
+        : shader(_shader) {}
+};
+
+struct VIDL_vhDestroyProgram
+{
+    static constexpr uint64_t kMagic = 0xB14F2FE0;
+    uint64_t MAGIC = kMagic;
+    vhProgram program;
+
+    VIDL_vhDestroyProgram() = default;
+
+    VIDL_vhDestroyProgram(vhProgram _program)
+        : program(_program) {}
+};
+
+struct VIDL_vhDestroyPipeline
+{
+    static constexpr uint64_t kMagic = 0x9851B98D;
+    uint64_t MAGIC = kMagic;
+    vhPipeline pipeline;
+
+    VIDL_vhDestroyPipeline() = default;
+
+    VIDL_vhDestroyPipeline(vhPipeline _pipeline)
+        : pipeline(_pipeline) {}
+};
+
 struct VIDL_vhFlushInternal
 {
     static constexpr uint64_t kMagic = 0x83140D26;
@@ -276,6 +312,9 @@ struct VIDLHandler
     virtual void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyProgram( VIDL_vhDestroyProgram* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyPipeline( VIDL_vhDestroyPipeline* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
 
     virtual void HandleCmd( void* cmd )
@@ -330,6 +369,15 @@ struct VIDLHandler
             break;
         case 0x3A87A73E:
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );
+            break;
+        case 0x3328C9A7:
+            Handle_vhDestroyShader( (VIDL_vhDestroyShader*) cmd );
+            break;
+        case 0xB14F2FE0:
+            Handle_vhDestroyProgram( (VIDL_vhDestroyProgram*) cmd );
+            break;
+        case 0x9851B98D:
+            Handle_vhDestroyPipeline( (VIDL_vhDestroyPipeline*) cmd );
             break;
         case 0x83140D26:
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );

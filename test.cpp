@@ -1601,6 +1601,57 @@ UTEST( Buffer, StorageAlignment )
     vhFlush();
 }
 
+UTEST( Shader, Lifecycle )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t baseline = g_vhErrorCounter.load();
+
+    vhShader s = vhAllocShader();
+    vhDestroyShader( s );
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+}
+
+UTEST( Program, Lifecycle )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t baseline = g_vhErrorCounter.load();
+
+    vhProgram p = vhAllocProgram();
+    vhDestroyProgram( p );
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+}
+
+UTEST( Pipeline, Lifecycle )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t baseline = g_vhErrorCounter.load();
+
+    vhPipeline p = vhAllocPipeline();
+    vhDestroyPipeline( p );
+    vhFlush();
+
+    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
