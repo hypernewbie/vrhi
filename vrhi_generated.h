@@ -171,6 +171,68 @@ struct VIDL_vhUpdateIndexBuffer
         : buffer(_buffer), data(_data), offsetIndices(_offsetIndices), numIndices(_numIndices) {}
 };
 
+struct VIDL_vhCreateUniformBuffer
+{
+    static constexpr uint64_t kMagic = 0x2EFADC4C;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const char* name;
+    const vhMem* data;
+    uint64_t size = 0;
+    uint16_t flags = VRHI_BUFFER_NONE;
+
+    VIDL_vhCreateUniformBuffer() = default;
+
+    VIDL_vhCreateUniformBuffer(vhBuffer _buffer, const char* _name, const vhMem* _data, uint64_t _size, uint16_t _flags)
+        : buffer(_buffer), name(_name), data(_data), size(_size), flags(_flags) {}
+};
+
+struct VIDL_vhUpdateUniformBuffer
+{
+    static constexpr uint64_t kMagic = 0xD6050AA7;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const vhMem* data;
+    uint64_t offset = 0;
+    uint64_t size = 0;
+
+    VIDL_vhUpdateUniformBuffer() = default;
+
+    VIDL_vhUpdateUniformBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offset, uint64_t _size)
+        : buffer(_buffer), data(_data), offset(_offset), size(_size) {}
+};
+
+struct VIDL_vhCreateStorageBuffer
+{
+    static constexpr uint64_t kMagic = 0x797A3950;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const char* name;
+    const vhMem* data;
+    uint64_t size = 0;
+    uint16_t flags = VRHI_BUFFER_NONE;
+
+    VIDL_vhCreateStorageBuffer() = default;
+
+    VIDL_vhCreateStorageBuffer(vhBuffer _buffer, const char* _name, const vhMem* _data, uint64_t _size, uint16_t _flags)
+        : buffer(_buffer), name(_name), data(_data), size(_size), flags(_flags) {}
+};
+
+struct VIDL_vhUpdateStorageBuffer
+{
+    static constexpr uint64_t kMagic = 0x6153A4D9;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const vhMem* data;
+    uint64_t offset = 0;
+    uint64_t size = 0;
+
+    VIDL_vhUpdateStorageBuffer() = default;
+
+    VIDL_vhUpdateStorageBuffer(vhBuffer _buffer, const vhMem* _data, uint64_t _offset, uint64_t _size)
+        : buffer(_buffer), data(_data), offset(_offset), size(_size) {}
+};
+
 struct VIDL_vhDestroyBuffer
 {
     static constexpr uint64_t kMagic = 0x3A87A73E;
@@ -209,6 +271,10 @@ struct VIDLHandler
     virtual void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
 
@@ -249,6 +315,18 @@ struct VIDLHandler
             break;
         case 0x6B219F18:
             Handle_vhUpdateIndexBuffer( (VIDL_vhUpdateIndexBuffer*) cmd );
+            break;
+        case 0x2EFADC4C:
+            Handle_vhCreateUniformBuffer( (VIDL_vhCreateUniformBuffer*) cmd );
+            break;
+        case 0xD6050AA7:
+            Handle_vhUpdateUniformBuffer( (VIDL_vhUpdateUniformBuffer*) cmd );
+            break;
+        case 0x797A3950:
+            Handle_vhCreateStorageBuffer( (VIDL_vhCreateStorageBuffer*) cmd );
+            break;
+        case 0x6153A4D9:
+            Handle_vhUpdateStorageBuffer( (VIDL_vhUpdateStorageBuffer*) cmd );
             break;
         case 0x3A87A73E:
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );

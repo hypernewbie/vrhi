@@ -283,3 +283,55 @@ void vhUpdateIndexBuffer(
     auto cmd = vhCmdAlloc<VIDL_vhUpdateIndexBuffer>( buffer, data, offsetIndices, numIndices );
     vhCmdEnqueue( cmd );
 }
+
+void vhCreateUniformBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t size,
+    uint16_t flags
+)
+{
+    if ( buffer == VRHI_INVALID_HANDLE ) return;
+
+    auto cmd = vhCmdAlloc<VIDL_vhCreateUniformBuffer>( buffer, name, data, size, flags );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhUpdateUniformBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset,
+    uint64_t size
+)
+{
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateUniformBuffer>( buffer, data, offset, size );
+    vhCmdEnqueue( cmd );
+}
+
+void vhCreateStorageBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t size,
+    uint16_t flags
+)
+{
+    if ( buffer == VRHI_INVALID_HANDLE ) return;
+
+    auto cmd = vhCmdAlloc<VIDL_vhCreateStorageBuffer>( buffer, name, data, size, flags );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhUpdateStorageBuffer(
+    vhBuffer buffer,
+    const vhMem* data,
+    uint64_t offset,
+    uint64_t size
+)
+{
+    auto cmd = vhCmdAlloc<VIDL_vhUpdateStorageBuffer>( buffer, data, offset, size );
+    vhCmdEnqueue( cmd );
+}
