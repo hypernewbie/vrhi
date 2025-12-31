@@ -66,6 +66,10 @@ struct vhInitData
 
 typedef uint32_t vhTexture;
 typedef uint32_t vhBuffer;
+typedef uint32_t vhShader;
+typedef uint32_t vhProgram;
+typedef uint32_t vhPipeline;
+
 typedef std::vector<uint8_t> vhMem;
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
@@ -407,7 +411,7 @@ void vhCreateStorageBuffer(
     const char* name,
     const vhMem* data,
     uint64_t size = 0,
-    uint16_t flags = VRHI_BUFFER_NONE
+    uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE
 );
 
 // Enqueues a command to update a storage buffer with the specified data.
@@ -430,6 +434,27 @@ void vhUpdateStorageBuffer(
 // |buffer| is the handle to the buffer to be destroyed.
 // VIDL_GENERATE
 void vhDestroyBuffer( vhBuffer buffer );
+
+// ------------ Shaders ------------
+
+vhShader vhAllocShader();
+
+// Destroy shader.
+// VIDL_GENERATE
+void vhDestroyShader( vhShader shader );
+
+vhProgram vhAllocProgram();
+
+// Destroy program.
+// VIDL_GENERATE
+void vhDestroyProgram( vhProgram program );
+
+vhPipeline vhAllocPipeline();
+
+// Destroy pipeline.
+// VIDL_GENERATE
+void vhDestroyPipeline( vhPipeline pipeline );
+
 
 // --------------------------------------------------------------------------
 // Implementation

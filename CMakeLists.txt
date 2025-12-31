@@ -56,6 +56,9 @@ set(SOURCES
 
     vrhi_impl_buffer.h
     test_impl_buffer.cpp
+
+    vrhi_impl_shader.h
+    test_impl_shader.cpp
     
     test_impl_definitions.cpp
 )

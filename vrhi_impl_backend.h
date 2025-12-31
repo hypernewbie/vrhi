@@ -831,6 +831,36 @@ public:
         vhCmdRelease( cmd );
     }
 
+    void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override
+    {
+        // __AI_SUGGESTION__
+        // 1. Look up NVRHI shader handle from map (if valid).
+        // 2. nvrhi::Device->destroyShader(handle) (if manual destruction is needed, otherwise refcounting handles it).
+        // 3. Remove from internal maps.
+
+        vhCmdRelease( cmd );
+    }
+
+    void Handle_vhDestroyProgram( VIDL_vhDestroyProgram* cmd ) override
+    {
+        // __AI_SUGGESTION__
+        // 1. Look up NVRHI program handle from map (if valid).
+        // 2. nvrhi::Device->destroyBindingLayout/destroyBindingSet/etc.
+        // 3. Remove from internal maps.
+
+        vhCmdRelease( cmd );
+    }
+
+    void Handle_vhDestroyPipeline( VIDL_vhDestroyPipeline* cmd ) override
+    {
+        // __AI_SUGGESTION__
+        // 1. Look up NVRHI pipeline handle from map (if valid).
+        // 2. nvrhi::Device->destroy*Pipeline(handle).
+        // 3. Remove from internal maps.
+
+        vhCmdRelease( cmd );
+    }
+
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
     {
         // Free all cmd memory allocations, because hitting this flush means all previous commands have been processed.
