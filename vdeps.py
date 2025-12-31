@@ -14,7 +14,15 @@ CONFIGS = [
 ]
 
 IS_WINDOWS = (sys.platform == 'win32')
-PLATFORM_TAG = 'win' if IS_WINDOWS else 'linux'
+IS_MACOS = (sys.platform == 'darwin')
+
+if IS_WINDOWS:
+    PLATFORM_TAG = 'win'
+elif IS_MACOS:
+    PLATFORM_TAG = 'mac'
+else:
+    PLATFORM_TAG = 'linux'
+
 LIB_EXT = '.lib' if IS_WINDOWS else '.a'
 
 # --- Helpers ---
@@ -36,16 +44,24 @@ def get_platform_cmake_args():
             "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>"
         ]
     else:
-        # Linux-specific flags (Clang + Ninja + libc++)
-        return common_args + [
+        # Unix-like flags (Clang + Ninja + libc++)
+        args = common_args + [
             "-G", "Ninja",
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
             "-DCMAKE_C_FLAGS=-w",
             "-DCMAKE_CXX_FLAGS=-w -stdlib=libc++",
-            "-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ -lc++abi",
-            "-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++ -lc++abi",
         ]
+
+        # Linker flags: macOS libc++ includes abi, Linux often needs explicit -lc++abi
+        link_flags = "-stdlib=libc++"
+        if not IS_MACOS:
+            link_flags += " -lc++abi"
+
+        args.append(f"-DCMAKE_EXE_LINKER_FLAGS={link_flags}")
+        args.append(f"-DCMAKE_SHARED_LINKER_FLAGS={link_flags}")
+
+        return args
 
 def run_command(command, cwd=None, env=None):
     """Executes a shell command and exits on failure."""

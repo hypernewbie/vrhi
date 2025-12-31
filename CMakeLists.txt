@@ -88,6 +88,11 @@ target_link_directories(vrhi_test PRIVATE
     $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
     $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
     $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
+    # Mac paths
+    $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_debug>
+    $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
+    $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
+    $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
 )
 
 # NVRHI and helper libraries
