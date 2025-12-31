@@ -1,0 +1,45 @@
+[[dependency]]
+name = "nvrhi"
+rel_path = "nvrhi"
+init_submodules = true
+libs = ["nvrhi_vk", "rtxmu", "nvrhi"]
+cmake_options = [
+    "-DNVRHI_INSTALL=OFF",
+    "-DNVRHI_WITH_RTXMU=ON",
+    "-DNVRHI_WITH_VALIDATION=ON",
+    "-DNVRHI_WITH_VULKAN=ON",
+    "-DNVRHI_WITH_DX11=OFF",
+    "-DNVRHI_WITH_DX12=OFF",
+    "-DNVRHI_WITH_NVAPI=OFF",
+    "-DNVRHI_BUILD_SHARED=OFF",
+    "-DRTXMU_WITH_D3D12=OFF",
+    "-DRTXMU_WITH_VULKAN=ON",
+    "-DVULKAN_HEADERS_ENABLE_INSTALL=OFF",
+]
+
+[[dependency]]
+name = "ShaderMake"
+rel_path = "ShaderMake"
+init_submodules = true
+executables = ["ShaderMake"]
+cmake_options = [
+    "-DSHADERMAKE_FIND_DXC=OFF",
+    "-DSHADERMAKE_FIND_DXC_VK=OFF",
+    "-DSHADERMAKE_FIND_FXC=OFF",
+    "-DSHADERMAKE_FIND_SLANG=ON",
+    "-DSHADERMAKE_TOOL=OFF"
+]
+
+[[dependency]]
+name = "vk-bootstrap"
+rel_path = "vk-bootstrap"
+init_submodules = false
+libs = ["vk-bootstrap"]
+cmake_options = [
+    "-DBUILD_SHARED_LIBS=OFF",
+    "-DGLFW_BUILD_TESTS=OFF",
+    "-DVK_BOOTSTRAP_TEST=OFF",
+    "-DVK_BOOTSTRAP_DISABLE_WARNINGS=ON",
+    "-DVK_BOOTSTRAP_INSTALL=OFF",
+    "-DUSE_MSVC_RUNTIME_LIBRARY_DLL=OFF"
+]

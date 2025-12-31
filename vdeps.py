@@ -4,6 +4,7 @@ import shutil
 import glob
 import sys
 import platform
+import tomllib
 
 # --- Configuration ---
 
@@ -50,7 +51,7 @@ def run_command(command, cwd=None, env=None):
     """Executes a shell command and exits on failure."""
     cwd_path = cwd or os.getcwd()
     print(f"[{cwd_path}] Running: {' '.join(command)}")
-    result = subprocess.run(command, cwd=cwd, env=env, shell=IS_WINDOWS)
+    result = subprocess.run(command, cwd=cwd, env=env, shell=False)
     if result.returncode != 0:
         print(f"Error: Command failed with return code {result.returncode}")
         sys.exit(1)
@@ -75,59 +76,6 @@ class Dependency:
         self.executables = executables
         self.init_submodules = init_submodules
 
-# --- Definition of Dependencies ---
-
-DEPENDENCIES = [
-    Dependency(
-        name="nvrhi",
-        rel_path="nvrhi",
-        init_submodules=True,
-        cmake_options=[
-            "-DNVRHI_INSTALL=OFF",
-            "-DNVRHI_WITH_RTXMU=ON",
-            "-DNVRHI_WITH_VALIDATION=ON",
-            "-DNVRHI_WITH_VULKAN=ON",
-            "-DNVRHI_WITH_DX11=OFF",
-            "-DNVRHI_WITH_DX12=OFF",
-            "-DNVRHI_WITH_NVAPI=OFF",
-            "-DNVRHI_BUILD_SHARED=OFF",
-            "-DRTXMU_WITH_D3D12=OFF",
-            "-DRTXMU_WITH_VULKAN=ON",
-            "-DVULKAN_HEADERS_ENABLE_INSTALL=OFF",
-        ],
-        # Base names of libraries to extract
-        libs=["nvrhi_vk", "rtxmu", "nvrhi"]
-    ),
-    Dependency(
-        name="ShaderMake",
-        rel_path="ShaderMake",
-        init_submodules=True,
-        cmake_options=[
-            "-DSHADERMAKE_FIND_DXC=OFF",
-            "-DSHADERMAKE_FIND_DXC_VK=OFF",
-            "-DSHADERMAKE_FIND_FXC=OFF",
-            "-DSHADERMAKE_FIND_SLANG=ON",
-            "-DSHADERMAKE_TOOL=OFF"
-        ],
-        executables=["ShaderMake"]
-    ),
-    Dependency(
-        name="vk-bootstrap",
-        rel_path="vk-bootstrap",
-        init_submodules=False,
-        cmake_options=[
-            "-DBUILD_SHARED_LIBS=OFF",
-            "-DGLFW_BUILD_TESTS=OFF",
-            "-DVK_BOOTSTRAP_TEST=OFF",
-            "-DVK_BOOTSTRAP_DISABLE_WARNINGS=ON",
-            "-DVK_BOOTSTRAP_INSTALL=OFF",
-            "-DUSE_MSVC_RUNTIME_LIBRARY_DLL=OFF"
-        ],
-        # If None, it grabs everything, but we can be specific
-        libs=["vk-bootstrap"] 
-    )
-]
-
 # --- Main Build Logic ---
 
 def main():
@@ -137,7 +85,29 @@ def main():
 
     print(f"Platform: {sys.platform} ({PLATFORM_TAG})")
     
-    for dep in DEPENDENCIES:
+    # Load Dependencies from TOML
+    toml_path = os.path.join(root_dir, "vdeps.toml")
+    if not os.path.exists(toml_path):
+        print(f"Error: Configuration file not found at {toml_path}")
+        sys.exit(1)
+
+    try:
+        with open(toml_path, "rb") as f:
+            toml_data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        print(f"Error parsing TOML file: {e}")
+        sys.exit(1)
+
+    dependencies = []
+    for dep_data in toml_data.get("dependency", []):
+        try:
+            dependencies.append(Dependency(**dep_data))
+        except TypeError as e:
+            print(f"Error initializing dependency from TOML data: {dep_data}")
+            print(f"Details: {e}")
+            sys.exit(1)
+    
+    for dep in dependencies:
         dep_dir = os.path.join(deps_root_dir, dep.rel_path)
         
         if not os.path.exists(dep_dir):
@@ -149,7 +119,7 @@ def main():
         if dep.init_submodules:
             print(f"--- Initializing Submodules for {dep.name} ---")
             if os.path.exists(os.path.join(dep_dir, ".git")) or os.path.exists(os.path.join(dep_dir, "..", ".git")):
-                 run_command(["git", "submodule", "update", "--init", "--recursive"], cwd=dep_dir)
+                 run_command(["git", "submodule", "update", "--init", "--recursive", "--depth", "1"], cwd=dep_dir)
             else:
                  print("Skipping submodule update (not a git repo)")
 
