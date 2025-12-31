@@ -57,7 +57,7 @@ def run_command(command, cwd=None, env=None):
         sys.exit(1)
 
 class Dependency:
-    def __init__(self, name, rel_path, cmake_options, libs=None, executables=None, init_submodules=False):
+    def __init__(self, name, rel_path, cmake_options, libs=None, executables=None, extra_files=None, init_submodules=False):
         """
         :param name: Display name.
         :param rel_path: Relative path from 'dependencies/'.
@@ -67,6 +67,7 @@ class Dependency:
                      If None, copies all static libs found.
         :param executables: List of executable base names to copy (e.g. ['nvrhi-scomp']).
                             Matches 'nvrhi-scomp' (Linux) or 'nvrhi-scomp.exe' (Windows).
+        :param extra_files: List of specific filenames to find and copy to the tools directory (e.g. ['slangc.exe', 'slang.dll']).
         :param init_submodules: Whether to init git submodules.
         """
         self.name = name
@@ -74,6 +75,7 @@ class Dependency:
         self.cmake_options = cmake_options
         self.libs = libs
         self.executables = executables
+        self.extra_files = extra_files
         self.init_submodules = init_submodules
 
 # --- Main Build Logic ---
@@ -139,7 +141,7 @@ def main():
             if not os.path.exists(output_lib_dir):
                 os.makedirs(output_lib_dir)
             
-            if dep.executables and not os.path.exists(output_tools_dir):
+            if (dep.executables or dep.extra_files) and not os.path.exists(output_tools_dir):
                 os.makedirs(output_tools_dir)
 
             # CMake Configure
@@ -222,6 +224,13 @@ def main():
                          print(f"Copying tool {filename}...")
                          shutil.copy2(file_path, os.path.join(output_tools_dir, filename))
                          copied_count += 1
+
+                # --- Extra Files ---
+                if dep.extra_files:
+                    if filename in dep.extra_files:
+                        print(f"Copying extra file {filename} to tools...")
+                        shutil.copy2(file_path, os.path.join(output_tools_dir, filename))
+                        copied_count += 1
 
             
             if copied_count == 0:

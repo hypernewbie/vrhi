@@ -21,12 +21,15 @@ cmake_options = [
 name = "ShaderMake"
 rel_path = "ShaderMake"
 init_submodules = true
+libs = ["ShaderMakeBlob", "slang", "slang-rt"]
 executables = ["ShaderMake"]
+extra_files = ["slangc.exe", "slang.dll", "slang-glslang.dll", "slang-llvm.dll"]
 cmake_options = [
     "-DSHADERMAKE_FIND_DXC=OFF",
     "-DSHADERMAKE_FIND_DXC_VK=OFF",
     "-DSHADERMAKE_FIND_FXC=OFF",
     "-DSHADERMAKE_FIND_SLANG=ON",
+    "-DSHADERMAKE_FIND_COMPILERS=ON",
     "-DSHADERMAKE_TOOL=OFF"
 ]
 

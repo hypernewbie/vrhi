@@ -1,9 +1,12 @@
 [submodule "vdeps/nvrhi"]
 	path = vdeps/nvrhi
 	url = https://github.com/NVIDIA-RTX/NVRHI.git
+	ignore = dirty
 [submodule "vdeps/ShaderMake"]
 	path = vdeps/ShaderMake
 	url = https://github.com/NVIDIA-RTX/ShaderMake
+	ignore = dirty
 [submodule "vdeps/vk-bootstrap"]
 	path = vdeps/vk-bootstrap
 	url = https://github.com/charles-lunarg/vk-bootstrap.git
+	ignore = dirty
