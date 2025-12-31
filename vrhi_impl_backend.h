@@ -328,9 +328,9 @@ public:
 
     void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         if ( cmd->texture == VRHI_INVALID_HANDLE )
         {
-            vhCmdRelease( cmd );
             return;
         }
 
@@ -339,22 +339,19 @@ public:
         {
             backendTextures[ cmd->texture ] = std::make_unique<vhBackendTexture>();
         }
-
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         if ( cmd->texture == VRHI_INVALID_HANDLE )
         {
-            vhCmdRelease( cmd );
             return;
         }
 
         if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
         {
             VRHI_ERR( "vhDestroyTexture() : Texture %d not found!\n", cmd->texture );
-            vhCmdRelease( cmd );
             return;
         }
 
@@ -363,8 +360,6 @@ public:
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
             backendTextures.erase( cmd->texture );
         }
-
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override
@@ -553,9 +548,9 @@ public:
 
     void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         if ( cmd->buffer == VRHI_INVALID_HANDLE )
         {
-            vhCmdRelease( cmd );
             return;
         }
 
@@ -564,8 +559,6 @@ public:
         {
             backendBuffers[ cmd->buffer ] = std::make_unique<vhBackendBuffer>();
         }
-
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
@@ -810,16 +803,15 @@ public:
 
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         if ( cmd->buffer == VRHI_INVALID_HANDLE )
         {
-            vhCmdRelease( cmd );
             return;
         }
 
         if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
         {
             VRHI_ERR( "vhDestroyBuffer() : Buffer %d not found!\n", cmd->buffer );
-            vhCmdRelease( cmd );
             return;
         }
 
@@ -827,42 +819,38 @@ public:
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
             backendBuffers.erase( cmd->buffer );
         }
-        
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         // __AI_SUGGESTION__
         // 1. Look up NVRHI shader handle from map (if valid).
         // 2. nvrhi::Device->destroyShader(handle) (if manual destruction is needed, otherwise refcounting handles it).
         // 3. Remove from internal maps.
-
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhDestroyProgram( VIDL_vhDestroyProgram* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         // __AI_SUGGESTION__
         // 1. Look up NVRHI program handle from map (if valid).
         // 2. nvrhi::Device->destroyBindingLayout/destroyBindingSet/etc.
         // 3. Remove from internal maps.
-
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhDestroyPipeline( VIDL_vhDestroyPipeline* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         // __AI_SUGGESTION__
         // 1. Look up NVRHI pipeline handle from map (if valid).
         // 2. nvrhi::Device->destroy*Pipeline(handle).
         // 3. Remove from internal maps.
-
-        vhCmdRelease( cmd );
     }
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
     {
+        BE_CmdRAII cmdRAII( cmd );
         // Free all cmd memory allocations, because hitting this flush means all previous commands have been processed.
         {
             std::lock_guard<std::mutex> lock( g_vhMemListMutex );
@@ -888,8 +876,6 @@ public:
         // Safety warning : fence is probably from stack of caller
         if ( cmd->fence )
             cmd->fence->store( true );
-
-        vhCmdRelease( cmd );
     }
 
     // --------------------------------------------------------------------------
