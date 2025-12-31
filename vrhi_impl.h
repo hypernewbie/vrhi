@@ -21,8 +21,12 @@
 
 #pragma once
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__APPLE__)
     #define VK_USE_PLATFORM_XLIB_KHR
+#endif
+
+#if defined(__APPLE__)
+    #define VK_USE_PLATFORM_METAL_EXT
 #endif
 
 // --------------------------------------------------------------------------

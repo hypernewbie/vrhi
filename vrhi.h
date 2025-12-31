@@ -21,8 +21,12 @@
 
 #pragma once
 
-#if !defined(_WIN32) && !defined(VK_USE_PLATFORM_XLIB_KHR)
+#if !defined(_WIN32) && !defined(VK_USE_PLATFORM_XLIB_KHR) && !defined(__APPLE__)
     #define VK_USE_PLATFORM_XLIB_KHR
+#endif
+
+#if defined(__APPLE__) && !defined(VK_USE_PLATFORM_METAL_EXT)
+    #define VK_USE_PLATFORM_METAL_EXT
 #endif
 
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES // Define this if you have these in PCH already.
