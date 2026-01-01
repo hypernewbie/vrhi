@@ -1,3 +1,4 @@
+#define VRHI_SHADER_COMPILER_IMPLEMENTATION
 /*
     -- Vrhi --
 
@@ -54,6 +55,7 @@ static bool g_testInit = false;
 static bool g_testInitQuiet = true;
 
 extern std::string vhGetDeviceInfo();
+extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
 
 UTEST( RHI, Init )
 {
@@ -1650,6 +1652,38 @@ UTEST( Pipeline, Lifecycle )
     vhFlush();
 
     EXPECT_EQ( g_vhErrorCounter.load(), baseline );
+}
+
+UTEST( Shader, BuildFlags )
+{
+#ifndef VRHI_SHADER_COMPILER_IMPLEMENTATION
+#error "Shader compiler implementation must be enabled for tests!"
+#endif
+
+    // Test 1: Default/Release
+    {
+        uint64_t flags = 0;
+        std::string args = vhBuildShaderFlagArgs_Internal( flags );
+        EXPECT_TRUE( args.find( "-m 6_5" ) != std::string::npos );
+        EXPECT_TRUE( args.find( "-O 3" ) != std::string::npos );
+    }
+
+    // Test 2: Debug & SM 6.0
+    {
+        uint64_t flags = VRHI_SHADER_DEBUG | VRHI_SHADER_SM_6_0;
+        std::string args = vhBuildShaderFlagArgs_Internal( flags );
+        EXPECT_TRUE( args.find( "-m 6_0" ) != std::string::npos );
+        EXPECT_TRUE( args.find( "-O 0" ) != std::string::npos );
+        EXPECT_TRUE( args.find( "--embedPDB" ) != std::string::npos );
+    }
+
+    // Test 3: Matrix & Warnings
+    {
+        uint64_t flags = VRHI_SHADER_ROW_MAJOR | VRHI_SHADER_WARNINGS_AS_ERRORS;
+        std::string args = vhBuildShaderFlagArgs_Internal( flags );
+        EXPECT_TRUE( args.find( "--matrixRowMajor" ) != std::string::npos );
+        EXPECT_TRUE( args.find( "--WX" ) != std::string::npos );
+    }
 }
 
 UTEST_STATE();

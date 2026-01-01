@@ -443,6 +443,18 @@ void vhDestroyBuffer( vhBuffer buffer );
 
 vhShader vhAllocShader();
 
+#ifdef VRHI_SHADER_COMPILER
+bool vhCompileShader(
+    const char* source,
+    uint64_t flags,
+    std::vector< uint32_t >& outSpirv,
+    const char* entry = "main",
+    const std::vector< std::string >& defines = {},
+    const std::vector< std::string >& includes = {},
+    std::string* outError = nullptr
+);
+#endif // VRHI_SHADER_COMPILER
+
 // Destroy shader.
 // VIDL_GENERATE
 void vhDestroyShader( vhShader shader );

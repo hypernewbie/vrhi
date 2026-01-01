@@ -19,6 +19,27 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+#define VRHI_SHADER_STAGE_VERTEX        1
+#define VRHI_SHADER_STAGE_PIXEL         2
+#define VRHI_SHADER_STAGE_COMPUTE       3
+#define VRHI_SHADER_STAGE_RAYGEN        4
+#define VRHI_SHADER_STAGE_MISS          5
+#define VRHI_SHADER_STAGE_CLOSEST_HIT   6
+#define VRHI_SHADER_STAGE_MESH          7
+#define VRHI_SHADER_STAGE_AMPLIFICATION 8
+#define VRHI_SHADER_STAGE_MASK          0xF
+
+#define VRHI_SHADER_SM_5_0              ( 1 << 4 )
+#define VRHI_SHADER_SM_6_0              ( 2 << 4 )
+#define VRHI_SHADER_SM_6_5              ( 3 << 4 ) // Default behavior if 0
+#define VRHI_SHADER_SM_6_6              ( 4 << 4 )
+#define VRHI_SHADER_SM_MASK             0xF0
+
+#define VRHI_SHADER_DEBUG               ( 1ULL << 8 )   // -O0 -g -embedPDB
+#define VRHI_SHADER_ROW_MAJOR           ( 1ULL << 9 )   // -matrix-layout-row-major
+#define VRHI_SHADER_WARNINGS_AS_ERRORS  ( 1ULL << 10 )  // -warnings-as-errors
+#define VRHI_SHADER_STRIP_REFLECTION    ( 1ULL << 11 )  // --stripReflection. Good for release builds to reduce binary size.
+#define VRHI_SHADER_ALL_RESOURCES_BOUND ( 1ULL << 12 )  // --allResourcesBound. Optimization hint for the compiler.
 
 // src: bgfx
 
