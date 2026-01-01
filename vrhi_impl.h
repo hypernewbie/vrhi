@@ -61,8 +61,9 @@
 #endif
 
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
-#include <vector>
 #include <cstring>
+#include <cstdio>
+#include <cstdarg>
 #include <set>
 #include <unordered_set>
 #include <unordered_map>
@@ -70,12 +71,12 @@
 #include <algorithm>
 #include <climits>
 #include <string>
-#include <cstdio>
-#include <cstdarg>
 #include <mutex>
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <vector>
+#include <filesystem>
 #include <concurrentqueue/blockingconcurrentqueue.h>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 

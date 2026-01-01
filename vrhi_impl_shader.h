@@ -28,6 +28,34 @@
 
 // ------------ Shader Utilities ------------
 
+#ifdef VRHI_SHADER_COMPILER_IMPLEMENTATION
+std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
+{
+    std::string args = "";
+
+    uint64_t sm = ( flags & VRHI_SHADER_SM_MASK );
+    if ( sm == VRHI_SHADER_SM_5_0 ) args += " -m 5_0";
+    else if ( sm == VRHI_SHADER_SM_6_0 ) args += " -m 6_0";
+    else if ( sm == VRHI_SHADER_SM_6_6 ) args += " -m 6_6";
+    else args += " -m 6_5"; // Default or 6.5
+
+    if ( flags & VRHI_SHADER_DEBUG )
+    {
+        args += " -O 0 --embedPDB";
+    }
+    else
+    {
+        args += " -O 3";
+    }
+
+    if ( flags & VRHI_SHADER_ROW_MAJOR ) args += " --matrixRowMajor";
+    if ( flags & VRHI_SHADER_WARNINGS_AS_ERRORS ) args += " --WX";
+    if ( flags & VRHI_SHADER_STRIP_REFLECTION ) args += " --stripReflection";
+    if ( flags & VRHI_SHADER_ALL_RESOURCES_BOUND ) args += " --allResourcesBound";
+
+    return args;
+}
+#endif
 
 // ------------ Shader Implementation ------------
 
@@ -38,6 +66,65 @@ vhShader vhAllocShader()
     g_vhShaderIDValid[id] = true;
     return id;
 }
+
+#ifdef VRHI_SHADER_COMPILER
+bool vhCompileShader(
+    const char* source,
+    uint64_t flags,
+    std::vector< uint32_t >& outSpirv,
+    const char* entry,
+    const std::vector< std::string >& defines,
+    const std::vector< std::string >& includes,
+    std::string* outError
+)
+{
+    // Unpack the flags. WARNING: This must sync with vrhi_defines.h!!!
+
+    uint64_t stage = ( flags & VRHI_SHADER_STAGE_MASK );
+    const char* stageStr = nullptr;
+    switch ( stage )
+    {
+        case VRHI_SHADER_STAGE_VERTEX: stageStr = "vs"; break;
+        case VRHI_SHADER_STAGE_PIXEL: stageStr = "ps"; break;
+        case VRHI_SHADER_STAGE_COMPUTE: stageStr = "cs"; break;
+        case VRHI_SHADER_STAGE_RAYGEN: stageStr = "lib"; break;
+        case VRHI_SHADER_STAGE_MISS: stageStr = "lib"; break;
+        case VRHI_SHADER_STAGE_CLOSEST_HIT: stageStr = "lib"; break;
+        case VRHI_SHADER_STAGE_MESH: stageStr = "ms"; break;
+        case VRHI_SHADER_STAGE_AMPLIFICATION: stageStr = "as"; break;
+        default: stageStr = "ps"; break;
+    }
+
+    uint64_t shaderModel = ( flags & VRHI_SHADER_SM_MASK ) >> 4;
+    const char* smStr = "6_5"; // Default
+    switch ( shaderModel )
+    {
+        case 1: smStr = "5_0"; break;
+        case 2: smStr = "6_0"; break;
+        case 3: smStr = "6_5"; break;
+        case 4: smStr = "6_6"; break;
+        default: smStr = "6_5"; break;
+    }
+
+    bool debug = ( flags & VRHI_SHADER_DEBUG ) != 0;
+    bool rowMajor = ( flags & VRHI_SHADER_ROW_MAJOR ) != 0;
+    bool warningsAsErrors = ( flags & VRHI_SHADER_WARNINGS_AS_ERRORS ) != 0;
+
+    bool compatHlsl = ( flags & VRHI_SHADER_COMPAT_HLSL ) != 0;
+    bool hlsl2021 = ( flags & VRHI_SHADER_HLSL_2021 ) != 0;
+    bool stripReflection = ( flags & VRHI_SHADER_STRIP_REFLECTION ) != 0;
+    bool allResourcesBound = ( flags & VRHI_SHADER_ALL_RESOURCES_BOUND ) != 0;
+
+    std::filesystem::path sourcePath = source;
+    if ( !std::filesystem::exists( sourcePath ) )
+    {
+        if ( outError ) *outError = "Shader source file does not exist: " + sourcePath.string();
+        return false;
+    }
+
+    return true;
+}
+#endif // VRHI_SHADER_COMPILER
 
 void vhDestroyShader( vhShader shader )
 {
