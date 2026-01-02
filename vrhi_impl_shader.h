@@ -207,7 +207,7 @@ bool vhCompileShader(
     
     // ShaderMake usually appends profile to output, e.g. Name_hash_ps.spirv
 
-    std::string outputFilename = prefix + "_" + profile + ".spirv";
+    std::string outputFilename = prefix + ".spirv";
     std::filesystem::path spvPath = tempDir / outputFilename;
     if ( !g_vhInit.forceShaderRecompile && std::filesystem::exists( spvPath ) )
     {
@@ -298,6 +298,21 @@ bool vhCompileShader(
 }
 #endif // VRHI_SHADER_COMPILER
 
+void vhCreateShader(
+    vhShader shader,
+    const char* name,
+    uint64_t flags,
+    const std::vector< uint32_t >& spirv,
+    const char* entry
+)
+{
+    if ( shader == VRHI_INVALID_HANDLE ) return;
+
+    auto cmd = vhCmdAlloc< VIDL_vhCreateShader >( shader, name, flags, spirv, entry );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
 void vhDestroyShader( vhShader shader )
 {
     std::lock_guard< std::mutex > lock( g_vhShaderIDListMutex );
@@ -307,48 +322,6 @@ void vhDestroyShader( vhShader shader )
     g_vhShaderIDList.release( shader );
 
     auto cmd = vhCmdAlloc<VIDL_vhDestroyShader>( shader );
-    assert( cmd );
-    vhCmdEnqueue( cmd );
-}
-
-vhProgram vhAllocProgram( )
-{
-    std::lock_guard< std::mutex > lock( g_vhProgramIDListMutex );
-    uint32_t id = g_vhProgramIDList.alloc( );
-    g_vhProgramIDValid[id] = true;
-    return id;
-}
-
-void vhDestroyProgram( vhProgram program )
-{
-    std::lock_guard< std::mutex > lock( g_vhProgramIDListMutex );
-    if ( g_vhProgramIDValid.find( program ) == g_vhProgramIDValid.end( ) ) return;
-
-    g_vhProgramIDValid.erase( program );
-    g_vhProgramIDList.release( program );
-
-    auto cmd = vhCmdAlloc<VIDL_vhDestroyProgram>( program );
-    assert( cmd );
-    vhCmdEnqueue( cmd );
-}
-
-vhPipeline vhAllocPipeline( )
-{
-    std::lock_guard< std::mutex > lock( g_vhPipelineIDListMutex );
-    uint32_t id = g_vhPipelineIDList.alloc( );
-    g_vhPipelineIDValid[id] = true;
-    return id;
-}
-
-void vhDestroyPipeline( vhPipeline pipeline )
-{
-    std::lock_guard< std::mutex > lock( g_vhPipelineIDListMutex );
-    if ( g_vhPipelineIDValid.find( pipeline ) == g_vhPipelineIDValid.end( ) ) return;
-
-    g_vhPipelineIDValid.erase( pipeline );
-    g_vhPipelineIDList.release( pipeline );
-
-    auto cmd = vhCmdAlloc<VIDL_vhDestroyPipeline>( pipeline );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }

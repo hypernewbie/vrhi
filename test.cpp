@@ -1,5 +1,3 @@
-#define VRHI_SHADER_COMPILER_IMPLEMENTATION
-#define VRHI_SHADER_COMPILER
 /*
     -- Vrhi --
 
@@ -1616,42 +1614,30 @@ UTEST( Shader, Lifecycle )
     vhFlush();
     int32_t baseline = g_vhErrorCounter.load();
 
+    const char* shaderSource = R"(
+        struct VSInput { float3 pos : POSITION; };
+        struct VSOutput { float4 pos : SV_Position; };
+        VSOutput main(VSInput input) {
+            VSOutput output;
+            output.pos = float4(input.pos, 1.0);
+            return output;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    bool compiled = vhCompileShader(
+        "LifecycleShader",
+        shaderSource,
+        VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_5,
+        spirv,
+        "main"
+    );
+    ASSERT_TRUE( compiled );
+
     vhShader s = vhAllocShader();
+    vhCreateShader( s, "LifecycleShader", VRHI_SHADER_STAGE_VERTEX, spirv, "main" );
+    
     vhDestroyShader( s );
-    vhFlush();
-
-    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
-}
-
-UTEST( Program, Lifecycle )
-{
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-    vhFlush();
-    int32_t baseline = g_vhErrorCounter.load();
-
-    vhProgram p = vhAllocProgram();
-    vhDestroyProgram( p );
-    vhFlush();
-
-    EXPECT_EQ( g_vhErrorCounter.load(), baseline );
-}
-
-UTEST( Pipeline, Lifecycle )
-{
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-    vhFlush();
-    int32_t baseline = g_vhErrorCounter.load();
-
-    vhPipeline p = vhAllocPipeline();
-    vhDestroyPipeline( p );
     vhFlush();
 
     EXPECT_EQ( g_vhErrorCounter.load(), baseline );

@@ -123,15 +123,6 @@ extern vhAllocatorObjectFreeList g_vhShaderIDList;
 extern std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 extern std::mutex g_vhShaderIDListMutex;
 
-// Program state
-extern vhAllocatorObjectFreeList g_vhProgramIDList;
-extern std::unordered_map< vhProgram, bool > g_vhProgramIDValid;
-extern std::mutex g_vhProgramIDListMutex;
-
-// Pipeline state
-extern vhAllocatorObjectFreeList g_vhPipelineIDList;
-extern std::unordered_map< vhPipeline, bool > g_vhPipelineIDValid;
-extern std::mutex g_vhPipelineIDListMutex;
 
 extern bool g_vhRayTracingEnabled;
 
@@ -244,15 +235,6 @@ vhAllocatorObjectFreeList g_vhShaderIDList( 256 );
 std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 std::mutex g_vhShaderIDListMutex;
 
-// Program
-vhAllocatorObjectFreeList g_vhProgramIDList( 256 );
-std::unordered_map< vhProgram, bool > g_vhProgramIDValid;
-std::mutex g_vhProgramIDListMutex;
-
-// Pipeline
-vhAllocatorObjectFreeList g_vhPipelineIDList( 256 );
-std::unordered_map< vhPipeline, bool > g_vhPipelineIDValid;
-std::mutex g_vhPipelineIDListMutex;
 
 bool g_vhRayTracingEnabled = false;
 
