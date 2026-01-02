@@ -937,122 +937,76 @@ public:
         }
     }
 
-    void Handle_vhSetState( VIDL_vhSetState* cmd ) override
-    {
-        BE_CmdRAII cmdRAII( cmd );
-
-        backendStates[cmd->id] = cmd->state;
-    }
-
-    void Handle_vhSetStateWorldMatrix( VIDL_vhSetStateWorldMatrix* cmd ) override
-    {
-        BE_CmdRAII cmdRAII( cmd );
-
-        auto it = backendStates.find( cmd->id );
-        if ( it == backendStates.end() )
-        {
-            VRHI_ERR( "vhSetStateWorldMatrix: State ID %llu not found\n", cmd->id );
-            return;
-        }
-
-        if ( ( size_t ) cmd->index >= it->second.worldMatrix.size() )
-            it->second.worldMatrix.resize( cmd->index + 1 );
-
-        it->second.worldMatrix[cmd->index] = cmd->matrix;
-    }
 
     void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() ) it->second.viewRect = cmd->rect;
+        backendStates[cmd->id].viewRect = cmd->rect;
     }
 
     void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() ) it->second.viewScissor = cmd->scissor;
+        backendStates[cmd->id].viewScissor = cmd->scissor;
     }
 
     void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() )
-        {
-            it->second.clearFlags = cmd->flags;
-            it->second.clearRgba = cmd->rgba;
-            it->second.clearDepth = cmd->depth;
-            it->second.clearStencil = cmd->stencil;
-        }
+        auto& state = backendStates[cmd->id];
+        state.clearFlags = cmd->flags;
+        state.clearRgba = cmd->rgba;
+        state.clearDepth = cmd->depth;
+        state.clearStencil = cmd->stencil;
     }
 
     void Handle_vhCmdSetStateViewFramebuffer( VIDL_vhCmdSetStateViewFramebuffer* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() ) it->second.viewFramebuffer = cmd->fb;
+        backendStates[cmd->id].viewFramebuffer = cmd->fb;
     }
 
     void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() )
-        {
-            it->second.viewMatrix = cmd->view;
-            it->second.projMatrix = cmd->proj;
-        }
+        auto& state = backendStates[cmd->id];
+        state.viewMatrix = cmd->view;
+        state.projMatrix = cmd->proj;
     }
 
     void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() ) it->second.worldMatrix = cmd->matrices;
+        backendStates[cmd->id].worldMatrix = cmd->matrices;
     }
 
     void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() ) it->second.stateFlags = cmd->flags;
+        backendStates[cmd->id].stateFlags = cmd->flags;
     }
 
     void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() )
-        {
-            it->second.frontStencil = cmd->front;
-            it->second.backStencil = cmd->back;
-        }
+        auto& state = backendStates[cmd->id];
+        state.frontStencil = cmd->front;
+        state.backStencil = cmd->back;
     }
 
     void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() )
-        {
-            if ( cmd->stream >= it->second.vertexBindings.size() ) it->second.vertexBindings.resize( cmd->stream + 1 );
-            it->second.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num };
-        }
+        auto& state = backendStates[cmd->id];
+        if ( cmd->stream >= state.vertexBindings.size() ) state.vertexBindings.resize( cmd->stream + 1 );
+        state.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num };
     }
 
     void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto it = backendStates.find( cmd->id );
-        if ( it != backendStates.end() )
-        {
-            it->second.indexBinding = { cmd->buffer, cmd->first, cmd->num };
-        }
+        backendStates[cmd->id].indexBinding = { cmd->buffer, cmd->first, cmd->num };
     }
-
-
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
     {

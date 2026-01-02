@@ -273,33 +273,6 @@ struct VIDL_vhDestroyShader
         : shader(_shader) {}
 };
 
-struct VIDL_vhSetState
-{
-    static constexpr uint64_t kMagic = 0x3031B928;
-    uint64_t MAGIC = kMagic;
-    vhStateId id;
-    const vhState state;
-
-    VIDL_vhSetState() = default;
-
-    VIDL_vhSetState(vhStateId _id, const vhState& _state)
-        : id(_id), state(_state) {}
-};
-
-struct VIDL_vhSetStateWorldMatrix
-{
-    static constexpr uint64_t kMagic = 0x4A75DA2F;
-    uint64_t MAGIC = kMagic;
-    vhStateId id;
-    int index;
-    const glm::mat4 matrix;
-
-    VIDL_vhSetStateWorldMatrix() = default;
-
-    VIDL_vhSetStateWorldMatrix(vhStateId _id, int _index, const glm::mat4& _matrix)
-        : id(_id), index(_index), matrix(_matrix) {}
-};
-
 struct VIDL_vhFlushInternal
 {
     static constexpr uint64_t kMagic = 0x83140D26;
@@ -473,8 +446,6 @@ struct VIDLHandler
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
-    virtual void Handle_vhSetState( VIDL_vhSetState* cmd ) { (void) cmd; };
-    virtual void Handle_vhSetStateWorldMatrix( VIDL_vhSetStateWorldMatrix* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) { (void) cmd; };
@@ -545,12 +516,6 @@ struct VIDLHandler
             break;
         case 0x3328C9A7:
             Handle_vhDestroyShader( (VIDL_vhDestroyShader*) cmd );
-            break;
-        case 0x3031B928:
-            Handle_vhSetState( (VIDL_vhSetState*) cmd );
-            break;
-        case 0x4A75DA2F:
-            Handle_vhSetStateWorldMatrix( (VIDL_vhSetStateWorldMatrix*) cmd );
             break;
         case 0x83140D26:
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );

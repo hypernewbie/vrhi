@@ -1944,71 +1944,6 @@ UTEST( Shader, Reflection )
 // State Tests
 // --------------------------------------------------------------------------
 
-UTEST( State, BasicSetGet )
-{
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-
-    vhState state = {};
-    state.SetViewRect( glm::vec4( 0, 0, 1280, 720 ) )
-         .SetViewTransform( glm::mat4( 1.0f ), glm::mat4( 2.0f ) )
-         .SetWorldTransform( glm::mat4( 3.0f ), 1 );
-    
-    vhStateId id = 1;
-    ASSERT_TRUE( vhSetState( id, state ) );
-    vhFlush(); // Wait for command to process
-    
-    vhState retrieved = {};
-    ASSERT_TRUE( vhGetState( id, retrieved ) );
-    
-    EXPECT_EQ( retrieved.viewRect, state.viewRect );
-    EXPECT_EQ( retrieved.viewMatrix, state.viewMatrix );
-    EXPECT_EQ( retrieved.projMatrix, state.projMatrix );
-    ASSERT_GT( retrieved.worldMatrix.size(), 0 );
-    EXPECT_EQ( retrieved.worldMatrix[0], state.worldMatrix[0] );
-}
-
-UTEST( State, WorldMatrixFastPath )
-{
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-
-    // First create a base state
-    vhState state = {};
-    state.SetViewRect( glm::vec4( 0, 0, 800, 600 ) );
-    vhStateId id = 2;
-    vhSetState( id, state );
-    vhFlush();
-    
-    // Update only world matrices via fast-path
-    glm::mat4 m0( 10.0f );
-    glm::mat4 m1( 20.0f );
-    glm::mat4 m2( 30.0f );
-    
-    ASSERT_TRUE( vhSetStateWorldMatrix( id, 0, m0 ) );
-    ASSERT_TRUE( vhSetStateWorldMatrix( id, 1, m1 ) );
-    ASSERT_TRUE( vhSetStateWorldMatrix( id, 2, m2 ) );
-    vhFlush();
-    
-    vhState retrieved = {};
-    ASSERT_TRUE( vhGetState( id, retrieved ) );
-    
-    // World matrices should be updated
-    ASSERT_GT( retrieved.worldMatrix.size(), 2 );
-    EXPECT_EQ( retrieved.worldMatrix[0], m0 );
-    EXPECT_EQ( retrieved.worldMatrix[1], m1 );
-    EXPECT_EQ( retrieved.worldMatrix[2], m2 );
-    
-    // Other state unchanged
-    EXPECT_EQ( retrieved.viewRect, state.viewRect );
-}
-
 UTEST( State, MultipleSlots )
 {
     if ( !g_testInit )
@@ -2047,16 +1982,9 @@ UTEST( State, InvalidId )
     
     // GetState should return false for non-existent ID
     ASSERT_FALSE( vhGetState( nonExistent, state ) );
-    
-    // SetStateWorldMatrix should fail for non-existent ID (after flush)
-    // Returns true (enqueued) but logs error on backend
-    vhSetStateWorldMatrix( nonExistent, 0, glm::mat4(1.0f) );
-    vhFlush();
-    // Error should be logged but no crash
-    EXPECT_GT( g_vhErrorCounter.load(), 0 );
 }
 
-UTEST( State, WorldMatrixBounds )
+UTEST( State, BasicSetGet )
 {
     if ( !g_testInit )
     {
@@ -2065,25 +1993,22 @@ UTEST( State, WorldMatrixBounds )
     }
 
     vhState state = {};
-    vhStateId id = 5;
-    vhSetState( id, state );
-    vhFlush();
+    state.SetViewRect( glm::vec4( 0, 0, 1280, 720 ) )
+         .SetViewTransform( glm::mat4( 1.0f ), glm::mat4( 2.0f ) )
+         .SetWorldTransform( glm::mat4( 3.0f ), 1 );
     
-    // Try to set invalid index
-    ASSERT_FALSE( vhSetStateWorldMatrix( id, VRHI_MAX_WORLD_MATRICES, glm::mat4(1.0f) ) );
-    ASSERT_FALSE( vhSetStateWorldMatrix( id, -1, glm::mat4(1.0f) ) );
-    
-    // Verify valid index works
-    glm::mat4 lastMat( 5.0f );
-    ASSERT_TRUE( vhSetStateWorldMatrix( id, VRHI_MAX_WORLD_MATRICES - 1, lastMat ) );
-    vhFlush();
+    vhStateId id = 1;
+    ASSERT_TRUE( vhSetState( id, state ) );
+    vhFlush(); // Wait for command to process
     
     vhState retrieved = {};
-    vhGetState( id, retrieved );
+    ASSERT_TRUE( vhGetState( id, retrieved ) );
     
-    // Verify only max matrices were set
-    ASSERT_GT( retrieved.worldMatrix.size(), VRHI_MAX_WORLD_MATRICES - 1 );
-    EXPECT_EQ( retrieved.worldMatrix[VRHI_MAX_WORLD_MATRICES - 1], lastMat );
+    EXPECT_EQ( retrieved.viewRect, state.viewRect );
+    EXPECT_EQ( retrieved.viewMatrix, state.viewMatrix );
+    EXPECT_EQ( retrieved.projMatrix, state.projMatrix );
+    ASSERT_GT( retrieved.worldMatrix.size(), 0 );
+    EXPECT_EQ( retrieved.worldMatrix[0], state.worldMatrix[0] );
 }
 
 UTEST_STATE();
