@@ -1,4 +1,5 @@
 #define VRHI_SHADER_COMPILER_IMPLEMENTATION
+#define VRHI_SHADER_COMPILER
 /*
     -- Vrhi --
 
@@ -39,6 +40,7 @@
 #include "utest.h"
 
 #define VRHI_UNIT_TEST
+#define VRHI_SHADER_COMPILER
 #include "vrhi.h"
 #include "vrhi_impl.h"
 #include "vrhi_utils.h"
@@ -56,6 +58,7 @@ static bool g_testInitQuiet = true;
 
 extern std::string vhGetDeviceInfo();
 extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
+extern bool vhRunExe( const std::string& command, std::string& outOutput );
 
 UTEST( RHI, Init )
 {
@@ -1656,7 +1659,7 @@ UTEST( Pipeline, Lifecycle )
 
 UTEST( Shader, BuildFlags )
 {
-#ifndef VRHI_SHADER_COMPILER_IMPLEMENTATION
+#ifndef VRHI_SHADER_COMPILER
 #error "Shader compiler implementation must be enabled for tests!"
 #endif
 
@@ -1664,13 +1667,14 @@ UTEST( Shader, BuildFlags )
     {
         uint64_t flags = 0;
         std::string args = vhBuildShaderFlagArgs_Internal( flags );
+        // ShaderMake uses -m for model, profile is in config file
         EXPECT_TRUE( args.find( "-m 6_5" ) != std::string::npos );
         EXPECT_TRUE( args.find( "-O 3" ) != std::string::npos );
     }
 
-    // Test 2: Debug & SM 6.0
+    // Test 2: Debug & SM 6.0 & Vertex
     {
-        uint64_t flags = VRHI_SHADER_DEBUG | VRHI_SHADER_SM_6_0;
+        uint64_t flags = VRHI_SHADER_DEBUG | VRHI_SHADER_SM_6_0 | VRHI_SHADER_STAGE_VERTEX;
         std::string args = vhBuildShaderFlagArgs_Internal( flags );
         EXPECT_TRUE( args.find( "-m 6_0" ) != std::string::npos );
         EXPECT_TRUE( args.find( "-O 0" ) != std::string::npos );
@@ -1686,6 +1690,115 @@ UTEST( Shader, BuildFlags )
     }
 }
 
+UTEST( Shader, RunExe )
+{
+    std::string output;
+    bool success = vhRunExe( "echo HelloVRHI", output );
+    EXPECT_TRUE( success );
+    EXPECT_TRUE( output.find( "HelloVRHI" ) != std::string::npos );
+}
+
+UTEST( Shader, Compile )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    const char* shaderSource = R"(
+        struct VSInput { float3 pos : POSITION; };
+        struct VSOutput { float4 pos : SV_Position; };
+        VSOutput main(VSInput input) {
+            VSOutput output;
+            output.pos = float4(input.pos, 1.0);
+            return output;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        "TestShader",
+        shaderSource,
+        VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_5,
+        spirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+
+    if ( !success )
+    {
+        std::cout << "Shader compilation failed: " << error << std::endl;
+    }
+
+    EXPECT_TRUE( success );
+    EXPECT_GT( spirv.size(), 0 );
+
+    // Test Caching (second call should be fast and succeed)
+    std::vector< uint32_t > cachedSpirv;
+    success = vhCompileShader(
+        "TestShader",
+        shaderSource,
+        VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_5,
+        cachedSpirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+
+    EXPECT_TRUE( success );
+    EXPECT_EQ( spirv.size(), cachedSpirv.size() );
+    if ( spirv.size() == cachedSpirv.size() )
+    {
+        for ( size_t i = 0; i < spirv.size(); ++i )
+        {
+            EXPECT_EQ( spirv[i], cachedSpirv[i] );
+        }
+    }
+}
+
+UTEST( Shader, CompileFail )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Shader with syntax error (missing semicolon)
+    const char* shaderSource = R"(
+        struct VSInput { float3 pos : POSITION; };
+        struct VSOutput { float4 pos : SV_Position; };
+        VSOutput main(VSInput input) {
+            VSOutput output;
+            output.pos = float4(input.pos, 1.0);
+            return output // Missing semicolon
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        "TestShaderFail",
+        shaderSource,
+        VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_5,
+        spirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+
+    EXPECT_FALSE( success );
+    EXPECT_GT( error.size(), 0 );
+    // Check for some text indicating an error
+    EXPECT_TRUE( error.find( "error" ) != std::string::npos || error.find( "Error" ) != std::string::npos );
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
@@ -1693,6 +1806,18 @@ int main( int argc, const char* const argv[] )
 #ifndef NDEBUG
     g_vhInit.debug = true;
 #endif
+
+#ifdef _WIN32
+    g_vhInit.shaderMakePath = "../tools/win_release";
+    g_vhInit.shaderMakeSlangPath = "../tools/win_release";
+#elif defined(__APPLE__)
+    g_vhInit.shaderMakePath = "../tools/mac_release";
+    g_vhInit.shaderMakeSlangPath = "../tools/mac_release";
+#else
+    g_vhInit.shaderMakePath = "../tools/linux_release";
+    g_vhInit.shaderMakeSlangPath = "../tools/linux_release";
+#endif
+
     int result = utest_main( argc, argv );
 
     if ( g_testInit )

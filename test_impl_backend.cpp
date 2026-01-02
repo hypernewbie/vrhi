@@ -20,6 +20,7 @@
 */
 
 #define VRHI_UNIT_TEST
+#define VRHI_SHADER_COMPILER
 #ifdef VRHI_SHARDED_BUILD
     #include "vrhi_impl_backend.h"
     // Backend state defined here in sharded builds, in vrhi_impl.h for unity builds
