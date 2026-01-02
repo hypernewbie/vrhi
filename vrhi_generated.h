@@ -313,6 +313,146 @@ struct VIDL_vhFlushInternal
         : fence(_fence), waitForGPU(_waitForGPU) {}
 };
 
+struct VIDL_vhCmdSetStateViewRect
+{
+    static constexpr uint64_t kMagic = 0x25DC7E64;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    glm::vec4 rect;
+
+    VIDL_vhCmdSetStateViewRect() = default;
+
+    VIDL_vhCmdSetStateViewRect(vhStateId _id, glm::vec4 _rect)
+        : id(_id), rect(_rect) {}
+};
+
+struct VIDL_vhCmdSetStateViewScissor
+{
+    static constexpr uint64_t kMagic = 0xD89EF1E1;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    glm::vec4 scissor;
+
+    VIDL_vhCmdSetStateViewScissor() = default;
+
+    VIDL_vhCmdSetStateViewScissor(vhStateId _id, glm::vec4 _scissor)
+        : id(_id), scissor(_scissor) {}
+};
+
+struct VIDL_vhCmdSetStateViewClear
+{
+    static constexpr uint64_t kMagic = 0xAB6B3FB4;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    uint16_t flags;
+    uint32_t rgba;
+    float depth;
+    uint8_t stencil;
+
+    VIDL_vhCmdSetStateViewClear() = default;
+
+    VIDL_vhCmdSetStateViewClear(vhStateId _id, uint16_t _flags, uint32_t _rgba, float _depth, uint8_t _stencil)
+        : id(_id), flags(_flags), rgba(_rgba), depth(_depth), stencil(_stencil) {}
+};
+
+struct VIDL_vhCmdSetStateViewFramebuffer
+{
+    static constexpr uint64_t kMagic = 0x62E19275;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    vhFramebuffer fb;
+
+    VIDL_vhCmdSetStateViewFramebuffer() = default;
+
+    VIDL_vhCmdSetStateViewFramebuffer(vhStateId _id, vhFramebuffer _fb)
+        : id(_id), fb(_fb) {}
+};
+
+struct VIDL_vhCmdSetStateViewTransform
+{
+    static constexpr uint64_t kMagic = 0x95EE7C8C;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    glm::mat4 view;
+    glm::mat4 proj;
+
+    VIDL_vhCmdSetStateViewTransform() = default;
+
+    VIDL_vhCmdSetStateViewTransform(vhStateId _id, glm::mat4 _view, glm::mat4 _proj)
+        : id(_id), view(_view), proj(_proj) {}
+};
+
+struct VIDL_vhCmdSetStateWorldTransform
+{
+    static constexpr uint64_t kMagic = 0x8FB805B7;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    std::vector< glm::mat4 > matrices;
+
+    VIDL_vhCmdSetStateWorldTransform() = default;
+
+    VIDL_vhCmdSetStateWorldTransform(vhStateId _id, std::vector< glm::mat4 > _matrices)
+        : id(_id), matrices(_matrices) {}
+};
+
+struct VIDL_vhCmdSetStateFlags
+{
+    static constexpr uint64_t kMagic = 0xC3CE00B4;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    uint64_t flags;
+
+    VIDL_vhCmdSetStateFlags() = default;
+
+    VIDL_vhCmdSetStateFlags(vhStateId _id, uint64_t _flags)
+        : id(_id), flags(_flags) {}
+};
+
+struct VIDL_vhCmdSetStateStencil
+{
+    static constexpr uint64_t kMagic = 0x007FD9BA;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    uint32_t front;
+    uint32_t back;
+
+    VIDL_vhCmdSetStateStencil() = default;
+
+    VIDL_vhCmdSetStateStencil(vhStateId _id, uint32_t _front, uint32_t _back)
+        : id(_id), front(_front), back(_back) {}
+};
+
+struct VIDL_vhCmdSetStateVertexBuffer
+{
+    static constexpr uint64_t kMagic = 0xF0E68F37;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    uint8_t stream;
+    vhBuffer buffer;
+    uint32_t start;
+    uint32_t num;
+
+    VIDL_vhCmdSetStateVertexBuffer() = default;
+
+    VIDL_vhCmdSetStateVertexBuffer(vhStateId _id, uint8_t _stream, vhBuffer _buffer, uint32_t _start, uint32_t _num)
+        : id(_id), stream(_stream), buffer(_buffer), start(_start), num(_num) {}
+};
+
+struct VIDL_vhCmdSetStateIndexBuffer
+{
+    static constexpr uint64_t kMagic = 0xE36C062A;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    vhBuffer buffer;
+    uint32_t first;
+    uint32_t num;
+
+    VIDL_vhCmdSetStateIndexBuffer() = default;
+
+    VIDL_vhCmdSetStateIndexBuffer(vhStateId _id, vhBuffer _buffer, uint32_t _first, uint32_t _num)
+        : id(_id), buffer(_buffer), first(_first), num(_num) {}
+};
+
 struct VIDLHandler
 {
     virtual void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) { (void) cmd; };
@@ -336,6 +476,16 @@ struct VIDLHandler
     virtual void Handle_vhSetState( VIDL_vhSetState* cmd ) { (void) cmd; };
     virtual void Handle_vhSetStateWorldMatrix( VIDL_vhSetStateWorldMatrix* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateViewFramebuffer( VIDL_vhCmdSetStateViewFramebuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) { (void) cmd; };
 
     virtual void HandleCmd( void* cmd )
     {
@@ -404,6 +554,36 @@ struct VIDLHandler
             break;
         case 0x83140D26:
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );
+            break;
+        case 0x25DC7E64:
+            Handle_vhCmdSetStateViewRect( (VIDL_vhCmdSetStateViewRect*) cmd );
+            break;
+        case 0xD89EF1E1:
+            Handle_vhCmdSetStateViewScissor( (VIDL_vhCmdSetStateViewScissor*) cmd );
+            break;
+        case 0xAB6B3FB4:
+            Handle_vhCmdSetStateViewClear( (VIDL_vhCmdSetStateViewClear*) cmd );
+            break;
+        case 0x62E19275:
+            Handle_vhCmdSetStateViewFramebuffer( (VIDL_vhCmdSetStateViewFramebuffer*) cmd );
+            break;
+        case 0x95EE7C8C:
+            Handle_vhCmdSetStateViewTransform( (VIDL_vhCmdSetStateViewTransform*) cmd );
+            break;
+        case 0x8FB805B7:
+            Handle_vhCmdSetStateWorldTransform( (VIDL_vhCmdSetStateWorldTransform*) cmd );
+            break;
+        case 0xC3CE00B4:
+            Handle_vhCmdSetStateFlags( (VIDL_vhCmdSetStateFlags*) cmd );
+            break;
+        case 0x007FD9BA:
+            Handle_vhCmdSetStateStencil( (VIDL_vhCmdSetStateStencil*) cmd );
+            break;
+        case 0xF0E68F37:
+            Handle_vhCmdSetStateVertexBuffer( (VIDL_vhCmdSetStateVertexBuffer*) cmd );
+            break;
+        case 0xE36C062A:
+            Handle_vhCmdSetStateIndexBuffer( (VIDL_vhCmdSetStateIndexBuffer*) cmd );
             break;
         }
     }

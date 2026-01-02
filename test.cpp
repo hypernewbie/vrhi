@@ -1953,10 +1953,9 @@ UTEST( State, BasicSetGet )
     }
 
     vhState state = {};
-    state.viewRect = glm::vec4(0, 0, 1280, 720);
-    state.viewMatrix = glm::mat4(1.0f);
-    state.projMatrix = glm::mat4(2.0f);
-    state.worldMatrix[0] = glm::mat4(3.0f);
+    state.SetViewRect( glm::vec4( 0, 0, 1280, 720 ) )
+         .SetViewTransform( glm::mat4( 1.0f ), glm::mat4( 2.0f ) )
+         .SetWorldTransform( glm::mat4( 3.0f ), 1 );
     
     vhStateId id = 1;
     ASSERT_TRUE( vhSetState( id, state ) );
@@ -1968,6 +1967,7 @@ UTEST( State, BasicSetGet )
     EXPECT_EQ( retrieved.viewRect, state.viewRect );
     EXPECT_EQ( retrieved.viewMatrix, state.viewMatrix );
     EXPECT_EQ( retrieved.projMatrix, state.projMatrix );
+    ASSERT_GT( retrieved.worldMatrix.size(), 0 );
     EXPECT_EQ( retrieved.worldMatrix[0], state.worldMatrix[0] );
 }
 
@@ -1981,15 +1981,15 @@ UTEST( State, WorldMatrixFastPath )
 
     // First create a base state
     vhState state = {};
-    state.viewRect = glm::vec4(0, 0, 800, 600);
+    state.SetViewRect( glm::vec4( 0, 0, 800, 600 ) );
     vhStateId id = 2;
     vhSetState( id, state );
     vhFlush();
     
     // Update only world matrices via fast-path
-    glm::mat4 m0(10.0f);
-    glm::mat4 m1(20.0f);
-    glm::mat4 m2(30.0f);
+    glm::mat4 m0( 10.0f );
+    glm::mat4 m1( 20.0f );
+    glm::mat4 m2( 30.0f );
     
     ASSERT_TRUE( vhSetStateWorldMatrix( id, 0, m0 ) );
     ASSERT_TRUE( vhSetStateWorldMatrix( id, 1, m1 ) );
@@ -2000,6 +2000,7 @@ UTEST( State, WorldMatrixFastPath )
     ASSERT_TRUE( vhGetState( id, retrieved ) );
     
     // World matrices should be updated
+    ASSERT_GT( retrieved.worldMatrix.size(), 2 );
     EXPECT_EQ( retrieved.worldMatrix[0], m0 );
     EXPECT_EQ( retrieved.worldMatrix[1], m1 );
     EXPECT_EQ( retrieved.worldMatrix[2], m2 );
@@ -2017,8 +2018,8 @@ UTEST( State, MultipleSlots )
     }
 
     vhState state1 = {}, state2 = {};
-    state1.viewRect = glm::vec4(0, 0, 100, 100);
-    state2.viewRect = glm::vec4(0, 0, 200, 200);
+    state1.SetViewRect( glm::vec4( 0, 0, 100, 100 ) );
+    state2.SetViewRect( glm::vec4( 0, 0, 200, 200 ) );
     
     vhStateId id1 = 10, id2 = 20;
     vhSetState( id1, state1 );
@@ -2073,7 +2074,7 @@ UTEST( State, WorldMatrixBounds )
     ASSERT_FALSE( vhSetStateWorldMatrix( id, -1, glm::mat4(1.0f) ) );
     
     // Verify valid index works
-    glm::mat4 lastMat(5.0f);
+    glm::mat4 lastMat( 5.0f );
     ASSERT_TRUE( vhSetStateWorldMatrix( id, VRHI_MAX_WORLD_MATRICES - 1, lastMat ) );
     vhFlush();
     
@@ -2081,6 +2082,7 @@ UTEST( State, WorldMatrixBounds )
     vhGetState( id, retrieved );
     
     // Verify only max matrices were set
+    ASSERT_GT( retrieved.worldMatrix.size(), VRHI_MAX_WORLD_MATRICES - 1 );
     EXPECT_EQ( retrieved.worldMatrix[VRHI_MAX_WORLD_MATRICES - 1], lastMat );
 }
 

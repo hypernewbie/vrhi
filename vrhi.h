@@ -617,8 +617,9 @@ struct vhState
     vhFramebuffer viewFramebuffer;
     glm::mat4 viewMatrix;
     glm::mat4 projMatrix;
-    glm::mat4 worldMatrix[ VRHI_MAX_WORLD_MATRICES ];
+    std::vector< glm::mat4 > worldMatrix;
     uint64_t stateFlags = 0;
+    uint64_t dirty = 0;
     
     uint16_t clearFlags = 0;
     uint32_t clearRgba = 0;
@@ -635,7 +636,7 @@ struct vhState
         uint32_t startVertex = 0;
         uint32_t numVertices = UINT32_MAX;
     };
-    VertexBinding vertexBindings[ VRHI_MAX_VERTEX_BINDINGS ];
+    std::vector< VertexBinding > vertexBindings;
 
     struct IndexBinding
     {
@@ -644,6 +645,58 @@ struct vhState
         uint32_t numIndices = UINT32_MAX;
     };
     IndexBinding indexBinding;
+
+    vhState& SetViewRect( const glm::vec4& rect ) { viewRect = rect; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
+    vhState& SetViewScissor( const glm::vec4& scissor ) { viewScissor = scissor; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
+    vhState& SetViewClear( uint16_t clearFlags_, uint32_t rgba = 0, float depth = 1.0f, uint8_t stencil = 0 )
+    {
+        clearFlags = clearFlags_;
+        clearRgba = rgba;
+        clearDepth = depth;
+        clearStencil = stencil;
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    vhState& SetViewFramebuffer( vhFramebuffer fb ) { viewFramebuffer = fb; dirty |= VRHI_DIRTY_FRAMEBUFFER; return *this; }
+    vhState& SetViewTransform( const glm::mat4& view, const glm::mat4& proj )
+    {
+        viewMatrix = view;
+        projMatrix = proj;
+        dirty |= VRHI_DIRTY_CAMERA;
+        return *this;
+    }
+    vhState& SetWorldTransform( const glm::mat4& mtx, uint16_t num = 1 )
+    {
+        worldMatrix.assign( num, mtx );
+        dirty |= VRHI_DIRTY_WORLD;
+        return *this;
+    }
+    vhState& SetStateFlags( uint64_t flags ) { stateFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
+    vhState& SetStencil( uint32_t front, uint32_t back = 0 )
+    {
+        frontStencil = front;
+        backStencil = back;
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    vhState& SetVertexBuffer( vhBuffer buffer, uint8_t stream, uint32_t startVertex = 0, uint32_t numVertices = UINT32_MAX )
+    {
+        if ( stream >= vertexBindings.size() ) vertexBindings.resize( stream + 1 );
+        vertexBindings[stream] = { buffer, stream, startVertex, numVertices };
+        dirty |= VRHI_DIRTY_BINDINGS;
+        return *this;
+    }
+    vhState& SetIndexBuffer( vhBuffer buffer, uint32_t firstIndex = 0, uint32_t numIndices = UINT32_MAX )
+    {
+        indexBinding = { buffer, firstIndex, numIndices };
+        dirty |= VRHI_DIRTY_BINDINGS;
+        return *this;
+    }
+    vhState& dirtyAll()
+    {
+        dirty = VRHI_DIRTY_ALL;
+        return *this;
+    }
 };
 
 // Query state from backend.
@@ -657,58 +710,6 @@ bool vhSetState( vhStateId id, const vhState& state );
 // VIDL_GENERATE
 bool vhSetStateWorldMatrix( vhStateId id, int index, const glm::mat4& matrix );
 
-inline void vhSetViewRect( vhState& state, const glm::vec4& rect ) { state.viewRect = rect; }
-
-inline void vhSetViewScissor( vhState& state, const glm::vec4& scissor ) { state.viewScissor = scissor; }
-
-inline void vhSetViewClear( vhState& state, uint16_t clearFlags, uint32_t rgba = 0, float depth = 1.0f, uint8_t stencil = 0 )
-{
-    state.clearFlags = clearFlags;
-    state.clearRgba = rgba;
-    state.clearDepth = depth;
-    state.clearStencil = stencil;
-}
-
-inline void vhSetViewFramebuffer( vhState& state, vhFramebuffer fb ) { state.viewFramebuffer = fb; }
-
-inline void vhSetViewTransform( vhState& state, const glm::mat4& view, const glm::mat4& proj )
-{
-    state.viewMatrix = view;
-    state.projMatrix = proj;
-}
-
-inline void vhSetWorldTransform( vhState& state, const glm::mat4& mtx, uint16_t num = 1 )
-{
-    int n = glm::min( ( int ) num, ( int ) VRHI_MAX_WORLD_MATRICES );
-    for ( int i = 0; i < n; i++ ) state.worldMatrix[i] = mtx;
-}
-
-inline void vhSetStateFlags( vhState& state, uint64_t flags ) { state.stateFlags = flags; }
-
-inline void vhSetStencil( vhState& state, uint32_t frontStencil, uint32_t backStencil = 0 /* TODO: VRHI_STENCIL_NONE */ )
-{
-    state.frontStencil = frontStencil;
-    state.backStencil = backStencil;
-}
-
-inline void vhSetVertexBuffer( vhState& state, vhBuffer buffer, uint8_t stream, uint32_t startVertex = 0, uint32_t numVertices = UINT32_MAX )
-{
-    if ( stream < VRHI_MAX_VERTEX_BINDINGS )
-    {
-        state.vertexBindings[stream].buffer = buffer;
-        state.vertexBindings[stream].stream = stream;
-        state.vertexBindings[stream].startVertex = startVertex;
-        state.vertexBindings[stream].numVertices = numVertices;
-    }
-}
-
-inline void vhSetIndexBuffer( vhState& state, vhBuffer buffer, uint32_t firstIndex = 0, uint32_t numIndices = UINT32_MAX )
-{
-    state.indexBinding.buffer = buffer;
-    state.indexBinding.firstIndex = firstIndex;
-    state.indexBinding.numIndices = numIndices;
-}
-
 /// TODO: More state functions here.
 
 // --------------------------------------------------------------------------
@@ -719,6 +720,27 @@ inline void vhSetIndexBuffer( vhState& state, vhBuffer buffer, uint32_t firstInd
 
 // VIDL_GENERATE
 void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU = false );
+
+// VIDL_GENERATE
+void vhCmdSetStateViewRect( vhStateId id, glm::vec4 rect );
+// VIDL_GENERATE
+void vhCmdSetStateViewScissor( vhStateId id, glm::vec4 scissor );
+// VIDL_GENERATE
+void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, uint32_t rgba, float depth, uint8_t stencil );
+// VIDL_GENERATE
+void vhCmdSetStateViewFramebuffer( vhStateId id, vhFramebuffer fb );
+// VIDL_GENERATE
+void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj );
+// VIDL_GENERATE
+void vhCmdSetStateWorldTransform( vhStateId id, std::vector< glm::mat4 > matrices );
+// VIDL_GENERATE
+void vhCmdSetStateFlags( vhStateId id, uint64_t flags );
+// VIDL_GENERATE
+void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back );
+// VIDL_GENERATE
+void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint32_t start, uint32_t num );
+// VIDL_GENERATE
+void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint32_t first, uint32_t num );
 
 // In header-only mode, we want definitions.
 #define VRHI_IMPL_DEFINITIONS
