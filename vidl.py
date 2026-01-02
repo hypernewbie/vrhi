@@ -127,8 +127,12 @@ def generate_source(content):
         
         for p in func['params']:
             default_str = f" = {p['default']}" if p.get('default') else ""
-            struct_lines.append(f"    {p['type']} {p['name']}{default_str};")
-            # For constructor: type _name
+            
+            # For member storage: remove reference to ensure we store a copy
+            member_type = p['type'].replace('&', '').strip()
+            struct_lines.append(f"    {member_type} {p['name']}{default_str};")
+            
+            # For constructor: type _name (keep original type, e.g. const T&)
             ctor_params.append(f"{p['type']} _{p['name']}")
             # For initializer: name(_name)
             initializer_list.append(f"{p['name']}(_{p['name']})")

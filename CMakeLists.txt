@@ -60,6 +60,9 @@ set(SOURCES
     vrhi_impl_shader.h
     test_impl_shader.cpp
     
+    vrhi_impl_state.h
+    test_impl_state.cpp
+    
     test_impl_definitions.cpp
 )
 

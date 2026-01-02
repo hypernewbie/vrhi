@@ -203,12 +203,15 @@ bool vhReflectSpirv(
 #include "vrhi_impl_texture.h"
 #include "vrhi_impl_buffer.h"
 #include "vrhi_impl_shader.h"
+#include "vrhi_impl_state.h"
 #endif
 
 
 // --------------------------------------------------------------------------
 // Definitions
 // --------------------------------------------------------------------------
+
+bool vhBackendQueryState( vhStateId id, vhState& outState );
 
 #ifdef VRHI_IMPL_DEFINITIONS
 

@@ -252,7 +252,7 @@ struct VIDL_vhCreateShader
     vhShader shader;
     const char* name;
     uint64_t flags;
-    const std::vector< uint32_t >& spirv;
+    const std::vector< uint32_t > spirv;
     const char* entry = "main";
 
     VIDL_vhCreateShader() = default;
@@ -278,7 +278,7 @@ struct VIDL_vhSetState
     static constexpr uint64_t kMagic = 0x3031B928;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const vhState& state;
+    const vhState state;
 
     VIDL_vhSetState() = default;
 
@@ -291,13 +291,12 @@ struct VIDL_vhSetStateWorldMatrix
     static constexpr uint64_t kMagic = 0x4A75DA2F;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const glm::mat4* matrices;
-    uint16_t num = 1;
+    const vhMem* data;
 
     VIDL_vhSetStateWorldMatrix() = default;
 
-    VIDL_vhSetStateWorldMatrix(vhStateId _id, const glm::mat4* _matrices, uint16_t _num)
-        : id(_id), matrices(_matrices), num(_num) {}
+    VIDL_vhSetStateWorldMatrix(vhStateId _id, const vhMem* _data)
+        : id(_id), data(_data) {}
 };
 
 struct VIDL_vhFlushInternal
