@@ -34,6 +34,8 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <filesystem>
+#include <fstream>
 #include <glm/glm.hpp>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
@@ -66,6 +68,13 @@ struct vhInitData
     bool raytracing = true;
     glm::ivec2 resolution = glm::ivec2( 1280, 720 );
     std::function<void( bool error, const std::string& )> fnLogCallback = nullptr;
+
+#ifdef VRHI_SHADER_COMPILER
+    std::string shaderCompileTempDir = "./tmp/shader_cache/";
+    std::string shaderMakePath = "./tools/linux_release";
+    std::string shaderMakeSlangPath = "./tools/linux_release";
+    bool forceShaderRecompile = false;
+#endif // VRHI_SHADER_COMPILER
 };
 
 typedef uint32_t vhTexture;
@@ -445,6 +454,7 @@ vhShader vhAllocShader();
 
 #ifdef VRHI_SHADER_COMPILER
 bool vhCompileShader(
+    const char* name,
     const char* source,
     uint64_t flags,
     std::vector< uint32_t >& outSpirv,

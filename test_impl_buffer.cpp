@@ -20,6 +20,7 @@
 */
 
 #define VRHI_UNIT_TEST
+#define VRHI_SHADER_COMPILER
 #ifdef VRHI_SHARDED_BUILD
     #include "vrhi_impl_buffer.h"
 #endif

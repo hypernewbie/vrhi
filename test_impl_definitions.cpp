@@ -22,6 +22,7 @@
 // Global definitions for sharded builds
 
 #define VRHI_UNIT_TEST
+#define VRHI_SHADER_COMPILER
 #ifdef VRHI_SHARDED_BUILD
     #define VRHI_IMPL_DEFINITIONS
     #include "vrhi_impl.h"

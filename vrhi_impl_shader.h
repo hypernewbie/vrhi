@@ -25,20 +25,129 @@
 #include "vrhi_impl.h"
 #endif // VRHI_IMPLEMENTATION
 #include "vrhi_utils.h"
+#include <komihash/komihash.h>
 
 // ------------ Shader Utilities ------------
 
-#ifdef VRHI_SHADER_COMPILER_IMPLEMENTATION
+#ifdef VRHI_SHADER_COMPILER
+
+static bool vhLoadSpirvFile( const std::filesystem::path& path, std::vector< uint32_t >& outSpirv )
+{
+    std::ifstream file( path, std::ios::binary | std::ios::ate );
+    if ( !file.is_open( ) )
+    {
+        return false;
+    }
+
+    std::streamsize size = file.tellg( );
+    file.seekg( 0, std::ios::beg );
+
+    outSpirv.resize( ( size + 3 ) / 4 );
+
+    // Ensure we don't read past end if file size is not multiple of 4.
+    std::memset( outSpirv.data( ), 0, outSpirv.size( ) * 4 );
+
+    if ( !file.read( ( char* ) outSpirv.data( ), size ) )
+    {
+        return false;
+    }
+
+    return true;
+}
+
+#ifdef _WIN32
+    #include <stdio.h> 
+    
+    // Map to Windows underscore variants
+    #define VH_POPEN       _popen
+    #define VH_PCLOSE      _pclose
+    #define VH_PUTENV      _putenv
+    
+    // Windows pclose returns the exit code directly
+    #define VH_WEXITSTATUS(x) (x)
+    #define VH_WIFEXITED(x)   ((x) != -1)
+#else
+    #include <unistd.h>
+    #include <sys/wait.h>
+    
+    // Map to standard POSIX names
+    #define VH_POPEN       popen
+    #define VH_PCLOSE      pclose
+    #define VH_PUTENV      putenv
+    
+    // Map to standard POSIX macros
+    #define VH_WEXITSTATUS(x) WEXITSTATUS(x)
+    #define VH_WIFEXITED(x)   WIFEXITED(x)
+#endif
+
+bool vhRunExe( const std::string& command, std::string& outOutput )
+{
+#ifdef _WIN32
+    // Wrap in quotes to prevent cmd.exe from stripping the executable's quotes
+    std::string fullCommand = "\"" + command + "\" 2>&1";
+#else
+    std::string fullCommand = command + " 2>&1";
+#endif
+
+    // Use the prefixed macro
+    FILE* pipe = VH_POPEN( fullCommand.c_str( ), "r" ); 
+    if ( !pipe )
+    {
+        return false;
+    }
+
+    char buffer[2048];
+    while ( fgets( buffer, sizeof( buffer ), pipe ) )
+    {
+        outOutput += buffer;
+    }
+
+    // Use the prefixed close
+    int result = VH_PCLOSE( pipe ); 
+
+    // Use the prefixed status macros
+    bool failed = false;
+    if ( result == -1 || !VH_WIFEXITED( result ) || VH_WEXITSTATUS( result ) != 0 )
+    {
+        failed = true;
+    }
+
+    return !failed;
+}
+
+const char* vhGetShaderProfile( uint64_t flags )
+{
+    uint64_t stage = ( flags & VRHI_SHADER_STAGE_MASK );
+    switch ( stage )
+    {
+        case VRHI_SHADER_STAGE_VERTEX:        return "vs";
+        case VRHI_SHADER_STAGE_PIXEL:         return "ps";
+        case VRHI_SHADER_STAGE_COMPUTE:       return "cs";
+        case VRHI_SHADER_STAGE_RAYGEN:
+        case VRHI_SHADER_STAGE_MISS:
+        case VRHI_SHADER_STAGE_CLOSEST_HIT:   return "lib";
+        case VRHI_SHADER_STAGE_MESH:          return "ms";
+        case VRHI_SHADER_STAGE_AMPLIFICATION: return "as";
+    }
+    return "ps";
+}
+
 std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
 {
     std::string args = "";
 
+    // Shader Model
     uint64_t sm = ( flags & VRHI_SHADER_SM_MASK );
-    if ( sm == VRHI_SHADER_SM_5_0 ) args += " -m 5_0";
-    else if ( sm == VRHI_SHADER_SM_6_0 ) args += " -m 6_0";
-    else if ( sm == VRHI_SHADER_SM_6_6 ) args += " -m 6_6";
-    else args += " -m 6_5"; // Default or 6.5
+    const char* smStr = "6_5";
+    if ( sm == VRHI_SHADER_SM_5_0 ) smStr = "5_0";
+    else if ( sm == VRHI_SHADER_SM_6_0 ) smStr = "6_0";
+    else if ( sm == VRHI_SHADER_SM_6_6 ) smStr = "6_6";
 
+    // ShaderMake uses -m for model
+    args += " -m ";
+    args += smStr;
+
+    // Optimization
     if ( flags & VRHI_SHADER_DEBUG )
     {
         args += " -O 0 --embedPDB";
@@ -48,6 +157,7 @@ std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
         args += " -O 3";
     }
 
+    // Toggles
     if ( flags & VRHI_SHADER_ROW_MAJOR ) args += " --matrixRowMajor";
     if ( flags & VRHI_SHADER_WARNINGS_AS_ERRORS ) args += " --WX";
     if ( flags & VRHI_SHADER_STRIP_REFLECTION ) args += " --stripReflection";
@@ -59,16 +169,17 @@ std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
 
 // ------------ Shader Implementation ------------
 
-vhShader vhAllocShader()
+vhShader vhAllocShader( )
 {
     std::lock_guard< std::mutex > lock( g_vhShaderIDListMutex );
-    uint32_t id = g_vhShaderIDList.alloc();
+    uint32_t id = g_vhShaderIDList.alloc( );
     g_vhShaderIDValid[id] = true;
     return id;
 }
 
 #ifdef VRHI_SHADER_COMPILER
 bool vhCompileShader(
+    const char* name,
     const char* source,
     uint64_t flags,
     std::vector< uint32_t >& outSpirv,
@@ -78,58 +189,119 @@ bool vhCompileShader(
     std::string* outError
 )
 {
-    // Unpack the flags. WARNING: This must sync with vrhi_defines.h!!!
-
-    uint64_t stage = ( flags & VRHI_SHADER_STAGE_MASK );
-    const char* stageStr = nullptr;
-    switch ( stage )
+    std::filesystem::path tempDir = g_vhInit.shaderCompileTempDir;
+    if ( !std::filesystem::exists( tempDir ) )
     {
-        case VRHI_SHADER_STAGE_VERTEX: stageStr = "vs"; break;
-        case VRHI_SHADER_STAGE_PIXEL: stageStr = "ps"; break;
-        case VRHI_SHADER_STAGE_COMPUTE: stageStr = "cs"; break;
-        case VRHI_SHADER_STAGE_RAYGEN: stageStr = "lib"; break;
-        case VRHI_SHADER_STAGE_MISS: stageStr = "lib"; break;
-        case VRHI_SHADER_STAGE_CLOSEST_HIT: stageStr = "lib"; break;
-        case VRHI_SHADER_STAGE_MESH: stageStr = "ms"; break;
-        case VRHI_SHADER_STAGE_AMPLIFICATION: stageStr = "as"; break;
-        default: stageStr = "ps"; break;
+        std::filesystem::create_directories( tempDir );
     }
 
-    uint64_t shaderModel = ( flags & VRHI_SHADER_SM_MASK ) >> 4;
-    const char* smStr = "6_5"; // Default
-    switch ( shaderModel )
+    // Hash input into cache key
+
+    std::string hashInput = std::string( name ) + source + std::to_string( flags ) + entry;
+    for ( const auto& d : defines ) hashInput += d;
+    for ( const auto& i : includes ) hashInput += i;
+    uint64_t hash = komihash( hashInput.data( ), hashInput.size( ), 0 );
+
+    std::string prefix = std::string( name ) + "_" + std::to_string( hash );
+    const char* profile = vhGetShaderProfile( flags );
+    
+    // ShaderMake usually appends profile to output, e.g. Name_hash_ps.spirv
+
+    std::string outputFilename = prefix + "_" + profile + ".spirv";
+    std::filesystem::path spvPath = tempDir / outputFilename;
+    if ( !g_vhInit.forceShaderRecompile && std::filesystem::exists( spvPath ) )
     {
-        case 1: smStr = "5_0"; break;
-        case 2: smStr = "6_0"; break;
-        case 3: smStr = "6_5"; break;
-        case 4: smStr = "6_6"; break;
-        default: smStr = "6_5"; break;
+        if ( vhLoadSpirvFile( spvPath, outSpirv ) )
+        {
+            return true;
+        }
     }
 
-    bool debug = ( flags & VRHI_SHADER_DEBUG ) != 0;
-    bool rowMajor = ( flags & VRHI_SHADER_ROW_MAJOR ) != 0;
-    bool warningsAsErrors = ( flags & VRHI_SHADER_WARNINGS_AS_ERRORS ) != 0;
+    // Argument Construction
+    std::string argString = vhBuildShaderFlagArgs_Internal( flags );
 
-    bool compatHlsl = ( flags & VRHI_SHADER_COMPAT_HLSL ) != 0;
-    bool hlsl2021 = ( flags & VRHI_SHADER_HLSL_2021 ) != 0;
-    bool stripReflection = ( flags & VRHI_SHADER_STRIP_REFLECTION ) != 0;
-    bool allResourcesBound = ( flags & VRHI_SHADER_ALL_RESOURCES_BOUND ) != 0;
-
-    std::filesystem::path sourcePath = source;
-    if ( !std::filesystem::exists( sourcePath ) )
+    // Write source to temporary file
+    std::string sourceFilename = prefix + ".slang";
+    std::filesystem::path sourceFilePath = tempDir / sourceFilename;
     {
-        if ( outError ) *outError = "Shader source file does not exist: " + sourcePath.string();
+        std::ofstream sourceFile( sourceFilePath );
+        if ( !sourceFile.is_open( ) )
+        {
+            if ( outError ) *outError = "Failed to create temporary shader source file: " + sourceFilePath.string( );
+            return false;
+        }
+        sourceFile << source;
+    }
+    
+    // Write config file for ShaderMake
+    std::string configFilename = prefix + ".cfg";
+    std::filesystem::path configFilePath = tempDir / configFilename;
+    {
+        std::ofstream configFile( configFilePath );
+        if ( !configFile.is_open( ) )
+        {
+             if ( outError ) *outError = "Failed to create temporary shader config file: " + configFilePath.string( );
+             return false;
+        }
+        // Config format: filename -T profile -E entry
+        configFile << sourceFilename << " -T " << profile << " -E " << entry;
+    }
+
+    // Build
+
+    std::filesystem::path shaderMakePath = g_vhInit.shaderMakePath;
+    std::filesystem::path slangPath = g_vhInit.shaderMakeSlangPath;
+    
+#ifdef _WIN32
+    std::filesystem::path shaderMakeExe = shaderMakePath / "ShaderMake.exe";
+    std::filesystem::path slangExe = slangPath / "slangc.exe";
+#else
+    std::filesystem::path shaderMakeExe = shaderMakePath / "ShaderMake";
+    std::filesystem::path slangExe = slangPath / "slangc";
+#endif
+    shaderMakeExe.make_preferred( );
+    slangExe.make_preferred( );
+
+    std::string cmd = "\"" + shaderMakeExe.string( ) + "\"";
+    cmd += " -p SPIRV --binary --flatten --serial"; // --serial to avoid overhead/issues in single file compile
+    cmd += " -c \"" + configFilePath.string( ) + "\"";
+    cmd += " -o \"" + tempDir.string( ) + "\"";
+    cmd += " --compiler \"" + slangExe.string( ) + "\"";
+    cmd += " --slang";
+    cmd += argString; // Includes -m, -O, etc.
+
+    for ( const auto& d : defines ) cmd += " -D " + d;
+    for ( const auto& i : includes ) cmd += " -I \"" + i + "\"";
+
+    // Run Command
+
+    std::string output;
+    if ( !vhRunExe( cmd, output ) )
+    {
+        if ( outError ) *outError = output;
         return false;
     }
 
-    return true;
+    // Load Result
+    if ( !std::filesystem::exists( spvPath ) )
+    {
+        std::filesystem::path fallbackPath = tempDir / ( prefix + ".spirv" );
+        if ( !std::filesystem::exists( fallbackPath ) )
+        {
+            if ( outError ) *outError = "Compilation finished but output file not found: " + spvPath.string( ) + "\nOutput:\n" + output;
+            return false;
+        }
+        spvPath = fallbackPath;
+    }
+
+    return vhLoadSpirvFile( spvPath, outSpirv );
 }
 #endif // VRHI_SHADER_COMPILER
 
 void vhDestroyShader( vhShader shader )
 {
     std::lock_guard< std::mutex > lock( g_vhShaderIDListMutex );
-    if ( g_vhShaderIDValid.find( shader ) == g_vhShaderIDValid.end() ) return;
+    if ( g_vhShaderIDValid.find( shader ) == g_vhShaderIDValid.end( ) ) return;
 
     g_vhShaderIDValid.erase( shader );
     g_vhShaderIDList.release( shader );
@@ -139,10 +311,10 @@ void vhDestroyShader( vhShader shader )
     vhCmdEnqueue( cmd );
 }
 
-vhProgram vhAllocProgram()
+vhProgram vhAllocProgram( )
 {
     std::lock_guard< std::mutex > lock( g_vhProgramIDListMutex );
-    uint32_t id = g_vhProgramIDList.alloc();
+    uint32_t id = g_vhProgramIDList.alloc( );
     g_vhProgramIDValid[id] = true;
     return id;
 }
@@ -150,7 +322,7 @@ vhProgram vhAllocProgram()
 void vhDestroyProgram( vhProgram program )
 {
     std::lock_guard< std::mutex > lock( g_vhProgramIDListMutex );
-    if ( g_vhProgramIDValid.find( program ) == g_vhProgramIDValid.end() ) return;
+    if ( g_vhProgramIDValid.find( program ) == g_vhProgramIDValid.end( ) ) return;
 
     g_vhProgramIDValid.erase( program );
     g_vhProgramIDList.release( program );
@@ -160,10 +332,10 @@ void vhDestroyProgram( vhProgram program )
     vhCmdEnqueue( cmd );
 }
 
-vhPipeline vhAllocPipeline()
+vhPipeline vhAllocPipeline( )
 {
     std::lock_guard< std::mutex > lock( g_vhPipelineIDListMutex );
-    uint32_t id = g_vhPipelineIDList.alloc();
+    uint32_t id = g_vhPipelineIDList.alloc( );
     g_vhPipelineIDValid[id] = true;
     return id;
 }
@@ -171,7 +343,7 @@ vhPipeline vhAllocPipeline()
 void vhDestroyPipeline( vhPipeline pipeline )
 {
     std::lock_guard< std::mutex > lock( g_vhPipelineIDListMutex );
-    if ( g_vhPipelineIDValid.find( pipeline ) == g_vhPipelineIDValid.end() ) return;
+    if ( g_vhPipelineIDValid.find( pipeline ) == g_vhPipelineIDValid.end( ) ) return;
 
     g_vhPipelineIDValid.erase( pipeline );
     g_vhPipelineIDList.release( pipeline );
