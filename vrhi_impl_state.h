@@ -48,9 +48,9 @@ void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, uint32_t rgba, float 
     vhCmdEnqueue( new VIDL_vhCmdSetStateViewClear( id, flags, rgba, depth, stencil ) );
 }
 
-void vhCmdSetStateViewFramebuffer( vhStateId id, vhFramebuffer fb )
+void vhCmdSetStateProgram( vhStateId id, vhProgram program )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateViewFramebuffer( id, fb ) );
+    vhCmdEnqueue( new VIDL_vhCmdSetStateProgram( id, program ) );
 }
 
 void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj )
@@ -73,17 +73,47 @@ void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back )
     vhCmdEnqueue( new VIDL_vhCmdSetStateStencil( id, front, back ) );
 }
 
-void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint32_t start, uint32_t num )
+void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, start, num ) );
+    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, offset, start, num ) );
 }
 
-void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint32_t first, uint32_t num )
+void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint64_t offset, uint32_t first, uint32_t num )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateIndexBuffer( id, buffer, first, num ) );
+    vhCmdEnqueue( new VIDL_vhCmdSetStateIndexBuffer( id, buffer, offset, first, num ) );
 }
 
-void vhCmdSetStateAttachments( vhStateId id, std::vector< vhTexture > colors, vhTexture depth )
+void vhCmdSetStateTextures( vhStateId id, const std::vector< vhState::TextureBinding >& textures )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateTextures( id, textures ) );
+}
+
+void vhCmdSetStateSamplers( vhStateId id, const std::vector< vhState::SamplerDefinition >& samplers )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateSamplers( id, samplers ) );
+}
+
+void vhCmdSetStateBuffers( vhStateId id, const std::vector< vhState::BufferBinding >& buffers )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateBuffers( id, buffers ) );
+}
+
+void vhCmdSetStateConstants( vhStateId id, const std::vector< vhState::ConstantBufferValue >& constants )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateConstants( id, constants ) );
+}
+
+void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStatePushConstants( id, data ) );
+}
+
+void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateUniforms( id, uniforms ) );
+}
+
+void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colors, vhState::RenderTarget depth )
 {
     vhCmdEnqueue( new VIDL_vhCmdSetStateAttachments( id, colors, depth ) );
 }
@@ -98,11 +128,6 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
         vhCmdSetStateViewRect( id, state.viewRect );
         vhCmdSetStateViewScissor( id, state.viewScissor );
         vhCmdSetStateViewClear( id, state.clearFlags, state.clearRgba, state.clearDepth, state.clearStencil );
-    }
-
-    if ( dirty & VRHI_DIRTY_FRAMEBUFFER )
-    {
-        vhCmdSetStateViewFramebuffer( id, state.viewFramebuffer );
     }
 
     if ( dirty & VRHI_DIRTY_ATTACHMENTS )
@@ -126,14 +151,45 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
         vhCmdSetStateStencil( id, state.frontStencil, state.backStencil );
     }
 
-    if ( dirty & VRHI_DIRTY_BINDINGS )
+    if ( dirty & VRHI_DIRTY_VERTEX_INDEX )
     {
         for ( uint8_t i = 0; i < ( uint8_t ) state.vertexBindings.size(); ++i )
         {
             const auto& b = state.vertexBindings[i];
-            vhCmdSetStateVertexBuffer( id, i, b.buffer, b.startVertex, b.numVertices );
+            vhCmdSetStateVertexBuffer( id, i, b.buffer, b.byteOffset, b.startVertex, b.numVertices );
         }
-        vhCmdSetStateIndexBuffer( id, state.indexBinding.buffer, state.indexBinding.firstIndex, state.indexBinding.numIndices );
+        vhCmdSetStateIndexBuffer( id, state.indexBinding.buffer, state.indexBinding.byteOffset, state.indexBinding.firstIndex, state.indexBinding.numIndices );
+    }
+
+    if ( dirty & VRHI_DIRTY_TEXTURE_SAMPLERS )
+    {
+        vhCmdSetStateTextures( id, state.textures );
+        vhCmdSetStateSamplers( id, state.samplers );
+    }
+
+    if ( dirty & VRHI_DIRTY_BUFFERS )
+    {
+        vhCmdSetStateBuffers( id, state.buffers );
+    }
+
+    if ( dirty & VRHI_DIRTY_CONSTANTS )
+    {
+        vhCmdSetStateConstants( id, state.constants );
+    }
+
+    if ( dirty & VRHI_DIRTY_PUSH_CONSTANTS )
+    {
+        vhCmdSetStatePushConstants( id, state.pushConstants );
+    }
+
+    if ( dirty & VRHI_DIRTY_PROGRAM )
+    {
+        vhCmdSetStateProgram( id, state.program );
+    }
+
+    if ( dirty & VRHI_DIRTY_UNIFORMS )
+    {
+        vhCmdSetStateUniforms( id, state.uniforms );
     }
 
     state.dirty = 0x0ull;

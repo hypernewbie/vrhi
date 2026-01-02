@@ -81,6 +81,7 @@ struct vhInitData
 typedef uint32_t vhTexture;
 typedef uint32_t vhBuffer;
 typedef uint32_t vhShader;
+typedef uint32_t vhUniform;
 typedef std::vector< uint8_t > vhMem;
 typedef std::vector< vhShader > vhProgram;
 
@@ -355,7 +356,6 @@ typedef std::string vhVertexLayout;
 // Validates a vertex layout string.
 bool vhValidateVertexLayout( const vhVertexLayout& layout );
 
-
 // Allocates a unique buffer handle.
 //
 // Returns a valid |vhBuffer| handle, or |VRHI_INVALID_HANDLE| on failure.
@@ -426,6 +426,9 @@ void vhCreateUniformBuffer(
 );
 
 // Enqueues a command to update a uniform buffer with the specified data.
+//
+// NOTE: Do not use this for per-drawcall CPU updated data. While it would work, it will stall the GPU pipeline hard and you will get bad performance.
+//       Either implement a ring buffer system, or use vhState's uniform mechanism which does exactly that. GPU -> GPU transfers are OK.
 //
 // |buffer| is the handle to the buffer to update.
 // |data| is the source data. Takes ownership of the memory.
@@ -543,7 +546,6 @@ void vhCreateShader(
 // VIDL_GENERATE
 void vhDestroyShader( vhShader shader );
 
-
 // Graphics: Standard (Vertex + Pixel)
 inline vhProgram vhCreateGfxProgram( vhShader vertexShader, vhShader pixelShader )
 {
@@ -606,20 +608,20 @@ inline vhProgram vhCreateRTProgram( vhShader rayGen, vhShader miss, vhShader clo
 
 // ------------ State ------------
 
-
 typedef uint64_t vhStateId;
 typedef uint64_t vhFramebuffer;
 
 // This represents the entire draw state.
 // You can submit multiple multiple draw calls or compute dispatches with the same state.
+// This is intended to be created globally and stored for the duration of the application.
+//
 struct vhState
 {
     glm::vec4 viewRect;
     glm::vec4 viewScissor;
-    vhFramebuffer viewFramebuffer;
     glm::mat4 viewMatrix;
     glm::mat4 projMatrix;
-    std::vector< glm::mat4 > worldMatrix;
+    std::vector< glm::mat4 > worldMatrix; // worldMatrix[0] is copied into pushConstants[0] if worldMatrix is non-empty.
     uint64_t stateFlags = 0;
     uint64_t dirty = 0;
     
@@ -631,12 +633,15 @@ struct vhState
     uint32_t frontStencil = 0;
     uint32_t backStencil = 0;
 
+    glm::vec4 pushConstants = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
+
     struct VertexBinding
     {
         vhBuffer buffer;
         uint8_t stream = 0;
         uint32_t startVertex = 0;
         uint32_t numVertices = UINT32_MAX;
+        uint64_t byteOffset = 0;
     };
     std::vector< VertexBinding > vertexBindings;
 
@@ -645,11 +650,67 @@ struct vhState
         vhBuffer buffer;
         uint32_t firstIndex = 0;
         uint32_t numIndices = UINT32_MAX;
+        uint64_t byteOffset = 0;
     };
     IndexBinding indexBinding;
+
+    struct TextureBinding
+    {
+        const char* name = nullptr;
+        int32_t slot = -1;
+        vhTexture texture;
+    };
+    std::vector< TextureBinding > textures;
+
+    struct BufferBinding
+    {
+        const char* name = nullptr;
+        int32_t slot = -1;
+        vhBuffer buffer;
+        uint64_t byteOffset = 0;
+        uint64_t byteSize = 0;
+    };
+    std::vector< BufferBinding > buffers;
+
+    struct SamplerDefinition
+    {
+        const char* name = nullptr;
+        int32_t slot = -1;
+        uint64_t flags = 0;
+    };
+    std::vector< SamplerDefinition > samplers;
+
+    // WARNING: These are global values. You cannot write them mid-frame, behaviour is undefined.
+    struct ConstantBufferValue
+    {
+        const char* name = nullptr;
+        std::vector< glm::vec4 > data;
+    };
+    std::vector< ConstantBufferValue > constants;
+
+    // These are per-drawcall values. You can write them mid-frame and they are efficiently uploaded.
+    // This is probably what you're looking for.
+    struct UniformBufferValue
+    {
+        const char* name = nullptr;
+        std::vector< glm::vec4 > data;
+    };
+    std::vector< UniformBufferValue > uniforms;
+
+    vhProgram program;
     
-    std::vector< vhTexture > colourAttachment;
-    vhTexture depthAttachment = VRHI_INVALID_HANDLE;
+
+    struct RenderTarget
+    {
+        vhTexture texture = VRHI_INVALID_HANDLE;
+        uint32_t mipLevel = 0;
+        uint32_t arrayLayer = 0;
+        nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN;
+        bool readOnly = false;
+    };
+
+    std::vector< RenderTarget > colourAttachment;
+    RenderTarget depthAttachment;
 
     vhState& SetViewRect( const glm::vec4& rect ) { viewRect = rect; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
     vhState& SetViewScissor( const glm::vec4& scissor ) { viewScissor = scissor; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
@@ -662,7 +723,6 @@ struct vhState
         dirty |= VRHI_DIRTY_PIPELINE;
         return *this;
     }
-    vhState& SetViewFramebuffer( vhFramebuffer fb ) { viewFramebuffer = fb; dirty |= VRHI_DIRTY_FRAMEBUFFER; return *this; }
     vhState& SetViewTransform( const glm::mat4& view, const glm::mat4& proj )
     {
         viewMatrix = view;
@@ -684,20 +744,124 @@ struct vhState
         dirty |= VRHI_DIRTY_PIPELINE;
         return *this;
     }
-    vhState& SetVertexBuffer( vhBuffer buffer, uint8_t stream, uint32_t startVertex = 0, uint32_t numVertices = UINT32_MAX )
+    vhState& SetVertexBuffer( vhBuffer buffer, uint8_t stream, uint64_t offset = 0, uint32_t startVertex = 0, uint32_t numVertices = UINT32_MAX )
     {
         if ( stream >= vertexBindings.size() ) vertexBindings.resize( stream + 1 );
-        vertexBindings[stream] = { buffer, stream, startVertex, numVertices };
-        dirty |= VRHI_DIRTY_BINDINGS;
+        vertexBindings[stream] = { buffer, stream, startVertex, numVertices, offset };
+        dirty |= VRHI_DIRTY_VERTEX_INDEX;
         return *this;
     }
-    vhState& SetIndexBuffer( vhBuffer buffer, uint32_t firstIndex = 0, uint32_t numIndices = UINT32_MAX )
+    vhState& SetIndexBuffer( vhBuffer buffer, uint64_t offset = 0, uint32_t firstIndex = 0, uint32_t numIndices = UINT32_MAX )
     {
-        indexBinding = { buffer, firstIndex, numIndices };
-        dirty |= VRHI_DIRTY_BINDINGS;
+        indexBinding = { buffer, firstIndex, numIndices, offset };
+        dirty |= VRHI_DIRTY_VERTEX_INDEX;
         return *this;
     }
-    vhState& SetAttachments( const std::vector< vhTexture >& colors, vhTexture depth = VRHI_INVALID_HANDLE )
+    vhState& SetTextures( const std::vector< TextureBinding >& textures_ )
+    {
+        textures = textures_;
+        dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
+        return *this;
+    }
+    vhState& SetTexture( uint32_t idx, const TextureBinding& texture )
+    {
+        if ( idx >= textures.size() ) textures.resize( idx + 1 );
+        textures[idx] = texture;
+        dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
+        return *this;
+    }
+    TextureBinding& GetTexture( uint32_t idx )
+    {
+        if ( idx >= textures.size() ) textures.resize( idx + 1 );
+        return textures[idx];
+    }
+    vhState& SetSamplers( const std::vector< SamplerDefinition >& samplers_ )
+    {
+        samplers = samplers_;
+        dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
+        return *this;
+    }
+    vhState& SetSampler( uint32_t idx, const SamplerDefinition& sampler )
+    {
+        if ( idx >= samplers.size() ) samplers.resize( idx + 1 );
+        samplers[idx] = sampler;
+        dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
+        return *this;
+    }
+    SamplerDefinition& GetSampler( uint32_t idx )
+    {
+        if ( idx >= samplers.size() ) samplers.resize( idx + 1 );
+        return samplers[idx];
+    }
+    vhState& SetBuffers( const std::vector< BufferBinding >& buffers_ )
+    {
+        buffers = buffers_;
+        dirty |= VRHI_DIRTY_BUFFERS;
+        return *this;
+    }
+    vhState& SetBuffer( uint32_t idx, const BufferBinding& buffer )
+    {
+        if ( idx >= buffers.size() ) buffers.resize( idx + 1 );
+        buffers[idx] = buffer;
+        dirty |= VRHI_DIRTY_BUFFERS;
+        return *this;
+    }
+    BufferBinding& GetBuffer( uint32_t idx )
+    {
+        if ( idx >= buffers.size() ) buffers.resize( idx + 1 );
+        return buffers[idx];
+    }
+    vhState& SetConstants( const std::vector< ConstantBufferValue >& constants_ )
+    {
+        constants = constants_;
+        dirty |= VRHI_DIRTY_CONSTANTS;
+        return *this;
+    }
+    vhState& SetConstant( uint32_t idx, const ConstantBufferValue& constant )
+    {
+        if ( idx >= constants.size() ) constants.resize( idx + 1 );
+        constants[idx] = constant;
+        dirty |= VRHI_DIRTY_CONSTANTS;
+        return *this;
+    }
+    ConstantBufferValue& GetConstant( uint32_t idx )
+    {
+        if ( idx >= constants.size() ) constants.resize( idx + 1 );
+        return constants[idx];
+    }
+    vhState& SetPushConstants( const glm::vec4& data )
+    {
+        pushConstants = data;
+        dirty |= VRHI_DIRTY_PUSH_CONSTANTS;
+        return *this;
+    }
+    vhState& SetUniforms( const std::vector< UniformBufferValue >& uniforms_ )
+    {
+        uniforms = uniforms_;
+        dirty |= VRHI_DIRTY_UNIFORMS;
+        return *this;
+    }
+    vhState& SetUniform( uint32_t idx, const UniformBufferValue& uniform )
+    {
+        if ( idx >= uniforms.size() ) uniforms.resize( idx + 1 );
+        uniforms[idx] = uniform;
+        dirty |= VRHI_DIRTY_UNIFORMS;
+        return *this;
+    }
+    UniformBufferValue& GetUniform( uint32_t idx )
+    {
+        if ( idx >= uniforms.size() ) uniforms.resize( idx + 1 );
+        return uniforms[idx];
+    }
+    vhState& SetProgram( vhProgram prog )
+    {
+        program = prog;
+        dirty |= VRHI_DIRTY_PROGRAM;
+        return *this;
+    }
+    vhProgram GetProgram() const { return program; }
+
+    vhState& SetAttachments( const std::vector< RenderTarget >& colors, RenderTarget depth = {} )
     {
         colourAttachment = colors;
         depthAttachment = depth;
@@ -711,10 +875,16 @@ struct vhState
     }
 };
 
+// Some global states created for you to use.
+extern vhState g_state0;
+extern vhState g_state1;
+
 // Query state from backend.
+// WARNING: This is slow and should be used mostly for debugging.
 bool vhGetState( vhStateId id, vhState& outState );
 
 // Set state on backend.
+// This automatically uploads via dirty flags, making it efficient to call multiple times.
 bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask = 0 );
 
 /// TODO: More state functions here.
@@ -735,7 +905,7 @@ void vhCmdSetStateViewScissor( vhStateId id, glm::vec4 scissor );
 // VIDL_GENERATE
 void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, uint32_t rgba, float depth, uint8_t stencil );
 // VIDL_GENERATE
-void vhCmdSetStateViewFramebuffer( vhStateId id, vhFramebuffer fb );
+void vhCmdSetStateProgram( vhStateId id, vhProgram program );
 // VIDL_GENERATE
 void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj );
 // VIDL_GENERATE
@@ -745,16 +915,27 @@ void vhCmdSetStateFlags( vhStateId id, uint64_t flags );
 // VIDL_GENERATE
 void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back );
 // VIDL_GENERATE
-void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint32_t start, uint32_t num );
+void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num );
 // VIDL_GENERATE
-void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint32_t first, uint32_t num );
+void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint64_t offset, uint32_t first, uint32_t num );
 // VIDL_GENERATE
-void vhCmdSetStateAttachments( vhStateId id, std::vector< vhTexture > colors, vhTexture depth );
+void vhCmdSetStateTextures( vhStateId id, const std::vector< vhState::TextureBinding >& textures );
+// VIDL_GENERATE
+void vhCmdSetStateSamplers( vhStateId id, const std::vector< vhState::SamplerDefinition >& samplers );
+// VIDL_GENERATE
+void vhCmdSetStateBuffers( vhStateId id, const std::vector< vhState::BufferBinding >& buffers );
+// VIDL_GENERATE
+void vhCmdSetStateConstants( vhStateId id, const std::vector< vhState::ConstantBufferValue >& constants );
+// VIDL_GENERATE
+void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data );
+// VIDL_GENERATE
+void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms );
+// VIDL_GENERATE
+void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colors, vhState::RenderTarget depth );
 
 // In header-only mode, we want definitions.
 #define VRHI_IMPL_DEFINITIONS
 #include "vrhi_impl.h"
-
 #endif // VRHI_IMPLEMENTATION
 
 /*

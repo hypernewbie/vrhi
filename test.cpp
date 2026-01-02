@@ -2390,15 +2390,14 @@ UTEST( State, BasicSetGet )
 
 UTEST( State, Attachments )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-
     vhState state = {};
-    std::vector< vhTexture > colors = { 101, 102 };
-    vhTexture depth = 201;
+    vhState::RenderTarget rt;
+    rt.texture = 101;
+    rt.mipLevel = 1;
+    
+    std::vector< vhState::RenderTarget > colors = { rt };
+    vhState::RenderTarget depth;
+    depth.texture = 201;
     
     state.SetAttachments( colors, depth );
     
@@ -2409,11 +2408,12 @@ UTEST( State, Attachments )
     vhState retrieved = {};
     ASSERT_TRUE( vhGetState( id, retrieved ) );
     
-    ASSERT_EQ( retrieved.colourAttachment.size(), colors.size() );
-    EXPECT_EQ( retrieved.colourAttachment[0], colors[0] );
-    EXPECT_EQ( retrieved.colourAttachment[1], colors[1] );
-    EXPECT_EQ( retrieved.depthAttachment, depth );
+    ASSERT_EQ( retrieved.colourAttachment.size(), (size_t)1 );
+    EXPECT_EQ( retrieved.colourAttachment[0].texture, 101u );
+    EXPECT_EQ( retrieved.colourAttachment[0].mipLevel, 1u );
+    EXPECT_EQ( retrieved.depthAttachment.texture, 201u );
 }
+
 
 UTEST( Sampler, GetSamplerDesc )
 {
@@ -2476,6 +2476,169 @@ UTEST( Sampler, GetSamplerDesc )
         nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
         
         EXPECT_EQ( desc.reductionType, nvrhi::SamplerReductionType::Comparison );
+    }
+}
+
+UTEST( State, Extensions )
+{
+    // Test 1: Dirty Flags for Vertex/Index
+    {
+        vhState state;
+        state.SetVertexBuffer( 1, 0 );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_VERTEX_INDEX, VRHI_DIRTY_VERTEX_INDEX );
+        state.dirty = 0;
+        state.SetIndexBuffer( 2 );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_VERTEX_INDEX, VRHI_DIRTY_VERTEX_INDEX );
+    }
+
+    // Test 2: Dirty Flags for Textures/Samplers
+    {
+        vhState state;
+        state.SetTextures( {} );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
+        state.dirty = 0;
+        state.SetSamplers( {} );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
+    }
+
+    // Test 3: Dirty Flags for Buffers
+    {
+        vhState state;
+        state.SetBuffers( {} );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_BUFFERS, VRHI_DIRTY_BUFFERS );
+    }
+
+    // Test 4: Dirty Flags for Constants
+    {
+        vhState state;
+        state.SetConstants( {} );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_CONSTANTS, VRHI_DIRTY_CONSTANTS );
+    }
+
+    // Test 5: Dirty Flags for PushConstants
+    {
+        vhState state;
+        state.SetPushConstants( glm::vec4(1.0f) );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS, VRHI_DIRTY_PUSH_CONSTANTS );
+    }
+
+    // Test 6: Dirty Flags for Program
+    {
+        vhState state;
+        state.SetProgram( { 777 } );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_PROGRAM, VRHI_DIRTY_PROGRAM );
+    }
+
+    // Test 7: Dirty Flags for Uniforms
+    {
+        vhState state;
+        state.SetUniforms( {} );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_UNIFORMS, VRHI_DIRTY_UNIFORMS );
+    }
+}
+
+UTEST( State, BackendPropagation )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    
+    vhStateId id = 123; 
+    vhState state;
+    
+    // Set some state
+    state.SetPushConstants( glm::vec4( 1.1f, 2.2f, 3.3f, 4.4f ) );
+    
+    vhState::TextureBinding tex;
+    tex.name = "PropTex";
+    tex.slot = 3;
+    tex.texture = 101;
+    state.SetTextures( { tex } );
+    
+    vhSetState( id, state );
+    vhFlush();
+    
+    // Verify backend state
+    vhState backendState;
+    EXPECT_TRUE( vhGetState( id, backendState ) );
+    
+    EXPECT_NEAR( backendState.pushConstants.x, 1.1f, 0.001f );
+    EXPECT_NEAR( backendState.pushConstants.y, 2.2f, 0.001f );
+    EXPECT_NEAR( backendState.pushConstants.z, 3.3f, 0.001f );
+    EXPECT_NEAR( backendState.pushConstants.w, 4.4f, 0.001f );
+    
+    ASSERT_EQ( backendState.textures.size(), 1u );
+    EXPECT_STREQ( backendState.textures[0].name, "PropTex" );
+    EXPECT_EQ( backendState.textures[0].slot, 3 );
+    EXPECT_EQ( backendState.textures[0].texture, 101u );
+
+    // Verify it doesn't bleed to other states
+    vhState otherState;
+    EXPECT_FALSE( vhGetState( 999, otherState ) );
+}
+
+UTEST( State, IndividualAccessors )
+{
+    vhState state;
+    
+    // Texture with auto-resize
+    {
+        vhState::TextureBinding tex;
+        tex.name = "ResizeTex";
+        tex.slot = 10;
+        state.SetTexture( 5, tex ); // Index 5, so size should be 6
+        
+        EXPECT_EQ( state.textures.size(), 6u );
+        EXPECT_STREQ( state.textures[5].name, "ResizeTex" );
+        EXPECT_EQ( state.textures[5].slot, 10 );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
+        
+        // Get with resize
+        state.GetTexture( 8 ); // Index 8, size -> 9
+        EXPECT_EQ( state.textures.size(), 9u );
+    }
+
+    // Sampler with auto-resize
+    {
+        vhState::SamplerDefinition samp;
+        samp.slot = 20;
+        state.SetSampler( 3, samp ); 
+        
+        EXPECT_EQ( state.samplers.size(), 4u );
+        EXPECT_EQ( state.samplers[3].slot, 20 );
+        
+        state.GetSampler( 6 );
+        EXPECT_EQ( state.samplers.size(), 7u );
+    }
+
+    // Buffer with auto-resize
+    {
+        vhState::BufferBinding buf;
+        buf.slot = 30;
+        state.SetBuffer( 4, buf );
+        
+        EXPECT_EQ( state.buffers.size(), 5u );
+        EXPECT_EQ( state.buffers[4].slot, 30 );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_BUFFERS, VRHI_DIRTY_BUFFERS );
+        
+        state.GetBuffer( 5 );
+        EXPECT_EQ( state.buffers.size(), 6u );
+    }
+
+    // Constant with auto-resize
+    {
+        vhState::ConstantBufferValue c;
+        c.name = "ConstBuf";
+        state.SetConstant( 2, c );
+        
+        EXPECT_EQ( state.constants.size(), 3u );
+        EXPECT_STREQ( state.constants[2].name, "ConstBuf" );
+        EXPECT_EQ( state.dirty & VRHI_DIRTY_CONSTANTS, VRHI_DIRTY_CONSTANTS );
+        
+        state.GetConstant( 4 );
+        EXPECT_EQ( state.constants.size(), 5u );
     }
 }
 

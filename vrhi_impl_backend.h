@@ -1019,10 +1019,10 @@ public:
         state.clearStencil = cmd->stencil;
     }
 
-    void Handle_vhCmdSetStateViewFramebuffer( VIDL_vhCmdSetStateViewFramebuffer* cmd ) override
+    void Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        backendStates[cmd->id].viewFramebuffer = cmd->fb;
+        backendStates[cmd->id].program = cmd->program;
     }
 
     void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) override
@@ -1058,13 +1058,49 @@ public:
         BE_CmdRAII cmdRAII( cmd );
         auto& state = backendStates[cmd->id];
         if ( cmd->stream >= state.vertexBindings.size() ) state.vertexBindings.resize( cmd->stream + 1 );
-        state.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num };
+        state.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num, cmd->offset };
     }
 
     void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        backendStates[cmd->id].indexBinding = { cmd->buffer, cmd->first, cmd->num };
+        backendStates[cmd->id].indexBinding = { cmd->buffer, cmd->first, cmd->num, cmd->offset };
+    }
+    
+    void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        backendStates[cmd->id].textures = cmd->textures;
+    }
+
+    void Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        backendStates[cmd->id].samplers = cmd->samplers;
+    }
+
+    void Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        backendStates[cmd->id].buffers = cmd->buffers;
+    }
+
+    void Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        backendStates[cmd->id].constants = cmd->constants;
+    }
+
+    void Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        backendStates[cmd->id].pushConstants = cmd->data;
+    }
+
+    void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        backendStates[cmd->id].uniforms = cmd->uniforms;
     }
     
     void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) override

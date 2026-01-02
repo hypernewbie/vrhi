@@ -336,17 +336,17 @@ struct VIDL_vhCmdSetStateViewClear
         : id(_id), flags(_flags), rgba(_rgba), depth(_depth), stencil(_stencil) {}
 };
 
-struct VIDL_vhCmdSetStateViewFramebuffer
+struct VIDL_vhCmdSetStateProgram
 {
-    static constexpr uint64_t kMagic = 0x62E19275;
+    static constexpr uint64_t kMagic = 0x106BC354;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    vhFramebuffer fb;
+    vhProgram program;
 
-    VIDL_vhCmdSetStateViewFramebuffer() = default;
+    VIDL_vhCmdSetStateProgram() = default;
 
-    VIDL_vhCmdSetStateViewFramebuffer(vhStateId _id, vhFramebuffer _fb)
-        : id(_id), fb(_fb) {}
+    VIDL_vhCmdSetStateProgram(vhStateId _id, vhProgram _program)
+        : id(_id), program(_program) {}
 };
 
 struct VIDL_vhCmdSetStateViewTransform
@@ -410,13 +410,14 @@ struct VIDL_vhCmdSetStateVertexBuffer
     vhStateId id;
     uint8_t stream;
     vhBuffer buffer;
+    uint64_t offset;
     uint32_t start;
     uint32_t num;
 
     VIDL_vhCmdSetStateVertexBuffer() = default;
 
-    VIDL_vhCmdSetStateVertexBuffer(vhStateId _id, uint8_t _stream, vhBuffer _buffer, uint32_t _start, uint32_t _num)
-        : id(_id), stream(_stream), buffer(_buffer), start(_start), num(_num) {}
+    VIDL_vhCmdSetStateVertexBuffer(vhStateId _id, uint8_t _stream, vhBuffer _buffer, uint64_t _offset, uint32_t _start, uint32_t _num)
+        : id(_id), stream(_stream), buffer(_buffer), offset(_offset), start(_start), num(_num) {}
 };
 
 struct VIDL_vhCmdSetStateIndexBuffer
@@ -425,13 +426,92 @@ struct VIDL_vhCmdSetStateIndexBuffer
     uint64_t MAGIC = kMagic;
     vhStateId id;
     vhBuffer buffer;
+    uint64_t offset;
     uint32_t first;
     uint32_t num;
 
     VIDL_vhCmdSetStateIndexBuffer() = default;
 
-    VIDL_vhCmdSetStateIndexBuffer(vhStateId _id, vhBuffer _buffer, uint32_t _first, uint32_t _num)
-        : id(_id), buffer(_buffer), first(_first), num(_num) {}
+    VIDL_vhCmdSetStateIndexBuffer(vhStateId _id, vhBuffer _buffer, uint64_t _offset, uint32_t _first, uint32_t _num)
+        : id(_id), buffer(_buffer), offset(_offset), first(_first), num(_num) {}
+};
+
+struct VIDL_vhCmdSetStateTextures
+{
+    static constexpr uint64_t kMagic = 0x3A615501;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    const std::vector< vhState::TextureBinding > textures;
+
+    VIDL_vhCmdSetStateTextures() = default;
+
+    VIDL_vhCmdSetStateTextures(vhStateId _id, const std::vector< vhState::TextureBinding >& _textures)
+        : id(_id), textures(_textures) {}
+};
+
+struct VIDL_vhCmdSetStateSamplers
+{
+    static constexpr uint64_t kMagic = 0xFCB052A2;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    const std::vector< vhState::SamplerDefinition > samplers;
+
+    VIDL_vhCmdSetStateSamplers() = default;
+
+    VIDL_vhCmdSetStateSamplers(vhStateId _id, const std::vector< vhState::SamplerDefinition >& _samplers)
+        : id(_id), samplers(_samplers) {}
+};
+
+struct VIDL_vhCmdSetStateBuffers
+{
+    static constexpr uint64_t kMagic = 0x953A85B6;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    const std::vector< vhState::BufferBinding > buffers;
+
+    VIDL_vhCmdSetStateBuffers() = default;
+
+    VIDL_vhCmdSetStateBuffers(vhStateId _id, const std::vector< vhState::BufferBinding >& _buffers)
+        : id(_id), buffers(_buffers) {}
+};
+
+struct VIDL_vhCmdSetStateConstants
+{
+    static constexpr uint64_t kMagic = 0x23287787;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    const std::vector< vhState::ConstantBufferValue > constants;
+
+    VIDL_vhCmdSetStateConstants() = default;
+
+    VIDL_vhCmdSetStateConstants(vhStateId _id, const std::vector< vhState::ConstantBufferValue >& _constants)
+        : id(_id), constants(_constants) {}
+};
+
+struct VIDL_vhCmdSetStatePushConstants
+{
+    static constexpr uint64_t kMagic = 0x0A9462A0;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    glm::vec4 data;
+
+    VIDL_vhCmdSetStatePushConstants() = default;
+
+    VIDL_vhCmdSetStatePushConstants(vhStateId _id, glm::vec4 _data)
+        : id(_id), data(_data) {}
+};
+
+struct VIDL_vhCmdSetStateUniforms
+{
+    static constexpr uint64_t kMagic = 0xAB3B2AB3;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    const std::vector< vhState::UniformBufferValue > uniforms;
+
+    VIDL_vhCmdSetStateUniforms() = default;
+
+    VIDL_vhCmdSetStateUniforms(vhStateId _id, const std::vector< vhState::UniformBufferValue >& _uniforms)
+        : id(_id), uniforms(_uniforms) {}
 };
 
 struct VIDL_vhCmdSetStateAttachments
@@ -439,12 +519,12 @@ struct VIDL_vhCmdSetStateAttachments
     static constexpr uint64_t kMagic = 0xD3B53061;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    std::vector< vhTexture > colors;
-    vhTexture depth;
+    const std::vector< vhState::RenderTarget > colors;
+    vhState::RenderTarget depth;
 
     VIDL_vhCmdSetStateAttachments() = default;
 
-    VIDL_vhCmdSetStateAttachments(vhStateId _id, std::vector< vhTexture > _colors, vhTexture _depth)
+    VIDL_vhCmdSetStateAttachments(vhStateId _id, const std::vector< vhState::RenderTarget >& _colors, vhState::RenderTarget _depth)
         : id(_id), colors(_colors), depth(_depth) {}
 };
 
@@ -473,13 +553,19 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) { (void) cmd; };
-    virtual void Handle_vhCmdSetStateViewFramebuffer( VIDL_vhCmdSetStateViewFramebuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) { (void) cmd; };
 
     virtual void HandleCmd( void* cmd )
@@ -556,8 +642,8 @@ struct VIDLHandler
         case 0xAB6B3FB4:
             Handle_vhCmdSetStateViewClear( (VIDL_vhCmdSetStateViewClear*) cmd );
             break;
-        case 0x62E19275:
-            Handle_vhCmdSetStateViewFramebuffer( (VIDL_vhCmdSetStateViewFramebuffer*) cmd );
+        case 0x106BC354:
+            Handle_vhCmdSetStateProgram( (VIDL_vhCmdSetStateProgram*) cmd );
             break;
         case 0x95EE7C8C:
             Handle_vhCmdSetStateViewTransform( (VIDL_vhCmdSetStateViewTransform*) cmd );
@@ -576,6 +662,24 @@ struct VIDLHandler
             break;
         case 0xE36C062A:
             Handle_vhCmdSetStateIndexBuffer( (VIDL_vhCmdSetStateIndexBuffer*) cmd );
+            break;
+        case 0x3A615501:
+            Handle_vhCmdSetStateTextures( (VIDL_vhCmdSetStateTextures*) cmd );
+            break;
+        case 0xFCB052A2:
+            Handle_vhCmdSetStateSamplers( (VIDL_vhCmdSetStateSamplers*) cmd );
+            break;
+        case 0x953A85B6:
+            Handle_vhCmdSetStateBuffers( (VIDL_vhCmdSetStateBuffers*) cmd );
+            break;
+        case 0x23287787:
+            Handle_vhCmdSetStateConstants( (VIDL_vhCmdSetStateConstants*) cmd );
+            break;
+        case 0x0A9462A0:
+            Handle_vhCmdSetStatePushConstants( (VIDL_vhCmdSetStatePushConstants*) cmd );
+            break;
+        case 0xAB3B2AB3:
+            Handle_vhCmdSetStateUniforms( (VIDL_vhCmdSetStateUniforms*) cmd );
             break;
         case 0xD3B53061:
             Handle_vhCmdSetStateAttachments( (VIDL_vhCmdSetStateAttachments*) cmd );
