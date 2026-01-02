@@ -2415,6 +2415,70 @@ UTEST( State, Attachments )
     EXPECT_EQ( retrieved.depthAttachment, depth );
 }
 
+UTEST( Sampler, GetSamplerDesc )
+{
+    // Case 1: Default/Zero Flags
+    {
+        uint64_t flags = 0;
+        nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
+        
+        EXPECT_TRUE( desc.minFilter );
+        EXPECT_TRUE( desc.magFilter );
+        EXPECT_TRUE( desc.mipFilter );
+        EXPECT_EQ( desc.addressU, nvrhi::SamplerAddressMode::Wrap );
+        EXPECT_EQ( desc.addressV, nvrhi::SamplerAddressMode::Wrap );
+        EXPECT_EQ( desc.addressW, nvrhi::SamplerAddressMode::Wrap );
+        EXPECT_NEAR( desc.maxAnisotropy, 1.0f, 1e-5f );
+        EXPECT_NEAR( desc.mipBias, 0.0f, 1e-5f );
+        EXPECT_NEAR( desc.borderColor.r, 0.0f, 1e-5f );
+        EXPECT_NEAR( desc.borderColor.a, 0.0f, 1e-5f );
+        EXPECT_EQ( desc.reductionType, nvrhi::SamplerReductionType::Standard );
+    }
+
+    // Case 2: Point Sampling & Clamp
+    {
+        uint64_t flags = VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP;
+        nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
+        
+        EXPECT_FALSE( desc.minFilter );
+        EXPECT_FALSE( desc.magFilter );
+        EXPECT_FALSE( desc.mipFilter );
+        EXPECT_EQ( desc.addressU, nvrhi::SamplerAddressMode::Clamp );
+        EXPECT_EQ( desc.addressV, nvrhi::SamplerAddressMode::Clamp );
+        EXPECT_EQ( desc.addressW, nvrhi::SamplerAddressMode::Clamp );
+    }
+
+    // Case 3: Anisotropy & MipBias
+    {
+        uint64_t flags = VRHI_SAMPLER_ANISOTROPY_16 | VRHI_SAMPLER_MIPBIAS( 2.5f );
+        nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
+        
+        EXPECT_NEAR( desc.maxAnisotropy, 16.0f, 1e-5f );
+        EXPECT_NEAR( desc.mipBias, 2.5f, 0.01f );
+    }
+
+    // Case 4: Complex Mixed State
+    {
+        uint64_t flags = VRHI_SAMPLER_U_MIRROR | VRHI_SAMPLER_V_BORDER | VRHI_SAMPLER_MAG_POINT | VRHI_SAMPLER_MIPBIAS( -0.5f );
+        nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
+        
+        EXPECT_EQ( desc.addressU, nvrhi::SamplerAddressMode::Mirror );
+        EXPECT_EQ( desc.addressV, nvrhi::SamplerAddressMode::Border );
+        EXPECT_EQ( desc.addressW, nvrhi::SamplerAddressMode::Wrap );
+        EXPECT_FALSE( desc.magFilter );
+        EXPECT_TRUE( desc.minFilter );
+        EXPECT_NEAR( desc.mipBias, -0.5f, 0.01f );
+    }
+
+    // Case 5: Reduction/Compare
+    {
+        uint64_t flags = VRHI_SAMPLER_COMPARE_LESS;
+        nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
+        
+        EXPECT_EQ( desc.reductionType, nvrhi::SamplerReductionType::Comparison );
+    }
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )

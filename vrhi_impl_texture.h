@@ -266,3 +266,50 @@ void* vhGetTextureNvrhiHandle( vhTexture texture )
     return vhBackendQueryTextureHandle( texture );
 }
 
+nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags )
+{
+    nvrhi::SamplerDesc desc;
+
+    auto mapAddrMode = []( uint32_t mode ) -> nvrhi::SamplerAddressMode
+    {
+        switch ( mode ) {
+            case 0: return nvrhi::SamplerAddressMode::Wrap;
+            case 1: return nvrhi::SamplerAddressMode::Mirror;
+            case 2: return nvrhi::SamplerAddressMode::Clamp;
+            case 3: return nvrhi::SamplerAddressMode::Border;
+            default: return nvrhi::SamplerAddressMode::Wrap;
+        }
+    };
+
+    desc.addressU = mapAddrMode( ( samplerFlags >> VRHI_SAMPLER_U_SHIFT ) & 0x3 );
+    desc.addressV = mapAddrMode( ( samplerFlags >> VRHI_SAMPLER_V_SHIFT ) & 0x3 );
+    desc.addressW = mapAddrMode( ( samplerFlags >> VRHI_SAMPLER_W_SHIFT ) & 0x3 );
+
+    desc.minFilter = ( ( samplerFlags >> VRHI_SAMPLER_MIN_SHIFT ) & 0x3 ) != 1; // 1 is POINT, 0 is LINEAR, 2 is ANISO
+    desc.magFilter = ( ( samplerFlags >> VRHI_SAMPLER_MAG_SHIFT ) & 0x3 ) != 1;
+    desc.mipFilter = ( ( samplerFlags >> VRHI_SAMPLER_MIP_SHIFT ) & 0x3 ) == 0; // 0 is LINEAR, 1 is POINT, 2 is NONE. 
+
+    // Mip Bias: 8-bit signed 4.4 fixed point
+    int8_t biasRaw = ( int8_t ) ( ( samplerFlags >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFF );
+    desc.mipBias = ( float ) biasRaw / 16.0f;
+
+    // Border Color: 4-bit index
+    uint32_t borderColor = ( samplerFlags >> VRHI_SAMPLER_BORDER_COLOR_SHIFT ) & 0xF;
+    if ( borderColor == 0 ) desc.borderColor = nvrhi::Color( 0.f );
+    else if ( borderColor == 1 ) desc.borderColor = nvrhi::Color( 0.f, 0.f, 0.f, 1.f ); // Black
+    else desc.borderColor = nvrhi::Color( 1.f ); // Default White
+
+    // Max Anisotropy: 3-bit index
+    uint32_t anisoIndex = ( samplerFlags >> VRHI_SAMPLER_MAX_ANISOTROPY_SHIFT ) & 0x7;
+    static float anisoMap[] = { 1.f, 2.f, 4.f, 8.f, 16.f, 1.f, 1.f, 1.f };
+    desc.maxAnisotropy = anisoMap[anisoIndex];
+
+    // Reduction Type
+    if ( ( samplerFlags & VRHI_SAMPLER_COMPARE_MASK ) != 0 )
+    {
+        desc.reductionType = nvrhi::SamplerReductionType::Comparison;
+    }
+
+    return desc;
+}
+
