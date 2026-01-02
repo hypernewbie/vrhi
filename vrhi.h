@@ -118,6 +118,10 @@ void vhFlush();
 // Blocks until all commands have been processed and the GPU has reached an idle state.
 void vhFinish();
 
+// Clears backend caches (e.g. framebuffers). Call this after a window resize.
+// VIDL_GENERATE
+void vhResizeCleanup();
+
 // Helper to allocate memory for data upload or download.
 // The caller is responsible for allocating data to feed into vh* API functions, but not responsible for freeing it.
 // This is freed by the backend every flush when the commands are processed.
@@ -643,6 +647,9 @@ struct vhState
         uint32_t numIndices = UINT32_MAX;
     };
     IndexBinding indexBinding;
+    
+    std::vector< vhTexture > colourAttachment;
+    vhTexture depthAttachment = VRHI_INVALID_HANDLE;
 
     vhState& SetViewRect( const glm::vec4& rect ) { viewRect = rect; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
     vhState& SetViewScissor( const glm::vec4& scissor ) { viewScissor = scissor; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
@@ -690,7 +697,14 @@ struct vhState
         dirty |= VRHI_DIRTY_BINDINGS;
         return *this;
     }
-    vhState& dirtyAll()
+    vhState& SetAttachments( const std::vector< vhTexture >& colors, vhTexture depth = VRHI_INVALID_HANDLE )
+    {
+        colourAttachment = colors;
+        depthAttachment = depth;
+        dirty |= VRHI_DIRTY_ATTACHMENTS;
+        return *this;
+    }
+    vhState& DirtyAll()
     {
         dirty = VRHI_DIRTY_ALL;
         return *this;
@@ -734,6 +748,8 @@ void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back );
 void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint32_t start, uint32_t num );
 // VIDL_GENERATE
 void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint32_t first, uint32_t num );
+// VIDL_GENERATE
+void vhCmdSetStateAttachments( vhStateId id, std::vector< vhTexture > colors, vhTexture depth );
 
 // In header-only mode, we want definitions.
 #define VRHI_IMPL_DEFINITIONS
