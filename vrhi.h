@@ -602,8 +602,6 @@ inline vhProgram vhCreateRTProgram( vhShader rayGen, vhShader miss, vhShader clo
 
 // ------------ State ------------
 
-#define VRHI_MAX_WORLD_MATRICES 4
-#define VRHI_MAX_VERTEX_BINDINGS 16
 
 typedef uint64_t vhStateId;
 typedef uint64_t vhFramebuffer;
@@ -703,12 +701,7 @@ struct vhState
 bool vhGetState( vhStateId id, vhState& outState );
 
 // Set state on backend.
-// VIDL_GENERATE
-bool vhSetState( vhStateId id, const vhState& state );
-
-// Set state on backend. Fast path for just setting the world matrix.
-// VIDL_GENERATE
-bool vhSetStateWorldMatrix( vhStateId id, int index, const glm::mat4& matrix );
+bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask = 0 );
 
 /// TODO: More state functions here.
 
