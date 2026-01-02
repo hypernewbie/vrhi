@@ -57,6 +57,30 @@ static bool g_testInitQuiet = true;
 extern std::string vhGetDeviceInfo();
 extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
 extern bool vhRunExe( const std::string& command, std::string& outOutput );
+extern void vhPartialFillGraphicsPipelineDescFromState_Internal( uint64_t state, nvrhi::GraphicsPipelineDesc& desc );
+
+UTEST( ShaderInternal, StateToDesc )
+{
+    nvrhi::GraphicsPipelineDesc desc;
+    
+    // 1. Test Default (Depth Test Less, Write All, Cull CW)
+    vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_DEFAULT, desc );
+    EXPECT_TRUE( desc.renderState.depthStencilState.depthTestEnable );
+    EXPECT_EQ( desc.renderState.depthStencilState.depthFunc, nvrhi::ComparisonFunc::Less );
+    EXPECT_TRUE( desc.renderState.depthStencilState.depthWriteEnable );
+    EXPECT_EQ( desc.renderState.rasterState.cullMode, nvrhi::RasterCullMode::Back );
+    
+    // 2. Test Blend Add
+    desc = nvrhi::GraphicsPipelineDesc(); // Reset
+    vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_BLEND_ADD, desc );
+    EXPECT_EQ( desc.renderState.blendState.targets[0].srcBlend, nvrhi::BlendFactor::One );
+    EXPECT_EQ( desc.renderState.blendState.targets[0].destBlend, nvrhi::BlendFactor::One );
+    
+    // 3. Test Primitive Topology
+    desc = nvrhi::GraphicsPipelineDesc();
+    vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_PT_LINES, desc );
+    EXPECT_EQ( desc.primType, nvrhi::PrimitiveType::LineList );
+}
 
 UTEST( RHI, Init )
 {
@@ -1783,6 +1807,73 @@ UTEST( Shader, CompileFail )
     EXPECT_GT( error.size(), 0 );
     // Check for some text indicating an error
     EXPECT_TRUE( error.find( "error" ) != std::string::npos || error.find( "Error" ) != std::string::npos );
+}
+
+UTEST( ResourceQueries, Texture )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTexture tex = vhAllocTexture();
+    glm::ivec2 dims( 128, 64 );
+    nvrhi::Format fmt = nvrhi::Format::RGBA8_UNORM;
+    vhCreateTexture2D( tex, dims, 1, fmt );
+    vhFlush();
+
+    std::vector< vhTextureMipInfo > mipInfo;
+    vhTexInfo info = vhGetTextureInfo( tex, &mipInfo );
+
+    EXPECT_EQ( info.dimensions, glm::ivec3( dims, 1 ) );
+    EXPECT_EQ( info.format, fmt );
+    EXPECT_EQ( mipInfo.size(), 1 );
+    EXPECT_EQ( mipInfo[0].dimensions, glm::ivec3( dims, 1 ) );
+
+    void* handle = vhGetTextureNvrhiHandle( tex );
+    EXPECT_NE( handle, nullptr );
+
+    vhDestroyTexture( tex );
+    vhFlush();
+
+    // Query after destruction should return null/default
+    info = vhGetTextureInfo( tex );
+    EXPECT_EQ( info.format, nvrhi::Format::UNKNOWN );
+    EXPECT_EQ( vhGetTextureNvrhiHandle( tex ), nullptr );
+}
+
+UTEST( ResourceQueries, Buffer )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhBuffer buf = vhAllocBuffer();
+    uint64_t size = 1024;
+    uint16_t flags = VRHI_BUFFER_COMPUTE_WRITE;
+    vhCreateUniformBuffer( buf, "TestBuffer", nullptr, size, flags );
+    vhFlush();
+
+    uint32_t stride = 0;
+    uint64_t qFlags = 0;
+    uint64_t qSize = vhGetBufferInfo( buf, &stride, &qFlags );
+
+    EXPECT_EQ( qSize, size );
+    EXPECT_EQ( stride, 1 ); // Uniform buffer stride is 1
+    EXPECT_EQ( qFlags, flags );
+
+    void* handle = vhGetBufferNvrhiHandle( buf );
+    EXPECT_NE( handle, nullptr );
+
+    vhDestroyBuffer( buf );
+    vhFlush();
+
+    // Query after destruction should return 0/null
+    EXPECT_EQ( vhGetBufferInfo( buf ), 0 );
+    EXPECT_EQ( vhGetBufferNvrhiHandle( buf ), nullptr );
 }
 
 UTEST_STATE();

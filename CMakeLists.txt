@@ -110,6 +110,11 @@ target_link_libraries(vrhi_test PRIVATE ${VRHI_LIBS})
 find_package(Vulkan REQUIRED)
 target_link_libraries(vrhi_test PRIVATE Vulkan::Vulkan)
 
+# Add Vulkan SDK Source/SPIRV-Reflect to include paths so we can directly inline inc the .c file
+target_include_directories(vrhi_test PRIVATE
+    "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect"
+)
+
 # System libraries required by NVRHI backends on Windows
 if(WIN32)
     target_link_libraries(vrhi_test PRIVATE

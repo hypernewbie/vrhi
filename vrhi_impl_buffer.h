@@ -335,3 +335,13 @@ void vhUpdateStorageBuffer(
     auto cmd = vhCmdAlloc<VIDL_vhUpdateStorageBuffer>( buffer, data, offset, size );
     vhCmdEnqueue( cmd );
 }
+
+uint64_t vhGetBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFlags )
+{
+    return vhBackendQueryBufferInfo( buffer, outStride, outFlags );
+}
+
+void* vhGetBufferNvrhiHandle( vhBuffer buffer )
+{
+    return vhBackendQueryBufferHandle( buffer );
+}

@@ -88,7 +88,7 @@ void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t &p
 		linfo.pitch = sinfo.y;
 		linfo.size = linfo.slice_size * levelDimensions.z;
 		linfo.offset = offset;
-		offset += linfo.size;
+		offset += ( int ) linfo.size;
 
 		// Calculate the size of the next mipmap level.
 		levelDimensions = vhGetImageNextMipmapDim( levelDimensions );
@@ -254,4 +254,14 @@ void vhBlitTexture(
     auto cmd = vhCmdAlloc<VIDL_vhBlitTexture>( dst, src, dstMip, srcMip, dstLayer, srcLayer, dstOffset, srcOffset, extent );
     assert( cmd );
     vhCmdEnqueue( cmd );
+}
+
+vhTexInfo vhGetTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo )
+{
+    return vhBackendQueryTextureInfo( texture, outMipInfo );
+}
+
+void* vhGetTextureNvrhiHandle( vhTexture texture )
+{
+    return vhBackendQueryTextureHandle( texture );
 }
