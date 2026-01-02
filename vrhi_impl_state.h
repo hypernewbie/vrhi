@@ -54,3 +54,53 @@ bool vhSetStateWorldMatrix( vhStateId id, int index, const glm::mat4& matrix )
     vhCmdEnqueue( cmd );
     return true;
 }
+
+void vhCmdSetStateViewRect( vhStateId id, glm::vec4 rect )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateViewRect( id, rect ) );
+}
+
+void vhCmdSetStateViewScissor( vhStateId id, glm::vec4 scissor )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateViewScissor( id, scissor ) );
+}
+
+void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, uint32_t rgba, float depth, uint8_t stencil )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateViewClear( id, flags, rgba, depth, stencil ) );
+}
+
+void vhCmdSetStateViewFramebuffer( vhStateId id, vhFramebuffer fb )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateViewFramebuffer( id, fb ) );
+}
+
+void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateViewTransform( id, view, proj ) );
+}
+
+void vhCmdSetStateWorldTransform( vhStateId id, std::vector< glm::mat4 > matrices )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateWorldTransform( id, matrices ) );
+}
+
+void vhCmdSetStateFlags( vhStateId id, uint64_t flags )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateFlags( id, flags ) );
+}
+
+void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateStencil( id, front, back ) );
+}
+
+void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint32_t start, uint32_t num )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, start, num ) );
+}
+
+void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint32_t first, uint32_t num )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateIndexBuffer( id, buffer, first, num ) );
+}
