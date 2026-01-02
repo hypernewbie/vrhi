@@ -184,6 +184,14 @@ int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
 int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel = 0 );
 bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions, glm::ivec3 offset, glm::ivec3 extent, const char* debugName );
 
+bool vhReflectSpirv(
+    const std::vector< uint32_t >& spirvBlob,
+    nvrhi::BindingLayoutDesc& outDesc,
+    std::vector< vhShaderReflectionResource >& outResources,
+    glm::uvec3& outGroupSize,
+    std::vector< vhPushConstantRange >& outPushConstants
+);
+
 
 // --------------------------------------------------------------------------
 // Submodule Includes

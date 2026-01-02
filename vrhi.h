@@ -600,6 +600,116 @@ inline vhProgram vhCreateRTProgram( vhShader rayGen, vhShader miss, vhShader clo
     return { rayGen, miss, closestHit, anyHit, intersection };
 }
 
+// ------------ State ------------
+
+#define VRHI_MAX_WORLD_MATRICES 4
+#define VRHI_MAX_VERTEX_BINDINGS 16
+
+typedef uint64_t vhStateId;
+typedef uint64_t vhFramebuffer;
+
+// This represents the entire draw state.
+// You can submit multiple multiple draw calls or compute dispatches with the same state.
+struct vhState
+{
+    glm::vec4 viewRect;
+    glm::vec4 viewScissor;
+    vhFramebuffer viewFramebuffer;
+    glm::mat4 viewMatrix;
+    glm::mat4 projMatrix;
+    glm::mat4 worldMatrix[ VRHI_MAX_WORLD_MATRICES ];
+    uint64_t stateFlags = 0;
+    
+    uint16_t clearFlags = 0;
+    uint32_t clearRgba = 0;
+    float clearDepth = 1.0f;
+    uint8_t clearStencil = 0;
+
+    uint32_t frontStencil = 0;
+    uint32_t backStencil = 0;
+
+    struct VertexBinding
+    {
+        vhBuffer buffer;
+        uint8_t stream = 0;
+        uint32_t startVertex = 0;
+        uint32_t numVertices = UINT32_MAX;
+    };
+    VertexBinding vertexBindings[ VRHI_MAX_VERTEX_BINDINGS ];
+
+    struct IndexBinding
+    {
+        vhBuffer buffer;
+        uint32_t firstIndex = 0;
+        uint32_t numIndices = UINT32_MAX;
+    };
+    IndexBinding indexBinding;
+};
+
+// Query state from backend.
+bool vhGetState( vhStateId id, vhState& outState );
+
+// Set state on backend.
+// VIDL_GENERATE
+bool vhSetState( vhStateId id, const vhState& state );
+
+// Set state on backend. Fast path for just setting the world matrix.
+// VIDL_GENERATE
+bool vhSetStateWorldMatrix( vhStateId id, const glm::mat4* matrices, uint16_t num = 1 );
+
+inline void vhSetViewRect( vhState& state, const glm::vec4& rect ) { state.viewRect = rect; }
+
+inline void vhSetViewScissor( vhState& state, const glm::vec4& scissor ) { state.viewScissor = scissor; }
+
+inline void vhSetViewClear( vhState& state, uint16_t clearFlags, uint32_t rgba = 0, float depth = 1.0f, uint8_t stencil = 0 )
+{
+    state.clearFlags = clearFlags;
+    state.clearRgba = rgba;
+    state.clearDepth = depth;
+    state.clearStencil = stencil;
+}
+
+inline void vhSetViewFramebuffer( vhState& state, vhFramebuffer fb ) { state.viewFramebuffer = fb; }
+
+inline void vhSetViewTransform( vhState& state, const glm::mat4& view, const glm::mat4& proj )
+{
+    state.viewMatrix = view;
+    state.projMatrix = proj;
+}
+
+inline void vhSetWorldTransform( vhState& state, const glm::mat4& mtx, uint16_t num = 1 )
+{
+    int n = glm::min( ( int ) num, ( int ) VRHI_MAX_WORLD_MATRICES );
+    for ( int i = 0; i < n; i++ ) state.worldMatrix[i] = mtx;
+}
+
+inline void vhSetStateFlags( vhState& state, uint64_t flags ) { state.stateFlags = flags; }
+
+inline void vhSetStencil( vhState& state, uint32_t frontStencil, uint32_t backStencil = 0 /* TODO: VRHI_STENCIL_NONE */ )
+{
+    state.frontStencil = frontStencil;
+    state.backStencil = backStencil;
+}
+
+inline void vhSetVertexBuffer( vhState& state, vhBuffer buffer, uint8_t stream, uint32_t startVertex = 0, uint32_t numVertices = UINT32_MAX )
+{
+    if ( stream < VRHI_MAX_VERTEX_BINDINGS )
+    {
+        state.vertexBindings[stream].buffer = buffer;
+        state.vertexBindings[stream].stream = stream;
+        state.vertexBindings[stream].startVertex = startVertex;
+        state.vertexBindings[stream].numVertices = numVertices;
+    }
+}
+
+inline void vhSetIndexBuffer( vhState& state, vhBuffer buffer, uint32_t firstIndex = 0, uint32_t numIndices = UINT32_MAX )
+{
+    state.indexBinding.buffer = buffer;
+    state.indexBinding.firstIndex = firstIndex;
+    state.indexBinding.numIndices = numIndices;
+}
+
+/// TODO: More state functions here.
 
 // --------------------------------------------------------------------------
 // Implementation
