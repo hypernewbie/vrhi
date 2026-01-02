@@ -1876,6 +1876,70 @@ UTEST( ResourceQueries, Buffer )
     EXPECT_EQ( vhGetBufferNvrhiHandle( buf ), nullptr );
 }
 
+UTEST( Shader, Reflection )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    const char* c_shaderSource = R"(
+        struct Data { float4 val; };
+        ConstantBuffer<Data> g_Constants;
+        RWStructuredBuffer<Data> g_Output;
+
+        [numthreads(8, 4, 1)]
+        void main(uint3 threadID : SV_DispatchThreadID)
+        {
+            g_Output[threadID.x].val = g_Constants.val;
+        }
+    )";
+
+    std::vector<uint32_t> spirv;
+    std::string error;
+    bool compiled = vhCompileShader( "TestQueryShader", c_shaderSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    ASSERT_TRUE( compiled );
+
+    vhShader shader = vhAllocShader();
+    vhCreateShader( shader, "TestQueryShader", VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main" );
+    vhFlush();
+
+    // Query Info
+    glm::uvec3 groupSize = { 0, 0, 0 };
+    std::vector< vhShaderReflectionResource > resources;
+    vhGetShaderInfo( shader, &groupSize, &resources );
+
+    EXPECT_EQ( groupSize.x, 8 );
+    EXPECT_EQ( groupSize.y, 4 );
+    EXPECT_EQ( groupSize.z, 1 );
+
+    // Expecting 2 resources: ConstantBuffer at b0 and StructuredBuffer_UAV at u1
+    EXPECT_EQ( resources.size(), 2 );
+
+    bool foundCB = false;
+    bool foundSB = false;
+    for ( const auto& res : resources )
+    {
+        printf( "    Reflected Resource: %s, Slot: %u, Set: %u, Type: %d\n", res.name.c_str(), res.slot, res.set, (int)res.type );
+        if ( res.name == "g_Constants" && res.type == nvrhi::ResourceType::ConstantBuffer ) foundCB = true;
+        if ( res.name == "g_Output" && res.type == nvrhi::ResourceType::StructuredBuffer_UAV ) foundSB = true;
+    }
+    EXPECT_TRUE( foundCB );
+    EXPECT_TRUE( foundSB );
+
+    // Query Handle
+    void* handle = vhGetShaderNvrhiHandle( shader );
+    EXPECT_NE( handle, nullptr );
+
+    vhDestroyShader( shader );
+    vhFlush();
+
+    // Query after destruction
+    void* handleAfter = vhGetShaderNvrhiHandle( shader );
+    EXPECT_EQ( handleAfter, nullptr );
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )

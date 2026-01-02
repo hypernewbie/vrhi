@@ -432,6 +432,22 @@ void vhCreateShader(
     vhCmdEnqueue( cmd );
 }
 
+void vhGetShaderInfo(
+    vhShader shader,
+    glm::uvec3* outGroupSize,
+    std::vector< vhShaderReflectionResource >* outResources,
+    std::vector< vhPushConstantRange >* outPushConstants,
+    std::vector< vhSpecConstant >* outSpecConstants
+)
+{
+    vhBackendQueryShaderInfo( shader, outGroupSize, outResources, outPushConstants, outSpecConstants );
+}
+
+void* vhGetShaderNvrhiHandle( vhShader shader )
+{
+    return vhBackendQueryShaderHandle( shader );
+}
+
 void vhDestroyShader( vhShader shader )
 {
     std::lock_guard< std::mutex > lock( g_vhShaderIDListMutex );
