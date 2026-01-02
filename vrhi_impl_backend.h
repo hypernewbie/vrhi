@@ -25,6 +25,7 @@
 #include "vrhi_impl.h"
 #endif // VRHI_IMPLEMENTATION
 #include "vrhi_utils.h"
+#include <komihash/komihash.h>
 
 // --------------------------------------------------------------------------
 // Backend Types
@@ -90,6 +91,7 @@ struct vhCmdBackendState : public VIDLHandler
     std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
     std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
     std::map< vhStateId, vhState > backendStates;
+    std::unordered_map< uint64_t, nvrhi::FramebufferHandle > backendFramebuffers;
 
     // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
     std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
@@ -331,6 +333,51 @@ struct vhCmdBackendState : public VIDLHandler
         }
     }
 
+    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth, int mip = 0, int layer = 0 )
+    {
+        // TODO: THIS IS UNTESTED!! Use this at graphics render time in future.
+        
+        // Combine all inputs into a hash key
+        uint64_t hashInput[32]; // Enough for color attachments + depth + mip/layer
+        int i = 0;
+        for ( auto c : colors ) hashInput[i++] = ( uint64_t ) c;
+        hashInput[i++] = ( uint64_t ) depth;
+        hashInput[i++] = ( uint32_t ) mip | ( ( uint32_t ) layer << 16 );
+        
+        uint64_t key = komihash( hashInput, i * sizeof( uint64_t ), 0 );
+        
+        if ( backendFramebuffers.find( key ) == backendFramebuffers.end() )
+        {
+            nvrhi::FramebufferDesc desc;
+            for ( auto texture : colors )
+            {
+                auto it = backendTextures.find( texture );
+                if ( it != backendTextures.end() && it->second->handle )
+                {
+                    desc.addColorAttachment( nvrhi::FramebufferAttachment( it->second->handle )
+                        .setArraySlice( layer )
+                        .setMipLevel( mip ) );
+                }
+            }
+
+            if ( depth != VRHI_INVALID_HANDLE )
+            {
+                auto it = backendTextures.find( depth );
+                if ( it != backendTextures.end() && it->second->handle )
+                {
+                    desc.setDepthAttachment( nvrhi::FramebufferAttachment( it->second->handle )
+                        .setArraySlice( layer )
+                        .setMipLevel( mip ) );
+                }
+            }
+
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            backendFramebuffers[key] = g_vhDevice->createFramebuffer( desc );
+        }
+        
+        return backendFramebuffers[key];
+    }
+
 public:
     void init()
     {
@@ -342,6 +389,9 @@ public:
         std::lock_guard< std::mutex > lock( backendMutex );
         std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
         backendTextures.clear();
+        backendBuffers.clear();
+        backendShaders.clear();
+        backendFramebuffers.clear();
     }
 
 
@@ -362,6 +412,13 @@ public:
         {
             backendTextures[ cmd->texture ] = std::make_unique<vhBackendTexture>();
         }
+    }
+
+    void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        backendFramebuffers.clear();
     }
 
     void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override
@@ -413,6 +470,8 @@ public:
             .setFormat( cmd->format )
             .setMipLevels( cmd->numMips )
             .setArraySize( cmd->numLayers )
+            .setIsRenderTarget( ( cmd->flag & VRHI_TEXTURE_RT ) != 0 )
+            .setIsUAV( ( cmd->flag & VRHI_TEXTURE_COMPUTE_WRITE ) != 0 )
             .enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource )
             .setDebugName( temps );
 
@@ -1007,6 +1066,14 @@ public:
         BE_CmdRAII cmdRAII( cmd );
         backendStates[cmd->id].indexBinding = { cmd->buffer, cmd->first, cmd->num };
     }
+    
+    void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto& state = backendStates[cmd->id];
+        state.colourAttachment = cmd->colors;
+        state.depthAttachment = cmd->depth;
+    }
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
     {
@@ -1075,7 +1142,7 @@ public:
     // sending a command to the backend thread and then waiting for a response. Object info queries are usually extremely short and fast, so this is OK. Query functions should never do 
     // significant work or take a long time to complete, because that would bubble the hell out of the command thread.
 
-    vhTexInfo queryTextureInfo( vhTexture handle, std::vector< vhTextureMipInfo >* outMipInfo )
+    vhTexInfo QueryTextureInfo( vhTexture handle, std::vector< vhTextureMipInfo >* outMipInfo )
     {
         std::lock_guard< std::mutex > lock( backendMutex );
         auto it = backendTextures.find( handle );
@@ -1091,7 +1158,7 @@ public:
         return it->second->info;
     }
 
-    void* queryTextureHandle( vhTexture handle )
+    void* QueryTextureHandle( vhTexture handle )
     {
         std::lock_guard< std::mutex > lock( backendMutex );
         auto it = backendTextures.find( handle );
@@ -1102,7 +1169,7 @@ public:
         return it->second->handle.Get();
     }
 
-    uint64_t queryBufferInfo( vhBuffer handle, uint32_t* outStride, uint64_t* outFlags )
+    uint64_t QueryBufferInfo( vhBuffer handle, uint32_t* outStride, uint64_t* outFlags )
     {
         std::lock_guard< std::mutex > lock( backendMutex );
         auto it = backendBuffers.find( handle );
@@ -1116,7 +1183,7 @@ public:
         return it->second->desc.byteSize;
     }
 
-    void* queryBufferHandle( vhBuffer handle )
+    void* QueryBufferHandle( vhBuffer handle )
     {
         std::lock_guard< std::mutex > lock( backendMutex );
         auto it = backendBuffers.find( handle );
@@ -1127,7 +1194,7 @@ public:
         return it->second->handle.Get();
     }
 
-    void queryShaderInfo(
+    void QueryShaderInfo(
         vhShader handle,
         glm::uvec3* outGroupSize,
         std::vector< vhShaderReflectionResource >* outResources,
@@ -1153,7 +1220,7 @@ public:
         if ( outSpecConstants ) *outSpecConstants = bshader.specConstants;
     }
 
-    void* queryShaderHandle( vhShader handle )
+    void* QueryShaderHandle( vhShader handle )
     {
         std::lock_guard< std::mutex > lock( backendMutex );
         auto it = backendShaders.find( handle );
@@ -1164,7 +1231,7 @@ public:
         return it->second->handle.Get();
     }
 
-    bool queryState( vhStateId id, vhState& outState )
+    bool QueryState( vhStateId id, vhState& outState )
     {
         std::lock_guard<std::mutex> lock( backendMutex );
         auto it = backendStates.find( id );
@@ -1175,6 +1242,17 @@ public:
         outState = it->second;
         return true;
     }
+
+    // --------------------------------------------------------------------------
+    // Backend :: Unit Test Exposure Functions
+    // --------------------------------------------------------------------------
+
+#ifdef VRHI_UNIT_TEST
+    nvrhi::FramebufferHandle UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth, int mip = 0, int layer = 0 )
+    {
+        return BE_GetFrameBuffer( colors, depth, mip, layer );
+    }
+#endif // VRHI_UNIT_TEST
 };
 
 // --------------------------------------------------------------------------
@@ -1198,35 +1276,46 @@ void vhBackendThreadEntry( std::function<void()> initCallback )
 
 vhTexInfo vhBackendQueryTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo )
 {
-    return g_vhCmdBackendState.queryTextureInfo( texture, outMipInfo );
+    return g_vhCmdBackendState.QueryTextureInfo( texture, outMipInfo );
 }
 
 void* vhBackendQueryTextureHandle( vhTexture texture )
 {
-    return g_vhCmdBackendState.queryTextureHandle( texture );
+    return g_vhCmdBackendState.QueryTextureHandle( texture );
 }
 
 uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFlags )
 {
-    return g_vhCmdBackendState.queryBufferInfo( buffer, outStride, outFlags );
+    return g_vhCmdBackendState.QueryBufferInfo( buffer, outStride, outFlags );
 }
 
 void* vhBackendQueryBufferHandle( vhBuffer buffer )
 {
-    return g_vhCmdBackendState.queryBufferHandle( buffer );
+    return g_vhCmdBackendState.QueryBufferHandle( buffer );
 }
 
 void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::vector< vhShaderReflectionResource >* outResources, std::vector< vhPushConstantRange >* outPushConstants, std::vector< vhSpecConstant >* outSpecConstants )
 {
-    g_vhCmdBackendState.queryShaderInfo( shader, outGroupSize, outResources, outPushConstants, outSpecConstants );
+    g_vhCmdBackendState.QueryShaderInfo( shader, outGroupSize, outResources, outPushConstants, outSpecConstants );
 }
 
 void* vhBackendQueryShaderHandle( vhShader shader )
-    {
-        return g_vhCmdBackendState.queryShaderHandle( shader );
-    }
+{
+    return g_vhCmdBackendState.QueryShaderHandle( shader );
+}
 
-    bool vhBackendQueryState( vhStateId id, vhState& outState )
-    {
-        return g_vhCmdBackendState.queryState( id, outState );
-    }
+bool vhBackendQueryState( vhStateId id, vhState& outState )
+{
+    return g_vhCmdBackendState.QueryState( id, outState );
+}
+
+#ifdef VRHI_UNIT_TEST
+bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth )
+{
+    auto fb1 = g_vhCmdBackendState.UNITTEST_GetFrameBuffer( colors, depth, 0, 0 );
+    auto fb2 = g_vhCmdBackendState.UNITTEST_GetFrameBuffer( colors, depth, 0, 0 );
+    
+    if ( !fb1 || !fb2 ) return false;
+    return fb1.Get() == fb2.Get();
+}
+#endif // VRHI_UNIT_TEST

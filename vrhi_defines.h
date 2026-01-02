@@ -279,6 +279,7 @@
 #define VRHI_DIRTY_PIPELINE                       ( 1ULL << 3 )
 #define VRHI_DIRTY_VIEWPORT                       ( 1ULL << 4 )
 #define VRHI_DIRTY_FRAMEBUFFER                    ( 1ULL << 5 )
+#define VRHI_DIRTY_ATTACHMENTS                    ( 1ULL << 6 )
 #define VRHI_DIRTY_ALL                            ( 0xFFFFFFFFFFFFFFFF )
 
 /// Blend function separate.

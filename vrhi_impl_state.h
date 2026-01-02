@@ -83,6 +83,11 @@ void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint32_t first, ui
     vhCmdEnqueue( new VIDL_vhCmdSetStateIndexBuffer( id, buffer, first, num ) );
 }
 
+void vhCmdSetStateAttachments( vhStateId id, std::vector< vhTexture > colors, vhTexture depth )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateAttachments( id, colors, depth ) );
+}
+
 bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
 {
     uint64_t dirty = state.dirty | dirtyForceMask;
@@ -98,6 +103,11 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     if ( dirty & VRHI_DIRTY_FRAMEBUFFER )
     {
         vhCmdSetStateViewFramebuffer( id, state.viewFramebuffer );
+    }
+
+    if ( dirty & VRHI_DIRTY_ATTACHMENTS )
+    {
+        vhCmdSetStateAttachments( id, state.colourAttachment, state.depthAttachment );
     }
 
     if ( dirty & VRHI_DIRTY_CAMERA )

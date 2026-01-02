@@ -265,3 +265,4 @@ void* vhGetTextureNvrhiHandle( vhTexture texture )
 {
     return vhBackendQueryTextureHandle( texture );
 }
+

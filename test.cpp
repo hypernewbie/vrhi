@@ -58,6 +58,7 @@ extern std::string vhGetDeviceInfo();
 extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
 extern bool vhRunExe( const std::string& command, std::string& outOutput );
 extern void vhPartialFillGraphicsPipelineDescFromState_Internal( uint64_t state, nvrhi::GraphicsPipelineDesc& desc );
+extern bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth );
 
 UTEST( ShaderInternal, StateToDesc )
 {
@@ -855,6 +856,29 @@ UTEST( Texture, BlitPartialRegion )
     vhDestroyTexture( src );
     vhDestroyTexture( dst );
     vhFlush();
+}
+
+UTEST( Backend, FramebufferCaching )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTexture color = vhAllocTexture();
+    vhTexture depth = vhAllocTexture();
+
+    vhCreateTexture2D( color, glm::ivec2( 128, 128 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    vhCreateTexture2D( depth, glm::ivec2( 128, 128 ), 2, nvrhi::Format::D24S8, VRHI_TEXTURE_RT );
+    vhFinish();
+
+    // Verify caching/deduplication
+    EXPECT_TRUE( vhBackend_UNITTEST_GetFrameBuffer( { color }, depth ) );
+
+    vhDestroyTexture( color );
+    vhDestroyTexture( depth );
+    vhFinish();
 }
 
 UTEST( Texture, BlitFunctional )
@@ -2009,6 +2033,33 @@ UTEST( State, BasicSetGet )
     EXPECT_EQ( retrieved.projMatrix, state.projMatrix );
     ASSERT_GT( retrieved.worldMatrix.size(), 0 );
     EXPECT_EQ( retrieved.worldMatrix[0], state.worldMatrix[0] );
+}
+
+UTEST( State, Attachments )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhState state = {};
+    std::vector< vhTexture > colors = { 101, 102 };
+    vhTexture depth = 201;
+    
+    state.SetAttachments( colors, depth );
+    
+    vhStateId id = 500;
+    ASSERT_TRUE( vhSetState( id, state ) );
+    vhFlush();
+    
+    vhState retrieved = {};
+    ASSERT_TRUE( vhGetState( id, retrieved ) );
+    
+    ASSERT_EQ( retrieved.colourAttachment.size(), colors.size() );
+    EXPECT_EQ( retrieved.colourAttachment[0], colors[0] );
+    EXPECT_EQ( retrieved.colourAttachment[1], colors[1] );
+    EXPECT_EQ( retrieved.depthAttachment, depth );
 }
 
 UTEST_STATE();
