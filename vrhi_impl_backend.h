@@ -89,6 +89,7 @@ struct vhCmdBackendState : public VIDLHandler
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
     std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
     std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
+    std::map< vhStateId, vhState > backendStates;
 
     // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
     std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
@@ -936,6 +937,40 @@ public:
         }
     }
 
+    void Handle_vhSetState( VIDL_vhSetState* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+
+        backendStates[cmd->id] = cmd->state;
+    }
+
+    void Handle_vhSetStateWorldMatrix( VIDL_vhSetStateWorldMatrix* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        auto dataRAII = BE_MemRAII( cmd->data );
+
+        auto it = backendStates.find( cmd->id );
+        if ( it == backendStates.end() )
+        {
+            VRHI_ERR( "vhSetStateWorldMatrix: State ID %llu not found\n", cmd->id );
+            return;
+        }
+
+        // Fast-path: only update world matrices
+        // vhMem contains raw bytes, we assume it's array of glm::mat4
+        if ( !cmd->data || cmd->data->size() < sizeof( glm::mat4 ) )
+            return;
+
+        size_t count = cmd->data->size() / sizeof( glm::mat4 );
+        uint16_t num = ( uint16_t ) glm::min( ( size_t ) VRHI_MAX_WORLD_MATRICES, count );
+        
+        const glm::mat4* matrices = ( const glm::mat4* ) cmd->data->data();
+        for ( uint16_t i = 0; i < num; ++i )
+        {
+            it->second.worldMatrix[i] = matrices[i];
+        }
+    }
+
 
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
@@ -1093,6 +1128,18 @@ public:
         }
         return it->second->handle.Get();
     }
+
+    bool queryState( vhStateId id, vhState& outState )
+    {
+        std::lock_guard<std::mutex> lock( backendMutex );
+        auto it = backendStates.find( id );
+        if ( it == backendStates.end() )
+        {
+            return false;
+        }
+        outState = it->second;
+        return true;
+    }
 };
 
 // --------------------------------------------------------------------------
@@ -1140,6 +1187,11 @@ void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::v
 }
 
 void* vhBackendQueryShaderHandle( vhShader shader )
-{
-    return g_vhCmdBackendState.queryShaderHandle( shader );
-}
+    {
+        return g_vhCmdBackendState.queryShaderHandle( shader );
+    }
+
+    bool vhBackendQueryState( vhStateId id, vhState& outState )
+    {
+        return g_vhCmdBackendState.queryState( id, outState );
+    }
