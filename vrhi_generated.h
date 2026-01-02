@@ -241,6 +241,22 @@ struct VIDL_vhUpdateStorageBuffer
         : buffer(_buffer), data(_data), offset(_offset), size(_size) {}
 };
 
+struct VIDL_vhBlitBuffer
+{
+    static constexpr uint64_t kMagic = 0x15BFFC71;
+    uint64_t MAGIC = kMagic;
+    vhBuffer dst;
+    vhBuffer src;
+    uint64_t dstOffset = 0;
+    uint64_t srcOffset = 0;
+    uint64_t size = 0;
+
+    VIDL_vhBlitBuffer() = default;
+
+    VIDL_vhBlitBuffer(vhBuffer _dst, vhBuffer _src, uint64_t _dstOffset, uint64_t _srcOffset, uint64_t _size)
+        : dst(_dst), src(_src), dstOffset(_dstOffset), srcOffset(_srcOffset), size(_size) {}
+};
+
 struct VIDL_vhDestroyBuffer
 {
     static constexpr uint64_t kMagic = 0x3A87A73E;
@@ -279,6 +295,33 @@ struct VIDL_vhDestroyShader
 
     VIDL_vhDestroyShader(vhShader _shader)
         : shader(_shader) {}
+};
+
+struct VIDL_vhDispatch
+{
+    static constexpr uint64_t kMagic = 0x8A8ABD80;
+    uint64_t MAGIC = kMagic;
+    vhStateId stateID;
+    glm::uvec3 workGroupCount;
+
+    VIDL_vhDispatch() = default;
+
+    VIDL_vhDispatch(vhStateId _stateID, glm::uvec3 _workGroupCount)
+        : stateID(_stateID), workGroupCount(_workGroupCount) {}
+};
+
+struct VIDL_vhDispatchIndirect
+{
+    static constexpr uint64_t kMagic = 0x76CD9435;
+    uint64_t MAGIC = kMagic;
+    vhStateId stateID;
+    vhBuffer indirectBuffer;
+    uint64_t byteOffset = 0;
+
+    VIDL_vhDispatchIndirect() = default;
+
+    VIDL_vhDispatchIndirect(vhStateId _stateID, vhBuffer _indirectBuffer, uint64_t _byteOffset)
+        : stateID(_stateID), indirectBuffer(_indirectBuffer), byteOffset(_byteOffset) {}
 };
 
 struct VIDL_vhFlushInternal
@@ -546,9 +589,12 @@ struct VIDLHandler
     virtual void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
+    virtual void Handle_vhDispatch( VIDL_vhDispatch* cmd ) { (void) cmd; };
+    virtual void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) { (void) cmd; };
@@ -621,6 +667,9 @@ struct VIDLHandler
         case 0x6153A4D9:
             Handle_vhUpdateStorageBuffer( (VIDL_vhUpdateStorageBuffer*) cmd );
             break;
+        case 0x15BFFC71:
+            Handle_vhBlitBuffer( (VIDL_vhBlitBuffer*) cmd );
+            break;
         case 0x3A87A73E:
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );
             break;
@@ -629,6 +678,12 @@ struct VIDLHandler
             break;
         case 0x3328C9A7:
             Handle_vhDestroyShader( (VIDL_vhDestroyShader*) cmd );
+            break;
+        case 0x8A8ABD80:
+            Handle_vhDispatch( (VIDL_vhDispatch*) cmd );
+            break;
+        case 0x76CD9435:
+            Handle_vhDispatchIndirect( (VIDL_vhDispatchIndirect*) cmd );
             break;
         case 0x83140D26:
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );

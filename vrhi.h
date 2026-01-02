@@ -474,6 +474,14 @@ void vhUpdateStorageBuffer(
     uint64_t size = 0
 );
 
+// VIDL_GENERATE
+void vhBlitBuffer(
+    vhBuffer dst, vhBuffer src,
+    uint64_t dstOffset = 0,
+    uint64_t srcOffset = 0,
+    uint64_t size = 0
+);
+
 // Enqueues a command to destroy the buffer associated with |buffer|.
 //
 // |buffer| is the handle to the buffer to be destroyed.
@@ -861,6 +869,20 @@ struct vhState
     }
     vhProgram GetProgram() const { return program; }
 
+    vhState& SetColorAttachment( uint32_t idx, vhTexture texture, uint32_t mipLevel = 0, uint32_t arrayLayer = 0, nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN, bool readOnly = false )
+    {
+        if ( idx >= colourAttachment.size() ) colourAttachment.resize( idx + 1 );
+        colourAttachment[idx] = { texture, mipLevel, arrayLayer, formatOverride, readOnly };
+        dirty |= VRHI_DIRTY_ATTACHMENTS;
+        return *this;
+    }
+    vhState& SetDepthAttachment( vhTexture texture, uint32_t mipLevel = 0, uint32_t arrayLayer = 0, nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN, bool readOnly = false )
+    {
+        depthAttachment = { texture, mipLevel, arrayLayer, formatOverride, readOnly };
+        dirty |= VRHI_DIRTY_ATTACHMENTS;
+        return *this;
+    }
+
     vhState& SetAttachments( const std::vector< RenderTarget >& colors, RenderTarget depth = {} )
     {
         colourAttachment = colors;
@@ -887,7 +909,15 @@ bool vhGetState( vhStateId id, vhState& outState );
 // This automatically uploads via dirty flags, making it efficient to call multiple times.
 bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask = 0 );
 
-/// TODO: More state functions here.
+// ------------ Submits ------------
+
+// VIDL_GENERATE
+void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount );
+
+// VIDL_GENERATE
+void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t byteOffset  = 0);
+
+// TODO: vhSubmit
 
 // --------------------------------------------------------------------------
 // Implementation

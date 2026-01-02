@@ -133,6 +133,12 @@ struct vhCmdBackendState : public VIDLHandler
     // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
     template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; 
 
+    int32_t BE_Util_ResolveBindingSlot_FromShader( const char* name, vhBackendShader& shader )
+    {
+        // Not implemented
+        return -1;
+    }
+
     // --------------------------------------------------------------------------
     // Backend :: Complex BE Low Level NVRHI Device Functions
     // --------------------------------------------------------------------------
@@ -376,6 +382,66 @@ struct vhCmdBackendState : public VIDLHandler
         }
         
         return backendFramebuffers[key];
+    }
+
+    void BE_PreSubmitCommon( vhState& state )
+    {
+        // Bind Textures.
+        // TODO: Finish implementation.
+        for ( auto& texture : state.textures )
+        {
+            int32_t slot = texture.slot;
+            if ( slot == -1 && texture.name)
+            {
+                // Resolve name to slot.
+            }
+            if ( slot == -1)
+            {
+                // Empty slots are OK, we just ignore them.
+                continue;
+            }
+        }
+    }
+
+    void BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount )
+    {
+        // Suggested Implementation:
+        // 1. Get Compute Queue command list: auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Compute );
+        // 2. Create/Get Compute Pipeline (using nvrhi::ComputePipelineDesc with computeShader.handle).
+        // 3. Bind Compute Pipeline to cmdlist.
+        // 4. Bind Resources (descriptors, push constants, uniforms) to cmdlist (using state).
+        //    IMPORTANT: Skip Viewport/Scissor as they are not for compute.
+        // 5. cmdlist->dispatch( workGroupCount.x, workGroupCount.y, workGroupCount.z );
+
+        assert( computeShader.handle );
+
+    }
+
+    void BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset )
+    {
+        // Suggested Implementation:
+        // 1. Get Compute Queue command list: auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Compute );
+        // 2. Validate indirect buffer flags: 
+        //    if ( !(indirectBuffer.flags & VRHI_BUFFER_DRAW_INDIRECT) ) return;
+        // 3. Validate state and create/bind Compute Pipeline (similar to BE_Dispatch).
+        // 4. Bind Resources (using state).
+        // 5. cmdlist->dispatchIndirect( indirectBuffer.handle, byteOffset );
+        // NOTE: byteOffset should be 4-byte aligned (checked in frontend, but check here if needed).
+    }
+
+    void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size )
+    {
+        // Should already have been validated by handler.
+        assert( dst.handle );
+        assert( src.handle );
+        assert( dstOffset + size <= dst.desc.byteSize );
+        assert( srcOffset + size <= src.desc.byteSize );
+
+        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            cmdlist->copyBuffer( dst.handle, dstOffset, src.handle, srcOffset, size );
+        }
     }
 
 public:
@@ -1139,6 +1205,112 @@ public:
         // Safety warning : fence is probably from stack of caller
         if ( cmd->fence )
             cmd->fence->store( true );
+    }
+
+    void Handle_vhDispatch( VIDL_vhDispatch* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->workGroupCount.x == 0 || cmd->workGroupCount.y == 0 || cmd->workGroupCount.z == 0 ) return;
+        
+        // Ensure state exists
+        auto itState = backendStates.find( cmd->stateID );
+        if ( itState == backendStates.end() )
+        {
+             VRHI_ERR( "vhDispatch: State %llu not found!\n", cmd->stateID );
+             return;
+        }
+        auto& state = itState->second;
+
+        if ( state.program.empty() )
+        {
+            VRHI_ERR( "vhDispatch: State %llu has no program set!\n", cmd->stateID );
+            return;
+        }
+
+        auto itShader = backendShaders.find( state.program[0] );
+        if ( itShader == backendShaders.end() )
+        {
+            VRHI_ERR( "vhDispatch: Shader %llu not found for state %llu!\n", state.program[0], cmd->stateID );
+            return;
+        }
+        
+        BE_Dispatch( state, *itShader->second, cmd->workGroupCount );
+    }
+
+    void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->indirectBuffer == VRHI_INVALID_HANDLE ) return;
+        
+        auto itBuf = backendBuffers.find( cmd->indirectBuffer );
+        if ( itBuf == backendBuffers.end() )
+        {
+             VRHI_ERR( "vhDispatchIndirect: Indirect buffer %d not found!\n", cmd->indirectBuffer );
+             return;
+        }
+
+        auto itState = backendStates.find( cmd->stateID );
+        if ( itState == backendStates.end() )
+        {
+             VRHI_ERR( "vhDispatchIndirect: State %llu not found!\n", cmd->stateID );
+             return;
+        }
+        auto& state = itState->second;
+
+        if ( state.program.empty() )
+        {
+            VRHI_ERR( "vhDispatchIndirect: State %llu has no program set!\n", cmd->stateID );
+            return;
+        }
+
+        auto itShader = backendShaders.find( state.program[0] );
+        if ( itShader == backendShaders.end() )
+        {
+            VRHI_ERR( "vhDispatchIndirect: Shader %llu not found for state %llu!\n", state.program[0], cmd->stateID );
+            return;
+        }
+
+        BE_DispatchIndirect( state, *itShader->second, *itBuf->second, cmd->byteOffset );
+    }
+
+    void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        if ( cmd->dst == VRHI_INVALID_HANDLE || cmd->src == VRHI_INVALID_HANDLE || cmd->size == 0 ) return;
+        
+        auto itDst = backendBuffers.find( cmd->dst );
+        auto itSrc = backendBuffers.find( cmd->src );
+
+        if ( itDst == backendBuffers.end() ) 
+        {
+             VRHI_ERR( "vhBlitBuffer: Destination buffer %d not found!\n", cmd->dst );
+             return;
+        }
+        if ( itSrc == backendBuffers.end() ) 
+        {
+             VRHI_ERR( "vhBlitBuffer: Source buffer %d not found!\n", cmd->src );
+             return;
+        }
+
+        // We can't clamp size if offset is out of bounds.
+        if ( cmd->srcOffset > itSrc->second->desc.byteSize || cmd->dstOffset > itDst->second->desc.byteSize )
+        {
+            VRHI_ERR( "vhBlitBuffer: Source or destination buffer offset out of bounds!\n" );
+            return;
+        }
+
+        // Clamp size to avoid buffer overruns.
+        uint64_t clampedSizeBytes = cmd->size;
+        if ( cmd->srcOffset + cmd->size > itSrc->second->desc.byteSize )
+        {
+            clampedSizeBytes = std::min( itSrc->second->desc.byteSize - cmd->srcOffset, cmd->size );
+        }
+        if ( cmd->dstOffset + cmd->size > itDst->second->desc.byteSize )
+        {
+            clampedSizeBytes = std::min( itDst->second->desc.byteSize - cmd->dstOffset, clampedSizeBytes );
+        }
+
+        BE_BlitBuffer( *itDst->second, *itSrc->second, cmd->dstOffset, cmd->srcOffset, clampedSizeBytes );
     }
 
     // --------------------------------------------------------------------------

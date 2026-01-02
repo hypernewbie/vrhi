@@ -376,6 +376,29 @@ std::string vhGetDeviceInfo()
     return std::string(buffer);
 }
 
+void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount )
+{
+    VIDL_vhDispatch* cmd = vhCmdAlloc<VIDL_vhDispatch>( stateID, workGroupCount );
+    vhCmdEnqueue( cmd );
+}
+
+void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t byteOffset )
+{
+    if ( byteOffset % 4 != 0 )
+    {
+        VRHI_ERR( "vhDispatchIndirect() : byteOffset %llu must be 4-byte aligned!\n", byteOffset );
+        return;
+    }
+    VIDL_vhDispatchIndirect* cmd = vhCmdAlloc<VIDL_vhDispatchIndirect>( stateID, indirectBuffer, byteOffset );
+    vhCmdEnqueue( cmd );
+}
+
+void vhBlitBuffer( vhBuffer dst, vhBuffer src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size )
+{
+    VIDL_vhBlitBuffer* cmd = vhCmdAlloc<VIDL_vhBlitBuffer>( dst, src, dstOffset, srcOffset, size );
+    vhCmdEnqueue( cmd );
+}
+
 void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU )
 {
     // Fence memory must be valid until signaled! 

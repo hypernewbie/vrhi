@@ -2642,6 +2642,31 @@ UTEST( State, IndividualAccessors )
     }
 }
 
+UTEST( State, IndividualAttachments )
+{
+    vhState state;
+    
+    // Set color attachment at index 2 (forces resize)
+    state.SetColorAttachment( 2, 101, 1, 2, nvrhi::Format::RGBA8_UNORM, true );
+    
+    EXPECT_EQ( state.colourAttachment.size(), 3u );
+    EXPECT_EQ( state.colourAttachment[2].texture, 101u );
+    EXPECT_EQ( state.colourAttachment[2].mipLevel, 1u );
+    EXPECT_EQ( state.colourAttachment[2].arrayLayer, 2u );
+    EXPECT_EQ( state.colourAttachment[2].formatOverride, nvrhi::Format::RGBA8_UNORM );
+    EXPECT_TRUE( state.colourAttachment[2].readOnly );
+    EXPECT_EQ( ( state.dirty & VRHI_DIRTY_ATTACHMENTS ), VRHI_DIRTY_ATTACHMENTS );
+    
+    // Reset dirty and check depth
+    state.dirty = 0;
+    state.SetDepthAttachment( 201, 0, 0, nvrhi::Format::D32, false );
+    
+    EXPECT_EQ( state.depthAttachment.texture, 201u );
+    EXPECT_EQ( state.depthAttachment.formatOverride, nvrhi::Format::D32 );
+    EXPECT_FALSE( state.depthAttachment.readOnly );
+    EXPECT_EQ( ( state.dirty & VRHI_DIRTY_ATTACHMENTS ), VRHI_DIRTY_ATTACHMENTS );
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
