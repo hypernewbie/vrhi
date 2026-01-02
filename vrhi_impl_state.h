@@ -42,15 +42,15 @@ bool vhSetState( vhStateId id, const vhState& state )
 }
 
 // Set world matrix fast-path via IDL command
-bool vhSetStateWorldMatrix( vhStateId id, const vhMem* data )
+bool vhSetStateWorldMatrix( vhStateId id, int index, const glm::mat4& matrix )
 {
-    if ( !data )
+    if ( index < 0 || index >= VRHI_MAX_WORLD_MATRICES )
     {
-        VRHI_ERR( "vhSetStateWorldMatrix: Invalid parameters\n" );
+        VRHI_ERR( "vhSetStateWorldMatrix: Invalid index %d (max %d)\n", index, VRHI_MAX_WORLD_MATRICES );
         return false;
     }
     
-    auto cmd = new VIDL_vhSetStateWorldMatrix( id, data );
+    auto cmd = new VIDL_vhSetStateWorldMatrix( id, index, matrix );
     vhCmdEnqueue( cmd );
     return true;
 }

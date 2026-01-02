@@ -655,7 +655,7 @@ bool vhSetState( vhStateId id, const vhState& state );
 
 // Set state on backend. Fast path for just setting the world matrix.
 // VIDL_GENERATE
-bool vhSetStateWorldMatrix( vhStateId id, const vhMem* data );
+bool vhSetStateWorldMatrix( vhStateId id, int index, const glm::mat4& matrix );
 
 inline void vhSetViewRect( vhState& state, const glm::vec4& rect ) { state.viewRect = rect; }
 

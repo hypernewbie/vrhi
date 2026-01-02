@@ -947,7 +947,6 @@ public:
     void Handle_vhSetStateWorldMatrix( VIDL_vhSetStateWorldMatrix* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        auto dataRAII = BE_MemRAII( cmd->data );
 
         auto it = backendStates.find( cmd->id );
         if ( it == backendStates.end() )
@@ -956,19 +955,10 @@ public:
             return;
         }
 
-        // Fast-path: only update world matrices
-        // vhMem contains raw bytes, we assume it's array of glm::mat4
-        if ( !cmd->data || cmd->data->size() < sizeof( glm::mat4 ) )
+        if ( cmd->index < 0 || cmd->index >= VRHI_MAX_WORLD_MATRICES )
             return;
 
-        size_t count = cmd->data->size() / sizeof( glm::mat4 );
-        uint16_t num = ( uint16_t ) glm::min( ( size_t ) VRHI_MAX_WORLD_MATRICES, count );
-        
-        const glm::mat4* matrices = ( const glm::mat4* ) cmd->data->data();
-        for ( uint16_t i = 0; i < num; ++i )
-        {
-            it->second.worldMatrix[i] = matrices[i];
-        }
+        it->second.worldMatrix[cmd->index] = cmd->matrix;
     }
 
 

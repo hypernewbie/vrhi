@@ -1987,25 +1987,22 @@ UTEST( State, WorldMatrixFastPath )
     vhFlush();
     
     // Update only world matrices via fast-path
-    glm::mat4 matrices[3];
-    matrices[0] = glm::mat4(10.0f);
-    matrices[1] = glm::mat4(20.0f);
-    matrices[2] = glm::mat4(30.0f);
+    glm::mat4 m0(10.0f);
+    glm::mat4 m1(20.0f);
+    glm::mat4 m2(30.0f);
     
-    // Create vhMem wrapper
-    vhMem* data = vhAllocMem( sizeof(matrices) );
-    memcpy( data->data(), matrices, sizeof(matrices) );
-
-    ASSERT_TRUE( vhSetStateWorldMatrix( id, data ) );
+    ASSERT_TRUE( vhSetStateWorldMatrix( id, 0, m0 ) );
+    ASSERT_TRUE( vhSetStateWorldMatrix( id, 1, m1 ) );
+    ASSERT_TRUE( vhSetStateWorldMatrix( id, 2, m2 ) );
     vhFlush();
     
     vhState retrieved = {};
     ASSERT_TRUE( vhGetState( id, retrieved ) );
     
     // World matrices should be updated
-    EXPECT_EQ( retrieved.worldMatrix[0], matrices[0] );
-    EXPECT_EQ( retrieved.worldMatrix[1], matrices[1] );
-    EXPECT_EQ( retrieved.worldMatrix[2], matrices[2] );
+    EXPECT_EQ( retrieved.worldMatrix[0], m0 );
+    EXPECT_EQ( retrieved.worldMatrix[1], m1 );
+    EXPECT_EQ( retrieved.worldMatrix[2], m2 );
     
     // Other state unchanged
     EXPECT_EQ( retrieved.viewRect, state.viewRect );
@@ -2051,10 +2048,8 @@ UTEST( State, InvalidId )
     ASSERT_FALSE( vhGetState( nonExistent, state ) );
     
     // SetStateWorldMatrix should fail for non-existent ID (after flush)
-    vhMem* data = vhAllocMem( sizeof(glm::mat4) );
-    new (data->data()) glm::mat4(1.0f); // Placement new to init matrix
-
-    vhSetStateWorldMatrix( nonExistent, data );
+    // Returns true (enqueued) but logs error on backend
+    vhSetStateWorldMatrix( nonExistent, 0, glm::mat4(1.0f) );
     vhFlush();
     // Error should be logged but no crash
     EXPECT_GT( g_vhErrorCounter.load(), 0 );
@@ -2073,26 +2068,20 @@ UTEST( State, WorldMatrixBounds )
     vhSetState( id, state );
     vhFlush();
     
-    // Try to set more matrices than max
-    glm::mat4 matrices[VRHI_MAX_WORLD_MATRICES + 1];
-    for ( int i = 0; i <= VRHI_MAX_WORLD_MATRICES; ++i )
-        matrices[i] = glm::mat4( (float)i );
+    // Try to set invalid index
+    ASSERT_FALSE( vhSetStateWorldMatrix( id, VRHI_MAX_WORLD_MATRICES, glm::mat4(1.0f) ) );
+    ASSERT_FALSE( vhSetStateWorldMatrix( id, -1, glm::mat4(1.0f) ) );
     
-    vhMem* data = vhAllocMem( sizeof(matrices) );
-    memcpy( data->data(), matrices, sizeof(matrices) );
-
-    // Should only copy VRHI_MAX_WORLD_MATRICES
-    vhSetStateWorldMatrix( id, data );
+    // Verify valid index works
+    glm::mat4 lastMat(5.0f);
+    ASSERT_TRUE( vhSetStateWorldMatrix( id, VRHI_MAX_WORLD_MATRICES - 1, lastMat ) );
     vhFlush();
     
     vhState retrieved = {};
     vhGetState( id, retrieved );
     
     // Verify only max matrices were set
-    // The last one (index VRHI_MAX_WORLD_MATRICES) should NOT be set, but we can't check that easily since it's out of bounds of the state struct.
-    // Instead check the last VALID one.
-    EXPECT_EQ( retrieved.worldMatrix[VRHI_MAX_WORLD_MATRICES - 1], 
-               matrices[VRHI_MAX_WORLD_MATRICES - 1] );
+    EXPECT_EQ( retrieved.worldMatrix[VRHI_MAX_WORLD_MATRICES - 1], lastMat );
 }
 
 UTEST_STATE();
