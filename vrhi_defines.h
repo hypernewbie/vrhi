@@ -301,13 +301,19 @@
 	)
 
 #define VRHI_STATE_MASK                           UINT64_C(0xffffffffffffffff) //!< State bit mask
+
 #define VRHI_DIRTY_WORLD                          ( 1ULL << 0 )
-#define VRHI_DIRTY_BINDINGS                       ( 1ULL << 1 )
+#define VRHI_DIRTY_VERTEX_INDEX                   ( 1ULL << 1 )
 #define VRHI_DIRTY_CAMERA                         ( 1ULL << 2 )
 #define VRHI_DIRTY_PIPELINE                       ( 1ULL << 3 )
 #define VRHI_DIRTY_VIEWPORT                       ( 1ULL << 4 )
-#define VRHI_DIRTY_FRAMEBUFFER                    ( 1ULL << 5 )
-#define VRHI_DIRTY_ATTACHMENTS                    ( 1ULL << 6 )
+#define VRHI_DIRTY_ATTACHMENTS                    ( 1ULL << 5 )
+#define VRHI_DIRTY_TEXTURE_SAMPLERS               ( 1ULL << 6 )
+#define VRHI_DIRTY_BUFFERS                        ( 1ULL << 7 )
+#define VRHI_DIRTY_CONSTANTS                      ( 1ULL << 8 )
+#define VRHI_DIRTY_PUSH_CONSTANTS                 ( 1ULL << 9 )
+#define VRHI_DIRTY_PROGRAM                        ( 1ULL << 10 )
+#define VRHI_DIRTY_UNIFORMS                       ( 1ULL << 11 )
 #define VRHI_DIRTY_ALL                            ( 0xFFFFFFFFFFFFFFFF )
 
 /// Blend function separate.

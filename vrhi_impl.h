@@ -147,6 +147,7 @@ uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_
 void* vhBackendQueryBufferHandle( vhBuffer buffer );
 void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::vector< vhShaderReflectionResource >* outResources, std::vector< vhPushConstantRange >* outPushConstants, std::vector< vhSpecConstant >* outSpecConstants );
 void* vhBackendQueryShaderHandle( vhShader shader );
+bool vhBackendQueryState( vhStateId id, vhState& outState );
 
 // Logging helper
 void vhLog( bool error, const char* fmt, ... );
@@ -203,16 +204,18 @@ bool vhReflectSpirv(
 #include "vrhi_impl_buffer.h"
 #include "vrhi_impl_shader.h"
 #include "vrhi_impl_state.h"
-#endif
 
+// Unity Build: Define backend state
+vhCmdBackendState g_vhCmdBackendState;
+
+#endif // VRHI_IMPLEMENTATION 
 
 // --------------------------------------------------------------------------
 // Definitions
 // --------------------------------------------------------------------------
+#if defined( VRHI_IMPL_DEFINITIONS ) || defined( VRHI_IMPLEMENTATION )
 
 bool vhBackendQueryState( vhStateId id, vhState& outState );
-
-#ifdef VRHI_IMPL_DEFINITIONS
 
 // WARNING: This must be locked before ANY access to ANY Vulkan state!
 std::mutex g_nvRHIStateMutex;
@@ -263,10 +266,6 @@ std::thread g_vhCmdThread;
 std::atomic<bool> g_vhCmdThreadReady = false;
 std::vector< vhMem* > g_vhMemList;
 std::mutex g_vhMemListMutex;
-
-#ifndef VRHI_SHARDED_BUILD
-vhCmdBackendState g_vhCmdBackendState;
-#endif
 
 // Vulkan HPP Storage
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -388,6 +387,8 @@ void vhCmdListFlushAll()
     vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Graphics );
 }
 
+// Global states for user convenience.
+vhState g_state0;
+vhState g_state1;
 
-
-#endif // VRHI_IMPL_DEFINITIONS
+#endif // defined( VRHI_IMPL_DEFINITIONS ) || defined( VRHI_IMPLEMENTATION )
