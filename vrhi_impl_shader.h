@@ -27,7 +27,136 @@
 #include "vrhi_utils.h"
 #include <komihash/komihash.h>
 
+// Handle SPIRV-Reflect.
+#ifndef VRHI_SPIRV_REFLECT_ALREADY_LINKED
+    #if defined(_MSC_VER)
+        #pragma warning(push)
+        #pragma warning(disable: 4244) // conversion loss of data
+        #pragma warning(disable: 4267) // size_t to int
+        #pragma warning(disable: 4013) // undefined function assumed extern (C issue)
+    #elif defined(__GNUC__) || defined(__clang__)
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+    #endif
+
+    #include <spirv_reflect.c>
+
+    #if defined(_MSC_VER)
+        #pragma warning(pop)
+    #elif defined(__GNUC__) || defined(__clang__)
+        #pragma GCC diagnostic pop
+    #endif
+#else
+    #include <spirv_reflect.h>
+#endif
+
 // ------------ Shader Utilities ------------
+
+// SPIRV reflection helper.
+bool vhReflectSpirv(
+    const std::vector< uint32_t >& spirvBlob,
+    nvrhi::BindingLayoutDesc& outDesc,
+    std::vector< vhShaderReflectionResource >& outResources,
+    glm::uvec3& outGroupSize,
+    std::vector< vhPushConstantRange >& outPushConstants
+)
+{
+    auto fnGetResourceTypeFromReflect = []( const SpvReflectDescriptorBinding& binding ) -> nvrhi::ResourceType
+    {
+        switch ( binding.descriptor_type )
+        {
+        case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+            return nvrhi::ResourceType::ConstantBuffer;
+
+        case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+        case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+            return nvrhi::ResourceType::Texture_SRV;
+
+        case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+            return nvrhi::ResourceType::Texture_UAV;
+
+        case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
+            return nvrhi::ResourceType::Sampler;
+
+        case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+        {
+            // Check if read-only
+            bool isReadOnly = false;
+            if ( binding.type_description && ( binding.type_description->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE ) )
+            {
+                isReadOnly = true;
+            }
+            return isReadOnly ? nvrhi::ResourceType::StructuredBuffer_SRV : nvrhi::ResourceType::StructuredBuffer_UAV;
+        }
+
+        default:
+            return nvrhi::ResourceType::None;
+        }
+    };
+
+    SpvReflectShaderModule module;
+    SpvReflectResult result = spvReflectCreateShaderModule( spirvBlob.size() * sizeof(uint32_t), spirvBlob.data(), &module );
+    if ( result != SPV_REFLECT_RESULT_SUCCESS )
+    {
+        VRHI_ERR( "vhReflectSpirv: Failed to create shader module reflection" );
+        return false;
+    }
+
+    // Thread Group Size (Compute only, but harmless to query for others if not present)
+    if ( module.entry_point_count > 0 )
+    {
+        auto& ep = module.entry_points[0];
+        outGroupSize.x = ep.local_size.x;
+        outGroupSize.y = ep.local_size.y;
+        outGroupSize.z = ep.local_size.z;
+    }
+
+    // Push Constants
+    if ( module.push_constant_block_count > 0 )
+    {
+            for ( uint32_t i = 0; i < module.push_constant_block_count; ++i )
+            {
+                auto& pc = module.push_constant_blocks[i];
+                outPushConstants.push_back( { pc.offset, pc.size, pc.name ? pc.name : "" } );
+            }
+    }
+    
+    // Descriptor Sets
+    uint32_t count = 0;
+    spvReflectEnumerateDescriptorSets( &module, &count, nullptr );
+    std::vector< SpvReflectDescriptorSet* > sets( count );
+    spvReflectEnumerateDescriptorSets( &module, &count, sets.data() );
+
+    for ( auto* set : sets )
+    {
+        for ( uint32_t i = 0; i < set->binding_count; ++i )
+        {
+            auto* binding = set->bindings[i];
+            nvrhi::ResourceType type = fnGetResourceTypeFromReflect( *binding );
+            
+            if ( type == nvrhi::ResourceType::None ) continue;
+
+            nvrhi::BindingLayoutItem item{};
+            item.slot = binding->binding;
+            item.type = type;
+            
+            outDesc.addItem( item );
+
+            vhShaderReflectionResource res;
+            res.name = binding->name ? binding->name : "";
+            res.slot = binding->binding;
+            res.set = binding->set;
+            res.type = type;
+            res.arraySize = binding->count;
+            res.sizeInBytes = binding->block.size; 
+            
+            outResources.push_back( res );
+        }
+    }
+
+    spvReflectDestroyShaderModule( &module );
+    return true;
+}
 
 // Internal helper to populate GraphicsPipelineDesc from VRHI state flags.
 void vhPartialFillGraphicsPipelineDescFromState_Internal( uint64_t state, nvrhi::GraphicsPipelineDesc& desc )
