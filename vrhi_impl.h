@@ -145,6 +145,8 @@ vhTexInfo vhBackendQueryTextureInfo( vhTexture texture, std::vector< vhTextureMi
 void* vhBackendQueryTextureHandle( vhTexture texture );
 uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFlags );
 void* vhBackendQueryBufferHandle( vhBuffer buffer );
+void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::vector< vhShaderReflectionResource >* outResources, std::vector< vhPushConstantRange >* outPushConstants, std::vector< vhSpecConstant >* outSpecConstants );
+void* vhBackendQueryShaderHandle( vhShader shader );
 
 // Logging helper
 void vhLog( bool error, const char* fmt, ... );

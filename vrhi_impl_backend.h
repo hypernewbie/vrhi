@@ -72,18 +72,6 @@ struct vhBackendBuffer
     uint64_t flags = 0;
 };
 
-struct vhShaderReflectionResource
-{
-    std::string name;
-    uint32_t slot;
-    uint32_t set;
-    nvrhi::ResourceType type;
-    uint32_t arraySize;
-    uint32_t sizeInBytes; // Validation
-};
-struct vhPushConstantRange { uint32_t offset; uint32_t size; std::string name; };
-struct vhSpecConstant { uint32_t id; std::string name; };
-
 struct vhBackendShader
 {
     std::string name;
@@ -442,8 +430,6 @@ struct vhCmdBackendState : public VIDLHandler
 
         for ( auto* set : sets )
         {
-            if ( set->set != 0 ) continue;
-
             for ( uint32_t i = 0; i < set->binding_count; ++i )
             {
                 auto* binding = set->bindings[i];
@@ -1200,7 +1186,42 @@ public:
         return it->second->handle.Get();
     }
 
-    // TODO Query for reflection info info.
+    void queryShaderInfo(
+        vhShader handle,
+        glm::uvec3* outGroupSize,
+        std::vector< vhShaderReflectionResource >* outResources,
+        std::vector< vhPushConstantRange >* outPushConstants,
+        std::vector< vhSpecConstant >* outSpecConstants
+    )
+    {
+        std::lock_guard< std::mutex > lock( backendMutex );
+        auto it = backendShaders.find( handle );
+        if ( it == backendShaders.end() || !it->second->handle )
+        {
+            if ( outGroupSize ) *outGroupSize = { 0, 0, 0 };
+            if ( outResources ) outResources->clear();
+            if ( outPushConstants ) outPushConstants->clear();
+            if ( outSpecConstants ) outSpecConstants->clear();
+            return;
+        }
+
+        const auto& bshader = *it->second;
+        if ( outGroupSize ) *outGroupSize = bshader.threadGroupSize;
+        if ( outResources ) *outResources = bshader.reflection;
+        if ( outPushConstants ) *outPushConstants = bshader.pushConstants;
+        if ( outSpecConstants ) *outSpecConstants = bshader.specConstants;
+    }
+
+    void* queryShaderHandle( vhShader handle )
+    {
+        std::lock_guard< std::mutex > lock( backendMutex );
+        auto it = backendShaders.find( handle );
+        if ( it == backendShaders.end() || !it->second )
+        {
+            return nullptr;
+        }
+        return it->second->handle.Get();
+    }
 };
 
 // --------------------------------------------------------------------------
@@ -1240,4 +1261,14 @@ uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_
 void* vhBackendQueryBufferHandle( vhBuffer buffer )
 {
     return g_vhCmdBackendState.queryBufferHandle( buffer );
+}
+
+void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::vector< vhShaderReflectionResource >* outResources, std::vector< vhPushConstantRange >* outPushConstants, std::vector< vhSpecConstant >* outSpecConstants )
+{
+    g_vhCmdBackendState.queryShaderInfo( shader, outGroupSize, outResources, outPushConstants, outSpecConstants );
+}
+
+void* vhBackendQueryShaderHandle( vhShader shader )
+{
+    return g_vhCmdBackendState.queryShaderHandle( shader );
 }

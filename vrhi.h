@@ -171,30 +171,6 @@ vhBuffer vhAllocBuffer();
 // VIDL_GENERATE
 void vhResetBuffer( vhBuffer buffer );
 
-struct vhFormatInfo
-{
-    nvrhi::Format format = nvrhi::Format::UNKNOWN;
-    const char* name = nullptr;
-    int32_t elementSize = 0;
-    int32_t compressionBlockWidth = 0;
-    int32_t compressionBlockHeight = 0;
-};
-
-// Returns metadata for the specified |format|.
-inline vhFormatInfo vhGetFormat( nvrhi::Format format )
-{
-    const nvrhi::FormatInfo& info = nvrhi::getFormatInfo( format );
-    vhFormatInfo out =
-    {
-        .format = format,
-        .name = info.name,
-        .elementSize = ( int32_t ) info.bytesPerBlock,
-        .compressionBlockWidth = ( int32_t ) info.blockSize,
-        .compressionBlockHeight = ( int32_t ) info.blockSize
-    };
-    return out;
-}
-
 // Enqueues a command to destroy the texture associated with |texture|.
 //
 // |texture| is the handle to the texture to be destroyed.
@@ -332,6 +308,30 @@ void vhBlitTexture(
     glm::ivec3 srcOffset = glm::ivec3( 0 ),
     glm::ivec3 extent = glm::ivec3( 0 )
 );
+
+struct vhFormatInfo
+{
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    const char* name = nullptr;
+    int32_t elementSize = 0;
+    int32_t compressionBlockWidth = 0;
+    int32_t compressionBlockHeight = 0;
+};
+
+// Returns metadata for the specified |format|.
+inline vhFormatInfo vhGetFormat( nvrhi::Format format )
+{
+    const nvrhi::FormatInfo& info = nvrhi::getFormatInfo( format );
+    vhFormatInfo out =
+    {
+        .format = format,
+        .name = info.name,
+        .elementSize = ( int32_t ) info.bytesPerBlock,
+        .compressionBlockWidth = ( int32_t ) info.blockSize,
+        .compressionBlockHeight = ( int32_t ) info.blockSize
+    };
+    return out;
+}
 
 // Returns base texture info. Optional outMipInfo for detailed layout.
 vhTexInfo vhGetTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo = nullptr );
@@ -483,6 +483,32 @@ void* vhGetBufferNvrhiHandle( vhBuffer buffer );
 // ------------ Shaders ------------
 
 vhShader vhAllocShader();
+
+struct vhShaderReflectionResource
+{
+    std::string name;
+    uint32_t slot;
+    uint32_t set;
+    nvrhi::ResourceType type;
+    uint32_t arraySize;
+    uint32_t sizeInBytes; // Validation
+};
+
+struct vhPushConstantRange { uint32_t offset; uint32_t size; std::string name; };
+struct vhSpecConstant { uint32_t id; std::string name; };
+
+// Returns thread group size (for Compute/Mesh/Amp) via out pointer.
+// Optional out pointers to populate full reflection data.
+void vhGetShaderInfo(
+    vhShader shader,
+    glm::uvec3* outGroupSize = nullptr,
+    std::vector< vhShaderReflectionResource >* outResources = nullptr,
+    std::vector< vhPushConstantRange >* outPushConstants = nullptr,
+    std::vector< vhSpecConstant >* outSpecConstants = nullptr
+);
+
+// Returns the raw NVRHI handle (nvrhi::IShader*).
+void* vhGetShaderNvrhiHandle( vhShader shader );
 
 #ifdef VRHI_SHADER_COMPILER
 bool vhCompileShader(
