@@ -291,12 +291,13 @@ struct VIDL_vhSetStateWorldMatrix
     static constexpr uint64_t kMagic = 0x4A75DA2F;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const vhMem* data;
+    int index;
+    const glm::mat4 matrix;
 
     VIDL_vhSetStateWorldMatrix() = default;
 
-    VIDL_vhSetStateWorldMatrix(vhStateId _id, const vhMem* _data)
-        : id(_id), data(_data) {}
+    VIDL_vhSetStateWorldMatrix(vhStateId _id, int _index, const glm::mat4& _matrix)
+        : id(_id), index(_index), matrix(_matrix) {}
 };
 
 struct VIDL_vhFlushInternal
