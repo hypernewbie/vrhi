@@ -80,10 +80,9 @@ struct vhInitData
 typedef uint32_t vhTexture;
 typedef uint32_t vhBuffer;
 typedef uint32_t vhShader;
-typedef uint32_t vhProgram;
-typedef uint32_t vhPipeline;
+typedef std::vector< uint8_t > vhMem;
+typedef std::vector< vhShader > vhProgram;
 
-typedef std::vector<uint8_t> vhMem;
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
 extern std::atomic<int32_t> g_vhErrorCounter;
@@ -465,21 +464,82 @@ bool vhCompileShader(
 );
 #endif // VRHI_SHADER_COMPILER
 
+// Enqueues a command to create a shader from SPIR-V bytecode.
+//
+// |flags| is one of VRHI_SHADER_STAGE_*.
+// VIDL_GENERATE
+void vhCreateShader(
+    vhShader shader,
+    const char* name,
+    uint64_t flags,
+    const std::vector< uint32_t >& spirv,
+    const char* entry = "main"
+);
+
 // Destroy shader.
 // VIDL_GENERATE
 void vhDestroyShader( vhShader shader );
 
-vhProgram vhAllocProgram();
 
-// Destroy program.
-// VIDL_GENERATE
-void vhDestroyProgram( vhProgram program );
+// Graphics: Standard (Vertex + Pixel)
+inline vhProgram vhCreateGfxProgram( vhShader vertexShader, vhShader pixelShader )
+{
+    return { vertexShader, pixelShader };
+}
 
-vhPipeline vhAllocPipeline();
+// Graphics: Geometry (Vertex + Geometry + Pixel)
+inline vhProgram vhCreateGfxProgram( vhShader vertexShader, vhShader geometryShader, vhShader pixelShader )
+{
+    return { vertexShader, geometryShader, pixelShader };
+}
 
-// Destroy pipeline.
-// VIDL_GENERATE
-void vhDestroyPipeline( vhPipeline pipeline );
+// Graphics: Tessellation (Vertex + Hull + Domain + Pixel)
+inline vhProgram vhCreateGfxProgram( vhShader vertexShader, vhShader hullShader, vhShader domainShader, vhShader pixelShader )
+{
+    return { vertexShader, hullShader, domainShader, pixelShader };
+}
+
+// Graphics: Full Pipeline (Vertex + Hull + Domain + Geometry + Pixel)
+inline vhProgram vhCreateGfxProgram( vhShader vertexShader, vhShader hullShader, vhShader domainShader, vhShader geometryShader, vhShader pixelShader )
+{
+    return { vertexShader, hullShader, domainShader, geometryShader, pixelShader };
+}
+
+// Compute
+inline vhProgram vhCreateComputeProgram( vhShader computeShader )
+{
+    return { computeShader };
+}
+
+// Mesh Shading: Basic (Mesh + Pixel)
+inline vhProgram vhCreateMeshProgram( vhShader meshShader, vhShader pixelShader )
+{
+    return { meshShader, pixelShader };
+}
+
+// Mesh Shading: Amplified (Amplification + Mesh + Pixel)
+inline vhProgram vhCreateMeshProgram( vhShader amplificationShader, vhShader meshShader, vhShader pixelShader )
+{
+    return { amplificationShader, meshShader, pixelShader };
+}
+
+// Raytracing: Simple (RayGen + Miss + ClosestHit)
+inline vhProgram vhCreateRTProgram( vhShader rayGen, vhShader miss, vhShader closestHit )
+{
+    return { rayGen, miss, closestHit };
+}
+
+// Raytracing: With AnyHit (RayGen + Miss + ClosestHit + AnyHit)
+inline vhProgram vhCreateRTProgram( vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit )
+{
+    return { rayGen, miss, closestHit, anyHit };
+}
+
+// Raytracing: Full Hit Group (RayGen + Miss + ClosestHit + AnyHit + Intersection)
+inline vhProgram vhCreateRTProgram( vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit, vhShader intersection )
+{
+    return { rayGen, miss, closestHit, anyHit, intersection };
+}
 
 
 // --------------------------------------------------------------------------

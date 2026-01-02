@@ -156,3 +156,200 @@
 	| VRHI_SAMPLER_MIP_MASK \
 	| VRHI_SAMPLER_COMPARE_MASK \
 	)
+
+// --- STATE ---
+
+/**
+* Color RGB/alpha/depth write. When it's not specified write will be disabled.
+*
+*/
+#define VRHI_STATE_WRITE_R                        UINT64_C(0x0000000000000001) //!< Enable R write.
+#define VRHI_STATE_WRITE_G                        UINT64_C(0x0000000000000002) //!< Enable G write.
+#define VRHI_STATE_WRITE_B                        UINT64_C(0x0000000000000004) //!< Enable B write.
+#define VRHI_STATE_WRITE_A                        UINT64_C(0x0000000000000008) //!< Enable alpha write.
+#define VRHI_STATE_WRITE_Z                        UINT64_C(0x0000004000000000) //!< Enable depth write.
+/// Enable RGB write.
+#define VRHI_STATE_WRITE_RGB (0 \
+	| VRHI_STATE_WRITE_R \
+	| VRHI_STATE_WRITE_G \
+	| VRHI_STATE_WRITE_B \
+	)
+
+/// Write all channels mask.
+#define VRHI_STATE_WRITE_MASK (0 \
+	| VRHI_STATE_WRITE_RGB \
+	| VRHI_STATE_WRITE_A \
+	| VRHI_STATE_WRITE_Z \
+	)
+
+
+/**
+* Depth test state. When `VRHI_STATE_DEPTH_` is not specified depth test will be disabled.
+*
+*/
+#define VRHI_STATE_DEPTH_TEST_LESS                UINT64_C(0x0000000000000010) //!< Enable depth test, less.
+#define VRHI_STATE_DEPTH_TEST_LEQUAL              UINT64_C(0x0000000000000020) //!< Enable depth test, less or equal.
+#define VRHI_STATE_DEPTH_TEST_EQUAL               UINT64_C(0x0000000000000030) //!< Enable depth test, equal.
+#define VRHI_STATE_DEPTH_TEST_GEQUAL              UINT64_C(0x0000000000000040) //!< Enable depth test, greater or equal.
+#define VRHI_STATE_DEPTH_TEST_GREATER             UINT64_C(0x0000000000000050) //!< Enable depth test, greater.
+#define VRHI_STATE_DEPTH_TEST_NOTEQUAL            UINT64_C(0x0000000000000060) //!< Enable depth test, not equal.
+#define VRHI_STATE_DEPTH_TEST_NEVER               UINT64_C(0x0000000000000070) //!< Enable depth test, never.
+#define VRHI_STATE_DEPTH_TEST_ALWAYS              UINT64_C(0x0000000000000080) //!< Enable depth test, always.
+#define VRHI_STATE_DEPTH_TEST_SHIFT               4                            //!< Depth test state bit shift
+#define VRHI_STATE_DEPTH_TEST_MASK                UINT64_C(0x00000000000000f0) //!< Depth test state bit mask
+
+/**
+* Use VRHI_STATE_BLEND_FUNC(_src, _dst) or VRHI_STATE_BLEND_FUNC_SEPARATE(_srcRGB, _dstRGB, _srcA, _dstA)
+* helper macros.
+*
+*/
+#define VRHI_STATE_BLEND_ZERO                     UINT64_C(0x0000000000001000) //!< 0, 0, 0, 0
+#define VRHI_STATE_BLEND_ONE                      UINT64_C(0x0000000000002000) //!< 1, 1, 1, 1
+#define VRHI_STATE_BLEND_SRC_COLOR                UINT64_C(0x0000000000003000) //!< Rs, Gs, Bs, As
+#define VRHI_STATE_BLEND_INV_SRC_COLOR            UINT64_C(0x0000000000004000) //!< 1-Rs, 1-Gs, 1-Bs, 1-As
+#define VRHI_STATE_BLEND_SRC_ALPHA                UINT64_C(0x0000000000005000) //!< As, As, As, As
+#define VRHI_STATE_BLEND_INV_SRC_ALPHA            UINT64_C(0x0000000000006000) //!< 1-As, 1-As, 1-As, 1-As
+#define VRHI_STATE_BLEND_DST_ALPHA                UINT64_C(0x0000000000007000) //!< Ad, Ad, Ad, Ad
+#define VRHI_STATE_BLEND_INV_DST_ALPHA            UINT64_C(0x0000000000008000) //!< 1-Ad, 1-Ad, 1-Ad ,1-Ad
+#define VRHI_STATE_BLEND_DST_COLOR                UINT64_C(0x0000000000009000) //!< Rd, Gd, Bd, Ad
+#define VRHI_STATE_BLEND_INV_DST_COLOR            UINT64_C(0x000000000000a000) //!< 1-Rd, 1-Gd, 1-Bd, 1-Ad
+#define VRHI_STATE_BLEND_SRC_ALPHA_SAT            UINT64_C(0x000000000000b000) //!< f, f, f, 1; f = min(As, 1-Ad)
+#define VRHI_STATE_BLEND_FACTOR                   UINT64_C(0x000000000000c000) //!< Blend factor
+#define VRHI_STATE_BLEND_INV_FACTOR               UINT64_C(0x000000000000d000) //!< 1-Blend factor
+#define VRHI_STATE_BLEND_SHIFT                    12                           //!< Blend state bit shift
+#define VRHI_STATE_BLEND_MASK                     UINT64_C(0x000000000ffff000) //!< Blend state bit mask
+
+/**
+* Use VRHI_STATE_BLEND_EQUATION(_equation) or VRHI_STATE_BLEND_EQUATION_SEPARATE(_equationRGB, _equationA)
+* helper macros.
+*
+*/
+#define VRHI_STATE_BLEND_EQUATION_ADD             UINT64_C(0x0000000000000000) //!< Blend add: src + dst.
+#define VRHI_STATE_BLEND_EQUATION_SUB             UINT64_C(0x0000000010000000) //!< Blend subtract: src - dst.
+#define VRHI_STATE_BLEND_EQUATION_REVSUB          UINT64_C(0x0000000020000000) //!< Blend reverse subtract: dst - src.
+#define VRHI_STATE_BLEND_EQUATION_MIN             UINT64_C(0x0000000030000000) //!< Blend min: min(src, dst).
+#define VRHI_STATE_BLEND_EQUATION_MAX             UINT64_C(0x0000000040000000) //!< Blend max: max(src, dst).
+#define VRHI_STATE_BLEND_EQUATION_SHIFT           28                           //!< Blend equation bit shift
+#define VRHI_STATE_BLEND_EQUATION_MASK            UINT64_C(0x00000003f0000000) //!< Blend equation bit mask
+
+/**
+* Cull state. When `VRHI_STATE_CULL_*` is not specified culling will be disabled.
+*
+*/
+#define VRHI_STATE_CULL_CW                        UINT64_C(0x0000001000000000) //!< Cull clockwise triangles.
+#define VRHI_STATE_CULL_CCW                       UINT64_C(0x0000002000000000) //!< Cull counter-clockwise triangles.
+#define VRHI_STATE_CULL_SHIFT                     36                           //!< Culling mode bit shift
+#define VRHI_STATE_CULL_MASK                      UINT64_C(0x0000003000000000) //!< Culling mode bit mask
+
+#define VRHI_STATE_PT_TRIANGLES                   UINT64_C(0x0000000000000000) //!< Triangles. ( Not needed, just for completeness )
+#define VRHI_STATE_PT_TRISTRIP                    UINT64_C(0x0001000000000000) //!< Tristrip.
+#define VRHI_STATE_PT_LINES                       UINT64_C(0x0002000000000000) //!< Lines.
+#define VRHI_STATE_PT_LINESTRIP                   UINT64_C(0x0003000000000000) //!< Line strip.
+#define VRHI_STATE_PT_POINTS                      UINT64_C(0x0004000000000000) //!< Points.
+#define VRHI_STATE_PT_SHIFT                       48                           //!< Primitive type bit shift
+#define VRHI_STATE_PT_MASK                        UINT64_C(0x0007000000000000) //!< Primitive type bit mask
+
+/**
+* Enable MSAA write when writing into MSAA frame buffer.
+* This flag is ignored when not writing into MSAA frame buffer.
+*
+*/
+#define VRHI_STATE_MSAA                           UINT64_C(0x0100000000000000) //!< Enable MSAA rasterization.
+#define VRHI_STATE_LINEAA                         UINT64_C(0x0200000000000000) //!< Enable line AA rasterization.
+#define VRHI_STATE_CONSERVATIVE_RASTER            UINT64_C(0x0400000000000000) //!< Enable conservative rasterization.
+#define VRHI_STATE_NONE                           UINT64_C(0x0000000000000000) //!< No state.
+#define VRHI_STATE_FRONT_CCW                      UINT64_C(0x0000008000000000) //!< Front counter-clockwise ( default is clockwise ).
+#define VRHI_STATE_BLEND_INDEPENDENT              UINT64_C(0x0000000400000000) //!< Enable blend independent.
+#define VRHI_STATE_BLEND_ALPHA_TO_COVERAGE        UINT64_C(0x0000000800000000) //!< Enable alpha to coverage.
+/// Default state is write to RGB, alpha, and depth with depth test less enabled, with clockwise
+/// culling and MSAA (when writing into MSAA frame buffer, otherwise this flag is ignored).
+#define VRHI_STATE_DEFAULT (0 \
+	| VRHI_STATE_WRITE_RGB \
+	| VRHI_STATE_WRITE_A \
+	| VRHI_STATE_WRITE_Z \
+	| VRHI_STATE_DEPTH_TEST_LESS \
+	| VRHI_STATE_CULL_CW \
+	| VRHI_STATE_MSAA \
+	)
+
+#define VRHI_STATE_MASK                           UINT64_C(0xffffffffffffffff) //!< State bit mask
+
+/// Blend function separate.
+#define VRHI_STATE_BLEND_FUNC_SEPARATE(_srcRGB, _dstRGB, _srcA, _dstA) (UINT64_C(0) \
+	| ( ( (uint64_t)(_srcRGB)|( (uint64_t)(_dstRGB)<<4) )   )                       \
+	| ( ( (uint64_t)(_srcA  )|( (uint64_t)(_dstA  )<<4) )<<8)                       \
+	)
+
+/// Blend equation separate.
+#define VRHI_STATE_BLEND_EQUATION_SEPARATE(_equationRGB, _equationA) ( (uint64_t)(_equationRGB)|( (uint64_t)(_equationA)<<3) )
+
+/// Blend function.
+#define VRHI_STATE_BLEND_FUNC(_src, _dst)    VRHI_STATE_BLEND_FUNC_SEPARATE(_src, _dst, _src, _dst)
+
+/// Blend equation.
+#define VRHI_STATE_BLEND_EQUATION(_equation) VRHI_STATE_BLEND_EQUATION_SEPARATE(_equation, _equation)
+
+/// Utility predefined blend modes.
+
+/// Additive blending.
+#define VRHI_STATE_BLEND_ADD (0                                         \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE) \
+	)
+
+/// Alpha blend.
+#define VRHI_STATE_BLEND_ALPHA (0                                                       \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_SRC_ALPHA, VRHI_STATE_BLEND_INV_SRC_ALPHA) \
+	)
+
+/// Selects darker color of blend.
+#define VRHI_STATE_BLEND_DARKEN (0                                      \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE) \
+	| VRHI_STATE_BLEND_EQUATION(VRHI_STATE_BLEND_EQUATION_MIN)          \
+	)
+
+/// Selects lighter color of blend.
+#define VRHI_STATE_BLEND_LIGHTEN (0                                     \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE) \
+	| VRHI_STATE_BLEND_EQUATION(VRHI_STATE_BLEND_EQUATION_MAX)          \
+	)
+
+/// Multiplies colors.
+#define VRHI_STATE_BLEND_MULTIPLY (0                                           \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_DST_COLOR, VRHI_STATE_BLEND_ZERO) \
+	)
+
+/// Opaque pixels will cover the pixels directly below them without any math or algorithm applied to them.
+#define VRHI_STATE_BLEND_NORMAL (0                                                \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_INV_SRC_ALPHA) \
+	)
+
+/// Multiplies the inverse of the blend and base colors.
+#define VRHI_STATE_BLEND_SCREEN (0                                                \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_INV_SRC_COLOR) \
+	)
+
+/// Decreases the brightness of the base color based on the value of the blend color.
+#define VRHI_STATE_BLEND_LINEAR_BURN (0                                                 \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_DST_COLOR, VRHI_STATE_BLEND_INV_DST_COLOR) \
+	| VRHI_STATE_BLEND_EQUATION(VRHI_STATE_BLEND_EQUATION_SUB)                          \
+	)
+
+///
+#define VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst) (0         \
+	| ( (uint32_t)( (_src)>>VRHI_STATE_BLEND_SHIFT)       \
+	| ( (uint32_t)( (_dst)>>VRHI_STATE_BLEND_SHIFT)<<4) ) \
+	)
+
+///
+#define VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation) (0         \
+	| VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)                          \
+	| ( (uint32_t)( (_equation)>>VRHI_STATE_BLEND_EQUATION_SHIFT)<<8) \
+	)
+
+#define VRHI_STATE_BLEND_FUNC_RT_1(_src, _dst)  (VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)<< 0)
+#define VRHI_STATE_BLEND_FUNC_RT_2(_src, _dst)  (VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)<<11)
+#define VRHI_STATE_BLEND_FUNC_RT_3(_src, _dst)  (VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)<<22)
+
+#define VRHI_STATE_BLEND_FUNC_RT_1E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<< 0)
+#define VRHI_STATE_BLEND_FUNC_RT_2E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<<11)
+#define VRHI_STATE_BLEND_FUNC_RT_3E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<<22)

@@ -45,6 +45,14 @@ struct vhBackendBuffer
     uint64_t flags = 0;
 };
 
+struct vhBackendShader
+{
+    std::string name;
+    nvrhi::ShaderHandle handle;
+    uint64_t flags;
+    std::string entry;
+};
+
 // --------------------------------------------------------------------------
 // Main Backend State
 // --------------------------------------------------------------------------
@@ -67,6 +75,7 @@ struct vhCmdBackendState : public VIDLHandler
     char temps[1024];
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
     std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
+    std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
 
     // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
     std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
@@ -821,32 +830,82 @@ public:
         }
     }
 
+    void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        
+        if ( cmd->shader == VRHI_INVALID_HANDLE ) return;
+
+        // Map Flags to NVRHI Shader Type
+        nvrhi::ShaderType type = nvrhi::ShaderType::None;
+        uint64_t stage = cmd->flags & VRHI_SHADER_STAGE_MASK;
+        switch ( stage )
+        {
+            case VRHI_SHADER_STAGE_VERTEX:        type = nvrhi::ShaderType::Vertex; break;
+            case VRHI_SHADER_STAGE_PIXEL:         type = nvrhi::ShaderType::Pixel; break;
+            case VRHI_SHADER_STAGE_COMPUTE:       type = nvrhi::ShaderType::Compute; break;
+            case VRHI_SHADER_STAGE_RAYGEN:        type = nvrhi::ShaderType::RayGeneration; break;
+            case VRHI_SHADER_STAGE_MISS:          type = nvrhi::ShaderType::Miss; break;
+            case VRHI_SHADER_STAGE_CLOSEST_HIT:   type = nvrhi::ShaderType::ClosestHit; break;
+            case VRHI_SHADER_STAGE_MESH:          type = nvrhi::ShaderType::Mesh; break;
+            case VRHI_SHADER_STAGE_AMPLIFICATION: type = nvrhi::ShaderType::Amplification; break;
+        }
+
+        if ( type == nvrhi::ShaderType::None )
+        {
+            VRHI_ERR( "vhCreateShader() : Invalid shader stage flags: %llu\n", cmd->flags );
+            return;
+        }
+
+        // Create Shader via NVRHI
+
+        nvrhi::ShaderDesc desc( type );
+        desc.entryName = cmd->entry;
+        desc.debugName = cmd->name;
+        nvrhi::ShaderHandle handle = nullptr;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            handle = g_vhDevice->createShader( desc, cmd->spirv.data( ), cmd->spirv.size( ) * sizeof( uint32_t ) );
+        }
+
+        // Store in Backend Map
+        if ( handle )
+        {
+            auto backendShader = std::make_unique< vhBackendShader >( );
+            backendShader->name = cmd->name;
+            backendShader->handle = handle;
+            backendShader->flags = cmd->flags;
+            backendShader->entry = cmd->entry;
+            
+            backendShaders[cmd->shader] = std::move( backendShader );
+        }
+        else
+        {
+            VRHI_ERR( "Failed to create shader: %s", cmd->name );
+        }
+    }
+
     void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        // __AI_SUGGESTION__
-        // 1. Look up NVRHI shader handle from map (if valid).
-        // 2. nvrhi::Device->destroyShader(handle) (if manual destruction is needed, otherwise refcounting handles it).
-        // 3. Remove from internal maps.
+        if ( cmd->shader == VRHI_INVALID_HANDLE )
+        {
+            return;
+        }
+
+        if ( backendShaders.find( cmd->shader ) == backendShaders.end( ) )
+        {
+            VRHI_ERR( "vhDestroyShader() : Shader %d not found!\n", cmd->shader );
+            return;
+        }
+
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            backendShaders.erase( cmd->shader );
+        }
     }
 
-    void Handle_vhDestroyProgram( VIDL_vhDestroyProgram* cmd ) override
-    {
-        BE_CmdRAII cmdRAII( cmd );
-        // __AI_SUGGESTION__
-        // 1. Look up NVRHI program handle from map (if valid).
-        // 2. nvrhi::Device->destroyBindingLayout/destroyBindingSet/etc.
-        // 3. Remove from internal maps.
-    }
 
-    void Handle_vhDestroyPipeline( VIDL_vhDestroyPipeline* cmd ) override
-    {
-        BE_CmdRAII cmdRAII( cmd );
-        // __AI_SUGGESTION__
-        // 1. Look up NVRHI pipeline handle from map (if valid).
-        // 2. nvrhi::Device->destroy*Pipeline(handle).
-        // 3. Remove from internal maps.
-    }
 
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override
     {
