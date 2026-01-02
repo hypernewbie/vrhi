@@ -180,10 +180,9 @@ struct vhVertexLayoutDef
 bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhVertexLayoutDef >& outDefs );
 int vhVertexLayoutDefSize( const vhVertexLayoutDef& def );
 int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
-
 int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel = 0 );
 bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions, glm::ivec3 offset, glm::ivec3 extent, const char* debugName );
-
+nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags );
 bool vhReflectSpirv(
     const std::vector< uint32_t >& spirvBlob,
     nvrhi::BindingLayoutDesc& outDesc,
