@@ -135,11 +135,16 @@ extern std::vector< std::vector<uint8_t>* > g_vhMemList;
 extern std::mutex g_vhMemListMutex;
 extern uint64_t g_vhCmdListTransferSizeHeuristic;
 
-// Backend state struct forward declaration
+// Backend State
 struct vhCmdBackendState;
-// Backend state - visible here because the RHI thread needs it
 extern vhCmdBackendState g_vhCmdBackendState; 
-
+void vhBackendInit();
+void vhBackendShutdown();
+void vhBackendThreadEntry( std::function<void()> initCallback ); 
+vhTexInfo vhBackendQueryTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo );
+void* vhBackendQueryTextureHandle( vhTexture texture );
+uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFlags );
+void* vhBackendQueryBufferHandle( vhBuffer buffer );
 
 // Logging helper
 void vhLog( bool error, const char* fmt, ... );

@@ -68,6 +68,7 @@ struct vhInitData
     bool raytracing = true;
     glm::ivec2 resolution = glm::ivec2( 1280, 720 );
     std::function<void( bool error, const std::string& )> fnLogCallback = nullptr;
+    std::function<void() > fnThreadInitCallback = nullptr;
 
 #ifdef VRHI_SHADER_COMPILER
     std::string shaderCompileTempDir = "./tmp/shader_cache/";
@@ -134,6 +135,25 @@ inline vhMem* vhAllocMem( const std::vector< uint8_t >& data )
 }
 
 // ------------ Texture ------------
+
+struct vhTextureMipInfo
+{
+    glm::ivec3 dimensions;
+    int64_t size;
+    int64_t offset;
+    int64_t slice_size;
+    int32_t pitch;
+};
+
+struct vhTexInfo
+{
+    nvrhi::TextureDimension target = nvrhi::TextureDimension::Texture2D;
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    glm::ivec3 dimensions = glm::ivec3( 0, 0, 0 );
+    int32_t arrayLayers = 0;
+    int32_t mipLevels = 0;
+    int32_t samples = 0;
+};
 
 // Allocates a unique texture handle.
 //
@@ -313,6 +333,12 @@ void vhBlitTexture(
     glm::ivec3 extent = glm::ivec3( 0 )
 );
 
+// Returns base texture info. Optional outMipInfo for detailed layout.
+vhTexInfo vhGetTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo = nullptr );
+
+// Returns the raw NVRHI handle (nvrhi::ITexture*).
+void* vhGetTextureNvrhiHandle( vhTexture texture );
+
 // ------------ Buffer ------------
 
 // Vertex layouts are defines as standard strings.
@@ -446,6 +472,13 @@ void vhUpdateStorageBuffer(
 // |buffer| is the handle to the buffer to be destroyed.
 // VIDL_GENERATE
 void vhDestroyBuffer( vhBuffer buffer );
+
+// Returns buffer size in bytes. 
+// Options: outStride (structure stride), outFlags (usage flags).
+uint64_t vhGetBufferInfo( vhBuffer buffer, uint32_t* outStride = nullptr, uint64_t* outFlags = nullptr );
+
+// Returns the raw NVRHI handle (nvrhi::IBuffer*).
+void* vhGetBufferNvrhiHandle( vhBuffer buffer );
 
 // ------------ Shaders ------------
 

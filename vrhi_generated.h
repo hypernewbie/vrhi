@@ -273,18 +273,6 @@ struct VIDL_vhDestroyShader
         : shader(_shader) {}
 };
 
-struct VIDL_vhDestroyPipeline
-{
-    static constexpr uint64_t kMagic = 0x9851B98D;
-    uint64_t MAGIC = kMagic;
-    vhPipeline pipeline;
-
-    VIDL_vhDestroyPipeline() = default;
-
-    VIDL_vhDestroyPipeline(vhPipeline _pipeline)
-        : pipeline(_pipeline) {}
-};
-
 struct VIDL_vhFlushInternal
 {
     static constexpr uint64_t kMagic = 0x83140D26;
@@ -318,7 +306,6 @@ struct VIDLHandler
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
-    virtual void Handle_vhDestroyPipeline( VIDL_vhDestroyPipeline* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
 
     virtual void HandleCmd( void* cmd )
@@ -379,9 +366,6 @@ struct VIDLHandler
             break;
         case 0x3328C9A7:
             Handle_vhDestroyShader( (VIDL_vhDestroyShader*) cmd );
-            break;
-        case 0x9851B98D:
-            Handle_vhDestroyPipeline( (VIDL_vhDestroyPipeline*) cmd );
             break;
         case 0x83140D26:
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );

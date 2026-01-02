@@ -26,6 +26,33 @@
 #endif // VRHI_IMPLEMENTATION
 #include "vrhi_utils.h"
 
+// Handle SPIRV-Reflect.
+#ifndef VRHI_SPIRV_REFLECT_ALREADY_LINKED
+    #if defined(_MSC_VER)
+        #pragma warning(push)
+        #pragma warning(disable: 4244) // conversion loss of data
+        #pragma warning(disable: 4267) // size_t to int
+        #pragma warning(disable: 4013) // undefined function assumed extern (C issue)
+    #elif defined(__GNUC__) || defined(__clang__)
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+    #endif
+
+    #include <spirv_reflect.c>
+
+    #if defined(_MSC_VER)
+        #pragma warning(pop)
+    #elif defined(__GNUC__) || defined(__clang__)
+        #pragma GCC diagnostic pop
+    #endif
+#else
+    #include <spirv_reflect.h>
+#endif
+
+// --------------------------------------------------------------------------
+// Backend Types
+// --------------------------------------------------------------------------
+
 struct vhBackendTexture
 {
     std::string name;
@@ -45,12 +72,33 @@ struct vhBackendBuffer
     uint64_t flags = 0;
 };
 
+struct vhShaderReflectionResource
+{
+    std::string name;
+    uint32_t slot;
+    uint32_t set;
+    nvrhi::ResourceType type;
+    uint32_t arraySize;
+    uint32_t sizeInBytes; // Validation
+};
+struct vhPushConstantRange { uint32_t offset; uint32_t size; std::string name; };
+struct vhSpecConstant { uint32_t id; std::string name; };
+
 struct vhBackendShader
 {
     std::string name;
     nvrhi::ShaderHandle handle;
     uint64_t flags;
     std::string entry;
+
+    // Reflection Data
+    std::vector< vhShaderReflectionResource > reflection;
+    nvrhi::BindingLayoutHandle layout;
+    
+    // Metadata
+    glm::uvec3 threadGroupSize = {0, 0, 0};
+    std::vector< vhPushConstantRange > pushConstants;
+    std::vector< vhSpecConstant > specConstants;
 };
 
 // --------------------------------------------------------------------------
@@ -116,7 +164,6 @@ struct vhCmdBackendState : public VIDLHandler
 
     // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
     template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; 
-    
 
     // --------------------------------------------------------------------------
     // Backend :: Complex BE Low Level NVRHI Device Functions
@@ -318,6 +365,114 @@ struct vhCmdBackendState : public VIDLHandler
         }
     }
 
+    // SPIRV reflection helper.
+    static bool BE_ReflectSpirv(
+        const std::vector< uint32_t >& spirvBlob,
+        nvrhi::BindingLayoutDesc& outDesc,
+        std::vector< vhShaderReflectionResource >& outResources,
+        glm::uvec3& outGroupSize,
+        std::vector< vhPushConstantRange >& outPushConstants
+    )
+    {
+        auto fnGetResourceTypeFromReflect = []( const SpvReflectDescriptorBinding& binding ) -> nvrhi::ResourceType
+        {
+            switch ( binding.descriptor_type )
+            {
+            case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                return nvrhi::ResourceType::ConstantBuffer;
+
+            case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+            case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                return nvrhi::ResourceType::Texture_SRV;
+
+            case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                return nvrhi::ResourceType::Texture_UAV;
+
+            case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
+                return nvrhi::ResourceType::Sampler;
+
+            case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+            {
+                // Check if read-only
+                bool isReadOnly = false;
+                if ( binding.type_description && ( binding.type_description->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE ) )
+                {
+                    isReadOnly = true;
+                }
+                return isReadOnly ? nvrhi::ResourceType::StructuredBuffer_SRV : nvrhi::ResourceType::StructuredBuffer_UAV;
+            }
+
+            default:
+                return nvrhi::ResourceType::None;
+            }
+        };
+
+        SpvReflectShaderModule module;
+        SpvReflectResult result = spvReflectCreateShaderModule( spirvBlob.size() * sizeof(uint32_t), spirvBlob.data(), &module );
+        if ( result != SPV_REFLECT_RESULT_SUCCESS )
+        {
+            VRHI_ERR( "BE_ReflectSpirv: Failed to create shader module reflection" );
+            return false;
+        }
+
+        // Thread Group Size (Compute only, but harmless to query for others if not present)
+        if ( module.entry_point_count > 0 )
+        {
+            auto& ep = module.entry_points[0];
+            outGroupSize.x = ep.local_size.x;
+            outGroupSize.y = ep.local_size.y;
+            outGroupSize.z = ep.local_size.z;
+        }
+
+        // Push Constants
+        if ( module.push_constant_block_count > 0 )
+        {
+                for ( uint32_t i = 0; i < module.push_constant_block_count; ++i )
+                {
+                    auto& pc = module.push_constant_blocks[i];
+                    outPushConstants.push_back( { pc.offset, pc.size, pc.name ? pc.name : "" } );
+                }
+        }
+        
+        // Descriptor Sets
+        uint32_t count = 0;
+        spvReflectEnumerateDescriptorSets( &module, &count, nullptr );
+        std::vector< SpvReflectDescriptorSet* > sets( count );
+        spvReflectEnumerateDescriptorSets( &module, &count, sets.data() );
+
+        for ( auto* set : sets )
+        {
+            if ( set->set != 0 ) continue;
+
+            for ( uint32_t i = 0; i < set->binding_count; ++i )
+            {
+                auto* binding = set->bindings[i];
+                nvrhi::ResourceType type = fnGetResourceTypeFromReflect( *binding );
+                
+                if ( type == nvrhi::ResourceType::None ) continue;
+
+                nvrhi::BindingLayoutItem item{};
+                item.slot = binding->binding;
+                item.type = type;
+                
+                outDesc.addItem( item );
+
+                vhShaderReflectionResource res;
+                res.name = binding->name ? binding->name : "";
+                res.slot = binding->binding;
+                res.set = binding->set;
+                res.type = type;
+                res.arraySize = binding->count;
+                res.sizeInBytes = binding->block.size; 
+                
+                outResources.push_back( res );
+            }
+        }
+
+        spvReflectDestroyShaderModule( &module );
+        return true;
+    }
+
 public:
     void init()
     {
@@ -330,6 +485,7 @@ public:
         std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
         backendTextures.clear();
     }
+
 
     // --------------------------------------------------------------------------
     // Backend :: VIDL Command Handlers
@@ -836,7 +992,6 @@ public:
         
         if ( cmd->shader == VRHI_INVALID_HANDLE ) return;
 
-        // Map Flags to NVRHI Shader Type
         nvrhi::ShaderType type = nvrhi::ShaderType::None;
         uint64_t stage = cmd->flags & VRHI_SHADER_STAGE_MASK;
         switch ( stage )
@@ -857,8 +1012,17 @@ public:
             return;
         }
 
-        // Create Shader via NVRHI
+        // Reflection
+        nvrhi::BindingLayoutDesc layoutDesc;
+        layoutDesc.visibility = nvrhi::ShaderType::All; 
+        std::vector< vhShaderReflectionResource > resources;
+        glm::uvec3 groupSize = {0,0,0};
+        std::vector< vhPushConstantRange > pushConstants;
 
+        // Perform reflection
+        BE_ReflectSpirv( cmd->spirv, layoutDesc, resources, groupSize, pushConstants );
+
+        // Create Shader via NVRHI
         nvrhi::ShaderDesc desc( type );
         desc.entryName = cmd->entry;
         desc.debugName = cmd->name;
@@ -876,6 +1040,16 @@ public:
             backendShader->handle = handle;
             backendShader->flags = cmd->flags;
             backendShader->entry = cmd->entry;
+            backendShader->reflection = std::move( resources );
+            backendShader->threadGroupSize = groupSize;
+            backendShader->pushConstants = std::move( pushConstants );
+
+            // Create binding layout if we have bindings
+            if ( !layoutDesc.bindings.empty() )
+            {
+                 std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                 backendShader->layout = g_vhDevice->createBindingLayout( layoutDesc );
+            }
             
             backendShaders[cmd->shader] = std::move( backendShader );
         }
@@ -965,4 +1139,105 @@ public:
 
         VRHI_LOG( "    RHI Thread exiting.\n" );
     }
+
+    // --------------------------------------------------------------------------
+    // Backend :: Query
+    // --------------------------------------------------------------------------
+
+    // The query functions are a fastpath for getting info about objects from the main-thread. They directly lock the backend mutex and access the backend maps, rather than 
+    // sending a command to the backend thread and then waiting for a response. Object info queries are usually extremely short and fast, so this is OK. Query functions should never do 
+    // significant work or take a long time to complete, because that would bubble the hell out of the command thread.
+
+    vhTexInfo queryTextureInfo( vhTexture handle, std::vector< vhTextureMipInfo >* outMipInfo )
+    {
+        std::lock_guard< std::mutex > lock( backendMutex );
+        auto it = backendTextures.find( handle );
+        if ( it == backendTextures.end() || !it->second )
+        {
+            return vhTexInfo();
+        }
+
+        if ( outMipInfo )
+        {
+            *outMipInfo = it->second->mipInfo;
+        }
+        return it->second->info;
+    }
+
+    void* queryTextureHandle( vhTexture handle )
+    {
+        std::lock_guard< std::mutex > lock( backendMutex );
+        auto it = backendTextures.find( handle );
+        if ( it == backendTextures.end() || !it->second )
+        {
+            return nullptr;
+        }
+        return it->second->handle.Get();
+    }
+
+    uint64_t queryBufferInfo( vhBuffer handle, uint32_t* outStride, uint64_t* outFlags )
+    {
+        std::lock_guard< std::mutex > lock( backendMutex );
+        auto it = backendBuffers.find( handle );
+        if ( it == backendBuffers.end() || !it->second )
+        {
+            return 0;
+        }
+
+        if ( outStride ) *outStride = it->second->stride;
+        if ( outFlags ) *outFlags = it->second->flags;
+        return it->second->desc.byteSize;
+    }
+
+    void* queryBufferHandle( vhBuffer handle )
+    {
+        std::lock_guard< std::mutex > lock( backendMutex );
+        auto it = backendBuffers.find( handle );
+        if ( it == backendBuffers.end() || !it->second )
+        {
+            return nullptr;
+        }
+        return it->second->handle.Get();
+    }
+
+    // TODO Query for reflection info info.
 };
+
+// --------------------------------------------------------------------------
+// Backend Bridge
+// --------------------------------------------------------------------------
+
+void vhBackendInit()
+{
+    g_vhCmdBackendState.init();
+}
+
+void vhBackendShutdown()
+{
+    g_vhCmdBackendState.shutdown();
+}
+
+void vhBackendThreadEntry( std::function<void()> initCallback )
+{
+    g_vhCmdBackendState.RHIThreadEntry( initCallback );
+}
+
+vhTexInfo vhBackendQueryTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo )
+{
+    return g_vhCmdBackendState.queryTextureInfo( texture, outMipInfo );
+}
+
+void* vhBackendQueryTextureHandle( vhTexture texture )
+{
+    return g_vhCmdBackendState.queryTextureHandle( texture );
+}
+
+uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFlags )
+{
+    return g_vhCmdBackendState.queryBufferInfo( buffer, outStride, outFlags );
+}
+
+void* vhBackendQueryBufferHandle( vhBuffer buffer )
+{
+    return g_vhCmdBackendState.queryBufferHandle( buffer );
+}

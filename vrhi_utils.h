@@ -79,27 +79,6 @@ public:
 
 // ------------ Texture Utilities ------------
 
-// Mip level info for texture
-struct vhTextureMipInfo
-{
-    glm::ivec3 dimensions = glm::ivec3( 0, 0, 0 );
-    int32_t offset = 0;
-    int32_t size = 0;
-    int32_t slice_size = 0;
-    int32_t pitch = 0;
-};
-
-// Texture info for texture
-struct vhTexInfo
-{
-    nvrhi::TextureDimension target = nvrhi::TextureDimension::Texture2D;
-    nvrhi::Format format = nvrhi::Format::UNKNOWN;
-    glm::ivec3 dimensions = glm::ivec3( 0, 0, 0 );
-    int32_t arrayLayers = 0;
-    int32_t mipLevels = 0;
-    int32_t samples = 0;
-};
-
 // Get next mipmap dimension
 inline int vhGetImageNextMipmapDim( int x )
 {

@@ -24,7 +24,6 @@
 #ifndef VRHI_IMPLEMENTATION
 #include "vrhi_impl.h"
 #endif // VRHI_IMPLEMENTATION
-#include "vrhi_impl_backend.h"
 #include "vrhi_utils.h"
 
 #include <nvrhi/validation.h>
@@ -286,10 +285,10 @@ void vhInit( bool quiet )
     // 5. Create RHI Command Buffer Thread
     if ( !quiet ) VRHI_LOG( "    Creating RHI Thread...\n" );
 
-    g_vhCmdBackendState.init();
+    vhBackendInit();
     g_vhCmdsQuit = false;
     g_vhCmdThreadReady = false;
-    g_vhCmdThread = std::thread( &vhCmdBackendState::RHIThreadEntry, &g_vhCmdBackendState, nullptr /* TODO: Pass in a callback */ );
+    g_vhCmdThread = std::thread( vhBackendThreadEntry, g_vhInit.fnThreadInitCallback );
     while ( !g_vhCmdThreadReady ) { std::this_thread::yield(); }
 }
 
@@ -302,7 +301,7 @@ void vhShutdown( bool quiet )
     g_vhCmdsQuit = true;
     g_vhCmdThread.join();
     g_vhCmdThreadReady = false;
-    g_vhCmdBackendState.shutdown();
+    vhBackendShutdown();
     g_vhDevice->runGarbageCollection();
     vhCmdListFlushAll();
 
