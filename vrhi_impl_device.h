@@ -28,6 +28,7 @@
 
 #include <nvrhi/validation.h>
 #include <vk-bootstrap/VkBootstrap.h>
+#include <komihash/komihash.h>
 
 std::unique_ptr< vkb::Device > g_vulkanBDevice;
 
@@ -250,7 +251,7 @@ void vhInit( bool quiet )
 
     if ( !quiet ) VRHI_LOG( "    Linking to nvRHI .... \n" );
 
-    // Required by NVRHI Vulkan backend - initializes vk::DispatchLoaderDynamic for function pointers.
+    // Required by NVRHI Vulkan backend - initialises vk::DispatchLoaderDynamic for function pointers.
     VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr, g_vulkanDevice, vkGetDeviceProcAddr );
 
     nvrhi::vulkan::DeviceDesc nvrhiDesc;
@@ -297,6 +298,8 @@ void vhInit( bool quiet )
 void vhShutdown( bool quiet )
 {
     if ( !quiet ) VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
+    vhFinish();
+    vhShutdownDummyResources();
 
     // Join RHI Command Buffer Thread
     if ( !quiet ) VRHI_LOG( "    Joining RHI Thread...\n" );
@@ -347,7 +350,7 @@ std::string vhGetDeviceInfo()
 {
     if ( !g_vhDevice )
     {
-        return "RHI not initialized";
+        return "RHI not initialised";
     }
 
     VkPhysicalDeviceProperties props;
@@ -435,9 +438,9 @@ void vhFinish()
 
 // -------------------------------------------------------- Dummy Resources --------------------------------------------------------
 
-static nvrhi::BufferHandle s_vhDummyOmniBuffer;
-static nvrhi::SamplerHandle s_vhDummySampler;
-static nvrhi::TextureHandle s_vhDummyTextures[10][3]; // [Dim][Float/UInt/SInt] - 10 texture dimensions
+static nvrhi::BufferHandle s_vhDummyOmniBuffer = nullptr;
+static nvrhi::SamplerHandle s_vhDummySampler = nullptr;
+static nvrhi::TextureHandle s_vhDummyTextures[10][3] = { 0 }; // [Dim][Float/UInt/SInt] - 10 texture dimensions
 
 void vhInitDummyResources()
 {
@@ -488,15 +491,13 @@ void vhInitDummyResources()
             tDesc.width = 1;
             tDesc.height = 1;
             tDesc.depth = ( dim == nvrhi::TextureDimension::Texture3D ) ? 1 : 1;
-            tDesc.arraySize = 1; // NVRHI expands this to 6 for Cubes automatically
+            tDesc.arraySize = ( dim == nvrhi::TextureDimension::TextureCube || dim == nvrhi::TextureDimension::TextureCubeArray ) ? 6 : 1;
             tDesc.mipLevels = 1;
             tDesc.isShaderResource = true;
             tDesc.isUAV = true;
-            tDesc.initialState = nvrhi::ResourceStates::Common;
-            tDesc.keepInitialState = true;
+            tDesc.enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource );
             tDesc.debugName = "DummyTexture";
 
-            // Select Format
             if ( i == 0 ) tDesc.format = nvrhi::Format::RGBA8_UNORM;      // Float
             else if ( i == 1 ) tDesc.format = nvrhi::Format::R8_UINT;     // UInt
             else if ( i == 2 ) tDesc.format = nvrhi::Format::R8_SINT;     // SInt
@@ -504,9 +505,15 @@ void vhInitDummyResources()
             nvrhi::TextureHandle handle = g_vhDevice->createTexture( tDesc );
             s_vhDummyTextures[( int )dim][i] = handle;
 
-            // Clear
-            nvrhi::Color clearColour( 0.f );
-            cl->clearTextureFloat( handle, nvrhi::AllSubresources, clearColour );
+            if ( i == 0 )
+            {
+                nvrhi::Color clearColour( 0.f );
+                cl->clearTextureFloat( handle, nvrhi::AllSubresources, clearColour );
+            }
+            else
+            {
+                cl->clearTextureUInt( handle, nvrhi::AllSubresources, 0 );
+            }
         }
     }
 
@@ -523,10 +530,12 @@ void vhShutdownDummyResources()
 {
     s_vhDummyOmniBuffer = nullptr;
     s_vhDummySampler = nullptr;
-    nvrhi::TextureHandle* texArray = &s_vhDummyTextures[0][0];
-    for ( int i = 0; i < 10 * 3; ++i )
+    for ( int i = 0; i < 10; ++i )
     {
-        texArray[i] = nullptr;
+        for ( int j = 0; j < 3; ++j )
+        {
+            s_vhDummyTextures[i][j] = nullptr;
+        }
     }
 }
 
@@ -581,4 +590,181 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
 
     return BindingSetItem::None( layoutItem.slot );
 }
+
+// -------------------------------------------------------- Hashing --------------------------------------------------------
+
+static uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
+{
+    // TODO: implement HashBindingLayout here
+    // Fields to hash: `visibility`, `registerSpace`, `registerSpaceIsDescriptorSet`, `bindings` (iterate: slot, type, size).
+    uint64_t h = 0;
+    return h;
+}
+
+static uint64_t vhHashShaderBytecode( nvrhi::IShader* shader )
+{
+    // TODO: implement GetShaderBytecodeHash here
+    // Action: Call `shader->getBytecode` and hash the buffer.
+    uint64_t h = 0;
+    return h;
+}
+
+static uint64_t vhHashInputLayout( nvrhi::IInputLayout* layout )
+{
+    // TODO: implement GetAttributesHash here
+    // Action: Call `layout->getAttributeDesc`, iterate and hash: `name`, `format`, `arraySize`, `bufferIndex`, `offset`, `elementStride`, `isInstanced`.
+    uint64_t h = 0;
+    return h;
+}
+
+static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
+{
+    uint64_t h = 0;
+
+    // --- Blend State ---
+    h = komihash( &rs.blendState.alphaToCoverageEnable, sizeof( rs.blendState.alphaToCoverageEnable ), h );
+    for ( const auto& rt : rs.blendState.targets )
+    {
+        h = komihash( &rt.blendEnable, sizeof( rt.blendEnable ), h );
+        h = komihash( &rt.srcBlend, sizeof( rt.srcBlend ), h );
+        h = komihash( &rt.destBlend, sizeof( rt.destBlend ), h );
+        h = komihash( &rt.blendOp, sizeof( rt.blendOp ), h );
+        h = komihash( &rt.srcBlendAlpha, sizeof( rt.srcBlendAlpha ), h );
+        h = komihash( &rt.destBlendAlpha, sizeof( rt.destBlendAlpha ), h );
+        h = komihash( &rt.blendOpAlpha, sizeof( rt.blendOpAlpha ), h );
+        h = komihash( &rt.colorWriteMask, sizeof( rt.colorWriteMask ), h );
+    }
+
+    // --- Depth Stencil State ---
+    const auto& dss = rs.depthStencilState;
+    h = komihash( &dss.depthTestEnable, sizeof( dss.depthTestEnable ), h );
+    h = komihash( &dss.depthWriteEnable, sizeof( dss.depthWriteEnable ), h );
+    h = komihash( &dss.depthFunc, sizeof( dss.depthFunc ), h );
+    h = komihash( &dss.stencilEnable, sizeof( dss.stencilEnable ), h );
+    h = komihash( &dss.stencilReadMask, sizeof( dss.stencilReadMask ), h );
+    h = komihash( &dss.stencilWriteMask, sizeof( dss.stencilWriteMask ), h );
+    h = komihash( &dss.stencilRefValue, sizeof( dss.stencilRefValue ), h );
+    h = komihash( &dss.dynamicStencilRef, sizeof( dss.dynamicStencilRef ), h );
+
+    h = komihash( &dss.frontFaceStencil.failOp, sizeof( dss.frontFaceStencil.failOp ), h );
+    h = komihash( &dss.frontFaceStencil.depthFailOp, sizeof( dss.frontFaceStencil.depthFailOp ), h );
+    h = komihash( &dss.frontFaceStencil.passOp, sizeof( dss.frontFaceStencil.passOp ), h );
+    h = komihash( &dss.frontFaceStencil.stencilFunc, sizeof( dss.frontFaceStencil.stencilFunc ), h );
+
+    h = komihash( &dss.backFaceStencil.failOp, sizeof( dss.backFaceStencil.failOp ), h );
+    h = komihash( &dss.backFaceStencil.depthFailOp, sizeof( dss.backFaceStencil.depthFailOp ), h );
+    h = komihash( &dss.backFaceStencil.passOp, sizeof( dss.backFaceStencil.passOp ), h );
+    h = komihash( &dss.backFaceStencil.stencilFunc, sizeof( dss.backFaceStencil.stencilFunc ), h );
+
+    // --- Raster State ---
+    const auto& ras = rs.rasterState;
+    h = komihash( &ras.fillMode, sizeof( ras.fillMode ), h );
+    h = komihash( &ras.cullMode, sizeof( ras.cullMode ), h );
+    h = komihash( &ras.frontCounterClockwise, sizeof( ras.frontCounterClockwise ), h );
+    h = komihash( &ras.depthClipEnable, sizeof( ras.depthClipEnable ), h );
+    h = komihash( &ras.scissorEnable, sizeof( ras.scissorEnable ), h );
+    h = komihash( &ras.multisampleEnable, sizeof( ras.multisampleEnable ), h );
+    h = komihash( &ras.antialiasedLineEnable, sizeof( ras.antialiasedLineEnable ), h );
+    h = komihash( &ras.depthBias, sizeof( ras.depthBias ), h );
+    h = komihash( &ras.depthBiasClamp, sizeof( ras.depthBiasClamp ), h );
+    h = komihash( &ras.slopeScaledDepthBias, sizeof( ras.slopeScaledDepthBias ), h );
+    h = komihash( &ras.forcedSampleCount, sizeof( ras.forcedSampleCount ), h );
+    h = komihash( &ras.programmableSamplePositionsEnable, sizeof( ras.programmableSamplePositionsEnable ), h );
+    h = komihash( &ras.conservativeRasterEnable, sizeof( ras.conservativeRasterEnable ), h );
+    h = komihash( &ras.quadFillEnable, sizeof( ras.quadFillEnable ), h );
+
+    for ( int i = 0; i < 16; ++i )
+    {
+        h = komihash( &ras.samplePositionsX[i], sizeof( ras.samplePositionsX[i] ), h );
+        h = komihash( &ras.samplePositionsY[i], sizeof( ras.samplePositionsY[i] ), h );
+    }
+
+    // --- Single Pass Stereo ---
+    h = komihash( &rs.singlePassStereo.enabled, sizeof( rs.singlePassStereo.enabled ), h );
+    h = komihash( &rs.singlePassStereo.independentViewportMask, sizeof( rs.singlePassStereo.independentViewportMask ), h );
+    h = komihash( &rs.singlePassStereo.renderTargetIndexOffset, sizeof( rs.singlePassStereo.renderTargetIndexOffset ), h );
+
+    return h;
+}
+
+static uint64_t vhHashFramebufferInfo( const nvrhi::FramebufferInfo& fb )
+{
+    uint64_t h = 0;
+    for ( auto fmt : fb.colorFormats ) h = komihash( &fmt, sizeof( fmt ), h );
+    h = komihash( &fb.depthFormat, sizeof( fb.depthFormat ), h );
+    h = komihash( &fb.sampleCount, sizeof( fb.sampleCount ), h );
+    h = komihash( &fb.sampleQuality, sizeof( fb.sampleQuality ), h );
+    return h;
+}
+
+uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo )
+{
+    uint64_t h = 0;
+
+    // 1. Core State
+    h = komihash( &desc.primType, sizeof( desc.primType ), h );
+    h = komihash( &desc.patchControlPoints, sizeof( desc.patchControlPoints ), h );
+
+    // 2. Input Layout (HOT)
+    uint64_t hInput = vhHashInputLayout( desc.inputLayout );
+    h = komihash( &hInput, sizeof( hInput ), h );
+
+    // 3. Shaders (HOT)
+    uint64_t hVS = vhHashShaderBytecode( desc.VS ); h = komihash( &hVS, sizeof( hVS ), h );
+    uint64_t hHS = vhHashShaderBytecode( desc.HS ); h = komihash( &hHS, sizeof( hHS ), h );
+    uint64_t hDS = vhHashShaderBytecode( desc.DS ); h = komihash( &hDS, sizeof( hDS ), h );
+    uint64_t hGS = vhHashShaderBytecode( desc.GS ); h = komihash( &hGS, sizeof( hGS ), h );
+    uint64_t hPS = vhHashShaderBytecode( desc.PS ); h = komihash( &hPS, sizeof( hPS ), h );
+
+    // 4. Render State (COLD)
+    uint64_t hRS = vhHashRenderState( desc.renderState );
+    h = komihash( &hRS, sizeof( hRS ), h );
+
+    // 5. Variable Rate Shading (COLD)
+    h = komihash( &desc.shadingRateState.enabled, sizeof( desc.shadingRateState.enabled ), h );
+    h = komihash( &desc.shadingRateState.shadingRate, sizeof( desc.shadingRateState.shadingRate ), h );
+    h = komihash( &desc.shadingRateState.pipelinePrimitiveCombiner, sizeof( desc.shadingRateState.pipelinePrimitiveCombiner ), h );
+    h = komihash( &desc.shadingRateState.imageCombiner, sizeof( desc.shadingRateState.imageCombiner ), h );
+
+    // 6. Binding Layouts (HOT)
+    for ( const auto& layoutHandle : desc.bindingLayouts )
+    {
+        const nvrhi::BindingLayoutDesc* layoutDesc = layoutHandle->getDesc();
+        if ( layoutDesc )
+        {
+            uint64_t hLayout = vhHashBindingLayout( *layoutDesc );
+            h = komihash( &hLayout, sizeof( hLayout ), h );
+        }
+    }
+
+    // 7. Framebuffer Compatibility (COLD)
+    uint64_t hFB = vhHashFramebufferInfo( fbInfo );
+    h = komihash( &hFB, sizeof( hFB ), h );
+
+    return h;
+}
+
+uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
+{
+    uint64_t h = 0;
+
+    // Shader
+    uint64_t hCS = vhHashShaderBytecode( desc.CS );
+    h = komihash( &hCS, sizeof( hCS ), h );
+
+    // Binding Layouts
+    for ( const auto& layoutHandle : desc.bindingLayouts )
+    {
+        const nvrhi::BindingLayoutDesc* layoutDesc = layoutHandle->getDesc();
+        if ( layoutDesc )
+        {
+            uint64_t hLayout = vhHashBindingLayout( *layoutDesc );
+            h = komihash( &hLayout, sizeof( hLayout ), h );
+        }
+    }
+
+    return h;
+}
+
+// -------------------------------------------------------- PSO Cache --------------------------------------------------------
 
