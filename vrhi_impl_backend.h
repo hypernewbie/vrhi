@@ -149,7 +149,7 @@ struct vhCmdBackendState : public VIDLHandler
     inline bool BE_Util_ShaderStageMatches( uint64_t flags, bool computePipelineDesc, bool graphicsPipelineDesc )
     {
         if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && computePipelineDesc ) return true;
-        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX & VRHI_SHADER_STAGE_PIXEL & VRHI_SHADER_STAGE_MESH & VRHI_SHADER_STAGE_AMPLIFICATION ) ) && graphicsPipelineDesc ) return true;
+        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX & VRHI_SHADER_STAGE_PIXEL ) ) && graphicsPipelineDesc ) return true;
         return false;
     };
 
@@ -403,22 +403,37 @@ struct vhCmdBackendState : public VIDLHandler
         vhBackendShader* shaders,
         int shaderCount,
         nvrhi::ComputePipelineDesc* computePipelineDesc, // set to nullptr if not using compute.
-        nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc, // set to nullptr if not using graphics.
-        uint64_t& hash
+        nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc // set to nullptr if not using graphics.
     )
     {
         assert( shaders && shaderCount > 0 );
         bool matchedAny = false;
+    
         for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
         {
             auto& shader = shaders[shaderIdx];
             nvrhi::BindingSetDesc bsetDesc = nvrhi::BindingSetDesc();
             if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
                 continue;
+
             if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
             if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
             matchedAny = true;
+
+            if ( shader.flags & VRHI_SHADER_STAGE_COMPUTE && computePipelineDesc )
+            {   
+                computePipelineDesc->setComputeShader( shader.handle );
+            }
+            if ( shader.flags & VRHI_SHADER_STAGE_VERTEX && graphicsPipelineDesc )
+            {
+                graphicsPipelineDesc->setVertexShader( shader.handle );
+            }
+            if ( shader.flags & VRHI_SHADER_STAGE_PIXEL && graphicsPipelineDesc )
+            {
+                graphicsPipelineDesc->setFragmentShader( shader.handle );
+            }
         }
+    
         return matchedAny;
     }
 
