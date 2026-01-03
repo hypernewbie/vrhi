@@ -146,10 +146,10 @@ struct vhCmdBackendState : public VIDLHandler
         return -1;
     }
 
-    inline bool BE_Util_ShaderStageMatches( uint64_t flags, bool computePipelineDesc, bool graphicsPipelineDesc )
+    inline bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics )
     {
-        if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && computePipelineDesc ) return true;
-        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_STAGE_PIXEL ) ) && graphicsPipelineDesc ) return true;
+        if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && useCompute ) return true;
+        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_STAGE_PIXEL ) ) && useGraphics ) return true;
         return false;
     };
 
@@ -355,6 +355,7 @@ struct vhCmdBackendState : public VIDLHandler
 
     nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth, int mip = 0, int layer = 0 )
     {
+        // TODO: ################ Finish implementation ################
         // TODO: THIS IS UNTESTED!! Use this at graphics render time in future.
         
         // Combine all inputs into a hash key
@@ -406,6 +407,8 @@ struct vhCmdBackendState : public VIDLHandler
         nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc // set to nullptr if not using graphics.
     )
     {
+        // TODO: ################ Finish implementation ################
+    
         assert( shaders && shaderCount > 0 );
         bool matchedAny = false;
     
@@ -455,13 +458,12 @@ struct vhCmdBackendState : public VIDLHandler
         vhState& state,
         vhBackendShader* shaders,
         int shaderCount,
-        nvrhi::ComputePipelineDesc* computePipelineDesc, // set to nullptr if not using compute.
         nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
-        nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc, // set to nullptr if not using graphics.
         nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
     )
     {
-        // TODO: Finish implementation.
+        // TODO: ################ Finish implementation ################
+    
         assert( shaders && shaderCount > 0 );
         bool matchedAny = false;
         bool complete = true;
@@ -474,7 +476,7 @@ struct vhCmdBackendState : public VIDLHandler
             nvrhi::BindingSetDesc bsetDesc = nvrhi::BindingSetDesc();
 
             // We only bind resources for the shader stage that is being used.
-            if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
+            if ( !BE_Util_ShaderStageMatches( shader.flags, computeState != nullptr, graphicsState != nullptr ) )
                 continue;
             matchedAny = true;
 
@@ -550,8 +552,6 @@ struct vhCmdBackendState : public VIDLHandler
                 break;
             }
 
-            if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
-            if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
             if ( computeState )  computeState->addBindingSet( bset );
             if ( graphicsState ) graphicsState->addBindingSet( bset );
         }
