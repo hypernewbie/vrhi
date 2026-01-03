@@ -135,7 +135,7 @@ struct vhCmdBackendState : public VIDLHandler
     // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
     template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; 
 
-    int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader )
+    inline int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader )
     {
         if ( !shader.handle ) return -1;
         for ( auto& resource : shader.reflection )
@@ -145,6 +145,13 @@ struct vhCmdBackendState : public VIDLHandler
         }
         return -1;
     }
+
+    inline bool BE_Util_ShaderStageMatches( uint64_t flags, bool computePipelineDesc, bool graphicsPipelineDesc )
+    {
+        if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && computePipelineDesc ) return true;
+        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX & VRHI_SHADER_STAGE_PIXEL & VRHI_SHADER_STAGE_MESH & VRHI_SHADER_STAGE_AMPLIFICATION ) ) && graphicsPipelineDesc ) return true;
+        return false;
+    };
 
     // --------------------------------------------------------------------------
     // Backend :: Complex BE Low Level NVRHI Device Functions
@@ -391,6 +398,30 @@ struct vhCmdBackendState : public VIDLHandler
         return backendFramebuffers[key];
     }
 
+    bool BE_PresubmitPipelineDescCommon(
+        vhState& state,
+        vhBackendShader* shaders,
+        int shaderCount,
+        nvrhi::ComputePipelineDesc* computePipelineDesc, // set to nullptr if not using compute.
+        nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc, // set to nullptr if not using graphics.
+        uint64_t& hash
+    )
+    {
+        assert( shaders && shaderCount > 0 );
+        bool matchedAny = false;
+        for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
+        {
+            auto& shader = shaders[shaderIdx];
+            nvrhi::BindingSetDesc bsetDesc = nvrhi::BindingSetDesc();
+            if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
+                continue;
+            if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
+            if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
+            matchedAny = true;
+        }
+        return matchedAny;
+    }
+
     bool BE_PreSubmitCommon(
         vhState& state,
         vhBackendShader* shaders,
@@ -408,20 +439,13 @@ struct vhCmdBackendState : public VIDLHandler
         static std::unordered_map< uint32_t, bool > slotBindingFilled;
         slotBindingFilled.clear();
 
-        auto fnShaderStageMatches = [&]( uint64_t flags ) -> bool
-        {
-            if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && computePipelineDesc && computeState ) return true;
-            if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX & VRHI_SHADER_STAGE_PIXEL & VRHI_SHADER_STAGE_MESH & VRHI_SHADER_STAGE_AMPLIFICATION ) ) && graphicsPipelineDesc && graphicsState ) return true;
-            return false;
-        };
-
         for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
         {
             auto& shader = shaders[shaderIdx];
             nvrhi::BindingSetDesc bsetDesc = nvrhi::BindingSetDesc();
 
             // We only bind resources for the shader stage that is being used.
-            if ( !fnShaderStageMatches( shader.flags ) )
+            if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
                 continue;
             matchedAny = true;
 
@@ -1004,7 +1028,7 @@ public:
             return;
         }
 
-        // Partially initialize nvrhi::BufferDesc for uniform buffer
+        // Partially initialise nvrhi::BufferDesc for uniform buffer
         nvrhi::BufferDesc desc;
         desc.setIsConstantBuffer( true );
         desc.enableAutomaticStateTracking( nvrhi::ResourceStates::ConstantBuffer );
@@ -1033,7 +1057,7 @@ public:
             return;
         }
 
-        // Partially initialize nvrhi::BufferDesc for storage buffer
+        // Partially initialise nvrhi::BufferDesc for storage buffer
         nvrhi::BufferDesc desc;
         desc.setByteSize( cmd->size );
         desc.setCanHaveUAVs( true );
@@ -1286,7 +1310,7 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         auto& state = backendStates[cmd->id];
-        state.colourAttachment = cmd->colors;
+        state.colourAttachment = cmd->colours;
         state.depthAttachment = cmd->depth;
     }
 

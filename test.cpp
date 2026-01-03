@@ -864,7 +864,7 @@ UTEST( Sampler, MaskNonOverlap )
     EXPECT_EQ( VRHI_SAMPLER_U_MASK & VRHI_SAMPLER_MIP_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_U_MASK & VRHI_SAMPLER_COMPARE_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_U_MASK & VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_U_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_U_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_U_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_U_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
@@ -874,7 +874,7 @@ UTEST( Sampler, MaskNonOverlap )
     EXPECT_EQ( VRHI_SAMPLER_V_MASK & VRHI_SAMPLER_MIP_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_V_MASK & VRHI_SAMPLER_COMPARE_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_V_MASK & VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_V_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_V_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_V_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_V_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
@@ -904,21 +904,21 @@ UTEST( Sampler, MaskNonOverlap )
 
     EXPECT_EQ( VRHI_SAMPLER_MIP_MASK & VRHI_SAMPLER_COMPARE_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIP_MASK & VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_MIP_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_MIP_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIP_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIP_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
     EXPECT_EQ( VRHI_SAMPLER_COMPARE_MASK & VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_COMPARE_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_COMPARE_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_COMPARE_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_COMPARE_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
-    EXPECT_EQ( VRHI_SAMPLER_MIPBIAS_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_MIPBIAS_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIPBIAS_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIPBIAS_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOR_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOR_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
     EXPECT_EQ( VRHI_SAMPLER_SAMPLE_STENCIL & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 }
@@ -2679,8 +2679,6 @@ UTEST( State, DebugFlags )
 
 UTEST( Device, DummyResources )
 {
-    vhInitDummyResources();
-
     // Test Buffer Retrieval
     nvrhi::BindingLayoutItem bufferItem = {};
     bufferItem.slot = 0;
@@ -2727,8 +2725,43 @@ UTEST( Device, DummyResources )
     auto samp = vhGetDummyBindingItem( samplerItem );
     EXPECT_EQ( samp.type, nvrhi::ResourceType::Sampler );
     EXPECT_NE( samp.resourceHandle, nullptr );
+}
 
-    vhShutdownDummyResources();
+UTEST( Hashing, GraphicsPipeline )
+{
+    nvrhi::GraphicsPipelineDesc desc;
+    desc.primType = nvrhi::PrimitiveType::TriangleList;
+    nvrhi::FramebufferInfo fbInfo;
+    
+    // 1. Stability
+    uint64_t hash1 = vhHashGraphicsPipeline( desc, fbInfo );
+    uint64_t hash2 = vhHashGraphicsPipeline( desc, fbInfo );
+    EXPECT_EQ( hash1, hash2 );
+
+    // 2. Sensitivity (RenderState - Blend)
+    desc.renderState.blendState.targets[0].blendEnable = true;
+    uint64_t hash3 = vhHashGraphicsPipeline( desc, fbInfo );
+    EXPECT_NE( hash1, hash3 );
+    
+    // 3. Sensitivity (RenderState - Raster)
+    desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::Front;
+    uint64_t hash4 = vhHashGraphicsPipeline( desc, fbInfo );
+    EXPECT_NE( hash3, hash4 );
+    
+    // 4. Sensitivity (Framebuffer)
+    fbInfo.sampleCount = 4;
+    uint64_t hash5 = vhHashGraphicsPipeline( desc, fbInfo );
+    EXPECT_NE( hash4, hash5 );
+}
+
+UTEST( Hashing, ComputePipeline )
+{
+    nvrhi::ComputePipelineDesc desc;
+    
+    // 1. Stability
+    uint64_t h1 = vhHashComputePipeline( desc );
+    uint64_t h2 = vhHashComputePipeline( desc );
+    EXPECT_EQ( h1, h2 );
 }
 
 UTEST_STATE();

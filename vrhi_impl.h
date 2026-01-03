@@ -196,7 +196,8 @@ bool vhReflectSpirv(
     glm::uvec3& outGroupSize,
     std::vector< vhPushConstantRange >& outPushConstants
 );
-
+uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
+uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
 
 // --------------------------------------------------------------------------
 // Submodule Includes
