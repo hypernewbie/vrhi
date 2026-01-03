@@ -631,6 +631,7 @@ struct vhState
     glm::mat4 projMatrix;
     std::vector< glm::mat4 > worldMatrix; // worldMatrix[0] is copied into pushConstants[0] if worldMatrix is non-empty.
     uint64_t stateFlags = 0;
+    uint64_t debugFlags = 0;
     uint64_t dirty = 0;
     
     uint16_t clearFlags = 0;
@@ -664,25 +665,30 @@ struct vhState
 
     struct TextureBinding
     {
-        const char* name = nullptr;
+        const char* name = nullptr; // Setting this will autofill slot and computeUAV.
         int32_t slot = -1;
         vhTexture texture;
+        nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN;
+        nvrhi::TextureSubresourceSet subresources = nvrhi::TextureSubresourceSet( 0, 1, 0, nvrhi::TextureSubresourceSet::AllArraySlices );
+        nvrhi::TextureDimension dimensionOverride = nvrhi::TextureDimension::Unknown;
+        bool computeUAV = false;
     };
     std::vector< TextureBinding > textures;
 
     struct BufferBinding
     {
-        const char* name = nullptr;
+        const char* name = nullptr; // Setting this will autofill slot and computeUAV.
         int32_t slot = -1;
         vhBuffer buffer;
         uint64_t byteOffset = 0;
         uint64_t byteSize = 0;
+        bool computeUAV = false;
     };
     std::vector< BufferBinding > buffers;
 
     struct SamplerDefinition
     {
-        const char* name = nullptr;
+        const char* name = nullptr; // Setting this will autofill slot.
         int32_t slot = -1;
         uint64_t flags = 0;
     };
@@ -745,6 +751,7 @@ struct vhState
         return *this;
     }
     vhState& SetStateFlags( uint64_t flags ) { stateFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
+    vhState& SetDebugFlags( uint64_t flags ) { debugFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
     vhState& SetStencil( uint32_t front, uint32_t back = 0 )
     {
         frontStencil = front;
@@ -942,6 +949,8 @@ void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj );
 void vhCmdSetStateWorldTransform( vhStateId id, std::vector< glm::mat4 > matrices );
 // VIDL_GENERATE
 void vhCmdSetStateFlags( vhStateId id, uint64_t flags );
+// VIDL_GENERATE
+void vhCmdSetStateDebugFlags( vhStateId id, uint64_t flags );
 // VIDL_GENERATE
 void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back );
 // VIDL_GENERATE

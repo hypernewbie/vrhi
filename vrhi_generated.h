@@ -432,6 +432,19 @@ struct VIDL_vhCmdSetStateFlags
         : id(_id), flags(_flags) {}
 };
 
+struct VIDL_vhCmdSetStateDebugFlags
+{
+    static constexpr uint64_t kMagic = 0x9CFC0ABD;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    uint64_t flags;
+
+    VIDL_vhCmdSetStateDebugFlags() = default;
+
+    VIDL_vhCmdSetStateDebugFlags(vhStateId _id, uint64_t _flags)
+        : id(_id), flags(_flags) {}
+};
+
 struct VIDL_vhCmdSetStateStencil
 {
     static constexpr uint64_t kMagic = 0x007FD9BA;
@@ -603,6 +616,7 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) { (void) cmd; };
@@ -708,6 +722,9 @@ struct VIDLHandler
             break;
         case 0xC3CE00B4:
             Handle_vhCmdSetStateFlags( (VIDL_vhCmdSetStateFlags*) cmd );
+            break;
+        case 0x9CFC0ABD:
+            Handle_vhCmdSetStateDebugFlags( (VIDL_vhCmdSetStateDebugFlags*) cmd );
             break;
         case 0x007FD9BA:
             Handle_vhCmdSetStateStencil( (VIDL_vhCmdSetStateStencil*) cmd );

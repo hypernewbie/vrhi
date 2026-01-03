@@ -123,7 +123,6 @@ extern vhAllocatorObjectFreeList g_vhShaderIDList;
 extern std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 extern std::mutex g_vhShaderIDListMutex;
 
-
 extern bool g_vhRayTracingEnabled;
 
 // Command Queue

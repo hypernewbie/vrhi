@@ -2667,6 +2667,20 @@ UTEST( State, IndividualAttachments )
     EXPECT_EQ( ( state.dirty & VRHI_DIRTY_ATTACHMENTS ), VRHI_DIRTY_ATTACHMENTS );
 }
 
+UTEST( State, DebugFlags )
+{
+    vhState state;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
+    
+    vhStateId id = 600;
+    ASSERT_TRUE( vhSetState( id, state ) );
+    vhFlush();
+    
+    vhState retrieved = {};
+    ASSERT_TRUE( vhGetState( id, retrieved ) );
+    EXPECT_EQ( retrieved.debugFlags, VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
