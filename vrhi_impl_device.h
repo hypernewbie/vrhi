@@ -595,11 +595,14 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
 
 uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
 {
+    static_assert( sizeof( nvrhi::BindingLayoutDesc ) == 64, "nvrhi::BindingLayoutDesc size mismatch" );
+    static_assert( sizeof( nvrhi::BindingLayoutItem ) == 8, "nvrhi::BindingLayoutItem size mismatch" );
+
     uint64_t h = 0;
     h = komihash( &desc.visibility, sizeof( desc.visibility ), h );
     h = komihash( &desc.registerSpace, sizeof( desc.registerSpace ), h );
     h = komihash( &desc.registerSpaceIsDescriptorSet, sizeof( desc.registerSpaceIsDescriptorSet ), h );
-    
+        
     for ( const auto& binding : desc.bindings )
     {
         uint32_t slot = binding.slot;
@@ -629,9 +632,11 @@ uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader )
 
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout )
 {
+    static_assert( sizeof( nvrhi::VertexAttributeDesc ) == 64, "nvrhi::VertexAttributeDesc size mismatch" );
     if ( !layout ) return 0;
     uint64_t h = 0;
     uint32_t count = layout->getNumAttributes();
+
     for ( uint32_t i = 0; i < count; ++i )
     {
         const nvrhi::VertexAttributeDesc* attr = layout->getAttributeDesc( i );

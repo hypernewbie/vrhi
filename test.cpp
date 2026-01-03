@@ -57,30 +57,81 @@ static bool g_testInitQuiet = true;
 extern std::string vhGetDeviceInfo();
 extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
 extern bool vhRunExe( const std::string& command, std::string& outOutput );
-extern void vhPartialFillGraphicsPipelineDescFromState_Internal( uint64_t state, nvrhi::GraphicsPipelineDesc& desc );
 extern bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth );
 
 UTEST( ShaderInternal, StateToDesc )
 {
-    nvrhi::GraphicsPipelineDesc desc;
-    
+    // Test Primitive Topology
+    EXPECT_EQ( vhTranslatePrimitiveType( VRHI_STATE_PT_LINES ), nvrhi::PrimitiveType::LineList );
+    EXPECT_EQ( vhTranslatePrimitiveType( VRHI_STATE_PT_TRIANGLES ), nvrhi::PrimitiveType::TriangleList );
+    EXPECT_EQ( vhTranslatePrimitiveType( VRHI_STATE_PT_TRISTRIP ), nvrhi::PrimitiveType::TriangleStrip );
+
     // Test Default (Depth Test Less, Write All, Cull CW)
-    vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_DEFAULT, desc );
-    EXPECT_TRUE( desc.renderState.depthStencilState.depthTestEnable );
-    EXPECT_EQ( desc.renderState.depthStencilState.depthFunc, nvrhi::ComparisonFunc::Less );
-    EXPECT_TRUE( desc.renderState.depthStencilState.depthWriteEnable );
-    EXPECT_EQ( desc.renderState.rasterState.cullMode, nvrhi::RasterCullMode::Back );
+    {
+        nvrhi::RasterState rs = vhTranslateRasterState( VRHI_STATE_DEFAULT );
+        EXPECT_EQ( rs.cullMode, nvrhi::RasterCullMode::Back );
+
+        nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, 0, 0 );
+        EXPECT_TRUE( ds.depthTestEnable );
+        EXPECT_EQ( ds.depthFunc, nvrhi::ComparisonFunc::Less );
+        EXPECT_TRUE( ds.depthWriteEnable );
+    }
     
     // Test Blend Add
-    desc = nvrhi::GraphicsPipelineDesc(); // Reset
-    vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_BLEND_ADD, desc );
-    EXPECT_EQ( desc.renderState.blendState.targets[0].srcBlend, nvrhi::BlendFactor::One );
-    EXPECT_EQ( desc.renderState.blendState.targets[0].destBlend, nvrhi::BlendFactor::One );
-    
-    // Test Primitive Topology
-    desc = nvrhi::GraphicsPipelineDesc();
-    vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_PT_LINES, desc );
-    EXPECT_EQ( desc.primType, nvrhi::PrimitiveType::LineList );
+    {
+        nvrhi::BlendState bs = vhTranslateBlendState( VRHI_STATE_BLEND_ADD );
+        EXPECT_EQ( bs.targets[0].srcBlend, nvrhi::BlendFactor::One );
+        EXPECT_EQ( bs.targets[0].destBlend, nvrhi::BlendFactor::One );
+    }
+
+    // Test Depth Always
+    {
+        nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEPTH_TEST_ALWAYS, 0, 0 );
+        EXPECT_TRUE( ds.depthTestEnable );
+        EXPECT_EQ( ds.depthFunc, nvrhi::ComparisonFunc::Always );
+    }
+
+    // Test Stencil Enable & Unpacking (Unified)
+    {
+        uint32_t stencil = 
+            VRHI_STENCIL_FUNC_REF( 0x80 ) | 
+            VRHI_STENCIL_FUNC_RMASK( 0xFF ) |
+            VRHI_STENCIL_TEST_EQUAL |
+            VRHI_STENCIL_OP_FAIL_S_KEEP |
+            VRHI_STENCIL_OP_FAIL_Z_REPLACE |
+            VRHI_STENCIL_OP_PASS_Z_INCR;
+        
+        nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, stencil, VRHI_STENCIL_NONE );
+        
+        EXPECT_TRUE( ds.stencilEnable );
+        EXPECT_EQ( ds.stencilRefValue, 0x80 );
+        EXPECT_EQ( ds.stencilReadMask, 0xFF );
+        
+        // Front Face
+        EXPECT_EQ( ds.frontFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Equal );
+        EXPECT_EQ( ds.frontFaceStencil.failOp, nvrhi::StencilOp::Keep );
+        EXPECT_EQ( ds.frontFaceStencil.depthFailOp, nvrhi::StencilOp::Replace );
+        EXPECT_EQ( ds.frontFaceStencil.passOp, nvrhi::StencilOp::IncrementAndWrap );
+        
+        // Back Face (should match front)
+        EXPECT_EQ( ds.backFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Equal );
+        EXPECT_EQ( ds.backFaceStencil.passOp, nvrhi::StencilOp::IncrementAndWrap );
+    }
+
+    // Test Stencil Separate
+    {
+        uint32_t front = VRHI_STENCIL_TEST_ALWAYS | VRHI_STENCIL_OP_PASS_Z_KEEP;
+        uint32_t back = VRHI_STENCIL_TEST_NEVER | VRHI_STENCIL_OP_PASS_Z_REPLACE;
+
+        nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, front, back );
+
+        EXPECT_TRUE( ds.stencilEnable );
+        EXPECT_EQ( ds.frontFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Always );
+        EXPECT_EQ( ds.frontFaceStencil.passOp, nvrhi::StencilOp::Keep );
+
+        EXPECT_EQ( ds.backFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Never );
+        EXPECT_EQ( ds.backFaceStencil.passOp, nvrhi::StencilOp::Replace );
+    }
 }
 
 UTEST( RHI, Init )
