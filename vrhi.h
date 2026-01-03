@@ -98,7 +98,7 @@ extern std::atomic<int32_t> g_vhErrorCounter;
 
 // ------------ Device ------------
 
-// Initializes the Vulkan RHI and starts the backend command thread.
+// Initialises the Vulkan RHI and starts the backend command thread.
 //
 // Must be called before any other RHI functions. Uses |g_vhInit| for configuration.
 void vhInit( bool quiet = false );
@@ -349,7 +349,7 @@ void* vhGetTextureNvrhiHandle( vhTexture texture );
 // Vertex layouts are defines as standard strings.
 // Supported base types: float, half, int, uint, short, ushort, byte, ubyte
 // Supported suffixes: 2, 3, 4
-// Example: "float3 POSITION half4 NORMAL half4 TANGENT half4 BINORMAL half4 TEXCOORD half4 COLOR";
+// Example: "float3 POSITION half4 NORMAL half4 TANGENT half4 BINORMAL half4 TEXCOORD half4 COLOUR";
 //
 typedef std::string vhVertexLayout;
 
@@ -876,7 +876,7 @@ struct vhState
     }
     vhProgram GetProgram() const { return program; }
 
-    vhState& SetColorAttachment( uint32_t idx, vhTexture texture, uint32_t mipLevel = 0, uint32_t arrayLayer = 0, nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN, bool readOnly = false )
+    vhState& SetColourAttachment( uint32_t idx, vhTexture texture, uint32_t mipLevel = 0, uint32_t arrayLayer = 0, nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN, bool readOnly = false )
     {
         if ( idx >= colourAttachment.size() ) colourAttachment.resize( idx + 1 );
         colourAttachment[idx] = { texture, mipLevel, arrayLayer, formatOverride, readOnly };
@@ -890,9 +890,9 @@ struct vhState
         return *this;
     }
 
-    vhState& SetAttachments( const std::vector< RenderTarget >& colors, RenderTarget depth = {} )
+    vhState& SetAttachments( const std::vector< RenderTarget >& colours, RenderTarget depth = {} )
     {
-        colourAttachment = colors;
+        colourAttachment = colours;
         depthAttachment = depth;
         dirty |= VRHI_DIRTY_ATTACHMENTS;
         return *this;
@@ -970,7 +970,7 @@ void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data );
 // VIDL_GENERATE
 void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms );
 // VIDL_GENERATE
-void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colors, vhState::RenderTarget depth );
+void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colours, vhState::RenderTarget depth );
 
 // In header-only mode, we want definitions.
 #define VRHI_IMPL_DEFINITIONS

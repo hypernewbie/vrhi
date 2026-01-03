@@ -575,13 +575,13 @@ struct VIDL_vhCmdSetStateAttachments
     static constexpr uint64_t kMagic = 0xD3B53061;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::RenderTarget > colors;
+    const std::vector< vhState::RenderTarget > colours;
     vhState::RenderTarget depth;
 
     VIDL_vhCmdSetStateAttachments() = default;
 
-    VIDL_vhCmdSetStateAttachments(vhStateId _id, const std::vector< vhState::RenderTarget >& _colors, vhState::RenderTarget _depth)
-        : id(_id), colors(_colors), depth(_depth) {}
+    VIDL_vhCmdSetStateAttachments(vhStateId _id, const std::vector< vhState::RenderTarget >& _colours, vhState::RenderTarget _depth)
+        : id(_id), colours(_colours), depth(_depth) {}
 };
 
 struct VIDLHandler

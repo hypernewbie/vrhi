@@ -293,10 +293,10 @@ nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags )
     int8_t biasRaw = ( int8_t ) ( ( samplerFlags >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFF );
     desc.mipBias = ( float ) biasRaw / 16.0f;
 
-    // Border Color: 4-bit index
-    uint32_t borderColor = ( samplerFlags >> VRHI_SAMPLER_BORDER_COLOR_SHIFT ) & 0xF;
-    if ( borderColor == 0 ) desc.borderColor = nvrhi::Color( 0.f );
-    else if ( borderColor == 1 ) desc.borderColor = nvrhi::Color( 0.f, 0.f, 0.f, 1.f ); // Black
+    // Border Colour: 4-bit index
+    uint32_t borderColour = ( samplerFlags >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ) & 0xF;
+    if ( borderColour == 0 ) desc.borderColor = nvrhi::Color( 0.f );
+    else if ( borderColour == 1 ) desc.borderColor = nvrhi::Color( 0.f, 0.f, 0.f, 1.f ); // Black
     else desc.borderColor = nvrhi::Color( 1.f ); // Default White
 
     // Max Anisotropy: 3-bit index

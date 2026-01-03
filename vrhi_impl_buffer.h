@@ -67,7 +67,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
         while ( *ptr && isspace( *ptr ) ) ptr++;
         if ( !*ptr ) break; 
 
-        // 1. Extract Type Token
+        // Extract and validate type (e.g., "float3")
         const char* tStart = ptr;
         while ( *ptr && !isspace( *ptr ) ) ptr++;
         std::string typeStr(tStart, ptr);
@@ -105,7 +105,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
         while ( *ptr && isspace( *ptr ) ) ptr++;
         if ( !*ptr ) return false; // Unexpected end, missing semantic
 
-        // 2. Extract Semantic Token
+        // Extract semantic name and optional index (e.g., "TEXCOORD0")
         const char* sStart = ptr;
         while ( *ptr && !isspace( *ptr ) ) ptr++;
         std::string semanticFull(sStart, ptr);
