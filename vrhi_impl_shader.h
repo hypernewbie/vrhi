@@ -395,7 +395,7 @@ std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
     args += " -m ";
     args += smStr;
 
-    // Optimization
+    // Optimisation
     if ( flags & VRHI_SHADER_DEBUG )
     {
         args += " -O 0 --embedPDB";

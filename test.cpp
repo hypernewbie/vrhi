@@ -58,26 +58,26 @@ extern std::string vhGetDeviceInfo();
 extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
 extern bool vhRunExe( const std::string& command, std::string& outOutput );
 extern void vhPartialFillGraphicsPipelineDescFromState_Internal( uint64_t state, nvrhi::GraphicsPipelineDesc& desc );
-extern bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth );
+extern bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth );
 
 UTEST( ShaderInternal, StateToDesc )
 {
     nvrhi::GraphicsPipelineDesc desc;
     
-    // 1. Test Default (Depth Test Less, Write All, Cull CW)
+    // Test Default (Depth Test Less, Write All, Cull CW)
     vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_DEFAULT, desc );
     EXPECT_TRUE( desc.renderState.depthStencilState.depthTestEnable );
     EXPECT_EQ( desc.renderState.depthStencilState.depthFunc, nvrhi::ComparisonFunc::Less );
     EXPECT_TRUE( desc.renderState.depthStencilState.depthWriteEnable );
     EXPECT_EQ( desc.renderState.rasterState.cullMode, nvrhi::RasterCullMode::Back );
     
-    // 2. Test Blend Add
+    // Test Blend Add
     desc = nvrhi::GraphicsPipelineDesc(); // Reset
     vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_BLEND_ADD, desc );
     EXPECT_EQ( desc.renderState.blendState.targets[0].srcBlend, nvrhi::BlendFactor::One );
     EXPECT_EQ( desc.renderState.blendState.targets[0].destBlend, nvrhi::BlendFactor::One );
     
-    // 3. Test Primitive Topology
+    // Test Primitive Topology
     desc = nvrhi::GraphicsPipelineDesc();
     vhPartialFillGraphicsPipelineDescFromState_Internal( VRHI_STATE_PT_LINES, desc );
     EXPECT_EQ( desc.primType, nvrhi::PrimitiveType::LineList );
@@ -109,7 +109,7 @@ UTEST( RHI, Init )
 
     // Test GetInfo after shutdown
     info = vhGetDeviceInfo();
-    EXPECT_TRUE( info.find( "not initialized" ) != std::string::npos );
+    EXPECT_TRUE( info.find( "not initialised" ) != std::string::npos );
 }
 
 extern std::atomic<int32_t> g_vhErrorCounter;
@@ -132,7 +132,7 @@ UTEST( RHI, LogCallback )
         logs.push_back( msg );
     };
 
-    // We want logs here, so pass quiet=false explicitly.
+    // We want logs here; pass quiet=false explicitly.
     vhInit( false );
 
     // Verify we captured logs
@@ -462,11 +462,7 @@ UTEST( Texture, Readback )
         initialData
     );
 
-    // Initial data is freed by backend eventually, but we used new vhMem so the pointer is ours until passed
-    // Actually vhCreateTexture takes a pointer, we used helper vhAllocMem which does 'new', so it's a pointer.
-    // The previous code for CreateTexture2D takes const vhMem*.
-    // And Handle_vhCreateTexture uses BE_MemRAII. So it will be deleted.
-    // BUT wait, we want to VERIFY it. So we need a COPY of the data to compare against.
+    // Copy reference data before backend consumes it (needed for verification)
     
     std::vector<uint8_t> refData = *initialData; // Copy for verification
 
@@ -501,7 +497,7 @@ UTEST( Buffer, ValidateLayout )
     // Valid cases
     EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION" ) );
     EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION float2 TEXCOORD0" ) );
-    EXPECT_TRUE( vhValidateVertexLayout( "ubyte4 COLOR" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "ubyte4 COLOUR" ) );
     EXPECT_TRUE( vhValidateVertexLayout( "half2 TEXCOORD" ) );
     EXPECT_TRUE( vhValidateVertexLayout( "float POSITION" ) ); // Scalar
     EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION0 float3 NORMAL int4 BLENDINDICES float4 BLENDWEIGHTS" ) );
@@ -549,7 +545,7 @@ UTEST( Buffer, VertexLayoutInternals )
     // Test 2: Complex Logic
     {
         std::vector< vhVertexLayoutDef > defs;
-        bool res = vhParseVertexLayoutInternal( "float3 POSITION float2 TEXCOORD0 ubyte4 COLOR", defs );
+        bool res = vhParseVertexLayoutInternal( "float3 POSITION float2 TEXCOORD0 ubyte4 COLOUR", defs );
         EXPECT_TRUE( res );
         EXPECT_EQ( defs.size(), 3 );
         
@@ -564,7 +560,7 @@ UTEST( Buffer, VertexLayoutInternals )
         
         // ubyte4 COLOR (4 bytes) -> offset 20
         EXPECT_EQ( defs[2].offset, 20 );
-        EXPECT_STREQ( defs[2].semantic.c_str(), "COLOR" );
+        EXPECT_STREQ( defs[2].semantic.c_str(), "COLOUR" );
         
         // Total Stride = 24
         EXPECT_EQ( vhVertexLayoutDefSize( defs ), 24 );
@@ -633,25 +629,25 @@ UTEST( Buffer, UpdateSafety )
     vhFlush(); // Ensure clean state from previous tests
     int32_t startErrors = g_vhErrorCounter.load();
 
-    // 1. Invalid Handle
+    // Invalid Handle
     vhUpdateVertexBuffer( VRHI_INVALID_HANDLE, nullptr, 0 );
     vhFlush();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
-    // 2. Non-existent Buffer
+    // Non-existent Buffer
     vhUpdateVertexBuffer( 0xDEADC0DE, nullptr, 0 );
     vhFlush();
     EXPECT_GT( g_vhErrorCounter.load(), startErrors );
     startErrors = g_vhErrorCounter.load();
 
-    // 3. Null Data ( should error )
+    // Null Data ( should error )
     vhBuffer buf = vhAllocBuffer();
     vhCreateVertexBuffer( buf, "NullDataTest", vhAllocMem( 1024 ), "float3 POSITION" );
     vhUpdateVertexBuffer( buf, nullptr, 0 );
     vhFlush();
     EXPECT_GT( g_vhErrorCounter.load(), startErrors );
 
-    // 4. Destroyed Buffer
+    // Destroyed Buffer
     vhDestroyBuffer( buf );
     vhFlush();
     vhUpdateVertexBuffer( buf, vhAllocMem( 100 ), 0 );
@@ -887,7 +883,7 @@ UTEST( Sampler, MaskNonOverlap )
     EXPECT_EQ( VRHI_SAMPLER_W_MASK & VRHI_SAMPLER_MIP_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_W_MASK & VRHI_SAMPLER_COMPARE_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_W_MASK & VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_W_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_W_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_W_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_W_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
@@ -895,14 +891,14 @@ UTEST( Sampler, MaskNonOverlap )
     EXPECT_EQ( VRHI_SAMPLER_MIN_MASK & VRHI_SAMPLER_MIP_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIN_MASK & VRHI_SAMPLER_COMPARE_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIN_MASK & VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_MIN_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_MIN_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIN_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MIN_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
     EXPECT_EQ( VRHI_SAMPLER_MAG_MASK & VRHI_SAMPLER_MIP_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MAG_MASK & VRHI_SAMPLER_COMPARE_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MAG_MASK & VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_MAG_MASK & VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_MAG_MASK & VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MAG_MASK & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( VRHI_SAMPLER_MAG_MASK & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, 0u );
 
@@ -1017,9 +1013,9 @@ UTEST( Sampler, ShiftAlignment )
     EXPECT_EQ( VRHI_SAMPLER_MIPBIAS_SHIFT, 16 );
     EXPECT_EQ( VRHI_SAMPLER_MIPBIAS_MASK, 0xFFu << VRHI_SAMPLER_MIPBIAS_SHIFT );
 
-    // Border Color: bits 24-27
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOR_SHIFT, 24 );
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOR_MASK, 0xFu << VRHI_SAMPLER_BORDER_COLOR_SHIFT );
+    // Border Colour: bits 24-27
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR_SHIFT, 24 );
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR_MASK, 0xFu << VRHI_SAMPLER_BORDER_COLOUR_SHIFT );
 
     // Sample Stencil: bit 28
     EXPECT_EQ( VRHI_SAMPLER_SAMPLE_STENCIL, 1u << 28 );
@@ -1130,20 +1126,20 @@ UTEST( Sampler, MipBiasMacro )
     EXPECT_EQ( negBias, -16 );
 }
 
-UTEST( Sampler, BorderColorMacro )
+UTEST( Sampler, BorderColourMacro )
 {
-    // Color index 0
-    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOR(0) >> VRHI_SAMPLER_BORDER_COLOR_SHIFT ), 0u );
+    // Colour index 0
+    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR(0) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 0u );
 
-    // Color index 1
-    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOR(1) >> VRHI_SAMPLER_BORDER_COLOR_SHIFT ), 1u );
+    // Colour index 1
+    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR(1) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 1u );
 
-    // Max valid color index (15)
-    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOR(15) >> VRHI_SAMPLER_BORDER_COLOR_SHIFT ), 15u );
+    // Max valid colour index (15)
+    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR(15) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 15u );
 
     // Values fit within mask
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOR(0) & ~VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOR(15) & ~VRHI_SAMPLER_BORDER_COLOR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR(0) & ~VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR(15) & ~VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
 }
 
 UTEST( Sampler, MaxAnisotropyMacro )
@@ -1172,7 +1168,7 @@ UTEST( Sampler, BitsMaskCoverage )
         VRHI_SAMPLER_MIP_MASK |
         VRHI_SAMPLER_COMPARE_MASK |
         VRHI_SAMPLER_MIPBIAS_MASK |
-        VRHI_SAMPLER_BORDER_COLOR_MASK |
+        VRHI_SAMPLER_BORDER_COLOUR_MASK |
         VRHI_SAMPLER_SAMPLE_STENCIL |
         VRHI_SAMPLER_MAX_ANISOTROPY_MASK;
 
@@ -1194,7 +1190,7 @@ UTEST( Sampler, CombinedFlagExtraction )
         VRHI_SAMPLER_MIP_POINT |
         VRHI_SAMPLER_COMPARE_LEQUAL |
         VRHI_SAMPLER_MIPBIAS(1.5f) |
-        VRHI_SAMPLER_BORDER_COLOR(5) |
+        VRHI_SAMPLER_BORDER_COLOUR(5) |
         VRHI_SAMPLER_SAMPLE_STENCIL |
         VRHI_SAMPLER_ANISOTROPY_8;
 
@@ -1206,7 +1202,7 @@ UTEST( Sampler, CombinedFlagExtraction )
     EXPECT_EQ( samplerFlags & VRHI_SAMPLER_MAG_MASK, VRHI_SAMPLER_MAG_LINEAR );
     EXPECT_EQ( samplerFlags & VRHI_SAMPLER_MIP_MASK, VRHI_SAMPLER_MIP_POINT );
     EXPECT_EQ( samplerFlags & VRHI_SAMPLER_COMPARE_MASK, VRHI_SAMPLER_COMPARE_LEQUAL );
-    EXPECT_EQ( ( samplerFlags & VRHI_SAMPLER_BORDER_COLOR_MASK ) >> VRHI_SAMPLER_BORDER_COLOR_SHIFT, 5u );
+    EXPECT_EQ( ( samplerFlags & VRHI_SAMPLER_BORDER_COLOUR_MASK ) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT, 5u );
     EXPECT_NE( samplerFlags & VRHI_SAMPLER_SAMPLE_STENCIL, 0u );
     EXPECT_EQ( samplerFlags & VRHI_SAMPLER_MAX_ANISOTROPY_MASK, VRHI_SAMPLER_ANISOTROPY_8 );
 }
@@ -1219,17 +1215,17 @@ UTEST( Backend, FramebufferCaching )
         g_testInit = true;
     }
 
-    vhTexture color = vhAllocTexture();
+    vhTexture colour = vhAllocTexture();
     vhTexture depth = vhAllocTexture();
 
-    vhCreateTexture2D( color, glm::ivec2( 128, 128 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    vhCreateTexture2D( colour, glm::ivec2( 128, 128 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
     vhCreateTexture2D( depth, glm::ivec2( 128, 128 ), 2, nvrhi::Format::D24S8, VRHI_TEXTURE_RT );
     vhFinish();
 
     // Verify caching/deduplication
-    EXPECT_TRUE( vhBackend_UNITTEST_GetFrameBuffer( { color }, depth ) );
+    EXPECT_TRUE( vhBackend_UNITTEST_GetFrameBuffer( { colour }, depth ) );
 
-    vhDestroyTexture( color );
+    vhDestroyTexture( colour );
     vhDestroyTexture( depth );
     vhFinish();
 }
@@ -1328,12 +1324,12 @@ UTEST( Texture, BlitStress )
         vhTexture src = vhAllocTexture();
         vhTexture dst = vhAllocTexture();
 
-        // Background Color (all 0x55)
+        // Background Colour (all 0x55)
         vhMem* bgData = vhAllocMem( dataSize );
         std::fill( bgData->begin(), bgData->end(), 0x55 );
         vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, bgData );
 
-        // Foreground Color (all 0xAA)
+        // Foreground Colour (all 0xAA)
         vhMem* fgData = vhAllocMem( dataSize );
         std::fill( fgData->begin(), fgData->end(), 0xAA );
         vhCreateTexture2D( src, glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, fgData );
@@ -1498,7 +1494,7 @@ UTEST( Buffer, Flags_Resize )
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
-    // 1. Success case: ALLOW_RESIZE
+    // Success case: ALLOW_RESIZE
     vhBuffer bResize = vhAllocBuffer();
     vhCreateVertexBuffer( bResize, "AllowResize", vhAllocMem( 64 ), "float3 POSITION", 0, VRHI_BUFFER_ALLOW_RESIZE );
 
@@ -1507,7 +1503,7 @@ UTEST( Buffer, Flags_Resize )
     vhFlush();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
-    // 2. Failure case: No ALLOW_RESIZE
+    // Failure case: No ALLOW_RESIZE
     vhBuffer bNoResize = vhAllocBuffer();
     vhCreateVertexBuffer( bNoResize, "NoResize", vhAllocMem( 64 ), "float3 POSITION", 0, VRHI_BUFFER_NONE );
 
@@ -1802,13 +1798,13 @@ UTEST( Buffer, NumVerts_CreateResize )
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
-    // 1. Create Uninitialized
+    // Create Uninitialised
     vhBuffer buf = vhAllocBuffer();
     vhCreateVertexBuffer( buf, "UninitCreate", nullptr, "float3 POSITION", 100, VRHI_BUFFER_ALLOW_RESIZE );
     vhFlush();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
-    // 2. Resize via numVerts
+    // Resize via numVerts
     vhUpdateVertexBuffer( buf, nullptr, 0, 200 );
     vhFlush();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
@@ -1917,19 +1913,19 @@ UTEST( IndexBuffer, Resize_And_Uninit )
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
-    // 1. Uninitialized Creation with Resize
+    // Uninitialised Creation with Resize
     vhBuffer buf = vhAllocBuffer();
     vhCreateIndexBuffer( buf, "ResizeTest", nullptr, 100, VRHI_BUFFER_ALLOW_RESIZE | VRHI_BUFFER_INDEX32 );
     vhFlush();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
-    // 2. Resize via Update
+    // Resize via Update
     // Increasing size to 200 indices (32-bit)
     vhUpdateIndexBuffer( buf, nullptr, 0, 200 );
     vhFlush();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
-    // 3. Validation: Resize without flag
+    // Validation: Resize without flag
     vhBuffer bufFixed = vhAllocBuffer();
     vhCreateIndexBuffer( bufFixed, "FixedTest", nullptr, 100, VRHI_BUFFER_INDEX32 ); // No resize flag
     vhFlush();
@@ -2395,11 +2391,11 @@ UTEST( State, Attachments )
     rt.texture = 101;
     rt.mipLevel = 1;
     
-    std::vector< vhState::RenderTarget > colors = { rt };
+    std::vector< vhState::RenderTarget > colours = { rt };
     vhState::RenderTarget depth;
     depth.texture = 201;
     
-    state.SetAttachments( colors, depth );
+    state.SetAttachments( colours, depth );
     
     vhStateId id = 500;
     ASSERT_TRUE( vhSetState( id, state ) );
@@ -2647,7 +2643,7 @@ UTEST( State, IndividualAttachments )
     vhState state;
     
     // Set color attachment at index 2 (forces resize)
-    state.SetColorAttachment( 2, 101, 1, 2, nvrhi::Format::RGBA8_UNORM, true );
+    state.SetColourAttachment( 2, 101, 1, 2, nvrhi::Format::RGBA8_UNORM, true );
     
     EXPECT_EQ( state.colourAttachment.size(), 3u );
     EXPECT_EQ( state.colourAttachment[2].texture, 101u );
@@ -2679,6 +2675,60 @@ UTEST( State, DebugFlags )
     vhState retrieved = {};
     ASSERT_TRUE( vhGetState( id, retrieved ) );
     EXPECT_EQ( retrieved.debugFlags, VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
+}
+
+UTEST( Device, DummyResources )
+{
+    vhInitDummyResources();
+
+    // Test Buffer Retrieval
+    nvrhi::BindingLayoutItem bufferItem = {};
+    bufferItem.slot = 0;
+    
+    // Constant Buffer
+    bufferItem.type = nvrhi::ResourceType::ConstantBuffer;
+    auto cb = vhGetDummyBindingItem( bufferItem );
+    EXPECT_EQ( cb.type, nvrhi::ResourceType::ConstantBuffer );
+    EXPECT_NE( cb.resourceHandle, nullptr );
+
+    // Structured Buffer SRV
+    bufferItem.type = nvrhi::ResourceType::StructuredBuffer_SRV;
+    auto sbSrv = vhGetDummyBindingItem( bufferItem );
+    EXPECT_EQ( sbSrv.type, nvrhi::ResourceType::StructuredBuffer_SRV );
+    EXPECT_NE( sbSrv.resourceHandle, nullptr );
+    // Check that it returns the same omni-buffer
+    EXPECT_EQ( cb.resourceHandle, sbSrv.resourceHandle );
+
+    // Test Texture Retrieval
+    nvrhi::BindingLayoutItem texItem = {};
+    texItem.slot = 1;
+
+    // Float 2D SRV
+    texItem.type = nvrhi::ResourceType::Texture_SRV;
+    auto texFloat2D = vhGetDummyBindingItem( texItem, nvrhi::Format::RGBA8_UNORM, nvrhi::TextureDimension::Texture2D );
+    EXPECT_EQ( texFloat2D.type, nvrhi::ResourceType::Texture_SRV );
+    EXPECT_NE( texFloat2D.resourceHandle, nullptr );
+    EXPECT_EQ( texFloat2D.format, nvrhi::Format::RGBA8_UNORM );
+
+    // Uint 2D SRV
+    auto texUint2D = vhGetDummyBindingItem( texItem, nvrhi::Format::R8_UINT, nvrhi::TextureDimension::Texture2D );
+    EXPECT_NE( texUint2D.resourceHandle, nullptr );
+    // Ensure we got a different texture handle (or at least valid check, though strictly they might be different objects)
+    EXPECT_NE( texFloat2D.resourceHandle, texUint2D.resourceHandle );
+
+    // 3D Texture Fallback
+    auto tex3D = vhGetDummyBindingItem( texItem, nvrhi::Format::RGBA8_UNORM, nvrhi::TextureDimension::Texture3D );
+    EXPECT_NE( tex3D.resourceHandle, nullptr );
+    
+    // Test Sampler Retrieval
+    nvrhi::BindingLayoutItem samplerItem = {};
+    samplerItem.slot = 2;
+    samplerItem.type = nvrhi::ResourceType::Sampler;
+    auto samp = vhGetDummyBindingItem( samplerItem );
+    EXPECT_EQ( samp.type, nvrhi::ResourceType::Sampler );
+    EXPECT_NE( samp.resourceHandle, nullptr );
+
+    vhShutdownDummyResources();
 }
 
 UTEST_STATE();

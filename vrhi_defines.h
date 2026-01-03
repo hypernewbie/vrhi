@@ -31,7 +31,7 @@
 
 #define VRHI_SHADER_SM_5_0              ( 1 << 4 )
 #define VRHI_SHADER_SM_6_0              ( 2 << 4 )
-#define VRHI_SHADER_SM_6_5              ( 3 << 4 ) // Default behavior if 0
+#define VRHI_SHADER_SM_6_5              ( 3 << 4 ) // Default behaviour if 0
 #define VRHI_SHADER_SM_6_6              ( 4 << 4 )
 #define VRHI_SHADER_SM_MASK             0xF0
 
@@ -39,7 +39,7 @@
 #define VRHI_SHADER_ROW_MAJOR           ( 1ULL << 9 )   // -matrix-layout-row-major
 #define VRHI_SHADER_WARNINGS_AS_ERRORS  ( 1ULL << 10 )  // -warnings-as-errors
 #define VRHI_SHADER_STRIP_REFLECTION    ( 1ULL << 11 )  // --stripReflection. Good for release builds to reduce binary size.
-#define VRHI_SHADER_ALL_RESOURCES_BOUND ( 1ULL << 12 )  // --allResourcesBound. Optimization hint for the compiler.
+#define VRHI_SHADER_ALL_RESOURCES_BOUND ( 1ULL << 12 )  // --allResourcesBound. Optimisation hint for the compiler.
 
 // src: bgfx
 
@@ -123,10 +123,10 @@
 #define VRHI_SAMPLER_MIPBIAS_MASK                 UINT32_C(0x00ff0000)
 #define VRHI_SAMPLER_MIPBIAS(v) ( ( (uint32_t)((v)*16.0f) << VRHI_SAMPLER_MIPBIAS_SHIFT )&VRHI_SAMPLER_MIPBIAS_MASK)
 
-#define VRHI_SAMPLER_BORDER_COLOR_SHIFT           24
+#define VRHI_SAMPLER_BORDER_COLOUR_SHIFT           24
 
-#define VRHI_SAMPLER_BORDER_COLOR_MASK            UINT32_C(0x0f000000)
-#define VRHI_SAMPLER_BORDER_COLOR(v) ( ( (uint32_t)(v)<<VRHI_SAMPLER_BORDER_COLOR_SHIFT )&VRHI_SAMPLER_BORDER_COLOR_MASK)
+#define VRHI_SAMPLER_BORDER_COLOUR_MASK            UINT32_C(0x0f000000)
+#define VRHI_SAMPLER_BORDER_COLOUR(v) ( ( (uint32_t)(v)<<VRHI_SAMPLER_BORDER_COLOUR_SHIFT )&VRHI_SAMPLER_BORDER_COLOUR_MASK)
 
 #define VRHI_SAMPLER_SAMPLE_STENCIL               UINT32_C(0x10000000) //!< Sample stencil instead of depth.
 
@@ -180,7 +180,7 @@
 	| VRHI_SAMPLER_MIP_MASK \
 	| VRHI_SAMPLER_COMPARE_MASK \
 	| VRHI_SAMPLER_MIPBIAS_MASK \
-	| VRHI_SAMPLER_BORDER_COLOR_MASK \
+	| VRHI_SAMPLER_BORDER_COLOUR_MASK \
 	| VRHI_SAMPLER_SAMPLE_STENCIL \
 	| VRHI_SAMPLER_MAX_ANISOTROPY_MASK \
 	)
@@ -188,7 +188,7 @@
 // --- STATE ---
 
 /**
-* Color RGB/alpha/depth write. When it's not specified write will be disabled.
+* Colour RGB/alpha/depth write. When it's not specified write will be disabled.
 *
 */
 #define VRHI_STATE_WRITE_R                        UINT64_C(0x0000000000000001) //!< Enable R write.
@@ -233,14 +233,14 @@
 */
 #define VRHI_STATE_BLEND_ZERO                     UINT64_C(0x0000000000001000) //!< 0, 0, 0, 0
 #define VRHI_STATE_BLEND_ONE                      UINT64_C(0x0000000000002000) //!< 1, 1, 1, 1
-#define VRHI_STATE_BLEND_SRC_COLOR                UINT64_C(0x0000000000003000) //!< Rs, Gs, Bs, As
-#define VRHI_STATE_BLEND_INV_SRC_COLOR            UINT64_C(0x0000000000004000) //!< 1-Rs, 1-Gs, 1-Bs, 1-As
+#define VRHI_STATE_BLEND_SRC_COLOUR               UINT64_C(0x0000000000003000) //!< Rs, Gs, Bs, As
+#define VRHI_STATE_BLEND_INV_SRC_COLOUR           UINT64_C(0x0000000000004000) //!< 1-Rs, 1-Gs, 1-Bs, 1-As
 #define VRHI_STATE_BLEND_SRC_ALPHA                UINT64_C(0x0000000000005000) //!< As, As, As, As
 #define VRHI_STATE_BLEND_INV_SRC_ALPHA            UINT64_C(0x0000000000006000) //!< 1-As, 1-As, 1-As, 1-As
 #define VRHI_STATE_BLEND_DST_ALPHA                UINT64_C(0x0000000000007000) //!< Ad, Ad, Ad, Ad
 #define VRHI_STATE_BLEND_INV_DST_ALPHA            UINT64_C(0x0000000000008000) //!< 1-Ad, 1-Ad, 1-Ad ,1-Ad
-#define VRHI_STATE_BLEND_DST_COLOR                UINT64_C(0x0000000000009000) //!< Rd, Gd, Bd, Ad
-#define VRHI_STATE_BLEND_INV_DST_COLOR            UINT64_C(0x000000000000a000) //!< 1-Rd, 1-Gd, 1-Bd, 1-Ad
+#define VRHI_STATE_BLEND_DST_COLOUR               UINT64_C(0x0000000000009000) //!< Rd, Gd, Bd, Ad
+#define VRHI_STATE_BLEND_INV_DST_COLOUR           UINT64_C(0x000000000000a000) //!< 1-Rd, 1-Gd, 1-Bd, 1-Ad
 #define VRHI_STATE_BLEND_SRC_ALPHA_SAT            UINT64_C(0x000000000000b000) //!< f, f, f, 1; f = min(As, 1-Ad)
 #define VRHI_STATE_BLEND_FACTOR                   UINT64_C(0x000000000000c000) //!< Blend factor
 #define VRHI_STATE_BLEND_INV_FACTOR               UINT64_C(0x000000000000d000) //!< 1-Blend factor
@@ -347,21 +347,21 @@
 	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_SRC_ALPHA, VRHI_STATE_BLEND_INV_SRC_ALPHA) \
 	)
 
-/// Selects darker color of blend.
+/// Selects darker colour of blend.
 #define VRHI_STATE_BLEND_DARKEN (0                                      \
 	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE) \
 	| VRHI_STATE_BLEND_EQUATION(VRHI_STATE_BLEND_EQUATION_MIN)          \
 	)
 
-/// Selects lighter color of blend.
+/// Selects lighter colour of blend.
 #define VRHI_STATE_BLEND_LIGHTEN (0                                     \
 	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE) \
 	| VRHI_STATE_BLEND_EQUATION(VRHI_STATE_BLEND_EQUATION_MAX)          \
 	)
 
-/// Multiplies colors.
+/// Multiplies colours.
 #define VRHI_STATE_BLEND_MULTIPLY (0                                           \
-	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_DST_COLOR, VRHI_STATE_BLEND_ZERO) \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO) \
 	)
 
 /// Opaque pixels will cover the pixels directly below them without any math or algorithm applied to them.
@@ -369,14 +369,14 @@
 	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_INV_SRC_ALPHA) \
 	)
 
-/// Multiplies the inverse of the blend and base colors.
+/// Multiplies the inverse of the blend and base colours.
 #define VRHI_STATE_BLEND_SCREEN (0                                                \
-	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_INV_SRC_COLOR) \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_INV_SRC_COLOUR) \
 	)
 
-/// Decreases the brightness of the base color based on the value of the blend color.
+/// Decreases the brightness of the base colour based on the value of the blend colour.
 #define VRHI_STATE_BLEND_LINEAR_BURN (0                                                 \
-	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_DST_COLOR, VRHI_STATE_BLEND_INV_DST_COLOR) \
+	| VRHI_STATE_BLEND_FUNC(VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_INV_DST_COLOUR) \
 	| VRHI_STATE_BLEND_EQUATION(VRHI_STATE_BLEND_EQUATION_SUB)                          \
 	)
 

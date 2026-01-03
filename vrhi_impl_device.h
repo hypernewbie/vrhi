@@ -77,7 +77,7 @@ void vhInit( bool quiet )
         return;
     }
 
-    // 1. Create VkInstance (via vk-bootstrap)
+    // Create VkInstance (via vk-bootstrap)
 
     if ( !quiet ) VRHI_LOG( "    Creating VK Instance (via vk-bootstrap)\n" );
     vkb::InstanceBuilder instBuilder;
@@ -103,7 +103,7 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "    Initialising vulkan.hpp dynamic dispatcher with instance functions\n" );
     VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr );
 
-    // 2. Physical Device Selection (via vk-bootstrap)
+    // Physical Device Selection (via vk-bootstrap)
 
     if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
     vkb::PhysicalDeviceSelector selector( vkbInst );
@@ -143,7 +143,7 @@ void vhInit( bool quiet )
     g_vulkanPhysicalDevice = vkbPhys.physical_device;
     if ( !quiet ) VRHI_LOG( "    Selected GPU Device: %s\n", vkbPhys.name.c_str() );
 
-    // 3. Device Creation & Queues (via vk-bootstrap)
+    // Device Creation & Queues (via vk-bootstrap)
 
     bool rtExtEnabled = false;
     if ( g_vhInit.raytracing )
@@ -246,7 +246,7 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "    Selected VK Queues: Graphics %d, Compute %d, Transfer %d\n", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
     if ( !quiet ) VRHI_LOG( "    Created VK Logical Device.\n" );
 
-    // 4. NVRHI Handover
+    // NVRHI Handover
 
     if ( !quiet ) VRHI_LOG( "    Linking to nvRHI .... \n" );
 
@@ -282,7 +282,9 @@ void vhInit( bool quiet )
         g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
     }
 
-    // 5. Create RHI Command Buffer Thread
+    vhInitDummyResources();
+
+    // Create RHI Command Buffer Thread
     if ( !quiet ) VRHI_LOG( "    Creating RHI Thread...\n" );
 
     vhBackendInit();
@@ -430,3 +432,153 @@ void vhFinish()
         std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
     }
 }
+
+// -------------------------------------------------------- Dummy Resources --------------------------------------------------------
+
+static nvrhi::BufferHandle s_vhDummyOmniBuffer;
+static nvrhi::SamplerHandle s_vhDummySampler;
+static nvrhi::TextureHandle s_vhDummyTextures[10][3]; // [Dim][Float/UInt/SInt] - 10 texture dimensions
+
+void vhInitDummyResources()
+{
+    // Ensure we have a device
+    if ( !g_vhDevice ) return;
+    
+    // Check if already initialised
+    if ( s_vhDummyOmniBuffer ) return;
+
+    VRHI_LOG( "    Initialising dummy resources...\n" );
+
+    nvrhi::CommandListHandle cl = g_vhDevice->createCommandList();
+    cl->open();
+
+    // Create The Omni-Buffer
+    nvrhi::BufferDesc bDesc;
+    bDesc.byteSize = 4096;
+    bDesc.structStride = 4;
+    bDesc.debugName = "DummyOmniBuffer";
+    bDesc.isConstantBuffer = true;
+    bDesc.isVolatile = false; 
+    bDesc.canHaveUAVs = true;
+    bDesc.canHaveTypedViews = true;
+    bDesc.canHaveRawViews = true;
+    bDesc.format = nvrhi::Format::R32_FLOAT;
+    bDesc.initialState = nvrhi::ResourceStates::Common;
+    bDesc.keepInitialState = true;
+    
+    s_vhDummyOmniBuffer = g_vhDevice->createBuffer( bDesc );
+    cl->clearBufferUInt( s_vhDummyOmniBuffer, 0 );
+
+    // Create Texture Permutations
+    std::vector< nvrhi::TextureDimension > dims =
+    {
+        nvrhi::TextureDimension::Texture2D,
+        nvrhi::TextureDimension::Texture2DArray,
+        nvrhi::TextureDimension::Texture3D,
+        nvrhi::TextureDimension::TextureCube,
+        nvrhi::TextureDimension::TextureCubeArray
+    };
+
+    for ( auto dim : dims )
+    {
+        for ( int i = 0; i < 3; ++i )
+        {
+            nvrhi::TextureDesc tDesc;
+            tDesc.dimension = dim;
+            tDesc.width = 1;
+            tDesc.height = 1;
+            tDesc.depth = ( dim == nvrhi::TextureDimension::Texture3D ) ? 1 : 1;
+            tDesc.arraySize = 1; // NVRHI expands this to 6 for Cubes automatically
+            tDesc.mipLevels = 1;
+            tDesc.isShaderResource = true;
+            tDesc.isUAV = true;
+            tDesc.initialState = nvrhi::ResourceStates::Common;
+            tDesc.keepInitialState = true;
+            tDesc.debugName = "DummyTexture";
+
+            // Select Format
+            if ( i == 0 ) tDesc.format = nvrhi::Format::RGBA8_UNORM;      // Float
+            else if ( i == 1 ) tDesc.format = nvrhi::Format::R8_UINT;     // UInt
+            else if ( i == 2 ) tDesc.format = nvrhi::Format::R8_SINT;     // SInt
+
+            nvrhi::TextureHandle handle = g_vhDevice->createTexture( tDesc );
+            s_vhDummyTextures[( int )dim][i] = handle;
+
+            // Clear
+            nvrhi::Color clearColour( 0.f );
+            cl->clearTextureFloat( handle, nvrhi::AllSubresources, clearColour );
+        }
+    }
+
+    // Create Sampler
+    nvrhi::SamplerDesc sDesc;
+    sDesc.addressU = sDesc.addressV = sDesc.addressW = nvrhi::SamplerAddressMode::Clamp;
+    s_vhDummySampler = g_vhDevice->createSampler( sDesc );
+
+    cl->close();
+    g_vhDevice->executeCommandList( cl );
+}
+
+void vhShutdownDummyResources()
+{
+    s_vhDummyOmniBuffer = nullptr;
+    s_vhDummySampler = nullptr;
+    nvrhi::TextureHandle* texArray = &s_vhDummyTextures[0][0];
+    for ( int i = 0; i < 10 * 3; ++i )
+    {
+        texArray[i] = nullptr;
+    }
+}
+
+nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& layoutItem, nvrhi::Format expectedFormat, nvrhi::TextureDimension expectedDim )
+{
+    using namespace nvrhi;
+
+    // Buffer Fallback (OmniBuffer covers all)
+    if ( layoutItem.type == ResourceType::ConstantBuffer || layoutItem.type == ResourceType::VolatileConstantBuffer )
+        return BindingSetItem::ConstantBuffer( layoutItem.slot, s_vhDummyOmniBuffer );
+    
+    if ( layoutItem.type == ResourceType::StructuredBuffer_SRV )
+        return BindingSetItem::StructuredBuffer_SRV( layoutItem.slot, s_vhDummyOmniBuffer );
+    if ( layoutItem.type == ResourceType::StructuredBuffer_UAV )
+        return BindingSetItem::StructuredBuffer_UAV( layoutItem.slot, s_vhDummyOmniBuffer );
+    if ( layoutItem.type == ResourceType::RawBuffer_SRV )
+        return BindingSetItem::RawBuffer_SRV( layoutItem.slot, s_vhDummyOmniBuffer );
+    if ( layoutItem.type == ResourceType::RawBuffer_UAV )
+        return BindingSetItem::RawBuffer_UAV( layoutItem.slot, s_vhDummyOmniBuffer );
+    
+    // Use expectedFormat so the View is created with the correct Type
+    if ( layoutItem.type == ResourceType::TypedBuffer_SRV )
+        return BindingSetItem::TypedBuffer_SRV( layoutItem.slot, s_vhDummyOmniBuffer, expectedFormat );
+    if ( layoutItem.type == ResourceType::TypedBuffer_UAV )
+        return BindingSetItem::TypedBuffer_UAV( layoutItem.slot, s_vhDummyOmniBuffer, expectedFormat );
+
+    // Sampler Fallback
+    if ( layoutItem.type == ResourceType::Sampler )
+        return BindingSetItem::Sampler( layoutItem.slot, s_vhDummySampler );
+
+    // Texture Fallback
+    if ( layoutItem.type == ResourceType::Texture_SRV || layoutItem.type == ResourceType::Texture_UAV )
+    {
+        // Determine Format Mode
+        int mode = 0; // Float
+        const auto& fmtInfo = getFormatInfo( expectedFormat );
+        if ( fmtInfo.kind == FormatKind::Integer )
+        {
+            mode = fmtInfo.isSigned ? 2 : 1; // SInt : UInt
+        }
+
+        // Look up the texture
+        if ( expectedDim == TextureDimension::Unknown ) expectedDim = TextureDimension::Texture2D;
+        nvrhi::TextureHandle tex = s_vhDummyTextures[( int )expectedDim][mode];
+        if ( !tex ) tex = s_vhDummyTextures[( int )TextureDimension::Texture2D][mode]; // Fallback
+
+        if ( layoutItem.type == ResourceType::Texture_SRV )
+            return BindingSetItem::Texture_SRV( layoutItem.slot, tex, expectedFormat ); 
+        else
+            return BindingSetItem::Texture_UAV( layoutItem.slot, tex, expectedFormat );
+    }
+
+    return BindingSetItem::None( layoutItem.slot );
+}
+

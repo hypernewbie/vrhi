@@ -346,14 +346,14 @@ struct vhCmdBackendState : public VIDLHandler
         }
     }
 
-    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth, int mip = 0, int layer = 0 )
+    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth, int mip = 0, int layer = 0 )
     {
         // TODO: THIS IS UNTESTED!! Use this at graphics render time in future.
         
         // Combine all inputs into a hash key
         uint64_t hashInput[32]; // Enough for color attachments + depth + mip/layer
         int i = 0;
-        for ( auto c : colors ) hashInput[i++] = ( uint64_t ) c;
+        for ( auto c : colours ) hashInput[i++] = ( uint64_t ) c;
         hashInput[i++] = ( uint64_t ) depth;
         hashInput[i++] = ( uint32_t ) mip | ( ( uint32_t ) layer << 16 );
         
@@ -362,7 +362,7 @@ struct vhCmdBackendState : public VIDLHandler
         if ( backendFramebuffers.find( key ) == backendFramebuffers.end() )
         {
             nvrhi::FramebufferDesc desc;
-            for ( auto texture : colors )
+            for ( auto texture : colours )
             {
                 auto it = backendTextures.find( texture );
                 if ( it != backendTextures.end() && it->second->handle )
@@ -405,6 +405,8 @@ struct vhCmdBackendState : public VIDLHandler
         assert( shaders && shaderCount > 0 );
         bool matchedAny = false;
         bool complete = true;
+        static std::unordered_map< uint32_t, bool > slotBindingFilled;
+        slotBindingFilled.clear();
 
         auto fnShaderStageMatches = [&]( uint64_t flags ) -> bool
         {
@@ -452,14 +454,13 @@ struct vhCmdBackendState : public VIDLHandler
                     // Empty slots are OK, we just ignore them.
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS )
                     {
-                        VRHI_LOG( "vhSetState() : Missing binding for texture %u! (Disable VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS to remove this warning).\n", texture.texture );
+                        VRHI_ERR( "vhSetState() : Missing binding for texture %u! (Disable VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS to remove this warning).\n", texture.texture );
                     }
                     continue;
                 }
-
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
                 {
-                    VRHI_LOG( "vhSetState() : Binding texture %u to slot %d.\n", texture.texture, slot );
+                    VRHI_ERR( "vhSetState() : Binding texture %u to slot %d.\n", texture.texture, slot );
                 }
 
                 bsetDesc.addItem(
@@ -467,6 +468,20 @@ struct vhCmdBackendState : public VIDLHandler
                     nvrhi::BindingSetItem::Texture_UAV( slot, btex.handle, texture.formatOverride, texture.subresources, texture.dimensionOverride ) :
                     nvrhi::BindingSetItem::Texture_SRV( slot, btex.handle, texture.formatOverride, texture.subresources, texture.dimensionOverride )
                 );
+                slotBindingFilled[slot] = true;
+            }
+
+            // Iterate layout and fill any empty slots with dummy bindings.
+            for ( const auto& binding : shader.layoutDesc.bindings )
+            {
+                if ( slotBindingFilled.find( binding.slot ) != slotBindingFilled.end() )
+                    continue;
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS )
+                {
+                    VRHI_ERR( "vhSetState() : Missing binding for slot %d! Binding dummy resource. (Disable VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS to remove this warning).\n", binding.slot );
+                }
+                // TODO: Dummy resource support.
+                assert( !"Unimplemented!" );
             }
 
             // Create Binding Set.
@@ -479,7 +494,7 @@ struct vhCmdBackendState : public VIDLHandler
             {
                 VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %u!\n", shader.handle );
                 complete = false;
-                continue;
+                break;
             }
 
             if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );

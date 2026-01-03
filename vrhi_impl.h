@@ -148,6 +148,12 @@ void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::v
 void* vhBackendQueryShaderHandle( vhShader shader );
 bool vhBackendQueryState( vhStateId id, vhState& outState );
 
+// Dummy Resources
+void vhInitDummyResources();
+void vhShutdownDummyResources();
+nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& layoutItem, nvrhi::Format expectedFormat = nvrhi::Format::UNKNOWN, nvrhi::TextureDimension expectedDim = nvrhi::TextureDimension::Texture2D );
+
+
 // Logging helper
 void vhLog( bool error, const char* fmt, ... );
 #define VRHI_LOG( fmt, ... ) vhLog( false, fmt, ##__VA_ARGS__ )
@@ -327,11 +333,11 @@ void vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue type )
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         g_vhCmdLists[typeIdx]->close();
         
-        // Execute and get the instance ID for synchronization
+        // Execute and get the instance ID for synchronisation
         instance = g_vhDevice->executeCommandList( g_vhCmdLists[typeIdx], type );
         g_vhCmdLists[typeIdx] = nullptr;
         
-        // Automatic Synchronization
+        // Automatic Synchronisation
         if ( instance )
         {
             if ( type == nvrhi::CommandQueue::Copy )
@@ -351,19 +357,19 @@ void vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue type )
 
 void vhCmdListFlush( nvrhi::CommandQueue type )
 {
-    // Both queues depend on copy, so flush copy first
+    // Both queues depend on copy; flush copy first
     if ( type == nvrhi::CommandQueue::Graphics || type == nvrhi::CommandQueue::Compute )
     {
         vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Copy );
     }
 
-    // Graphics depends on compute, so flush compute first
+    // Graphics depends on compute; flush compute first
     if ( type == nvrhi::CommandQueue::Graphics )
     {
         vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Compute );
     }
 
-    // Finally, flush the requested queue
+    // Flush the requested queue
     vhCmdListFlush_SingleQueueInternal( type );
 }
 
