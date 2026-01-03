@@ -2764,6 +2764,118 @@ UTEST( Hashing, ComputePipeline )
     EXPECT_EQ( h1, h2 );
 }
 
+UTEST( Hashing, BindingLayout )
+{
+    nvrhi::BindingLayoutDesc desc1;
+    desc1.visibility = nvrhi::ShaderType::AllGraphics;
+    desc1.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    desc1.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( 1 ) );
+
+    nvrhi::BindingLayoutDesc desc2 = desc1; // Same
+
+    nvrhi::BindingLayoutDesc desc3; // Diff
+    desc3.visibility = nvrhi::ShaderType::Compute; 
+    desc3.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+
+    uint64_t h1 = vhHashBindingLayout( desc1 );
+    uint64_t h2 = vhHashBindingLayout( desc2 );
+    uint64_t h3 = vhHashBindingLayout( desc3 );
+
+    EXPECT_NE( h1, 0 );
+    EXPECT_EQ( h1, h2 );
+    EXPECT_NE( h1, h3 );
+    
+    // Test ordering sensitivity
+    nvrhi::BindingLayoutDesc desc4;
+    desc4.visibility = nvrhi::ShaderType::AllGraphics;
+    desc4.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( 1 ) ); // Swapped order
+    desc4.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+
+    uint64_t h4 = vhHashBindingLayout( desc4 );
+    EXPECT_NE( h1, h4 ); 
+}
+
+UTEST( Hashing, InputLayout )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    
+    nvrhi::VertexAttributeDesc attr1;
+    attr1.name = "POSITION";
+    attr1.format = nvrhi::Format::RGB32_FLOAT;
+    attr1.bufferIndex = 0;
+    attr1.elementStride = 12;
+    
+    nvrhi::VertexAttributeDesc attr2;
+    attr2.name = "TEXCOORD";
+    attr2.format = nvrhi::Format::RG32_FLOAT;
+    attr2.bufferIndex = 1;
+    attr2.elementStride = 8;
+
+    std::vector<nvrhi::VertexAttributeDesc> attrs1 = { attr1, attr2 };
+    nvrhi::InputLayoutHandle layout1 = g_vhDevice->createInputLayout( attrs1.data(), (uint32_t)attrs1.size(), nullptr );
+    std::vector<nvrhi::VertexAttributeDesc> attrs2 = { attr1, attr2 };
+    nvrhi::InputLayoutHandle layout2 = g_vhDevice->createInputLayout( attrs2.data(), (uint32_t)attrs2.size(), nullptr );
+    std::vector<nvrhi::VertexAttributeDesc> attrs3 = { attr2, attr1 };
+    nvrhi::InputLayoutHandle layout3 = g_vhDevice->createInputLayout( attrs3.data(), (uint32_t)attrs3.size(), nullptr );
+
+    ASSERT_NE( layout1, nullptr );
+    ASSERT_NE( layout2, nullptr );
+    ASSERT_NE( layout3, nullptr );
+
+    uint64_t h1 = vhHashInputLayout( layout1 );
+    uint64_t h2 = vhHashInputLayout( layout2 );
+    uint64_t h3 = vhHashInputLayout( layout3 );
+    
+    EXPECT_NE( h1, 0 );
+    EXPECT_EQ( h1, h2 );
+    EXPECT_NE( h1, h3 );
+
+    vhFinish();
+}
+
+UTEST( Hashing, ShaderBytecode )
+{
+    // Basic null check
+    EXPECT_EQ( vhHashShaderBytecode( nullptr ), 0 );
+
+    struct MockShader : public nvrhi::RefCounter<nvrhi::IShader>
+    {
+        std::vector< uint8_t > data;
+        nvrhi::ShaderDesc d;
+        MockShader( std::initializer_list< uint8_t > l ) : data( l ) {}
+        const nvrhi::ShaderDesc& getDesc() const override { return d; }
+        void getBytecode( const void** ppBytecode, size_t* pSize ) const override
+        { 
+            *ppBytecode = data.data();
+            *pSize = data.size();
+        }
+    };
+    
+    MockShader* raw1 = new MockShader( { 1, 2, 3, 4 } );
+    nvrhi::ShaderHandle s1(raw1);
+    raw1->Release();
+
+    MockShader* raw2 = new MockShader( { 1, 2, 3, 4 } );
+    nvrhi::ShaderHandle s2(raw2);
+    raw2->Release();
+
+    MockShader* raw3 = new MockShader( { 4, 3, 2, 1 } );
+    nvrhi::ShaderHandle s3(raw3);
+    raw3->Release();
+    
+    uint64_t h1 = vhHashShaderBytecode( s1 );
+    uint64_t h2 = vhHashShaderBytecode( s2 );
+    uint64_t h3 = vhHashShaderBytecode( s3 );
+    
+    EXPECT_NE( h1, 0 );
+    EXPECT_EQ( h1, h2 );
+    EXPECT_NE( h1, h3 );
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )

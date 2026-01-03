@@ -198,6 +198,9 @@ bool vhReflectSpirv(
 );
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
+uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc );
+uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader );
+uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
 
 // --------------------------------------------------------------------------
 // Submodule Includes

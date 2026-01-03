@@ -591,29 +591,61 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
     return BindingSetItem::None( layoutItem.slot );
 }
 
-// -------------------------------------------------------- Hashing --------------------------------------------------------
+// -------------------------------------------------------- PSO Cache --------------------------------------------------------
 
-static uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
+uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
 {
-    // TODO: implement HashBindingLayout here
-    // Fields to hash: `visibility`, `registerSpace`, `registerSpaceIsDescriptorSet`, `bindings` (iterate: slot, type, size).
     uint64_t h = 0;
+    h = komihash( &desc.visibility, sizeof( desc.visibility ), h );
+    h = komihash( &desc.registerSpace, sizeof( desc.registerSpace ), h );
+    h = komihash( &desc.registerSpaceIsDescriptorSet, sizeof( desc.registerSpaceIsDescriptorSet ), h );
+    
+    for ( const auto& binding : desc.bindings )
+    {
+        uint32_t slot = binding.slot;
+        h = komihash( &slot, sizeof( slot ), h );
+        
+        nvrhi::ResourceType type = binding.type;
+        h = komihash( &type, sizeof( type ), h );
+        
+        uint16_t sz = binding.size;
+        h = komihash( &sz, sizeof( sz ), h );
+    }
     return h;
 }
 
-static uint64_t vhHashShaderBytecode( nvrhi::IShader* shader )
+uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader )
 {
-    // TODO: implement GetShaderBytecodeHash here
-    // Action: Call `shader->getBytecode` and hash the buffer.
-    uint64_t h = 0;
-    return h;
+    if ( !shader ) return 0;
+    const void* bytecode = nullptr;
+    size_t size = 0;
+    shader->getBytecode( &bytecode, &size );
+    if ( bytecode && size > 0 )
+    {
+        return komihash( bytecode, size, 0 );
+    }
+    return 0;
 }
 
-static uint64_t vhHashInputLayout( nvrhi::IInputLayout* layout )
+uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout )
 {
-    // TODO: implement GetAttributesHash here
-    // Action: Call `layout->getAttributeDesc`, iterate and hash: `name`, `format`, `arraySize`, `bufferIndex`, `offset`, `elementStride`, `isInstanced`.
+    if ( !layout ) return 0;
     uint64_t h = 0;
+    uint32_t count = layout->getNumAttributes();
+    for ( uint32_t i = 0; i < count; ++i )
+    {
+        const nvrhi::VertexAttributeDesc* attr = layout->getAttributeDesc( i );
+        if ( attr )
+        {
+            h = komihash( attr->name.data(), attr->name.size(), h );
+            h = komihash( &attr->format, sizeof( attr->format ), h );
+            h = komihash( &attr->arraySize, sizeof( attr->arraySize ), h );
+            h = komihash( &attr->bufferIndex, sizeof( attr->bufferIndex ), h );
+            h = komihash( &attr->offset, sizeof( attr->offset ), h );
+            h = komihash( &attr->elementStride, sizeof( attr->elementStride ), h );
+            h = komihash( &attr->isInstanced, sizeof( attr->isInstanced ), h );
+        }
+    }
     return h;
 }
 
@@ -621,7 +653,8 @@ static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
 {
     uint64_t h = 0;
 
-    // --- Blend State ---
+    // Blend State
+
     h = komihash( &rs.blendState.alphaToCoverageEnable, sizeof( rs.blendState.alphaToCoverageEnable ), h );
     for ( const auto& rt : rs.blendState.targets )
     {
@@ -635,7 +668,8 @@ static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
         h = komihash( &rt.colorWriteMask, sizeof( rt.colorWriteMask ), h );
     }
 
-    // --- Depth Stencil State ---
+    // Depth Stencil State
+
     const auto& dss = rs.depthStencilState;
     h = komihash( &dss.depthTestEnable, sizeof( dss.depthTestEnable ), h );
     h = komihash( &dss.depthWriteEnable, sizeof( dss.depthWriteEnable ), h );
@@ -656,7 +690,8 @@ static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
     h = komihash( &dss.backFaceStencil.passOp, sizeof( dss.backFaceStencil.passOp ), h );
     h = komihash( &dss.backFaceStencil.stencilFunc, sizeof( dss.backFaceStencil.stencilFunc ), h );
 
-    // --- Raster State ---
+    // Raster State
+
     const auto& ras = rs.rasterState;
     h = komihash( &ras.fillMode, sizeof( ras.fillMode ), h );
     h = komihash( &ras.cullMode, sizeof( ras.cullMode ), h );
@@ -679,7 +714,8 @@ static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
         h = komihash( &ras.samplePositionsY[i], sizeof( ras.samplePositionsY[i] ), h );
     }
 
-    // --- Single Pass Stereo ---
+    // Single Pass Stereo
+
     h = komihash( &rs.singlePassStereo.enabled, sizeof( rs.singlePassStereo.enabled ), h );
     h = komihash( &rs.singlePassStereo.independentViewportMask, sizeof( rs.singlePassStereo.independentViewportMask ), h );
     h = komihash( &rs.singlePassStereo.renderTargetIndexOffset, sizeof( rs.singlePassStereo.renderTargetIndexOffset ), h );
@@ -701,32 +737,38 @@ uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const 
 {
     uint64_t h = 0;
 
-    // 1. Core State
+    // Core State
+
     h = komihash( &desc.primType, sizeof( desc.primType ), h );
     h = komihash( &desc.patchControlPoints, sizeof( desc.patchControlPoints ), h );
 
-    // 2. Input Layout (HOT)
+    // Input Layout
+
     uint64_t hInput = vhHashInputLayout( desc.inputLayout );
     h = komihash( &hInput, sizeof( hInput ), h );
 
-    // 3. Shaders (HOT)
+    // Shaders
+
     uint64_t hVS = vhHashShaderBytecode( desc.VS ); h = komihash( &hVS, sizeof( hVS ), h );
     uint64_t hHS = vhHashShaderBytecode( desc.HS ); h = komihash( &hHS, sizeof( hHS ), h );
     uint64_t hDS = vhHashShaderBytecode( desc.DS ); h = komihash( &hDS, sizeof( hDS ), h );
     uint64_t hGS = vhHashShaderBytecode( desc.GS ); h = komihash( &hGS, sizeof( hGS ), h );
     uint64_t hPS = vhHashShaderBytecode( desc.PS ); h = komihash( &hPS, sizeof( hPS ), h );
 
-    // 4. Render State (COLD)
+    // Render State
+
     uint64_t hRS = vhHashRenderState( desc.renderState );
     h = komihash( &hRS, sizeof( hRS ), h );
 
-    // 5. Variable Rate Shading (COLD)
+    // Variable Rate Shading
+
     h = komihash( &desc.shadingRateState.enabled, sizeof( desc.shadingRateState.enabled ), h );
     h = komihash( &desc.shadingRateState.shadingRate, sizeof( desc.shadingRateState.shadingRate ), h );
     h = komihash( &desc.shadingRateState.pipelinePrimitiveCombiner, sizeof( desc.shadingRateState.pipelinePrimitiveCombiner ), h );
     h = komihash( &desc.shadingRateState.imageCombiner, sizeof( desc.shadingRateState.imageCombiner ), h );
 
-    // 6. Binding Layouts (HOT)
+    // Binding Layouts
+
     for ( const auto& layoutHandle : desc.bindingLayouts )
     {
         const nvrhi::BindingLayoutDesc* layoutDesc = layoutHandle->getDesc();
@@ -737,7 +779,8 @@ uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const 
         }
     }
 
-    // 7. Framebuffer Compatibility (COLD)
+    // Framebuffer Compatibility
+
     uint64_t hFB = vhHashFramebufferInfo( fbInfo );
     h = komihash( &hFB, sizeof( hFB ), h );
 
@@ -749,10 +792,12 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
     uint64_t h = 0;
 
     // Shader
+
     uint64_t hCS = vhHashShaderBytecode( desc.CS );
     h = komihash( &hCS, sizeof( hCS ), h );
 
     // Binding Layouts
+
     for ( const auto& layoutHandle : desc.bindingLayouts )
     {
         const nvrhi::BindingLayoutDesc* layoutDesc = layoutHandle->getDesc();
@@ -766,5 +811,4 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
     return h;
 }
 
-// -------------------------------------------------------- PSO Cache --------------------------------------------------------
 
