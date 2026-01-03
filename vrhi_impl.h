@@ -201,6 +201,10 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
 uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc );
 uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
+nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
+nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
+nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint32_t frontStencil, uint32_t backStencil );
+nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
 
 // --------------------------------------------------------------------------
 // Submodule Includes

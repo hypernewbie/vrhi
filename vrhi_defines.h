@@ -399,3 +399,101 @@
 #define VRHI_STATE_BLEND_FUNC_RT_1E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<< 0)
 #define VRHI_STATE_BLEND_FUNC_RT_2E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<<11)
 #define VRHI_STATE_BLEND_FUNC_RT_3E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<<22)
+
+
+/**
+ * Set stencil ref value.
+ *
+ */
+#define VRHI_STENCIL_FUNC_REF_SHIFT               0
+
+#define VRHI_STENCIL_FUNC_REF_MASK                UINT32_C(0x000000ff)
+#define VRHI_STENCIL_FUNC_REF(v) ( ( (uint32_t)(v)<<VRHI_STENCIL_FUNC_REF_SHIFT )&VRHI_STENCIL_FUNC_REF_MASK)
+
+/**
+ * Set stencil rmask value.
+ *
+ */
+#define VRHI_STENCIL_FUNC_RMASK_SHIFT             8
+
+#define VRHI_STENCIL_FUNC_RMASK_MASK              UINT32_C(0x0000ff00)
+#define VRHI_STENCIL_FUNC_RMASK(v) ( ( (uint32_t)(v)<<VRHI_STENCIL_FUNC_RMASK_SHIFT )&VRHI_STENCIL_FUNC_RMASK_MASK)
+
+#define VRHI_STENCIL_NONE                         UINT32_C(0x00000000)
+#define VRHI_STENCIL_MASK                         UINT32_C(0xffffffff)
+#define VRHI_STENCIL_DEFAULT                      UINT32_C(0x00000000)
+
+#define VRHI_STENCIL_TEST_LESS                    UINT32_C(0x00010000) //!< Enable stencil test, less.
+#define VRHI_STENCIL_TEST_LEQUAL                  UINT32_C(0x00020000) //!< Enable stencil test, less or equal.
+#define VRHI_STENCIL_TEST_EQUAL                   UINT32_C(0x00030000) //!< Enable stencil test, equal.
+#define VRHI_STENCIL_TEST_GEQUAL                  UINT32_C(0x00040000) //!< Enable stencil test, greater or equal.
+#define VRHI_STENCIL_TEST_GREATER                 UINT32_C(0x00050000) //!< Enable stencil test, greater.
+#define VRHI_STENCIL_TEST_NOTEQUAL                UINT32_C(0x00060000) //!< Enable stencil test, not equal.
+#define VRHI_STENCIL_TEST_NEVER                   UINT32_C(0x00070000) //!< Enable stencil test, never.
+#define VRHI_STENCIL_TEST_ALWAYS                  UINT32_C(0x00080000) //!< Enable stencil test, always.
+#define VRHI_STENCIL_TEST_SHIFT                   16                   //!< Stencil test bit shift
+#define VRHI_STENCIL_TEST_MASK                    UINT32_C(0x000f0000) //!< Stencil test bit mask
+
+#define VRHI_STENCIL_OP_FAIL_S_ZERO               UINT32_C(0x00000000) //!< Zero.
+#define VRHI_STENCIL_OP_FAIL_S_KEEP               UINT32_C(0x00100000) //!< Keep.
+#define VRHI_STENCIL_OP_FAIL_S_REPLACE            UINT32_C(0x00200000) //!< Replace.
+#define VRHI_STENCIL_OP_FAIL_S_INCR               UINT32_C(0x00300000) //!< Increment and wrap.
+#define VRHI_STENCIL_OP_FAIL_S_INCRSAT            UINT32_C(0x00400000) //!< Increment and clamp.
+#define VRHI_STENCIL_OP_FAIL_S_DECR               UINT32_C(0x00500000) //!< Decrement and wrap.
+#define VRHI_STENCIL_OP_FAIL_S_DECRSAT            UINT32_C(0x00600000) //!< Decrement and clamp.
+#define VRHI_STENCIL_OP_FAIL_S_INVERT             UINT32_C(0x00700000) //!< Invert.
+#define VRHI_STENCIL_OP_FAIL_S_SHIFT              20                   //!< Stencil operation fail bit shift
+#define VRHI_STENCIL_OP_FAIL_S_MASK               UINT32_C(0x00f00000) //!< Stencil operation fail bit mask
+
+#define VRHI_STENCIL_OP_FAIL_Z_ZERO               UINT32_C(0x00000000) //!< Zero.
+#define VRHI_STENCIL_OP_FAIL_Z_KEEP               UINT32_C(0x01000000) //!< Keep.
+#define VRHI_STENCIL_OP_FAIL_Z_REPLACE            UINT32_C(0x02000000) //!< Replace.
+#define VRHI_STENCIL_OP_FAIL_Z_INCR               UINT32_C(0x03000000) //!< Increment and wrap.
+#define VRHI_STENCIL_OP_FAIL_Z_INCRSAT            UINT32_C(0x04000000) //!< Increment and clamp.
+#define VRHI_STENCIL_OP_FAIL_Z_DECR               UINT32_C(0x05000000) //!< Decrement and wrap.
+#define VRHI_STENCIL_OP_FAIL_Z_DECRSAT            UINT32_C(0x06000000) //!< Decrement and clamp.
+#define VRHI_STENCIL_OP_FAIL_Z_INVERT             UINT32_C(0x07000000) //!< Invert.
+#define VRHI_STENCIL_OP_FAIL_Z_SHIFT              24                   //!< Stencil operation depth fail bit shift
+#define VRHI_STENCIL_OP_FAIL_Z_MASK               UINT32_C(0x0f000000) //!< Stencil operation depth fail bit mask
+
+#define VRHI_STENCIL_OP_PASS_Z_ZERO               UINT32_C(0x00000000) //!< Zero.
+#define VRHI_STENCIL_OP_PASS_Z_KEEP               UINT32_C(0x10000000) //!< Keep.
+#define VRHI_STENCIL_OP_PASS_Z_REPLACE            UINT32_C(0x20000000) //!< Replace.
+#define VRHI_STENCIL_OP_PASS_Z_INCR               UINT32_C(0x30000000) //!< Increment and wrap.
+#define VRHI_STENCIL_OP_PASS_Z_INCRSAT            UINT32_C(0x40000000) //!< Increment and clamp.
+#define VRHI_STENCIL_OP_PASS_Z_DECR               UINT32_C(0x50000000) //!< Decrement and wrap.
+#define VRHI_STENCIL_OP_PASS_Z_DECRSAT            UINT32_C(0x60000000) //!< Decrement and clamp.
+#define VRHI_STENCIL_OP_PASS_Z_INVERT             UINT32_C(0x70000000) //!< Invert.
+#define VRHI_STENCIL_OP_PASS_Z_SHIFT              28                   //!< Stencil operation depth pass bit shift
+#define VRHI_STENCIL_OP_PASS_Z_MASK               UINT32_C(0xf0000000) //!< Stencil operation depth pass bit mask
+
+#define VRHI_CLEAR_NONE                           UINT16_C(0x0000) //!< No clear flags.
+#define VRHI_CLEAR_COLOR                          UINT16_C(0x0001) //!< Clear color.
+#define VRHI_CLEAR_DEPTH                          UINT16_C(0x0002) //!< Clear depth.
+#define VRHI_CLEAR_STENCIL                        UINT16_C(0x0004) //!< Clear stencil.
+#define VRHI_CLEAR_DISCARD_COLOR_0                UINT16_C(0x0008) //!< Discard frame buffer attachment 0.
+#define VRHI_CLEAR_DISCARD_COLOR_1                UINT16_C(0x0010) //!< Discard frame buffer attachment 1.
+#define VRHI_CLEAR_DISCARD_COLOR_2                UINT16_C(0x0020) //!< Discard frame buffer attachment 2.
+#define VRHI_CLEAR_DISCARD_COLOR_3                UINT16_C(0x0040) //!< Discard frame buffer attachment 3.
+#define VRHI_CLEAR_DISCARD_COLOR_4                UINT16_C(0x0080) //!< Discard frame buffer attachment 4.
+#define VRHI_CLEAR_DISCARD_COLOR_5                UINT16_C(0x0100) //!< Discard frame buffer attachment 5.
+#define VRHI_CLEAR_DISCARD_COLOR_6                UINT16_C(0x0200) //!< Discard frame buffer attachment 6.
+#define VRHI_CLEAR_DISCARD_COLOR_7                UINT16_C(0x0400) //!< Discard frame buffer attachment 7.
+#define VRHI_CLEAR_DISCARD_DEPTH                  UINT16_C(0x0800) //!< Discard frame buffer depth attachment.
+#define VRHI_CLEAR_DISCARD_STENCIL                UINT16_C(0x1000) //!< Discard frame buffer stencil attachment.
+#define VRHI_CLEAR_DISCARD_COLOR_MASK (0 \
+	| VRHI_CLEAR_DISCARD_COLOR_0 \
+	| VRHI_CLEAR_DISCARD_COLOR_1 \
+	| VRHI_CLEAR_DISCARD_COLOR_2 \
+	| VRHI_CLEAR_DISCARD_COLOR_3 \
+	| VRHI_CLEAR_DISCARD_COLOR_4 \
+	| VRHI_CLEAR_DISCARD_COLOR_5 \
+	| VRHI_CLEAR_DISCARD_COLOR_6 \
+	| VRHI_CLEAR_DISCARD_COLOR_7 \
+	)
+
+#define VRHI_CLEAR_DISCARD_MASK (0 \
+	| VRHI_CLEAR_DISCARD_COLOR_MASK \
+	| VRHI_CLEAR_DISCARD_DEPTH \
+	| VRHI_CLEAR_DISCARD_STENCIL \
+	)

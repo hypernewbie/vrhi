@@ -149,7 +149,7 @@ struct vhCmdBackendState : public VIDLHandler
     inline bool BE_Util_ShaderStageMatches( uint64_t flags, bool computePipelineDesc, bool graphicsPipelineDesc )
     {
         if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && computePipelineDesc ) return true;
-        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX & VRHI_SHADER_STAGE_PIXEL ) ) && graphicsPipelineDesc ) return true;
+        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_STAGE_PIXEL ) ) && graphicsPipelineDesc ) return true;
         return false;
     };
 
@@ -418,7 +418,6 @@ struct vhCmdBackendState : public VIDLHandler
 
             if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
             if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
-            matchedAny = true;
 
             if ( shader.flags & VRHI_SHADER_STAGE_COMPUTE && computePipelineDesc )
             {   
@@ -433,8 +432,23 @@ struct vhCmdBackendState : public VIDLHandler
                 graphicsPipelineDesc->setFragmentShader( shader.handle );
             }
         }
+
+        if ( graphicsPipelineDesc )
+        {
+            graphicsPipelineDesc->setPrimType( vhTranslatePrimitiveType( state.stateFlags ) );
+            graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
+            graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.frontStencil, state.backStencil );
+            graphicsPipelineDesc->renderState.rasterState = vhTranslateRasterState( state.stateFlags );
+
+            // [TODO] The following fields are not currently populated from vhState:
+            // - inputLayout: requires separate resolution from vertex layout strings.
+            // - HS, DS, GS: hull, domain, and geometry shaders are not currently supported by VRHI.
+            // - patchControlPoints: tessellation is not currently supported.
+            // - shadingRateState: variable rate shading is not currently supported.
+            // - singlePassStereo: single pass stereo is not currently supported.
+        }
     
-        return matchedAny;
+        return true;
     }
 
     bool BE_PreSubmitCommon(
