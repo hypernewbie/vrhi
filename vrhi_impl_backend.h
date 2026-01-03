@@ -39,6 +39,7 @@ struct vhBackendTexture
     int64_t pitchSize;
     int64_t arraySize;
     std::vector< vhTextureMipInfo > mipInfo;
+    uint64_t flags = 0;
 };
 
 struct vhBackendBuffer
@@ -60,6 +61,7 @@ struct vhBackendShader
     // Reflection Data
     std::vector< vhShaderReflectionResource > reflection;
     nvrhi::BindingLayoutHandle layout;
+    nvrhi::BindingLayoutDesc layoutDesc;
     
     // Metadata
     glm::uvec3 threadGroupSize = {0, 0, 0};
@@ -133,9 +135,14 @@ struct vhCmdBackendState : public VIDLHandler
     // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
     template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; 
 
-    int32_t BE_Util_ResolveBindingSlot_FromShader( const char* name, vhBackendShader& shader )
+    int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader )
     {
-        // Not implemented
+        if ( !shader.handle ) return -1;
+        for ( auto& resource : shader.reflection )
+        {
+            if ( resource.type != type ) continue;
+            if ( resource.name == name ) return resource.slot;
+        }
         return -1;
     }
 
@@ -384,23 +391,104 @@ struct vhCmdBackendState : public VIDLHandler
         return backendFramebuffers[key];
     }
 
-    void BE_PreSubmitCommon( vhState& state )
+    bool BE_PreSubmitCommon(
+        vhState& state,
+        vhBackendShader* shaders,
+        int shaderCount,
+        nvrhi::ComputePipelineDesc* computePipelineDesc, // set to nullptr if not using compute.
+        nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
+        nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc, // set to nullptr if not using graphics.
+        nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
+    )
     {
-        // Bind Textures.
         // TODO: Finish implementation.
-        for ( auto& texture : state.textures )
+        assert( shaders && shaderCount > 0 );
+        bool matchedAny = false;
+        bool complete = true;
+
+        auto fnShaderStageMatches = [&]( uint64_t flags ) -> bool
         {
-            int32_t slot = texture.slot;
-            if ( slot == -1 && texture.name)
+            if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && computePipelineDesc && computeState ) return true;
+            if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX & VRHI_SHADER_STAGE_PIXEL & VRHI_SHADER_STAGE_MESH & VRHI_SHADER_STAGE_AMPLIFICATION ) ) && graphicsPipelineDesc && graphicsState ) return true;
+            return false;
+        };
+
+        for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
+        {
+            auto& shader = shaders[shaderIdx];
+            nvrhi::BindingSetDesc bsetDesc = nvrhi::BindingSetDesc();
+
+            // We only bind resources for the shader stage that is being used.
+            if ( !fnShaderStageMatches( shader.flags ) )
+                continue;
+            matchedAny = true;
+
+            // Bind Textures.
+            for ( auto& texture : state.textures )
             {
-                // Resolve name to slot.
+                if ( texture.texture == VRHI_INVALID_HANDLE ) continue;
+                if ( backendTextures.find( texture.texture ) == backendTextures.end() )
+                {
+                    VRHI_ERR( "vhCreateTexture() : Failed to find texture %u!\n", texture.texture );
+                    continue;
+                }
+                assert( backendTextures[texture.texture].get() );
+                auto& btex = *backendTextures[texture.texture];
+
+                int32_t slot = texture.slot;
+                nvrhi::ResourceType type = nvrhi::ResourceType::Texture_SRV;
+                if ( texture.computeUAV && btex.flags & VRHI_TEXTURE_COMPUTE_WRITE )
+                {
+                    type = nvrhi::ResourceType::Texture_UAV;
+                }
+
+                if ( texture.name )
+                {
+                    // Resolve name to slot.
+                    slot = BE_Util_ResolveBindingSlot( texture.name, type, shader );
+                }
+                if ( slot == -1 )
+                {
+                    // Empty slots are OK, we just ignore them.
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS )
+                    {
+                        VRHI_LOG( "vhSetState() : Missing binding for texture %u! (Disable VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS to remove this warning).\n", texture.texture );
+                    }
+                    continue;
+                }
+
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                {
+                    VRHI_LOG( "vhSetState() : Binding texture %u to slot %d.\n", texture.texture, slot );
+                }
+
+                bsetDesc.addItem(
+                    type == nvrhi::ResourceType::Texture_UAV ?
+                    nvrhi::BindingSetItem::Texture_UAV( slot, btex.handle, texture.formatOverride, texture.subresources, texture.dimensionOverride ) :
+                    nvrhi::BindingSetItem::Texture_SRV( slot, btex.handle, texture.formatOverride, texture.subresources, texture.dimensionOverride )
+                );
             }
-            if ( slot == -1)
+
+            // Create Binding Set.
+            nvrhi::BindingSetHandle bset = nullptr;
             {
-                // Empty slots are OK, we just ignore them.
+                std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+                bset = g_vhDevice->createBindingSet( bsetDesc, shader.layout );
+            }
+            if ( !bset )
+            {
+                VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %u!\n", shader.handle );
+                complete = false;
                 continue;
             }
+
+            if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
+            if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
+            if ( computeState )  computeState->addBindingSet( bset );
+            if ( graphicsState ) graphicsState->addBindingSet( bset );
         }
+
+        return matchedAny && complete;
     }
 
     void BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount )
@@ -561,6 +649,7 @@ public:
         btex->info.format = cmd->format;
         btex->info.mipLevels = cmd->numMips;
         btex->info.arrayLayers = cmd->numLayers;
+        btex->flags = cmd->flag;
         vhTextureMiplevelInfo( btex->mipInfo, btex->pitchSize, btex->arraySize, btex->info );
 
         if ( cmd->data )
@@ -997,13 +1086,15 @@ public:
 
         // Reflection
         nvrhi::BindingLayoutDesc layoutDesc;
-        layoutDesc.visibility = nvrhi::ShaderType::All; 
         std::vector< vhShaderReflectionResource > resources;
         glm::uvec3 groupSize = {0,0,0};
         std::vector< vhPushConstantRange > pushConstants;
 
         // Perform reflection
         vhReflectSpirv( cmd->spirv, layoutDesc, resources, groupSize, pushConstants );
+
+        // Set visibility based on shader stage.
+        layoutDesc.visibility = type; 
 
         // Create Shader via NVRHI
         nvrhi::ShaderDesc desc( type );
@@ -1026,6 +1117,7 @@ public:
             backendShader->reflection = std::move( resources );
             backendShader->threadGroupSize = groupSize;
             backendShader->pushConstants = std::move( pushConstants );
+            backendShader->layoutDesc = layoutDesc;
 
             // Create binding layout if we have bindings
             if ( !layoutDesc.bindings.empty() )
@@ -1109,6 +1201,12 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         backendStates[cmd->id].stateFlags = cmd->flags;
+    }
+
+    void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) override
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        backendStates[cmd->id].debugFlags = cmd->flags;
     }
 
     void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override

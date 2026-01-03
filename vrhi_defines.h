@@ -302,6 +302,10 @@
 
 #define VRHI_STATE_MASK                           UINT64_C(0xffffffffffffffff) //!< State bit mask
 
+#define VRHI_STATE_DEBUG_NONE                     UINT64_C(0x0000000000000000) //!< No debug state.
+#define VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS     UINT64_C(0x0000000000000001) //!< Enable debug logging for missing bindings.
+#define VRHI_STATE_DEBUG_LOG_ALL_BINDINGS         UINT64_C(0x0000000000000002) //!< Enable debug logging for all bindings.
+
 #define VRHI_DIRTY_WORLD                          ( 1ULL << 0 )
 #define VRHI_DIRTY_VERTEX_INDEX                   ( 1ULL << 1 )
 #define VRHI_DIRTY_CAMERA                         ( 1ULL << 2 )

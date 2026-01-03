@@ -68,6 +68,11 @@ void vhCmdSetStateFlags( vhStateId id, uint64_t flags )
     vhCmdEnqueue( new VIDL_vhCmdSetStateFlags( id, flags ) );
 }
 
+void vhCmdSetStateDebugFlags( vhStateId id, uint64_t flags )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateDebugFlags( id, flags ) );
+}
+
 void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back )
 {
     vhCmdEnqueue( new VIDL_vhCmdSetStateStencil( id, front, back ) );
@@ -148,6 +153,7 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     if ( dirty & VRHI_DIRTY_PIPELINE )
     {
         vhCmdSetStateFlags( id, state.stateFlags );
+        vhCmdSetStateDebugFlags( id, state.debugFlags );
         vhCmdSetStateStencil( id, state.frontStencil, state.backStencil );
     }
 
