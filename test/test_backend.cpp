@@ -67,6 +67,18 @@ public:
         return Get().BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, compute, graphics );
     }
 
+    static bool PreSubmitCommon_State(
+        vhState& state,
+        vhBackendShader* shaders,
+        int shaderCount,
+        nvrhi::BindingLayoutVector& layouts,
+        nvrhi::ComputeState* compute,
+        nvrhi::GraphicsState* graphics
+    )
+    {
+        return Get().BE_PreSubmitCommon_State( state, shaders, shaderCount, layouts, compute, graphics );
+    }
+
     static bool GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth )
     {
         auto fb1 = Get().BE_GetFrameBuffer( colors, depth, 0, 0 );
@@ -158,6 +170,106 @@ UTEST( BackendInternal, PipelineValidation )
     // Case 2: Valid shader, no pipeline desc
     // Returns true (success) because it simply matches no stages and exits cleanly.
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, nullptr, nullptr ) );
+}
+
+UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
+{
+    vhState state;
+    vhBackendShader shader;
+    shader.handle = nullptr; 
+    shader.flags = VRHI_SHADER_STAGE_COMPUTE;
+    shader.layout = nullptr;
+
+    nvrhi::ComputePipelineDesc computeDesc;
+
+    // Happy Path
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, &computeDesc, nullptr ) );
+    EXPECT_EQ( computeDesc.CS.Get(), shader.handle.Get() );
+    EXPECT_EQ( computeDesc.bindingLayouts.size(), 1u );
+    EXPECT_EQ( computeDesc.bindingLayouts[0].Get(), shader.layout.Get() );
+
+    // Mixed Shaders - Only compute should be picked up
+    vhBackendShader shaders[2];
+    shaders[0] = shader;
+    shaders[1].handle = nullptr;
+    shaders[1].flags = VRHI_SHADER_STAGE_VERTEX;
+    shaders[1].layout = nullptr;
+
+    nvrhi::ComputePipelineDesc computeDesc2;
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, shaders, 2, &computeDesc2, nullptr ) );
+    EXPECT_EQ( computeDesc2.CS.Get(), shaders[0].handle.Get() );
+    EXPECT_EQ( computeDesc2.bindingLayouts.size(), 1u );
+    EXPECT_EQ( computeDesc2.bindingLayouts[0].Get(), shaders[0].layout.Get() );
+}
+
+UTEST( BackendInternal, PreSubmitCommon_State_Compute )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhState state;
+    vhBackendShader shader;
+    shader.handle = nullptr; 
+    shader.flags = VRHI_SHADER_STAGE_COMPUTE;
+    
+    // Create a real binding layout to satisfy getDesc() calls
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    
+    shader.layoutDesc = layoutDesc;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+
+    // Add reflection matching the layout
+    vhShaderReflectionResource res = {};
+    res.name = "TestTex";
+    res.slot = 0;
+    res.type = nvrhi::ResourceType::Texture_SRV;
+    res.dim = nvrhi::TextureDimension::Texture2D;
+    res.format = nvrhi::Format::RGBA8_UNORM;
+    res.arraySize = 1;
+    shader.reflection.push_back( res );
+
+    nvrhi::BindingLayoutVector layouts;
+    layouts.push_back( shader.layout );
+
+    nvrhi::ComputeState computeState;
+    state.debugFlags = VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH;
+
+    // CASE: Missing reflection (Should fail)
+    nvrhi::BindingLayoutDesc layoutDescFail;
+    layoutDescFail.visibility = nvrhi::ShaderType::All;
+    layoutDescFail.addItem( nvrhi::BindingLayoutItem::PushConstants( 1, 64 ) ); // Slot 1 not in reflection
+    nvrhi::BindingLayoutHandle layoutFail;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layoutFail = g_vhDevice->createBindingLayout( layoutDescFail );
+    }
+    nvrhi::BindingLayoutVector layoutsFail;
+    layoutsFail.push_back( layoutFail );
+    
+    // We must pass a shader that "owns" this layout
+    vhBackendShader shaderFail = shader;
+    shaderFail.layout = layoutFail;
+
+    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderFail, 1, layoutsFail, &computeState, nullptr ) );
+
+    // CASE: Happy Path
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, layouts, &computeState, nullptr ) );
+
+    vhFlush();
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layoutFail = nullptr;
+        shader.layout = nullptr;
+    }
 }
 
 UTEST( Backend, FramebufferCaching )

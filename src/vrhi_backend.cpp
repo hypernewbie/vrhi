@@ -539,7 +539,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
     }
 
-    return false;
+    return true;
 }
 
 void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount )

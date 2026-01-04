@@ -467,6 +467,13 @@ UTEST( Hashing, InputLayout )
     EXPECT_NE( h1, h3 );
 
     vhFinish();
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout1 = nullptr;
+        layout2 = nullptr;
+        layout3 = nullptr;
+    }
 }
 
 UTEST( Hashing, BindingSet_Basics )
@@ -511,6 +518,13 @@ UTEST( Hashing, BindingSet_Basics )
     desc2.trackLiveness = !desc.trackLiveness;
     uint64_t h4 = vhHashBindingSet( desc2, layout );
     EXPECT_NE( h1, h4 );
+
+    vhFlush();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout = nullptr;
+        layout2 = nullptr;
+    }
 }
 
 UTEST( Hashing, BindingSet_Differentiation )
@@ -553,6 +567,12 @@ UTEST( Hashing, BindingSet_Differentiation )
         nvrhi::BindingSetDesc desc = baseDesc;
         desc.bindings[0].resourceHandle = ( nvrhi::ITexture* ) 0x12345678;
         EXPECT_NE( baseHash, vhHashBindingSet( desc, layout ) );
+    }
+
+    vhFlush();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout = nullptr;
     }
 }
 
@@ -613,6 +633,12 @@ UTEST( Hashing, BindingSet_ViewParameters )
         desc.bindings[0].subresources.numMipLevels = 2;
         EXPECT_NE( mipHash, vhHashBindingSet( desc, layout ) );
     }
+
+    vhFlush();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout = nullptr;
+    }
 }
 
 UTEST( Hashing, BindingSet_ArrayElement )
@@ -642,6 +668,13 @@ UTEST( Hashing, BindingSet_ArrayElement )
     uint64_t h1 = vhHashBindingSet( desc, layout );
 
     EXPECT_NE( h0, h1 );
+
+    vhFlush();
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout = nullptr;
+    }
 }
 
 UTEST( Hashing, BindingSet_RawData )
@@ -676,4 +709,10 @@ UTEST( Hashing, BindingSet_RawData )
     desc.bindings[0].rawData[1] = 500;
     uint64_t h2 = vhHashBindingSet( desc, layout );
     EXPECT_NE( h1, h2 );
+
+    vhFlush();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout = nullptr;
+    }
 }
