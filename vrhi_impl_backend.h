@@ -89,6 +89,10 @@ struct vhCmdBackendState : public VIDLHandler
     // Backend :: State Management Variables
     // --------------------------------------------------------------------------
 
+#ifdef VRHI_UNIT_TEST
+    friend class vhCmdBackendStateTest;
+#endif // VRHI_UNIT_TEST
+
     std::mutex backendMutex;
     char temps[1024];
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
@@ -139,7 +143,6 @@ struct vhCmdBackendState : public VIDLHandler
 
     inline int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader )
     {
-        if ( !shader.handle ) return -1;
         for ( auto& resource : shader.reflection )
         {
             if ( resource.type != type ) continue;

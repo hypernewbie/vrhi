@@ -222,12 +222,7 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
 #include "vrhi_impl_buffer.h"
 #include "vrhi_impl_shader.h"
 #include "vrhi_impl_state.h"
-
-// Unity Build: Define backend state
 vhCmdBackendState g_vhCmdBackendState;
-
-
-
 #endif // VRHI_IMPLEMENTATION 
 
 // --------------------------------------------------------------------------
