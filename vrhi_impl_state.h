@@ -393,3 +393,16 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags )
 
     return rasterState;
 }
+
+nvrhi::VertexAttributeDesc vhTranslateVertexAttribute( const vhVertexLayoutDef& def, uint32_t bufferIndex )
+{
+    nvrhi::VertexAttributeDesc attr;
+    attr.name = "ATTR" + std::to_string( def.location );
+    attr.format = def.format;
+    attr.arraySize = 1;
+    attr.bufferIndex = bufferIndex;
+    attr.offset = def.offset;
+    attr.elementStride = 0; // Set by caller
+    attr.isInstanced = false;
+    return attr;
+}

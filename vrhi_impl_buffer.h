@@ -33,20 +33,62 @@
 #include <string>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
-// Helper to get element size of a base type
-int vhGetBaseTypeSize( const std::string& type )
+// Helper to resolve NVRHI format from type string
+nvrhi::Format vhGetFormatFromTypeString( const std::string& type, int count )
 {
-    if ( type == "float" || type == "int" || type == "uint" ) return 4;
-    if ( type == "half" || type == "short" || type == "ushort" ) return 2;
-    if ( type == "byte" || type == "ubyte" ) return 1;
-    return 0;
+    using namespace nvrhi;
+    if ( type == "float" )
+    {
+        if ( count == 1 ) return Format::R32_FLOAT;
+        if ( count == 2 ) return Format::RG32_FLOAT;
+        if ( count == 3 ) return Format::RGB32_FLOAT;
+        if ( count == 4 ) return Format::RGBA32_FLOAT;
+    }
+    else if ( type == "half" )
+    {
+        if ( count == 1 ) return Format::R16_FLOAT;
+        if ( count == 2 ) return Format::RG16_FLOAT;
+        if ( count == 3 ) return Format::UNKNOWN;
+        if ( count == 4 ) return Format::RGBA16_FLOAT;
+    }
+    else if ( type == "int" )
+    {
+        if ( count == 1 ) return Format::R32_SINT;
+        if ( count == 2 ) return Format::RG32_SINT;
+        if ( count == 3 ) return Format::RGB32_SINT;
+        if ( count == 4 ) return Format::RGBA32_SINT;
+    }
+    else if ( type == "uint" )
+    {
+        if ( count == 1 ) return Format::R32_UINT;
+        if ( count == 2 ) return Format::RG32_UINT;
+        if ( count == 3 ) return Format::RGB32_UINT;
+        if ( count == 4 ) return Format::RGBA32_UINT;
+    }
+    else if ( type == "short" )
+    {
+        if ( count == 1 ) return Format::R16_SINT;
+        if ( count == 2 ) return Format::RG16_SINT;
+        if ( count == 3 ) return Format::UNKNOWN;
+        if ( count == 4 ) return Format::RGBA16_SINT;
+    }
+    else if ( type == "ushort" )
+    {
+        if ( count == 1 ) return Format::R16_UINT;
+        if ( count == 2 ) return Format::RG16_UINT;
+        if ( count == 3 ) return Format::UNKNOWN;
+        if ( count == 4 ) return Format::RGBA16_UINT;
+    }
+    return Format::UNKNOWN;
 }
 
 // Parses a vertex layout string.
-// Vertex layouts are defines as standard strings.
-// Supported base types: float, half, int, uint, short, ushort, byte, ubyte
-// Supported suffixes: 2, 3, 4
-// Example: "float3 POSITION half4 NORMAL half4 TANGENT half4 BINORMAL half4 TEXCOORD half4 COLOR";
+// Vertex layouts are defined as standard strings.
+// Format: "TYPE[COUNT] [ATTRn]"
+// Examples: 
+//   "float3" -> Location 0 (Implicit)
+//   "float3 ATTR5" -> Location 5 (Explicit)
+//   "float3 float2" -> Loc 0, Loc 1
 //
 template < bool EMIT_OUTPUT >
 bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayoutDef>* outDefs )
@@ -57,9 +99,12 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
     }
 
     const char* ptr = layout.c_str();
-    const char* baseTypes[] = { "float", "half", "int", "uint", "short", "ushort", "byte", "ubyte", nullptr };
+    const char* baseTypes[] = { "float", "half", "int", "uint", "short", "ushort", nullptr };
     int currentOffset = 0;
-    int attributeCount = 0;
+    int currentLocation = 0;
+    
+    // Collision detection
+    std::set<int> usedLocations;
 
     while ( *ptr )
     {
@@ -67,20 +112,20 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
         while ( *ptr && isspace( *ptr ) ) ptr++;
         if ( !*ptr ) break; 
 
-        // Extract and validate type (e.g., "float3")
+        // Extract Type Token
         const char* tStart = ptr;
         while ( *ptr && !isspace( *ptr ) ) ptr++;
-        std::string typeStr(tStart, ptr);
+        std::string typeStr( tStart, ptr );
 
-        // Validate Type
-        bool typeValid = false;
+        // Validate Type & Count
         std::string baseType;
         int componentCount = 1;
+        bool typeValid = false;
 
         for ( const char** bt = baseTypes; *bt; ++bt )
         {
             std::string base = *bt;
-            if ( typeStr.size() >= base.size() && typeStr.compare(0, base.size(), base) == 0 )
+            if ( typeStr.size() >= base.size() && typeStr.compare( 0, base.size(), base ) == 0 )
             {
                 std::string suffix = typeStr.substr( base.size() );
                 if ( suffix.empty() )
@@ -101,72 +146,65 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
         }
         if ( !typeValid ) return false;
 
-        // Skip whitespace between Type and Semantic
+        // Resolve Format
+        nvrhi::Format format = vhGetFormatFromTypeString( baseType, componentCount );
+        if ( format == nvrhi::Format::UNKNOWN ) return false;
+
+        // Skip whitespace
         while ( *ptr && isspace( *ptr ) ) ptr++;
-        if ( !*ptr ) return false; // Unexpected end, missing semantic
-
-        // Extract semantic name and optional index (e.g., "TEXCOORD0")
-        const char* sStart = ptr;
-        while ( *ptr && !isspace( *ptr ) ) ptr++;
-        std::string semanticFull(sStart, ptr);
-
-        // Validate Semantic: Must be uppercase letters/digits, starting with letter
-        if ( semanticFull.empty() || !isupper(semanticFull[0]) ) return false;
         
-        std::string semanticName;
-        int semanticIndex = 0;
-
-        // Extract potential index from end of semantic
-        size_t lastAlpha = std::string::npos;
-        for ( size_t i = 0; i < semanticFull.size(); ++i )
+        // Peek next token for Location (ATTRn)
+        int resolvedLocation = currentLocation;
+        if ( *ptr )
         {
-            if ( isalpha( semanticFull[i] ) ) lastAlpha = i;
-            if ( !isalnum( semanticFull[i] ) ) return false; // Invalid char
-        }
-        
-        // If the string has digits at the end
-        if ( lastAlpha != std::string::npos && lastAlpha + 1 < semanticFull.size() )
-        {
-            semanticName = semanticFull.substr( 0, lastAlpha + 1 );
-            std::string indexStr = semanticFull.substr( lastAlpha + 1 );
-            // Validate digits
-            for ( char c : indexStr ) if ( !isdigit(c) ) return false;
-            semanticIndex = std::stoi( indexStr );
+            const char* peek = ptr;
+            if ( strncmp( peek, "ATTR", 4 ) == 0 )
+            {
+                // Explicit Location
+                ptr += 4;
+                const char* numStart = ptr;
+                while ( *ptr && isdigit( *ptr ) ) ptr++;
+                std::string numStr( numStart, ptr );
+                
+                if ( numStr.empty() ) return false; // "ATTR" without number
+                resolvedLocation = std::stoi( numStr );
+                
+                // Update implicit counter to next
+                currentLocation = resolvedLocation + 1;
+            }
+            else
+            {
+                // Implicit: Use currentLocation and increment
+                currentLocation++;
+            }
         }
         else
         {
-            semanticName = semanticFull;
-            semanticIndex = 0;
+            // End of string, use implicit
+            currentLocation++;
         }
 
-        // Validate Semantic Name (Must be all upper)
-        for ( char c : semanticName )
-        {
-            if ( isalpha(c) && !isupper(c) ) return false; 
-        }
-
-        int typeSize = vhGetBaseTypeSize( baseType );
-        int sizeBytes = typeSize * componentCount;
+        // Validate Location Collision
+        if ( usedLocations.find( resolvedLocation ) != usedLocations.end() ) return false;
+        usedLocations.insert( resolvedLocation );
 
         if constexpr ( EMIT_OUTPUT )
         {
             if ( outDefs )
             {
                 vhVertexLayoutDef def;
-                def.semantic = semanticName;
-                def.type = baseType;
-                def.semanticIndex = semanticIndex;
-                def.componentCount = componentCount;
+                def.format = format;
+                def.location = resolvedLocation;
                 def.offset = currentOffset;
                 outDefs->push_back( def );
             }
         }
         
-        currentOffset += sizeBytes;
-        attributeCount++;
+        const auto& fmtInfo = nvrhi::getFormatInfo( format );
+        currentOffset += fmtInfo.bytesPerBlock;
     }
 
-    return attributeCount > 0;
+    return !usedLocations.empty();
 }
 
 bool vhValidateVertexLayout( const vhVertexLayout& layout )
@@ -181,8 +219,8 @@ bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhV
 
 int vhVertexLayoutDefSize( const vhVertexLayoutDef& def )
 {
-    int typeSize = vhGetBaseTypeSize( def.type );
-    return typeSize * def.componentCount;
+    const nvrhi::FormatInfo& info = nvrhi::getFormatInfo( def.format );
+    return info.bytesPerBlock;
 }
 
 int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def )
@@ -190,6 +228,29 @@ int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def )
     if ( def.empty() ) return 0;
     auto& lastDef = def.back();
     return lastDef.offset + vhVertexLayoutDefSize( lastDef );
+}
+
+int64_t vhValidateAttributeMatch( const vhVertexLayoutDef& bufferDef, const std::vector<vhVertexLayoutDef>& shaderInputLayout )
+{
+    // Check against all shader inputs
+    for ( size_t i = 0; i < shaderInputLayout.size(); ++i )
+    {
+        const auto& shaderDef = shaderInputLayout[i];
+
+        if ( shaderDef.location == bufferDef.location )
+        {
+            // Strict matching: Format must be identical.
+            if ( bufferDef.format == shaderDef.format )
+            {
+                return (int64_t)i;
+            }
+            
+            return -1; 
+        }
+    }
+
+    // Location not found in shader (Unused).
+    return -INT64_MAX;
 }
 
 vhBuffer vhAllocBuffer()

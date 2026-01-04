@@ -546,30 +546,29 @@ UTEST( Texture, Readback )
 UTEST( Buffer, ValidateLayout )
 {
     // Valid cases
-    EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION" ) );
-    EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION float2 TEXCOORD0" ) );
-    EXPECT_TRUE( vhValidateVertexLayout( "ubyte4 COLOUR" ) );
-    EXPECT_TRUE( vhValidateVertexLayout( "half2 TEXCOORD" ) );
-    EXPECT_TRUE( vhValidateVertexLayout( "float POSITION" ) ); // Scalar
-    EXPECT_TRUE( vhValidateVertexLayout( "float3 POSITION0 float3 NORMAL int4 BLENDINDICES float4 BLENDWEIGHTS" ) );
-    EXPECT_TRUE( vhValidateVertexLayout( "float3 BANANA" ) ); // Custom semantic
-    EXPECT_TRUE( vhValidateVertexLayout( "float3 BANANA0" ) ); // Custom semantic with index
+    EXPECT_TRUE( vhValidateVertexLayout( "float3" ) ); // Implicit 0
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 float2" ) ); // Implicit 0, 1
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 ATTR5" ) ); // Explicit 5
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 ATTR0" ) ); // Explicit 0
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 ATTR0 float2" ) ); // Explicit 0, Implicit 1
+    EXPECT_FALSE( vhValidateVertexLayout( "ubyte4" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "half2" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "float" ) ); // Scalar
 
     // Invalid cases - Types
-    EXPECT_FALSE( vhValidateVertexLayout( "double3 POSITION" ) ); // Invalid type
-    EXPECT_FALSE( vhValidateVertexLayout( "float5 POSITION" ) );  // Invalid suffix
-    EXPECT_FALSE( vhValidateVertexLayout( "float1 POSITION" ) );  // Invalid suffix (1 should be empty)
-    EXPECT_FALSE( vhValidateVertexLayout( "vec3 POSITION" ) );    // Invalid type
-
-    // Invalid cases - Semantics
-    EXPECT_FALSE( vhValidateVertexLayout( "float3 position" ) );  // Lowercase semantic
-    EXPECT_FALSE( vhValidateVertexLayout( "float3 0POSITION" ) ); // Starts with digit
-    EXPECT_FALSE( vhValidateVertexLayout( "float3 PO_SITION" ) ); // Underscore not alphanumeric (std::isalnum check)
-
+    EXPECT_FALSE( vhValidateVertexLayout( "double3" ) ); // Invalid type
+    EXPECT_FALSE( vhValidateVertexLayout( "float5" ) );  // Invalid suffix
+    EXPECT_FALSE( vhValidateVertexLayout( "float1" ) );  // Invalid suffix
+    EXPECT_FALSE( vhValidateVertexLayout( "vec3" ) );    // Invalid type
+    
     // Invalid cases - Formatting
-    EXPECT_FALSE( vhValidateVertexLayout( "float3" ) );           // Missing semantic
-    EXPECT_FALSE( vhValidateVertexLayout( "POSITION" ) );         // Missing type
+    EXPECT_FALSE( vhValidateVertexLayout( "float3 ATTR" ) );      // Missing number
+    EXPECT_FALSE( vhValidateVertexLayout( "float3 ATTRx" ) );     // Invalid number
     EXPECT_FALSE( vhValidateVertexLayout( "" ) );                 // Empty
+    
+    // Invalid cases - Collisions
+    EXPECT_FALSE( vhValidateVertexLayout( "float3 float3 ATTR0" ) ); // Implicit 0, Explicit 0
+    EXPECT_FALSE( vhValidateVertexLayout( "float3 ATTR5 float2 ATTR5" ) ); // Duplicate 5
 }
 
 UTEST( Buffer, VertexLayoutInternals )
@@ -577,17 +576,15 @@ UTEST( Buffer, VertexLayoutInternals )
     // Test 1: Simple Logic
     {
         std::vector< vhVertexLayoutDef > defs;
-        bool res = vhParseVertexLayoutInternal( "float3 POSITION", defs );
+        bool res = vhParseVertexLayoutInternal( "float3 ATTR5", defs );
         EXPECT_TRUE( res );
         EXPECT_EQ( defs.size(), 1 );
         EXPECT_EQ( vhVertexLayoutDefSize( defs ), 12 );
 
         if ( defs.size() > 0 )
         {
-             EXPECT_STREQ( defs[0].semantic.c_str(), "POSITION" );
-             EXPECT_STREQ( defs[0].type.c_str(), "float" );
-             EXPECT_EQ( defs[0].componentCount, 3 );
-             EXPECT_EQ( defs[0].semanticIndex, 0 );
+             EXPECT_EQ( defs[0].format, nvrhi::Format::RGB32_FLOAT );
+             EXPECT_EQ( defs[0].location, 5 ); // Explicit
              EXPECT_EQ( defs[0].offset, 0 );
              EXPECT_EQ( vhVertexLayoutDefSize( defs[0] ), 12 );
         }
@@ -596,26 +593,46 @@ UTEST( Buffer, VertexLayoutInternals )
     // Test 2: Complex Logic
     {
         std::vector< vhVertexLayoutDef > defs;
-        bool res = vhParseVertexLayoutInternal( "float3 POSITION float2 TEXCOORD0 ubyte4 COLOUR", defs );
+        // float3 (loc 0), float2 (loc 1), short2 ATTR5 (loc 5 via explicit)
+        bool res = vhParseVertexLayoutInternal( "float3 float2 short2 ATTR5", defs );
         EXPECT_TRUE( res );
         EXPECT_EQ( defs.size(), 3 );
         
-        // float3 POSITION (12 bytes)
+        // float3 (12 bytes)
         EXPECT_EQ( defs[0].offset, 0 );
-        EXPECT_STREQ( defs[0].semantic.c_str(), "POSITION" );
+        EXPECT_EQ( defs[0].format, nvrhi::Format::RGB32_FLOAT );
+        EXPECT_EQ( defs[0].location, 0 );
         
-        // float2 TEXCOORD0 (8 bytes) -> offset 12
+        // float2 (8 bytes) -> offset 12
         EXPECT_EQ( defs[1].offset, 12 );
-        EXPECT_STREQ( defs[1].semantic.c_str(), "TEXCOORD" );
-        EXPECT_EQ( defs[1].semanticIndex, 0 );
-        
-        // ubyte4 COLOR (4 bytes) -> offset 20
+        EXPECT_EQ( defs[1].format, nvrhi::Format::RG32_FLOAT );
+        EXPECT_EQ( defs[1].location, 1 );
+
+        // short2 (4 bytes) -> offset 20
         EXPECT_EQ( defs[2].offset, 20 );
-        EXPECT_STREQ( defs[2].semantic.c_str(), "COLOUR" );
+        EXPECT_EQ( defs[2].format, nvrhi::Format::RG16_SINT ); // short2 -> RG16_SINT
+        EXPECT_EQ( defs[2].location, 5 );
         
         // Total Stride = 24
         EXPECT_EQ( vhVertexLayoutDefSize( defs ), 24 );
     }
+}
+
+UTEST( Translate, VertexAttribute )
+{
+    vhVertexLayoutDef def;
+    def.format = nvrhi::Format::RGB32_FLOAT;
+    def.location = 5;
+    def.offset = 12;
+
+    nvrhi::VertexAttributeDesc attr = vhTranslateVertexAttribute( def, 2 );
+
+    EXPECT_EQ( attr.format, nvrhi::Format::RGB32_FLOAT );
+    EXPECT_STREQ( attr.name.c_str(), "ATTR5" );
+    EXPECT_EQ( attr.bufferIndex, 2 );
+    EXPECT_EQ( attr.offset, 12 );
+    EXPECT_EQ( attr.elementStride, 0 ); // Default
+    EXPECT_FALSE( attr.isInstanced );
 }
 
 UTEST( Buffer, Allocation )
@@ -693,7 +710,7 @@ UTEST( Buffer, UpdateSafety )
 
     // Null Data ( should error )
     vhBuffer buf = vhAllocBuffer();
-    vhCreateVertexBuffer( buf, "NullDataTest", vhAllocMem( 1024 ), "float3 POSITION" );
+    vhCreateVertexBuffer( buf, "NullDataTest", vhAllocMem( 1024 ), "float3" );
     vhUpdateVertexBuffer( buf, nullptr, 0 );
     vhFlush();
     EXPECT_GT( g_vhErrorCounter.load(), startErrors );
@@ -717,8 +734,8 @@ UTEST( Buffer, DoubleCreation )
     int32_t startErrors = g_vhErrorCounter.load();
 
     vhBuffer buf = vhAllocBuffer();
-    vhCreateVertexBuffer( buf, "DoubleCreate", vhAllocMem( 1024 ), "float3 POSITION" );
-    vhCreateVertexBuffer( buf, "DoubleCreate2", vhAllocMem( 1024 ), "float3 POSITION" );
+    vhCreateVertexBuffer( buf, "DoubleCreate", vhAllocMem( 1024 ), "float3" );
+    vhCreateVertexBuffer( buf, "DoubleCreate2", vhAllocMem( 1024 ), "float3" );
     vhFlush();
 
     EXPECT_GT( g_vhErrorCounter.load(), startErrors );
@@ -737,7 +754,7 @@ UTEST( Buffer, UpdateFunctionality )
     int32_t startErrors = g_vhErrorCounter.load();
 
     vhBuffer buf = vhAllocBuffer();
-    vhCreateVertexBuffer( buf, "UpdateTest", vhAllocMem( 1024 ), "float3 POSITION" );
+    vhCreateVertexBuffer( buf, "UpdateTest", vhAllocMem( 1024 ), "float3" );
     
     // Basic Update
     vhUpdateVertexBuffer( buf, vhAllocMem( 256 ), 0 );
@@ -1501,13 +1518,13 @@ UTEST( Buffer, Flags_Compute )
     int32_t startErrors = g_vhErrorCounter.load();
 
     vhBuffer bRead = vhAllocBuffer();
-    vhCreateVertexBuffer( bRead, "ComputeRead", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_COMPUTE_READ );
+    vhCreateVertexBuffer( bRead, "ComputeRead", vhAllocMem( 1024 ), "float3", 0, VRHI_BUFFER_COMPUTE_READ );
 
     vhBuffer bWrite = vhAllocBuffer();
-    vhCreateVertexBuffer( bWrite, "ComputeWrite", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_COMPUTE_WRITE );
+    vhCreateVertexBuffer( bWrite, "ComputeWrite", vhAllocMem( 1024 ), "float3", 0, VRHI_BUFFER_COMPUTE_WRITE );
 
     vhBuffer bReadWrite = vhAllocBuffer();
-    vhCreateVertexBuffer( bReadWrite, "ComputeReadWrite", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_COMPUTE_READ_WRITE );
+    vhCreateVertexBuffer( bReadWrite, "ComputeReadWrite", vhAllocMem( 1024 ), "float3", 0, VRHI_BUFFER_COMPUTE_READ_WRITE );
 
     vhFlush();
 
@@ -1528,7 +1545,7 @@ UTEST( Buffer, Flags_DrawIndirect )
     }
     int32_t startErrors = g_vhErrorCounter.load();
     vhBuffer bIndirect = vhAllocBuffer();
-    vhCreateVertexBuffer( bIndirect, "DrawIndirect", vhAllocMem( 1024 ), "float3 POSITION", 0, VRHI_BUFFER_DRAW_INDIRECT );
+    vhCreateVertexBuffer( bIndirect, "DrawIndirect", vhAllocMem( 1024 ), "float3", 0, VRHI_BUFFER_DRAW_INDIRECT );
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
     vhDestroyBuffer( bIndirect );
@@ -1547,7 +1564,7 @@ UTEST( Buffer, Flags_Resize )
 
     // Success case: ALLOW_RESIZE
     vhBuffer bResize = vhAllocBuffer();
-    vhCreateVertexBuffer( bResize, "AllowResize", vhAllocMem( 64 ), "float3 POSITION", 0, VRHI_BUFFER_ALLOW_RESIZE );
+    vhCreateVertexBuffer( bResize, "AllowResize", vhAllocMem( 64 ), "float3", 0, VRHI_BUFFER_ALLOW_RESIZE );
 
     // Update with larger data
     vhUpdateVertexBuffer( bResize, vhAllocMem( 128 ), 0 );
@@ -1556,7 +1573,7 @@ UTEST( Buffer, Flags_Resize )
 
     // Failure case: No ALLOW_RESIZE
     vhBuffer bNoResize = vhAllocBuffer();
-    vhCreateVertexBuffer( bNoResize, "NoResize", vhAllocMem( 64 ), "float3 POSITION", 0, VRHI_BUFFER_NONE );
+    vhCreateVertexBuffer( bNoResize, "NoResize", vhAllocMem( 64 ), "float3", 0, VRHI_BUFFER_NONE );
 
     // Update with larger data - should trigger error in backend
     vhUpdateVertexBuffer( bNoResize, vhAllocMem( 128 ), 0 );
@@ -1851,7 +1868,7 @@ UTEST( Buffer, NumVerts_CreateResize )
 
     // Create Uninitialised
     vhBuffer buf = vhAllocBuffer();
-    vhCreateVertexBuffer( buf, "UninitCreate", nullptr, "float3 POSITION", 100, VRHI_BUFFER_ALLOW_RESIZE );
+    vhCreateVertexBuffer( buf, "UninitCreate", nullptr, "float3", 100, VRHI_BUFFER_ALLOW_RESIZE );
     vhFlush();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
@@ -2460,7 +2477,6 @@ UTEST( State, Attachments )
     EXPECT_EQ( retrieved.colourAttachment[0].mipLevel, 1u );
     EXPECT_EQ( retrieved.depthAttachment.texture, 201u );
 }
-
 
 UTEST( Sampler, GetSamplerDesc )
 {

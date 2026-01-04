@@ -58,39 +58,73 @@ bool vhReflectSpirv(
     nvrhi::BindingLayoutDesc& outDesc,
     std::vector< vhShaderReflectionResource >& outResources,
     glm::uvec3& outGroupSize,
-    std::vector< vhPushConstantRange >& outPushConstants
+    std::vector< vhPushConstantRange >& outPushConstants,
+    std::vector< vhVertexLayoutDef >* outInputLayout
 )
 {
     auto fnGetResourceTypeFromReflect = []( const SpvReflectDescriptorBinding& binding ) -> nvrhi::ResourceType
     {
         switch ( binding.descriptor_type )
         {
-        case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-            return nvrhi::ResourceType::ConstantBuffer;
-
-        case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-        case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-            return nvrhi::ResourceType::Texture_SRV;
-
-        case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-            return nvrhi::ResourceType::Texture_UAV;
-
-        case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
-            return nvrhi::ResourceType::Sampler;
-
-        case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-        {
-            // Check if read-only
-            bool isReadOnly = false;
-            if ( binding.type_description && ( binding.type_description->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE ) )
+            case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                return nvrhi::ResourceType::ConstantBuffer;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+            case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                return nvrhi::ResourceType::Texture_SRV;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                return nvrhi::ResourceType::Texture_UAV;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
+                return nvrhi::ResourceType::Sampler;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
             {
-                isReadOnly = true;
+                bool isReadOnly = false;
+                if ( binding.type_description && ( binding.type_description->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE ) )
+                {
+                    isReadOnly = true;
+                }
+                return isReadOnly ? nvrhi::ResourceType::StructuredBuffer_SRV : nvrhi::ResourceType::StructuredBuffer_UAV;
             }
-            return isReadOnly ? nvrhi::ResourceType::StructuredBuffer_SRV : nvrhi::ResourceType::StructuredBuffer_UAV;
+            default:
+                return nvrhi::ResourceType::None;
         }
+    };
 
-        default:
-            return nvrhi::ResourceType::None;
+    auto fnMapSpvFormat = []( SpvReflectFormat fmt ) -> nvrhi::Format
+    {
+        switch ( fmt )
+        {
+            case SPV_REFLECT_FORMAT_R32_SFLOAT: return nvrhi::Format::R32_FLOAT;
+            case SPV_REFLECT_FORMAT_R32G32_SFLOAT: return nvrhi::Format::RG32_FLOAT;
+            case SPV_REFLECT_FORMAT_R32G32B32_SFLOAT: return nvrhi::Format::RGB32_FLOAT;
+            case SPV_REFLECT_FORMAT_R32G32B32A32_SFLOAT: return nvrhi::Format::RGBA32_FLOAT;
+
+            case SPV_REFLECT_FORMAT_R16_SFLOAT: return nvrhi::Format::R16_FLOAT;
+            case SPV_REFLECT_FORMAT_R16G16_SFLOAT: return nvrhi::Format::RG16_FLOAT;
+            case SPV_REFLECT_FORMAT_R16G16B16_SFLOAT: return nvrhi::Format::UNKNOWN; // Unsupported by NVRHI
+            case SPV_REFLECT_FORMAT_R16G16B16A16_SFLOAT: return nvrhi::Format::RGBA16_FLOAT;
+
+            case SPV_REFLECT_FORMAT_R32_SINT: return nvrhi::Format::R32_SINT;
+            case SPV_REFLECT_FORMAT_R32G32_SINT: return nvrhi::Format::RG32_SINT;
+            case SPV_REFLECT_FORMAT_R32G32B32_SINT: return nvrhi::Format::RGB32_SINT;
+            case SPV_REFLECT_FORMAT_R32G32B32A32_SINT: return nvrhi::Format::RGBA32_SINT;
+
+            case SPV_REFLECT_FORMAT_R32_UINT: return nvrhi::Format::R32_UINT;
+            case SPV_REFLECT_FORMAT_R32G32_UINT: return nvrhi::Format::RG32_UINT;
+            case SPV_REFLECT_FORMAT_R32G32B32_UINT: return nvrhi::Format::RGB32_UINT;
+            case SPV_REFLECT_FORMAT_R32G32B32A32_UINT: return nvrhi::Format::RGBA32_UINT;
+
+            // Short (16-bit Int)
+            case SPV_REFLECT_FORMAT_R16_SINT: return nvrhi::Format::R16_SINT;
+            case SPV_REFLECT_FORMAT_R16G16_SINT: return nvrhi::Format::RG16_SINT;
+            case SPV_REFLECT_FORMAT_R16G16B16_SINT: return nvrhi::Format::UNKNOWN; // Unsupported by NVRHI
+            case SPV_REFLECT_FORMAT_R16G16B16A16_SINT: return nvrhi::Format::RGBA16_SINT;
+
+            case SPV_REFLECT_FORMAT_R16_UINT: return nvrhi::Format::R16_UINT;
+            case SPV_REFLECT_FORMAT_R16G16_UINT: return nvrhi::Format::RG16_UINT;
+            case SPV_REFLECT_FORMAT_R16G16B16_UINT: return nvrhi::Format::UNKNOWN; // Unsupported by NVRHI
+            case SPV_REFLECT_FORMAT_R16G16B16A16_UINT: return nvrhi::Format::RGBA16_UINT;
+
+            default: return nvrhi::Format::UNKNOWN;
         }
     };
 
@@ -102,7 +136,7 @@ bool vhReflectSpirv(
         return false;
     }
 
-    // Thread Group Size (Compute only, but harmless to query for others if not present)
+    // Thread Group Size
     if ( module.entry_point_count > 0 )
     {
         auto& ep = module.entry_points[0];
@@ -114,11 +148,11 @@ bool vhReflectSpirv(
     // Push Constants
     if ( module.push_constant_block_count > 0 )
     {
-            for ( uint32_t i = 0; i < module.push_constant_block_count; ++i )
-            {
-                auto& pc = module.push_constant_blocks[i];
-                outPushConstants.push_back( { pc.offset, pc.size, pc.name ? pc.name : "" } );
-            }
+        for ( uint32_t i = 0; i < module.push_constant_block_count; ++i )
+        {
+            auto& pc = module.push_constant_blocks[i];
+            outPushConstants.push_back( { pc.offset, pc.size, pc.name ? pc.name : "" } );
+        }
     }
     
     // Descriptor Sets
@@ -151,6 +185,28 @@ bool vhReflectSpirv(
             res.sizeInBytes = binding->block.size; 
             
             outResources.push_back( res );
+        }
+    }
+
+    // Input Variables (Vertex Attributes)
+    if ( outInputLayout )
+    {
+        uint32_t varCount = 0;
+        spvReflectEnumerateInputVariables( &module, &varCount, nullptr );
+        std::vector< SpvReflectInterfaceVariable* > inputVars( varCount );
+        spvReflectEnumerateInputVariables( &module, &varCount, inputVars.data() );
+
+        for ( auto* var : inputVars )
+        {
+            // Ignore built-ins (gl_VertexIndex etc)
+            if ( var->decoration_flags & SPV_REFLECT_DECORATION_BUILT_IN ) continue;
+
+            vhVertexLayoutDef def;
+            def.location = var->location;
+            def.format = fnMapSpvFormat( var->format );
+            def.offset = 0; // Not relevant for shader reflection input
+            
+            outInputLayout->push_back( def );
         }
     }
 

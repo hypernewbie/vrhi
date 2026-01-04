@@ -177,12 +177,12 @@ void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 
 struct vhVertexLayoutDef
 {
-    std::string semantic;
-    std::string type;
-    int semanticIndex = 0;
-    int componentCount = 0;
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    int location = 0;
     int offset = 0;
 };
+const std::vector< vhVertexLayoutDef >* vhBackendQueryBufferLayout( vhBuffer buffer );
+nvrhi::VertexAttributeDesc vhTranslateVertexAttribute( const vhVertexLayoutDef& def, uint32_t bufferIndex );
 bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhVertexLayoutDef >& outDefs );
 int vhVertexLayoutDefSize( const vhVertexLayoutDef& def );
 int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
@@ -194,7 +194,8 @@ bool vhReflectSpirv(
     nvrhi::BindingLayoutDesc& outDesc,
     std::vector< vhShaderReflectionResource >& outResources,
     glm::uvec3& outGroupSize,
-    std::vector< vhPushConstantRange >& outPushConstants
+    std::vector< vhPushConstantRange >& outPushConstants,
+    std::vector< vhVertexLayoutDef >* outInputLayout = nullptr
 );
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
@@ -220,6 +221,8 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
 
 // Unity Build: Define backend state
 vhCmdBackendState g_vhCmdBackendState;
+
+
 
 #endif // VRHI_IMPLEMENTATION 
 

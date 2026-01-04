@@ -796,12 +796,8 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
 {
     uint64_t h = 0;
 
-    // Shader
-
     uint64_t hCS = vhHashShaderBytecode( desc.CS );
     h = komihash( &hCS, sizeof( hCS ), h );
-
-    // Binding Layouts
 
     for ( const auto& layoutHandle : desc.bindingLayouts )
     {

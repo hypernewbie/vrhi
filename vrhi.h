@@ -346,10 +346,14 @@ void* vhGetTextureNvrhiHandle( vhTexture texture );
 
 // ------------ Buffer ------------
 
-// Vertex layouts are defines as standard strings.
-// Supported base types: float, half, int, uint, short, ushort, byte, ubyte
+// Vertex layouts are defined as standard strings.
+// Supported base types: float, half, int, uint, short, ushort
 // Supported suffixes: 2, 3, 4
-// Example: "float3 POSITION half4 NORMAL half4 TANGENT half4 BINORMAL half4 TEXCOORD half4 COLOUR";
+// Format: "TYPE[COUNT] [ATTRn]"
+// Examples:
+//   "float3" -> Location 0 (Implicit)
+//   "float3 ATTR5" -> Location 5 (Explicit)
+//   "float3 float2" -> Loc 0, Loc 1
 //
 typedef std::string vhVertexLayout;
 
