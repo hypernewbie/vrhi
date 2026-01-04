@@ -54,12 +54,12 @@ UTEST( Buffer, ValidateLayout )
     EXPECT_FALSE( vhValidateVertexLayout( "float5" ) );  // Invalid suffix
     EXPECT_FALSE( vhValidateVertexLayout( "float1" ) );  // Invalid suffix
     EXPECT_FALSE( vhValidateVertexLayout( "vec3" ) );    // Invalid type
-    
+
     // Invalid cases - Formatting
     EXPECT_FALSE( vhValidateVertexLayout( "float3 ATTR" ) );      // Missing number
     EXPECT_FALSE( vhValidateVertexLayout( "float3 ATTRx" ) );     // Invalid number
     EXPECT_FALSE( vhValidateVertexLayout( "" ) );                 // Empty
-    
+
     // Invalid cases - Collisions
     EXPECT_FALSE( vhValidateVertexLayout( "float3 float3 ATTR0" ) ); // Implicit 0, Explicit 0
     EXPECT_FALSE( vhValidateVertexLayout( "float3 ATTR5 float2 ATTR5" ) ); // Duplicate 5
@@ -77,10 +77,10 @@ UTEST( Buffer, VertexLayoutInternals )
 
         if ( defs.size() > 0 )
         {
-             EXPECT_EQ( defs[0].format, nvrhi::Format::RGB32_FLOAT );
-             EXPECT_EQ( defs[0].location, 5 ); // Explicit
-             EXPECT_EQ( defs[0].offset, 0 );
-             EXPECT_EQ( vhVertexLayoutDefSize( defs[0] ), 12 );
+            EXPECT_EQ( defs[0].format, nvrhi::Format::RGB32_FLOAT );
+            EXPECT_EQ( defs[0].location, 5 ); // Explicit
+            EXPECT_EQ( defs[0].offset, 0 );
+            EXPECT_EQ( vhVertexLayoutDefSize( defs[0] ), 12 );
         }
     }
 
@@ -91,12 +91,12 @@ UTEST( Buffer, VertexLayoutInternals )
         bool res = vhParseVertexLayoutInternal( "float3 float2 short2 ATTR5", defs );
         EXPECT_TRUE( res );
         EXPECT_EQ( defs.size(), 3 );
-        
+
         // float3 (12 bytes)
         EXPECT_EQ( defs[0].offset, 0 );
         EXPECT_EQ( defs[0].format, nvrhi::Format::RGB32_FLOAT );
         EXPECT_EQ( defs[0].location, 0 );
-        
+
         // float2 (8 bytes) -> offset 12
         EXPECT_EQ( defs[1].offset, 12 );
         EXPECT_EQ( defs[1].format, nvrhi::Format::RG32_FLOAT );
@@ -106,7 +106,7 @@ UTEST( Buffer, VertexLayoutInternals )
         EXPECT_EQ( defs[2].offset, 20 );
         EXPECT_EQ( defs[2].format, nvrhi::Format::RG16_SINT ); // short2 -> RG16_SINT
         EXPECT_EQ( defs[2].location, 5 );
-        
+
         // Total Stride = 24
         EXPECT_EQ( vhVertexLayoutDefSize( defs ), 24 );
     }
@@ -206,13 +206,13 @@ UTEST( Buffer, UpdateFunctionality )
 
     vhBuffer buf = vhAllocBuffer();
     vhCreateVertexBuffer( buf, "UpdateTest", vhAllocMem( 1024 ), "float3" );
-    
+
     // Basic Update
     vhUpdateVertexBuffer( buf, vhAllocMem( 256 ), 0 );
-    
+
     // Offset Update (512 bytes = ~42.67 vertices, round to 43 vertices for stride 12)
     vhUpdateVertexBuffer( buf, vhAllocMem( 100 ), 43 );
-    
+
     vhFlush();
 
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
@@ -393,7 +393,7 @@ UTEST( IndexBuffer, Flags_Coverage )
     // Compute Read
     vhBuffer bCompRead = vhAllocBuffer();
     vhCreateIndexBuffer( bCompRead, "CompRead", nullptr, 100, VRHI_BUFFER_COMPUTE_READ );
-    
+
     // Compute Write
     vhBuffer bCompWrite = vhAllocBuffer();
     vhCreateIndexBuffer( bCompWrite, "CompWrite", nullptr, 100, VRHI_BUFFER_COMPUTE_WRITE );
@@ -438,11 +438,11 @@ UTEST( IndexBuffer, Resize_And_Uninit )
     vhBuffer bufFixed = vhAllocBuffer();
     vhCreateIndexBuffer( bufFixed, "FixedTest", nullptr, 100, VRHI_BUFFER_INDEX32 ); // No resize flag
     vhFlush();
-    
+
     // Attempt resize - should fail
     vhUpdateIndexBuffer( bufFixed, nullptr, 0, 200 );
     vhFlush();
-    
+
     EXPECT_GT( g_vhErrorCounter.load(), startErrors );
 
     vhDestroyBuffer( buf );

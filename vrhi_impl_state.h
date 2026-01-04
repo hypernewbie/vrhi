@@ -255,7 +255,7 @@ nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
     };
 
     // Write Masks
-    blendState.targets[0].colorWriteMask = ( nvrhi::ColorMask )( stateFlags & 0xF );
+    blendState.targets[0].colorWriteMask = ( nvrhi::ColorMask ) ( stateFlags & 0xF );
 
     // Blend Factors
     uint32_t blendBits = ( uint32_t ) ( ( stateFlags & VRHI_STATE_BLEND_MASK ) >> VRHI_STATE_BLEND_SHIFT );
@@ -337,7 +337,7 @@ nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint
         uint32_t depthFailOp = ( packed & VRHI_STENCIL_OP_FAIL_Z_MASK ) >> VRHI_STENCIL_OP_FAIL_Z_SHIFT;
         uint32_t passOp = ( packed & VRHI_STENCIL_OP_PASS_Z_MASK ) >> VRHI_STENCIL_OP_PASS_Z_SHIFT;
         uint32_t func = ( packed & VRHI_STENCIL_TEST_MASK ) >> VRHI_STENCIL_TEST_SHIFT;
-        
+
         desc.failOp = fnConvertStencilOp( failOp );
         desc.depthFailOp = fnConvertStencilOp( depthFailOp );
         desc.passOp = fnConvertStencilOp( passOp );
@@ -357,7 +357,7 @@ nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint
         {
             dsState.backFaceStencil = dsState.frontFaceStencil;
         }
-        
+
         dsState.stencilRefValue = ( uint8_t ) ( ( frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
         dsState.stencilReadMask = ( uint8_t ) ( ( frontStencil & VRHI_STENCIL_FUNC_RMASK_MASK ) >> VRHI_STENCIL_FUNC_RMASK_SHIFT );
         dsState.stencilWriteMask = dsState.stencilReadMask;

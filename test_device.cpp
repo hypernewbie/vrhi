@@ -91,7 +91,7 @@ UTEST( RHI, LogCallback )
 
     // Verify we captured logs
     EXPECT_GT( logs.size(), 0 ); // "Initialising Vulkan RHI ..." etc
-    
+
     // Check if we captured expected startup messages
     bool foundInit = false;
     for ( const auto& l : logs )
@@ -106,7 +106,7 @@ UTEST( RHI, LogCallback )
 
 
     vhShutdown( false );
-    
+
     // Verify shutdown logs
     bool foundShutdown = false;
     for ( const auto& l : logs )
@@ -196,7 +196,7 @@ UTEST( Device, DummyResources )
     // Test Buffer Retrieval
     nvrhi::BindingLayoutItem bufferItem = {};
     bufferItem.slot = 0;
-    
+
     // Constant Buffer
     bufferItem.type = nvrhi::ResourceType::ConstantBuffer;
     auto cb = vhGetDummyBindingItem( bufferItem );
@@ -231,7 +231,7 @@ UTEST( Device, DummyResources )
     // 3D Texture Fallback
     auto tex3D = vhGetDummyBindingItem( texItem, nvrhi::Format::RGBA8_UNORM, nvrhi::TextureDimension::Texture3D );
     EXPECT_NE( tex3D.resourceHandle, nullptr );
-    
+
     // Test Sampler Retrieval
     nvrhi::BindingLayoutItem samplerItem = {};
     samplerItem.slot = 2;

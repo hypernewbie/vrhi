@@ -200,9 +200,9 @@ UTEST( Texture, Update )
     const int height = 64;
     const size_t dataSize = width * height * 4; // RGBA8
     auto initialData = vhAllocMem( dataSize );
-    
+
     // Fill with gibberish
-    for ( size_t i = 0; i < dataSize; ++i ) (*initialData)[i] = (uint8_t)( rand() % 256 );
+    for ( size_t i = 0; i < dataSize; ++i ) ( *initialData )[i] = ( uint8_t ) ( rand() % 256 );
 
     vhCreateTexture2D(
         tex,
@@ -219,8 +219,8 @@ UTEST( Texture, Update )
     {
         // New gibberish
         auto updateData = vhAllocMem( dataSize );
-        for ( size_t k = 0; k < dataSize; ++k ) (*updateData)[k] = (uint8_t)( rand() % 256 );
-        
+        for ( size_t k = 0; k < dataSize; ++k ) ( *updateData )[k] = ( uint8_t ) ( rand() % 256 );
+
         // Full update
         vhUpdateTexture(
             tex,
@@ -228,13 +228,13 @@ UTEST( Texture, Update )
             1, 1, // num mips, num layers
             updateData
         );
-                 
+
         // Process
         vhFinish();
     }
-    
+
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
-    
+
     vhDestroyTexture( tex );
     vhFinish();
 }
@@ -256,9 +256,9 @@ UTEST( Texture, Readback )
     const int height = 32;
     const size_t dataSize = width * height * 4; // RGBA8
     auto initialData = vhAllocMem( dataSize );
-    
+
     // Fill with known pattern
-    for ( size_t i = 0; i < dataSize; ++i ) (*initialData)[i] = (uint8_t)( i % 255 );
+    for ( size_t i = 0; i < dataSize; ++i ) ( *initialData )[i] = ( uint8_t ) ( i % 255 );
 
     vhCreateTexture2D(
         tex,
@@ -270,7 +270,7 @@ UTEST( Texture, Readback )
     );
 
     // Copy reference data before backend consumes it (needed for verification)
-    
+
     std::vector<uint8_t> refData = *initialData; // Copy for verification
 
     // Flush to ensure creation happens
@@ -289,13 +289,13 @@ UTEST( Texture, Readback )
     {
         for ( size_t i = 0; i < dataSize; ++i )
         {
-             EXPECT_EQ( readData[i], refData[i] );
-             if ( readData[i] != refData[i] ) break; // Fail fast
+            EXPECT_EQ( readData[i], refData[i] );
+            if ( readData[i] != refData[i] ) break; // Fail fast
         }
     }
 
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
-    
+
     vhDestroyTexture( tex );
 }
 
@@ -369,7 +369,7 @@ UTEST( Texture, BlitConnectivity )
         EXPECT_EQ( readData[i], 255 );
         if ( readData[i] != 255 ) break;
     }
-    
+
     vhDestroyTexture( src );
     vhDestroyTexture( dst );
     vhFlush();
@@ -711,71 +711,71 @@ UTEST( Sampler, ValueUniqueness )
 UTEST( Sampler, CompositeMacros )
 {
     // VRHI_SAMPLER_POINT combines min, mag, mip point
-    EXPECT_EQ( VRHI_SAMPLER_POINT, 
-               VRHI_SAMPLER_MIN_POINT | VRHI_SAMPLER_MAG_POINT | VRHI_SAMPLER_MIP_POINT );
+    EXPECT_EQ( VRHI_SAMPLER_POINT,
+        VRHI_SAMPLER_MIN_POINT | VRHI_SAMPLER_MAG_POINT | VRHI_SAMPLER_MIP_POINT );
 
-    // UVW convenience macros
-    EXPECT_EQ( VRHI_SAMPLER_UVW_WRAP, 
-               VRHI_SAMPLER_U_WRAP | VRHI_SAMPLER_V_WRAP | VRHI_SAMPLER_W_WRAP );
-    EXPECT_EQ( VRHI_SAMPLER_UVW_MIRROR, 
-               VRHI_SAMPLER_U_MIRROR | VRHI_SAMPLER_V_MIRROR | VRHI_SAMPLER_W_MIRROR );
-    EXPECT_EQ( VRHI_SAMPLER_UVW_CLAMP, 
-               VRHI_SAMPLER_U_CLAMP | VRHI_SAMPLER_V_CLAMP | VRHI_SAMPLER_W_CLAMP );
-    EXPECT_EQ( VRHI_SAMPLER_UVW_BORDER, 
-               VRHI_SAMPLER_U_BORDER | VRHI_SAMPLER_V_BORDER | VRHI_SAMPLER_W_BORDER );
+// UVW convenience macros
+    EXPECT_EQ( VRHI_SAMPLER_UVW_WRAP,
+        VRHI_SAMPLER_U_WRAP | VRHI_SAMPLER_V_WRAP | VRHI_SAMPLER_W_WRAP );
+    EXPECT_EQ( VRHI_SAMPLER_UVW_MIRROR,
+        VRHI_SAMPLER_U_MIRROR | VRHI_SAMPLER_V_MIRROR | VRHI_SAMPLER_W_MIRROR );
+    EXPECT_EQ( VRHI_SAMPLER_UVW_CLAMP,
+        VRHI_SAMPLER_U_CLAMP | VRHI_SAMPLER_V_CLAMP | VRHI_SAMPLER_W_CLAMP );
+    EXPECT_EQ( VRHI_SAMPLER_UVW_BORDER,
+        VRHI_SAMPLER_U_BORDER | VRHI_SAMPLER_V_BORDER | VRHI_SAMPLER_W_BORDER );
 
-    // Verify VRHI_SAMPLER_NONE is 0
+// Verify VRHI_SAMPLER_NONE is 0
     EXPECT_EQ( VRHI_SAMPLER_NONE, 0u );
 }
 
 UTEST( Sampler, MipBiasMacro )
 {
     // Zero bias
-    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS(0.0f) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 0u );
+    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS( 0.0f ) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 0u );
 
     // Positive bias: 1.0 * 16 = 16
-    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS(1.0f) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 16u );
+    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS( 1.0f ) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 16u );
 
     // Positive bias: 0.5 * 16 = 8
-    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS(0.5f) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 8u );
+    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS( 0.5f ) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 8u );
 
     // Positive bias: 2.0 * 16 = 32
-    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS(2.0f) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 32u );
+    EXPECT_EQ( ( VRHI_SAMPLER_MIPBIAS( 2.0f ) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu, 32u );
 
     // Verify result fits within mask
-    EXPECT_EQ( VRHI_SAMPLER_MIPBIAS(1.0f) & ~VRHI_SAMPLER_MIPBIAS_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_MIPBIAS(7.9f) & ~VRHI_SAMPLER_MIPBIAS_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_MIPBIAS( 1.0f ) & ~VRHI_SAMPLER_MIPBIAS_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_MIPBIAS( 7.9f ) & ~VRHI_SAMPLER_MIPBIAS_MASK, 0u );
 
     // Negative bias: -1.0 * 16 = -16 (two's complement, expect 0xF0 or 240 in 8-bit)
-    uint32_t rawBias = ( VRHI_SAMPLER_MIPBIAS(-1.0f) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu;
-    int8_t negBias = (int8_t)rawBias;
+    uint32_t rawBias = ( VRHI_SAMPLER_MIPBIAS( -1.0f ) >> VRHI_SAMPLER_MIPBIAS_SHIFT ) & 0xFFu;
+    int8_t negBias = ( int8_t ) rawBias;
     EXPECT_EQ( negBias, -16 );
 }
 
 UTEST( Sampler, BorderColourMacro )
 {
     // Colour index 0
-    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR(0) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 0u );
+    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR( 0 ) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 0u );
 
     // Colour index 1
-    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR(1) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 1u );
+    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR( 1 ) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 1u );
 
     // Max valid colour index (15)
-    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR(15) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 15u );
+    EXPECT_EQ( ( VRHI_SAMPLER_BORDER_COLOUR( 15 ) >> VRHI_SAMPLER_BORDER_COLOUR_SHIFT ), 15u );
 
     // Values fit within mask
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR(0) & ~VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
-    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR(15) & ~VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR( 0 ) & ~VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
+    EXPECT_EQ( VRHI_SAMPLER_BORDER_COLOUR( 15 ) & ~VRHI_SAMPLER_BORDER_COLOUR_MASK, 0u );
 }
 
 UTEST( Sampler, MaxAnisotropyMacro )
 {
     // Direct macro values
-    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY(0), VRHI_SAMPLER_ANISOTROPY_1 );
-    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY(1), VRHI_SAMPLER_ANISOTROPY_2 );
-    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY(2), VRHI_SAMPLER_ANISOTROPY_4 );
-    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY(3), VRHI_SAMPLER_ANISOTROPY_8 );
-    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY(4), VRHI_SAMPLER_ANISOTROPY_16 );
+    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY( 0 ), VRHI_SAMPLER_ANISOTROPY_1 );
+    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY( 1 ), VRHI_SAMPLER_ANISOTROPY_2 );
+    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY( 2 ), VRHI_SAMPLER_ANISOTROPY_4 );
+    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY( 3 ), VRHI_SAMPLER_ANISOTROPY_8 );
+    EXPECT_EQ( VRHI_SAMPLER_MAX_ANISOTROPY( 4 ), VRHI_SAMPLER_ANISOTROPY_16 );
 
     // Extraction test
     uint32_t flags = VRHI_SAMPLER_ANISOTROPY_8;
@@ -785,7 +785,7 @@ UTEST( Sampler, MaxAnisotropyMacro )
 
 UTEST( Sampler, BitsMaskCoverage )
 {
-    uint32_t allMasks = 
+    uint32_t allMasks =
         VRHI_SAMPLER_U_MASK |
         VRHI_SAMPLER_V_MASK |
         VRHI_SAMPLER_W_MASK |
@@ -807,7 +807,7 @@ UTEST( Sampler, BitsMaskCoverage )
 UTEST( Sampler, CombinedFlagExtraction )
 {
     // Create a complex sampler configuration
-    uint32_t samplerFlags = 
+    uint32_t samplerFlags =
         VRHI_SAMPLER_U_CLAMP |
         VRHI_SAMPLER_V_MIRROR |
         VRHI_SAMPLER_W_BORDER |
@@ -815,8 +815,8 @@ UTEST( Sampler, CombinedFlagExtraction )
         VRHI_SAMPLER_MAG_LINEAR |
         VRHI_SAMPLER_MIP_POINT |
         VRHI_SAMPLER_COMPARE_LEQUAL |
-        VRHI_SAMPLER_MIPBIAS(1.5f) |
-        VRHI_SAMPLER_BORDER_COLOUR(5) |
+        VRHI_SAMPLER_MIPBIAS( 1.5f ) |
+        VRHI_SAMPLER_BORDER_COLOUR( 5 ) |
         VRHI_SAMPLER_SAMPLE_STENCIL |
         VRHI_SAMPLER_ANISOTROPY_8;
 
@@ -977,7 +977,7 @@ UTEST( Texture, BlitStress )
         {
             for ( int x = 0; x < width; ++x )
             {
-                size_t pixelOffset = ( size_t )( y * width + x ) * pixelSize;
+                size_t pixelOffset = ( size_t ) ( y * width + x ) * pixelSize;
                 bool inRegion = ( x >= 8 && x < 8 + 16 && y >= 8 && y < 8 + 16 );
                 uint8_t expected = inRegion ? 0xAA : 0x55;
                 for ( int c = 0; c < pixelSize; ++c )
@@ -1129,7 +1129,7 @@ UTEST( Texture, Type_Cube )
     auto fullData = vhAllocMem( totalSize );
     for ( int f = 0; f < faces; ++f )
     {
-        std::fill( fullData->begin() + f * faceSize, fullData->begin() + ( f + 1 ) * faceSize, ( uint8_t )( f + 10 ) );
+        std::fill( fullData->begin() + f * faceSize, fullData->begin() + ( f + 1 ) * faceSize, ( uint8_t ) ( f + 10 ) );
     }
     vhUpdateTexture( tex, 0, 0, 1, faces, fullData );
     vhFinish();
@@ -1143,8 +1143,8 @@ UTEST( Texture, Type_Cube )
         ASSERT_EQ( readData.size(), faceSize );
         for ( size_t i = 0; i < faceSize; ++i )
         {
-            EXPECT_EQ( readData[i], ( uint8_t )( f + 10 ) );
-            if ( readData[i] != ( uint8_t )( f + 10 ) ) break;
+            EXPECT_EQ( readData[i], ( uint8_t ) ( f + 10 ) );
+            if ( readData[i] != ( uint8_t ) ( f + 10 ) ) break;
         }
     }
 
@@ -1160,7 +1160,7 @@ UTEST( Texture, Type_Cube )
         vhMem readData;
         vhReadTextureSlow( tex, 0, f, &readData );
         vhFinish();
-        uint8_t expected = ( f == 3 ) ? 0xAA : ( uint8_t )( f + 10 );
+        uint8_t expected = ( f == 3 ) ? 0xAA : ( uint8_t ) ( f + 10 );
         for ( size_t i = 0; i < faceSize; ++i )
         {
             EXPECT_EQ( readData[i], expected );
@@ -1188,7 +1188,7 @@ UTEST( Texture, Type_3D )
 
     // Action: Update full volume with gradient
     auto data = vhAllocMem( totalSize );
-    for ( size_t i = 0; i < totalSize; ++i ) ( *data )[i] = ( uint8_t )( i % 256 );
+    for ( size_t i = 0; i < totalSize; ++i ) ( *data )[i] = ( uint8_t ) ( i % 256 );
     vhUpdateTexture( tex, 0, 0, 1, 1, data );
     vhFinish();
 
@@ -1220,7 +1220,7 @@ UTEST( Texture, MipChain )
     const int dim = 32;
     const int mips = 4; // 32, 16, 8, 4
     const nvrhi::Format fmt = nvrhi::Format::R8_UINT;
-    
+
     // Calculate total size
     size_t totalSize = 0;
     std::vector<size_t> mipSizes;
@@ -1240,7 +1240,7 @@ UTEST( Texture, MipChain )
     size_t offset = 0;
     for ( int i = 0; i < mips; ++i )
     {
-        std::fill( fullData->begin() + offset, fullData->begin() + offset + mipSizes[i], ( uint8_t )( i + 1 ) );
+        std::fill( fullData->begin() + offset, fullData->begin() + offset + mipSizes[i], ( uint8_t ) ( i + 1 ) );
         offset += mipSizes[i];
     }
     vhUpdateTexture( tex, 0, 0, mips, 1, fullData );
@@ -1255,8 +1255,8 @@ UTEST( Texture, MipChain )
         ASSERT_EQ( readData.size(), mipSizes[i] );
         for ( size_t j = 0; j < mipSizes[i]; ++j )
         {
-            EXPECT_EQ( readData[j], ( uint8_t )( i + 1 ) );
-            if ( readData[j] != ( uint8_t )( i + 1 ) ) break;
+            EXPECT_EQ( readData[j], ( uint8_t ) ( i + 1 ) );
+            if ( readData[j] != ( uint8_t ) ( i + 1 ) ) break;
         }
     }
 
@@ -1272,7 +1272,7 @@ UTEST( Texture, MipChain )
         vhMem readData;
         vhReadTextureSlow( tex, i, 0, &readData );
         vhFinish();
-        uint8_t expected = ( i == 2 ) ? 0x77 : ( uint8_t )( i + 1 );
+        uint8_t expected = ( i == 2 ) ? 0x77 : ( uint8_t ) ( i + 1 );
         for ( size_t j = 0; j < mipSizes[i]; ++j )
         {
             EXPECT_EQ( readData[j], expected );
@@ -1323,7 +1323,7 @@ UTEST( Sampler, GetSamplerDesc )
     {
         uint64_t flags = 0;
         nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
-        
+
         EXPECT_TRUE( desc.minFilter );
         EXPECT_TRUE( desc.magFilter );
         EXPECT_TRUE( desc.mipFilter );
@@ -1341,7 +1341,7 @@ UTEST( Sampler, GetSamplerDesc )
     {
         uint64_t flags = VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP;
         nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
-        
+
         EXPECT_FALSE( desc.minFilter );
         EXPECT_FALSE( desc.magFilter );
         EXPECT_FALSE( desc.mipFilter );
@@ -1354,7 +1354,7 @@ UTEST( Sampler, GetSamplerDesc )
     {
         uint64_t flags = VRHI_SAMPLER_ANISOTROPY_16 | VRHI_SAMPLER_MIPBIAS( 2.5f );
         nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
-        
+
         EXPECT_NEAR( desc.maxAnisotropy, 16.0f, 1e-5f );
         EXPECT_NEAR( desc.mipBias, 2.5f, 0.01f );
     }
@@ -1363,7 +1363,7 @@ UTEST( Sampler, GetSamplerDesc )
     {
         uint64_t flags = VRHI_SAMPLER_U_MIRROR | VRHI_SAMPLER_V_BORDER | VRHI_SAMPLER_MAG_POINT | VRHI_SAMPLER_MIPBIAS( -0.5f );
         nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
-        
+
         EXPECT_EQ( desc.addressU, nvrhi::SamplerAddressMode::Mirror );
         EXPECT_EQ( desc.addressV, nvrhi::SamplerAddressMode::Border );
         EXPECT_EQ( desc.addressW, nvrhi::SamplerAddressMode::Wrap );
@@ -1376,7 +1376,7 @@ UTEST( Sampler, GetSamplerDesc )
     {
         uint64_t flags = VRHI_SAMPLER_COMPARE_LESS;
         nvrhi::SamplerDesc desc = vhGetSamplerDesc( flags );
-        
+
         EXPECT_EQ( desc.reductionType, nvrhi::SamplerReductionType::Comparison );
     }
 }

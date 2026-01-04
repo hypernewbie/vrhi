@@ -42,10 +42,10 @@ extern bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& c
 class vhCmdBackendStateTest
 {
 public:
-    static vhCmdBackendState& Get() 
-    { 
+    static vhCmdBackendState& Get()
+    {
         static vhCmdBackendState s_instance;
-        return s_instance; 
+        return s_instance;
     }
 
     static bool Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics )
@@ -63,15 +63,15 @@ public:
     {
         Get().backendTextures[handle].reset( tex );
     }
-    
+
     // Test access for Pipeline Validation
-    static bool PreSubmitCommon_PipelineDesc( 
-        vhState& state, 
-        vhBackendShader* shaders, 
+    static bool PreSubmitCommon_PipelineDesc(
+        vhState& state,
+        vhBackendShader* shaders,
         int shaderCount,
         nvrhi::ComputePipelineDesc* compute,
         nvrhi::GraphicsPipelineDesc* graphics
-        )
+    )
     {
         return Get().BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, compute, graphics );
     }
@@ -124,13 +124,13 @@ UTEST( BackendInternal, PipelineValidation )
 {
     // Construct dummy setup for PreSubmitCommon_PipelineDesc
     // We want to verify it catches layout mismatches or missing shaders without needing a full device
-    
+
     vhState state;
     vhBackendShader shader;
     shader.name = "TestShader";
     shader.flags = VRHI_SHADER_STAGE_COMPUTE;
     shader.threadGroupSize = { 8, 8, 1 };
-    
+
     // Add a resource requirement
     vhShaderReflectionResource res;
     res.name = "InTex";
@@ -139,18 +139,18 @@ UTEST( BackendInternal, PipelineValidation )
     shader.reflection.push_back( res );
 
     nvrhi::ComputePipelineDesc computeDesc;
-    
+
     // Case: Vertex Attribute Mismatch (Validation Failure)
     // We expect this to return FALSE because the shader expects an input (Loc 0) 
     // but the state has no vertex buffers bound.
-    
+
     nvrhi::GraphicsPipelineDesc graphicsDesc;
-    
+
     vhVertexLayoutDef inputDef;
     inputDef.format = nvrhi::Format::RGBA32_FLOAT;
     inputDef.location = 0;
     inputDef.offset = 0;
-    shader.inputLayout.push_back(inputDef);
+    shader.inputLayout.push_back( inputDef );
     shader.flags = VRHI_SHADER_STAGE_VERTEX; // Must be vertex to trigger input layout check
 
     // We must pass a valid shader pointer and count > 0 to satisfy assertions.

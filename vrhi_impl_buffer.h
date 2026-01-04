@@ -102,7 +102,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
     const char* baseTypes[] = { "float", "half", "int", "uint", "short", "ushort", nullptr };
     int currentOffset = 0;
     int currentLocation = 0;
-    
+
     // Collision detection
     std::set<int> usedLocations;
 
@@ -110,7 +110,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
     {
         // Skip whitespace
         while ( *ptr && isspace( *ptr ) ) ptr++;
-        if ( !*ptr ) break; 
+        if ( !*ptr ) break;
 
         // Extract Type Token
         const char* tStart = ptr;
@@ -152,7 +152,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
 
         // Skip whitespace
         while ( *ptr && isspace( *ptr ) ) ptr++;
-        
+
         // Peek next token for Location (ATTRn)
         int resolvedLocation = currentLocation;
         if ( *ptr )
@@ -165,10 +165,10 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
                 const char* numStart = ptr;
                 while ( *ptr && isdigit( *ptr ) ) ptr++;
                 std::string numStr( numStart, ptr );
-                
+
                 if ( numStr.empty() ) return false; // "ATTR" without number
                 resolvedLocation = std::stoi( numStr );
-                
+
                 // Update implicit counter to next
                 currentLocation = resolvedLocation + 1;
             }
@@ -199,7 +199,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
                 outDefs->push_back( def );
             }
         }
-        
+
         const auto& fmtInfo = nvrhi::getFormatInfo( format );
         currentOffset += fmtInfo.bytesPerBlock;
     }
@@ -242,10 +242,10 @@ int64_t vhValidateAttributeMatch( const vhVertexLayoutDef& bufferDef, const std:
             // Strict matching: Format must be identical.
             if ( bufferDef.format == shaderDef.format )
             {
-                return (int64_t)i;
+                return ( int64_t ) i;
             }
-            
-            return -1; 
+
+            return -1;
         }
     }
 

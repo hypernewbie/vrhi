@@ -110,13 +110,13 @@ void vhInit( bool quiet )
 
     if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
     vkb::PhysicalDeviceSelector selector( vkbInst );
-    
+
     VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12Features.timelineSemaphore = VK_TRUE;
     v12Features.bufferDeviceAddress = VK_TRUE;
 
     selector.set_minimum_version( 1, 1 )
-            .set_required_features_12( v12Features );
+        .set_required_features_12( v12Features );
 
     vkb::PhysicalDevice vkbPhys;
 
@@ -152,13 +152,13 @@ void vhInit( bool quiet )
     if ( g_vhInit.raytracing )
     {
         rtExtEnabled = vkbPhys.enable_extension_if_present( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) &&
-                       vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
-                       vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+            vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
+            vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
     }
 
     if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
     vkb::DeviceBuilder devBuilder( vkbPhys );
-    
+
     VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
 
@@ -241,7 +241,7 @@ void vhInit( bool quiet )
     }
 
     g_vulkanEnabledExtensionCount = ( uint32_t ) s_enabledExtensions.size();
-    
+
     static std::vector<const char*> s_enabledExtensionPointers;
     s_enabledExtensionPointers.clear();
     for ( const auto& ext : s_enabledExtensions ) s_enabledExtensionPointers.push_back( ext.c_str() );
@@ -261,7 +261,7 @@ void vhInit( bool quiet )
     nvrhiDesc.instance = g_vulkanInstance;
     nvrhiDesc.physicalDevice = g_vulkanPhysicalDevice;
     nvrhiDesc.device = g_vulkanDevice;
-    
+
     nvrhiDesc.graphicsQueue = g_vulkanGraphicsQueue;
     nvrhiDesc.graphicsQueueIndex = g_QueueFamilyGraphics;
     nvrhiDesc.computeQueue = g_vulkanComputeQueue;
@@ -276,7 +276,7 @@ void vhInit( bool quiet )
     if ( !g_vhDevice )
     {
         VRHI_LOG( "Failed to create NVRHI device!\n" );
-        exit(1);
+        exit( 1 );
     }
     if ( g_vhInit.debug )
     {
@@ -369,7 +369,7 @@ std::string vhGetDeviceInfo()
     }
 
     char buffer[1024];
-    snprintf(buffer, sizeof(buffer),
+    snprintf( buffer, sizeof( buffer ),
         "Device: %s Vulkan: %d.%d.%d Type: %s Queues: Gfx=%d Comp=%d Trans=%d NVRHI: Active Extensions: %d",
         props.deviceName,
         VK_API_VERSION_MAJOR( props.apiVersion ),
@@ -381,7 +381,7 @@ std::string vhGetDeviceInfo()
         g_QueueFamilyTransfer,
         g_vulkanEnabledExtensionCount
     );
-    return std::string(buffer);
+    return std::string( buffer );
 }
 
 void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount )
@@ -449,7 +449,7 @@ void vhInitDummyResources()
 {
     // Ensure we have a device
     if ( !g_vhDevice ) return;
-    
+
     // Check if already initialised
     if ( s_vhDummyOmniBuffer ) return;
 
@@ -464,14 +464,14 @@ void vhInitDummyResources()
     bDesc.structStride = 4;
     bDesc.debugName = "DummyOmniBuffer";
     bDesc.isConstantBuffer = true;
-    bDesc.isVolatile = false; 
+    bDesc.isVolatile = false;
     bDesc.canHaveUAVs = true;
     bDesc.canHaveTypedViews = true;
     bDesc.canHaveRawViews = true;
     bDesc.format = nvrhi::Format::R32_FLOAT;
     bDesc.initialState = nvrhi::ResourceStates::Common;
     bDesc.keepInitialState = true;
-    
+
     s_vhDummyOmniBuffer = g_vhDevice->createBuffer( bDesc );
     cl->clearBufferUInt( s_vhDummyOmniBuffer, 0 );
 
@@ -506,7 +506,7 @@ void vhInitDummyResources()
             else if ( i == 2 ) tDesc.format = nvrhi::Format::R8_SINT;     // SInt
 
             nvrhi::TextureHandle handle = g_vhDevice->createTexture( tDesc );
-            s_vhDummyTextures[( int )dim][i] = handle;
+            s_vhDummyTextures[( int ) dim][i] = handle;
 
             if ( i == 0 )
             {
@@ -549,7 +549,7 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
     // Buffer Fallback (OmniBuffer covers all)
     if ( layoutItem.type == ResourceType::ConstantBuffer || layoutItem.type == ResourceType::VolatileConstantBuffer )
         return BindingSetItem::ConstantBuffer( layoutItem.slot, s_vhDummyOmniBuffer );
-    
+
     if ( layoutItem.type == ResourceType::StructuredBuffer_SRV )
         return BindingSetItem::StructuredBuffer_SRV( layoutItem.slot, s_vhDummyOmniBuffer );
     if ( layoutItem.type == ResourceType::StructuredBuffer_UAV )
@@ -558,7 +558,7 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
         return BindingSetItem::RawBuffer_SRV( layoutItem.slot, s_vhDummyOmniBuffer );
     if ( layoutItem.type == ResourceType::RawBuffer_UAV )
         return BindingSetItem::RawBuffer_UAV( layoutItem.slot, s_vhDummyOmniBuffer );
-    
+
     // Use expectedFormat so the View is created with the correct Type
     if ( layoutItem.type == ResourceType::TypedBuffer_SRV )
         return BindingSetItem::TypedBuffer_SRV( layoutItem.slot, s_vhDummyOmniBuffer, expectedFormat );
@@ -582,11 +582,11 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
 
         // Look up the texture
         if ( expectedDim == TextureDimension::Unknown ) expectedDim = TextureDimension::Texture2D;
-        nvrhi::TextureHandle tex = s_vhDummyTextures[( int )expectedDim][mode];
-        if ( !tex ) tex = s_vhDummyTextures[( int )TextureDimension::Texture2D][mode]; // Fallback
+        nvrhi::TextureHandle tex = s_vhDummyTextures[( int ) expectedDim][mode];
+        if ( !tex ) tex = s_vhDummyTextures[( int ) TextureDimension::Texture2D][mode]; // Fallback
 
         if ( layoutItem.type == ResourceType::Texture_SRV )
-            return BindingSetItem::Texture_SRV( layoutItem.slot, tex, expectedFormat ); 
+            return BindingSetItem::Texture_SRV( layoutItem.slot, tex, expectedFormat );
         else
             return BindingSetItem::Texture_UAV( layoutItem.slot, tex, expectedFormat );
     }
@@ -605,15 +605,15 @@ uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
     h = komihash( &desc.visibility, sizeof( desc.visibility ), h );
     h = komihash( &desc.registerSpace, sizeof( desc.registerSpace ), h );
     h = komihash( &desc.registerSpaceIsDescriptorSet, sizeof( desc.registerSpaceIsDescriptorSet ), h );
-        
+
     for ( const auto& binding : desc.bindings )
     {
         uint32_t slot = binding.slot;
         h = komihash( &slot, sizeof( slot ), h );
-        
+
         nvrhi::ResourceType type = binding.type;
         h = komihash( &type, sizeof( type ), h );
-        
+
         uint16_t sz = binding.size;
         h = komihash( &sz, sizeof( sz ), h );
     }
@@ -841,7 +841,7 @@ nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& de
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         pso = g_vhDevice->createComputePipeline( desc );
-        s_PSOCache_Compute[ hash ] = pso;
+        s_PSOCache_Compute[hash] = pso;
     }
     return pso;
 }
@@ -858,7 +858,7 @@ nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         pso = g_vhDevice->createGraphicsPipeline( desc, fbInfo );
-        s_PSOCache_Graphics[ hash ] = pso;
+        s_PSOCache_Graphics[hash] = pso;
     }
     return pso;
 }

@@ -134,24 +134,24 @@ bool vhReflectSpirv(
         if ( fmt == SpvImageFormatR32f )    return nvrhi::Format::R32_FLOAT;
         if ( fmt == SpvImageFormatRgba8 )   return nvrhi::Format::RGBA8_UNORM;
         if ( fmt == SpvImageFormatRgba8Snorm ) return nvrhi::Format::RGBA8_SNORM;
-        
+
         if ( fmt == SpvImageFormatRg32f )   return nvrhi::Format::RG32_FLOAT;
         if ( fmt == SpvImageFormatRg16f )   return nvrhi::Format::RG16_FLOAT;
-        
+
         if ( fmt == SpvImageFormatR32i )    return nvrhi::Format::R32_SINT;
         if ( fmt == SpvImageFormatR32ui )   return nvrhi::Format::R32_UINT;
-        
+
         if ( fmt == SpvImageFormatRg32i )    return nvrhi::Format::RG32_SINT;
         if ( fmt == SpvImageFormatRg32ui )   return nvrhi::Format::RG32_UINT;
-        
+
         if ( fmt == SpvImageFormatRgba32i )  return nvrhi::Format::RGBA32_SINT;
         if ( fmt == SpvImageFormatRgba32ui ) return nvrhi::Format::RGBA32_UINT;
-        
+
         return nvrhi::Format::UNKNOWN;
     };
 
     SpvReflectShaderModule module;
-    SpvReflectResult result = spvReflectCreateShaderModule( spirvBlob.size() * sizeof(uint32_t), spirvBlob.data(), &module );
+    SpvReflectResult result = spvReflectCreateShaderModule( spirvBlob.size() * sizeof( uint32_t ), spirvBlob.data(), &module );
     if ( result != SPV_REFLECT_RESULT_SUCCESS )
     {
         VRHI_ERR( "vhReflectSpirv: Failed to create shader module reflection\n" );
@@ -176,7 +176,7 @@ bool vhReflectSpirv(
             outPushConstants.push_back( { pc.offset, pc.size, pc.name ? pc.name : "" } );
         }
     }
-    
+
     // Descriptor Sets
     uint32_t count = 0;
     spvReflectEnumerateDescriptorSets( &module, &count, nullptr );
@@ -209,13 +209,13 @@ bool vhReflectSpirv(
         {
             auto* binding = set->bindings[i];
             nvrhi::ResourceType type = fnGetResourceTypeFromReflect( *binding );
-            
+
             if ( type == nvrhi::ResourceType::None ) continue;
 
             nvrhi::BindingLayoutItem item{};
             item.slot = binding->binding;
             item.type = type;
-            
+
             outDesc.addItem( item );
 
             vhShaderReflectionResource res;
@@ -226,8 +226,8 @@ bool vhReflectSpirv(
             res.format = fnMapSpvImageFormat( binding->image.image_format );
             res.dim = fnGetTextureDimension( binding->image );
             res.arraySize = binding->count;
-            res.sizeInBytes = binding->block.size; 
-            
+            res.sizeInBytes = binding->block.size;
+
             outResources.push_back( res );
         }
     }
@@ -249,7 +249,7 @@ bool vhReflectSpirv(
             def.location = var->location;
             def.format = fnMapSpvFormat( var->format );
             def.offset = 0; // Not relevant for shader reflection input
-            
+
             outInputLayout->push_back( def );
         }
     }
@@ -263,20 +263,20 @@ bool vhReflectSpirv(
 static bool vhLoadSpirvFile( const std::filesystem::path& path, std::vector< uint32_t >& outSpirv )
 {
     std::ifstream file( path, std::ios::binary | std::ios::ate );
-    if ( !file.is_open( ) )
+    if ( !file.is_open() )
     {
         return false;
     }
 
-    std::streamsize size = file.tellg( );
+    std::streamsize size = file.tellg();
     file.seekg( 0, std::ios::beg );
 
     outSpirv.resize( ( size + 3 ) / 4 );
 
     // Ensure we don't read past end if file size is not multiple of 4.
-    std::memset( outSpirv.data( ), 0, outSpirv.size( ) * 4 );
+    std::memset( outSpirv.data(), 0, outSpirv.size() * 4 );
 
-    if ( !file.read( ( char* ) outSpirv.data( ), size ) )
+    if ( !file.read( ( char* ) outSpirv.data(), size ) )
     {
         return false;
     }
@@ -285,28 +285,28 @@ static bool vhLoadSpirvFile( const std::filesystem::path& path, std::vector< uin
 }
 
 #ifdef _WIN32
-    #include <stdio.h> 
-    
-    // Map to Windows underscore variants
-    #define VH_POPEN       _popen
-    #define VH_PCLOSE      _pclose
-    #define VH_PUTENV      _putenv
-    
-    // Windows pclose returns the exit code directly
-    #define VH_WEXITSTATUS(x) (x)
-    #define VH_WIFEXITED(x)   ((x) != -1)
+#include <stdio.h> 
+
+// Map to Windows underscore variants
+#define VH_POPEN       _popen
+#define VH_PCLOSE      _pclose
+#define VH_PUTENV      _putenv
+
+// Windows pclose returns the exit code directly
+#define VH_WEXITSTATUS(x) (x)
+#define VH_WIFEXITED(x)   ((x) != -1)
 #else
-    #include <unistd.h>
-    #include <sys/wait.h>
-    
-    // Map to standard POSIX names
-    #define VH_POPEN       popen
-    #define VH_PCLOSE      pclose
-    #define VH_PUTENV      putenv
-    
-    // Map to standard POSIX macros
-    #define VH_WEXITSTATUS(x) WEXITSTATUS(x)
-    #define VH_WIFEXITED(x)   WIFEXITED(x)
+#include <unistd.h>
+#include <sys/wait.h>
+
+// Map to standard POSIX names
+#define VH_POPEN       popen
+#define VH_PCLOSE      pclose
+#define VH_PUTENV      putenv
+
+// Map to standard POSIX macros
+#define VH_WEXITSTATUS(x) WEXITSTATUS(x)
+#define VH_WIFEXITED(x)   WIFEXITED(x)
 #endif
 
 bool vhRunExe( const std::string& command, std::string& outOutput )
@@ -319,7 +319,7 @@ bool vhRunExe( const std::string& command, std::string& outOutput )
 #endif
 
     // Use the prefixed macro
-    FILE* pipe = VH_POPEN( fullCommand.c_str( ), "r" ); 
+    FILE* pipe = VH_POPEN( fullCommand.c_str(), "r" );
     if ( !pipe )
     {
         return false;
@@ -332,7 +332,7 @@ bool vhRunExe( const std::string& command, std::string& outOutput )
     }
 
     // Use the prefixed close
-    int result = VH_PCLOSE( pipe ); 
+    int result = VH_PCLOSE( pipe );
 
     // Use the prefixed status macros
     bool failed = false;
@@ -398,10 +398,10 @@ std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
 
 // ------------ Shader Implementation ------------
 
-vhShader vhAllocShader( )
+vhShader vhAllocShader()
 {
     std::lock_guard< std::mutex > lock( g_vhShaderIDListMutex );
-    uint32_t id = g_vhShaderIDList.alloc( );
+    uint32_t id = g_vhShaderIDList.alloc();
     g_vhShaderIDValid[id] = true;
     return id;
 }
@@ -429,11 +429,11 @@ bool vhCompileShader(
     std::string hashInput = std::string( name ) + source + std::to_string( flags ) + entry;
     for ( const auto& d : defines ) hashInput += d;
     for ( const auto& i : includes ) hashInput += i;
-    uint64_t hash = komihash( hashInput.data( ), hashInput.size( ), 0 );
+    uint64_t hash = komihash( hashInput.data(), hashInput.size(), 0 );
 
     std::string prefix = std::string( name ) + "_" + std::to_string( hash );
     const char* profile = vhGetShaderProfile( flags );
-    
+
     // ShaderMake usually appends profile to output, e.g. Name_hash_ps.spirv
 
     std::string outputFilename = prefix + ".spirv";
@@ -454,23 +454,23 @@ bool vhCompileShader(
     std::filesystem::path sourceFilePath = tempDir / sourceFilename;
     {
         std::ofstream sourceFile( sourceFilePath );
-        if ( !sourceFile.is_open( ) )
+        if ( !sourceFile.is_open() )
         {
-            if ( outError ) *outError = "Failed to create temporary shader source file: " + sourceFilePath.string( );
+            if ( outError ) *outError = "Failed to create temporary shader source file: " + sourceFilePath.string();
             return false;
         }
         sourceFile << source;
     }
-    
+
     // Write config file for ShaderMake
     std::string configFilename = prefix + ".cfg";
     std::filesystem::path configFilePath = tempDir / configFilename;
     {
         std::ofstream configFile( configFilePath );
-        if ( !configFile.is_open( ) )
+        if ( !configFile.is_open() )
         {
-             if ( outError ) *outError = "Failed to create temporary shader config file: " + configFilePath.string( );
-             return false;
+            if ( outError ) *outError = "Failed to create temporary shader config file: " + configFilePath.string();
+            return false;
         }
         // Config format: filename -T profile -E entry
         configFile << sourceFilename << " -T " << profile << " -E " << entry;
@@ -480,7 +480,7 @@ bool vhCompileShader(
 
     std::filesystem::path shaderMakePath = g_vhInit.shaderMakePath;
     std::filesystem::path slangPath = g_vhInit.shaderMakeSlangPath;
-    
+
 #ifdef _WIN32
     std::filesystem::path shaderMakeExe = shaderMakePath / "ShaderMake.exe";
     std::filesystem::path slangExe = slangPath / "slangc.exe";
@@ -488,14 +488,14 @@ bool vhCompileShader(
     std::filesystem::path shaderMakeExe = shaderMakePath / "ShaderMake";
     std::filesystem::path slangExe = slangPath / "slangc";
 #endif
-    shaderMakeExe.make_preferred( );
-    slangExe.make_preferred( );
+    shaderMakeExe.make_preferred();
+    slangExe.make_preferred();
 
-    std::string cmd = "\"" + shaderMakeExe.string( ) + "\"";
+    std::string cmd = "\"" + shaderMakeExe.string() + "\"";
     cmd += " -p SPIRV --binary --flatten --serial"; // --serial to avoid overhead/issues in single file compile
-    cmd += " -c \"" + configFilePath.string( ) + "\"";
-    cmd += " -o \"" + tempDir.string( ) + "\"";
-    cmd += " --compiler \"" + slangExe.string( ) + "\"";
+    cmd += " -c \"" + configFilePath.string() + "\"";
+    cmd += " -o \"" + tempDir.string() + "\"";
+    cmd += " --compiler \"" + slangExe.string() + "\"";
     cmd += " --slang";
     cmd += argString; // Includes -m, -O, etc.
 
@@ -517,7 +517,7 @@ bool vhCompileShader(
         std::filesystem::path fallbackPath = tempDir / ( prefix + ".spirv" );
         if ( !std::filesystem::exists( fallbackPath ) )
         {
-            if ( outError ) *outError = "Compilation finished but output file not found: " + spvPath.string( ) + "\nOutput:\n" + output;
+            if ( outError ) *outError = "Compilation finished but output file not found: " + spvPath.string() + "\nOutput:\n" + output;
             return false;
         }
         spvPath = fallbackPath;
@@ -561,7 +561,7 @@ void* vhGetShaderNvrhiHandle( vhShader shader )
 void vhDestroyShader( vhShader shader )
 {
     std::lock_guard< std::mutex > lock( g_vhShaderIDListMutex );
-    if ( g_vhShaderIDValid.find( shader ) == g_vhShaderIDValid.end( ) ) return;
+    if ( g_vhShaderIDValid.find( shader ) == g_vhShaderIDValid.end() ) return;
 
     g_vhShaderIDValid.erase( shader );
     g_vhShaderIDList.release( shader );
@@ -585,9 +585,9 @@ bool vhShaderValidateBinding( const vhShaderReflectionResource& reflection, cons
         return false;
     }
 
-    if ( reflection.arraySize != binding.getArraySize( ) )
+    if ( reflection.arraySize != binding.getArraySize() )
     {
-        if ( logError ) VRHI_ERR( "Binding Slot %d array size mismatch: Layout expects %d, Shader reflects %d.\n", binding.slot, binding.getArraySize( ), reflection.arraySize );
+        if ( logError ) VRHI_ERR( "Binding Slot %d array size mismatch: Layout expects %d, Shader reflects %d.\n", binding.slot, binding.getArraySize(), reflection.arraySize );
         return false;
     }
 

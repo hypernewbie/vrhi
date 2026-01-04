@@ -136,10 +136,10 @@ extern uint64_t g_vhCmdListTransferSizeHeuristic;
 
 // Backend State
 struct vhCmdBackendState;
-extern vhCmdBackendState g_vhCmdBackendState; 
+extern vhCmdBackendState g_vhCmdBackendState;
 void vhBackendInit();
 void vhBackendShutdown();
-void vhBackendThreadEntry( std::function<void()> initCallback ); 
+void vhBackendThreadEntry( std::function<void()> initCallback );
 vhTexInfo vhBackendQueryTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo );
 void* vhBackendQueryTextureHandle( vhTexture texture );
 uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFlags );
@@ -161,17 +161,17 @@ void vhLog( bool error, const char* fmt, ... );
 
 // Command function templates
 template< typename T, typename... Args >
-T* vhCmdAlloc( Args&&... args ) { return new T( std::forward<Args>(args)... ); }
+T* vhCmdAlloc( Args&&... args ) { return new T( std::forward<Args>( args )... ); }
 
 template< typename T >
-void vhCmdRelease( T* cmd ) { if (cmd) delete cmd; }
+void vhCmdRelease( T* cmd ) { if ( cmd ) delete cmd; }
 
 void vhCmdEnqueue( void* cmd );
 void vhCmdListFlushAll();
 void vhCmdListFlushTransferIfNeeded();
 
 // Command Lists
-extern nvrhi::CommandListHandle g_vhCmdLists[(uint64_t) nvrhi::CommandQueue::Count];
+extern nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count];
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
 
@@ -251,9 +251,9 @@ VkQueue g_vulkanGraphicsQueue = VK_NULL_HANDLE;
 VkQueue g_vulkanComputeQueue = VK_NULL_HANDLE;
 VkQueue g_vulkanTransferQueue = VK_NULL_HANDLE;
 
-uint32_t g_QueueFamilyGraphics = (uint32_t)-1;
-uint32_t g_QueueFamilyCompute = (uint32_t)-1;
-uint32_t g_QueueFamilyTransfer = (uint32_t)-1;
+uint32_t g_QueueFamilyGraphics = ( uint32_t ) -1;
+uint32_t g_QueueFamilyCompute = ( uint32_t ) -1;
+uint32_t g_QueueFamilyTransfer = ( uint32_t ) -1;
 
 // # Graphics Resource Objects
 
@@ -312,7 +312,7 @@ void vhCmdEnqueue( void* cmd )
     g_vhCmds.enqueue( cmd );
 }
 
-nvrhi::CommandListHandle g_vhCmdLists[(uint64_t) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };
+nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };
 uint64_t g_vhCmdListTransferSizeHeuristic = 0;
 
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
@@ -342,11 +342,11 @@ void vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue type )
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         g_vhCmdLists[typeIdx]->close();
-        
+
         // Execute and get the instance ID for synchronisation
         instance = g_vhDevice->executeCommandList( g_vhCmdLists[typeIdx], type );
         g_vhCmdLists[typeIdx] = nullptr;
-        
+
         // Automatic Synchronisation
         if ( instance )
         {

@@ -640,7 +640,7 @@ struct vhState
     uint64_t stateFlags = 0;
     uint64_t debugFlags = 0;
     uint64_t dirty = 0;
-    
+
     uint16_t clearFlags = 0;
     uint32_t clearRgba = 0;
     float clearDepth = 1.0f;
@@ -719,7 +719,7 @@ struct vhState
     std::vector< UniformBufferValue > uniforms;
 
     vhProgram program;
-    
+
 
     struct RenderTarget
     {
@@ -929,7 +929,7 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask = 0 );
 void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount );
 
 // VIDL_GENERATE
-void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t byteOffset  = 0);
+void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t byteOffset = 0 );
 
 // TODO: vhSubmit
 

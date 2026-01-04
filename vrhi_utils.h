@@ -47,9 +47,9 @@ public:
 
         uint32_t ret = m_end;
 
-        if ( m_freeList.size( ) > 0 ) {
-            ret = m_freeList[m_freeList.size( ) - 1];
-            m_freeList.pop_back( );
+        if ( m_freeList.size() > 0 ) {
+            ret = m_freeList[m_freeList.size() - 1];
+            m_freeList.pop_back();
             m_allocCount++;
             return ret;
         }
@@ -70,7 +70,7 @@ public:
 
     void purge()
     {
-        m_freeList.clear( );
+        m_freeList.clear();
         m_end = 0;
         m_allocCount = 0;
     }
@@ -82,13 +82,13 @@ public:
 // Get next mipmap dimension
 inline int vhGetImageNextMipmapDim( int x )
 {
-	return ( x > 1 ) ? ( x >> 1 ) : 1;
+    return ( x > 1 ) ? ( x >> 1 ) : 1;
 }
 
 // Get next mipmap dimension
 inline glm::ivec3 vhGetImageNextMipmapDim( const glm::ivec3& dimensions )
 {
-	return glm::ivec3(
+    return glm::ivec3(
         vhGetImageNextMipmapDim( dimensions.x ),
         vhGetImageNextMipmapDim( dimensions.y ),
         vhGetImageNextMipmapDim( dimensions.z )
@@ -99,18 +99,13 @@ inline glm::ivec3 vhGetImageNextMipmapDim( const glm::ivec3& dimensions )
 glm::ivec2 vhGetImageSliceSize( const vhFormatInfo& info, const glm::ivec3& dimensions );
 
 // Get the mip level info for the entire texture
-void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t &pitchSize, int64_t& arraySize, const vhTexInfo& info );
+void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t& pitchSize, int64_t& arraySize, const vhTexInfo& info );
 
 // Round the size to the next power of 2.
 
 inline uint32_t vhNextPow2( uint32_t v )
-
 {
-
     if ( v == 0 ) return 1u;
-
     v--; v |= v >> 1; v |= v >> 2; v |= v >> 4; v |= v >> 8; v |= v >> 16; v++;
-
     return v;
-
 }

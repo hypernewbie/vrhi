@@ -57,7 +57,7 @@ UTEST( ShaderInternal, StateToDesc )
         EXPECT_EQ( ds.depthFunc, nvrhi::ComparisonFunc::Less );
         EXPECT_TRUE( ds.depthWriteEnable );
     }
-    
+
     // Test Blend Add
     {
         nvrhi::BlendState bs = vhTranslateBlendState( VRHI_STATE_BLEND_ADD );
@@ -74,26 +74,26 @@ UTEST( ShaderInternal, StateToDesc )
 
     // Test Stencil Enable & Unpacking (Unified)
     {
-        uint32_t stencil = 
-            VRHI_STENCIL_FUNC_REF( 0x80 ) | 
+        uint32_t stencil =
+            VRHI_STENCIL_FUNC_REF( 0x80 ) |
             VRHI_STENCIL_FUNC_RMASK( 0xFF ) |
             VRHI_STENCIL_TEST_EQUAL |
             VRHI_STENCIL_OP_FAIL_S_KEEP |
             VRHI_STENCIL_OP_FAIL_Z_REPLACE |
             VRHI_STENCIL_OP_PASS_Z_INCR;
-        
+
         nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, stencil, VRHI_STENCIL_NONE );
-        
+
         EXPECT_TRUE( ds.stencilEnable );
         EXPECT_EQ( ds.stencilRefValue, 0x80 );
         EXPECT_EQ( ds.stencilReadMask, 0xFF );
-        
+
         // Front Face
         EXPECT_EQ( ds.frontFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Equal );
         EXPECT_EQ( ds.frontFaceStencil.failOp, nvrhi::StencilOp::Keep );
         EXPECT_EQ( ds.frontFaceStencil.depthFailOp, nvrhi::StencilOp::Replace );
         EXPECT_EQ( ds.frontFaceStencil.passOp, nvrhi::StencilOp::IncrementAndWrap );
-        
+
         // Back Face (should match front)
         EXPECT_EQ( ds.backFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Equal );
         EXPECT_EQ( ds.backFaceStencil.passOp, nvrhi::StencilOp::IncrementAndWrap );
@@ -190,7 +190,7 @@ UTEST( Shader, Lifecycle )
 
     vhShader s = vhAllocShader();
     vhCreateShader( s, "LifecycleShader", VRHI_SHADER_STAGE_VERTEX, spirv, "main" );
-    
+
     vhDestroyShader( s );
     vhFlush();
 
@@ -446,28 +446,28 @@ UTEST( Hashing, ShaderBytecode )
         MockShader( std::initializer_list< uint8_t > l ) : data( l ) {}
         const nvrhi::ShaderDesc& getDesc() const override { return d; }
         void getBytecode( const void** ppBytecode, size_t* pSize ) const override
-        { 
+        {
             *ppBytecode = data.data();
             *pSize = data.size();
         }
     };
-    
+
     MockShader* raw1 = new MockShader( { 1, 2, 3, 4 } );
-    nvrhi::ShaderHandle s1(raw1);
+    nvrhi::ShaderHandle s1( raw1 );
     raw1->Release();
 
     MockShader* raw2 = new MockShader( { 1, 2, 3, 4 } );
-    nvrhi::ShaderHandle s2(raw2);
+    nvrhi::ShaderHandle s2( raw2 );
     raw2->Release();
 
     MockShader* raw3 = new MockShader( { 4, 3, 2, 1 } );
-    nvrhi::ShaderHandle s3(raw3);
+    nvrhi::ShaderHandle s3( raw3 );
     raw3->Release();
-    
+
     uint64_t h1 = vhHashShaderBytecode( s1 );
     uint64_t h2 = vhHashShaderBytecode( s2 );
     uint64_t h3 = vhHashShaderBytecode( s3 );
-    
+
     EXPECT_NE( h1, 0 );
     EXPECT_EQ( h1, h2 );
     EXPECT_NE( h1, h3 );

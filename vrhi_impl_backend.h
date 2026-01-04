@@ -64,7 +64,7 @@ struct vhBackendShader
     std::vector< vhVertexLayoutDef > inputLayout;
     nvrhi::BindingLayoutHandle layout;
     nvrhi::BindingLayoutDesc layoutDesc;
-    
+
     // Metadata
     glm::uvec3 threadGroupSize = { 0, 0, 0 };
     std::vector< vhPushConstantRange > pushConstants;
@@ -139,7 +139,7 @@ struct vhCmdBackendState : public VIDLHandler
     };
 
     // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
-    template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>; 
+    template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>;
 
     inline int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader )
     {
@@ -155,13 +155,13 @@ struct vhCmdBackendState : public VIDLHandler
     {
         uint64_t stage = flags & VRHI_SHADER_STAGE_MASK;
         if ( ( stage == VRHI_SHADER_STAGE_COMPUTE ) && useCompute ) return true;
-        if ( ( stage == VRHI_SHADER_STAGE_VERTEX || 
-               stage == VRHI_SHADER_STAGE_PIXEL ||
-               stage == VRHI_SHADER_STAGE_HULL ||
-               stage == VRHI_SHADER_STAGE_DOMAIN ||
-               stage == VRHI_SHADER_STAGE_GEOMETRY ||
-               stage == VRHI_SHADER_STAGE_MESH ||
-               stage == VRHI_SHADER_STAGE_AMPLIFICATION ) && useGraphics ) return true;
+        if ( ( stage == VRHI_SHADER_STAGE_VERTEX ||
+            stage == VRHI_SHADER_STAGE_PIXEL ||
+            stage == VRHI_SHADER_STAGE_HULL ||
+            stage == VRHI_SHADER_STAGE_DOMAIN ||
+            stage == VRHI_SHADER_STAGE_GEOMETRY ||
+            stage == VRHI_SHADER_STAGE_MESH ||
+            stage == VRHI_SHADER_STAGE_AMPLIFICATION ) && useGraphics ) return true;
         return false;
     };
 
@@ -193,7 +193,7 @@ struct vhCmdBackendState : public VIDLHandler
         // Update the texture.
         {
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-            
+
             for ( int32_t layer = layerStart; layer < layerEnd; ++layer )
             {
                 const uint8_t* layerSrcPtr = data->data() + ( size_t ) ( layer - layerStart ) * totalLayerSize;
@@ -217,10 +217,10 @@ struct vhCmdBackendState : public VIDLHandler
         if ( !bdst.handle || !bsrc.handle ) return;
 
         // Higher level layers should already handle the validation.
-        assert ( srcMip >= 0 && srcMip < bsrc.info.mipLevels );
-        assert ( dstMip >= 0 && dstMip < bdst.info.mipLevels );
-        assert ( srcLayer >= 0 && srcLayer < bsrc.info.arrayLayers );
-        assert ( dstLayer >= 0 && dstLayer < bdst.info.arrayLayers );
+        assert( srcMip >= 0 && srcMip < bsrc.info.mipLevels );
+        assert( dstMip >= 0 && dstMip < bdst.info.mipLevels );
+        assert( srcLayer >= 0 && srcLayer < bsrc.info.arrayLayers );
+        assert( dstLayer >= 0 && dstLayer < bdst.info.arrayLayers );
 
         nvrhi::TextureSlice srcSlice;
         srcSlice.mipLevel = srcMip;
@@ -245,7 +245,7 @@ struct vhCmdBackendState : public VIDLHandler
     void BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer )
     {
         if ( !btex.handle || !outData ) return;
-        assert ( btex.info.target != nvrhi::TextureDimension::Texture3D );
+        assert( btex.info.target != nvrhi::TextureDimension::Texture3D );
 
         // Staging Texture
         auto desc = btex.handle->getDesc();
@@ -253,8 +253,8 @@ struct vhCmdBackendState : public VIDLHandler
         desc.isRenderTarget = false;
         desc.isUAV = false;
         desc.keepInitialState = true;
-        desc.initialState = nvrhi::ResourceStates::CopyDest; 
-        
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+
         nvrhi::StagingTextureHandle stagingTex;
         {
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
@@ -267,11 +267,11 @@ struct vhCmdBackendState : public VIDLHandler
         // (avoids complexity with transfer queue barriers)
         {
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-            
+
             nvrhi::CommandListParameters params = { .queueType = nvrhi::CommandQueue::Graphics };
             auto cmdList = g_vhDevice->createCommandList( params );
             cmdList->open();
-            
+
             nvrhi::TextureSlice slice;
             slice.mipLevel = mip;
             slice.arraySlice = layer;
@@ -281,7 +281,7 @@ struct vhCmdBackendState : public VIDLHandler
             cmdList->commitBarriers();
 
             cmdList->copyTexture( stagingTex, slice, btex.handle, slice );
-            
+
             cmdList->close();
             g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
             g_vhDevice->waitForIdle();
@@ -290,7 +290,7 @@ struct vhCmdBackendState : public VIDLHandler
         // CPU copy
         void* pData = nullptr;
         size_t rowPitch = 0;
-        
+
         {
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
             nvrhi::TextureSlice slice;
@@ -369,16 +369,16 @@ struct vhCmdBackendState : public VIDLHandler
     {
         // TODO: ################ Finish implementation ################
         // TODO: THIS IS UNTESTED!! Use this at graphics render time in future.
-        
+
         // Combine all inputs into a hash key
         uint64_t hashInput[32]; // Enough for color attachments + depth + mip/layer
         int i = 0;
         for ( auto c : colours ) hashInput[i++] = ( uint64_t ) c;
         hashInput[i++] = ( uint64_t ) depth;
         hashInput[i++] = ( uint32_t ) mip | ( ( uint32_t ) layer << 16 );
-        
+
         uint64_t key = komihash( hashInput, i * sizeof( uint64_t ), 0 );
-        
+
         if ( backendFramebuffers.find( key ) == backendFramebuffers.end() )
         {
             nvrhi::FramebufferDesc desc;
@@ -407,7 +407,7 @@ struct vhCmdBackendState : public VIDLHandler
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
             backendFramebuffers[key] = g_vhDevice->createFramebuffer( desc );
         }
-        
+
         return backendFramebuffers[key];
     }
 
@@ -433,7 +433,7 @@ struct vhCmdBackendState : public VIDLHandler
             if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
 
             if ( shader.flags & VRHI_SHADER_STAGE_COMPUTE && computePipelineDesc )
-            {   
+            {
                 computePipelineDesc->setComputeShader( shader.handle );
             }
             if ( shader.flags & VRHI_SHADER_STAGE_VERTEX && graphicsPipelineDesc )
@@ -470,7 +470,7 @@ struct vhCmdBackendState : public VIDLHandler
             // - patchControlPoints: tessellation is only supported if we add it.
 
             // Resolve Input Layout
-    
+
             static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
             static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
             s_layoutLocationTable.clear();
@@ -481,7 +481,7 @@ struct vhCmdBackendState : public VIDLHandler
                 const auto& binding = state.vertexBindings[i];
                 if ( binding.buffer == VRHI_INVALID_HANDLE )
                     continue;
-                
+
                 auto it = backendBuffers.find( binding.buffer );
                 if ( it == backendBuffers.end() )
                     continue;
@@ -489,7 +489,7 @@ struct vhCmdBackendState : public VIDLHandler
                 const auto& bbuf = *it->second;
                 for ( const auto& def : bbuf.layout )
                 {
-                    if( s_layoutLocationTable.find( def.location ) != s_layoutLocationTable.end() )
+                    if ( s_layoutLocationTable.find( def.location ) != s_layoutLocationTable.end() )
                     {
                         if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Collision: Location %d already bound by previous buffer\n", def.location );
                         return false;
@@ -500,7 +500,7 @@ struct vhCmdBackendState : public VIDLHandler
                     s_attributes.push_back( attr );
                 }
             }
-            
+
             // Strict validation of shader inputs to ensure every attribute is satisfied by a bound buffer.
             if ( vertexShader )
             {
@@ -510,11 +510,11 @@ struct vhCmdBackendState : public VIDLHandler
                     if ( it == s_layoutLocationTable.end() )
                     {
                         if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Missing: Shader expects Location %d, but no bound buffer provides it.\n", vsAttribDef.location );
-                        return false; 
+                        return false;
                     }
                     if ( it->second->format != vsAttribDef.format )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Mismatch at Location %d (Buffer: %d, Shader: %d)\n", vsAttribDef.location,  ( int ) it->second->format, ( int ) vsAttribDef.format );
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Mismatch at Location %d (Buffer: %d, Shader: %d)\n", vsAttribDef.location, ( int ) it->second->format, ( int ) vsAttribDef.format );
                         return false;
                     }
                 }
@@ -525,7 +525,7 @@ struct vhCmdBackendState : public VIDLHandler
                 }
             }
         }
-    
+
         return true;
     }
 
@@ -565,12 +565,12 @@ struct vhCmdBackendState : public VIDLHandler
         for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
         {
             nvrhi::BindingSetDesc bsetDesc;
-    
+
             auto layout = layouts[layoutIdx];
             assert( layout );
             auto layoutDesc = layout->getDesc();
             assert( layoutDesc );
-            
+
             // Build a map of reflection slots --> reflection resources.
             static std::unordered_map< uint32_t, vhShaderReflectionResource* > s_slotToReflection;
             s_slotToReflection.clear();
@@ -607,7 +607,7 @@ struct vhCmdBackendState : public VIDLHandler
                 // Validate the reflection against the layout.
                 if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
                     return false;
-                
+
                 nvrhi::BindingSetItem item;
                 if ( !BE_PreSubmitCommon_FindResource( state, binding, item ) )
                 {
@@ -636,7 +636,7 @@ struct vhCmdBackendState : public VIDLHandler
         if ( graphicsState )
         {
             // Transfer some overlapping state from vhState to nvrhi::GraphicsState.
-    
+
             graphicsState->viewport.viewports.resize( 0 );
             graphicsState->viewport.viewports.push_back( nvrhi::Viewport(
                 state.viewRect.x, state.viewRect.x + state.viewRect.z,
@@ -646,8 +646,8 @@ struct vhCmdBackendState : public VIDLHandler
 
             graphicsState->viewport.scissorRects.resize( 0 );
             graphicsState->viewport.scissorRects.push_back( nvrhi::Rect(
-                ( int ) state.viewScissor.x, ( int )( state.viewScissor.x + state.viewScissor.z ),
-                ( int ) state.viewScissor.y, ( int )( state.viewScissor.y + state.viewScissor.w )
+                ( int ) state.viewScissor.x, ( int ) ( state.viewScissor.x + state.viewScissor.z ),
+                ( int ) state.viewScissor.y, ( int ) ( state.viewScissor.y + state.viewScissor.w )
             ) );
 
             // nvrhi::DepthStencilState::dynamicStencilRefValue is false, but we set this any way because it's fun.
@@ -682,7 +682,7 @@ struct vhCmdBackendState : public VIDLHandler
             VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
             return;
         }
-    
+
         nvrhi::ComputeState cstate;
         cstate.setPipeline( pso.Get() );
         if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, desc.bindingLayouts, &cstate, nullptr ) )
@@ -757,7 +757,7 @@ public:
         // Ensure entry exists to make subsequent Destroy/Update safe
         if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
         {
-            backendTextures[ cmd->texture ] = std::make_unique<vhBackendTexture>();
+            backendTextures[cmd->texture] = std::make_unique<vhBackendTexture>();
         }
     }
 
@@ -808,7 +808,7 @@ public:
         }
 
         // Create the NVRHI texture.
-        snprintf( temps, sizeof(temps), "Texture %d\n", cmd->texture );
+        snprintf( temps, sizeof( temps ), "Texture %d\n", cmd->texture );
         auto textureDesc = nvrhi::TextureDesc()
             .setDimension( cmd->target )
             .setWidth( cmd->dimensions.x )
@@ -850,14 +850,14 @@ public:
             BE_UpdateTexture( *btex, cmd->data );
         }
 
-        backendTextures[ cmd->texture ] = std::move( btex );
+        backendTextures[cmd->texture] = std::move( btex );
     }
 
     void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
-    
+
         if ( cmd->texture == VRHI_INVALID_HANDLE )
         {
             return;
@@ -874,10 +874,10 @@ public:
         // Calculate expected data size for the range.
         int32_t mipStart = cmd->startMips, mipEnd = cmd->startMips + cmd->numMips;
         int32_t layerStart = cmd->startLayers, layerEnd = cmd->startLayers + cmd->numLayers;
-        
+
         // Validation: range must be within texture limits.
-        if ( mipStart < 0 || mipEnd > ( int32_t ) btex.info.mipLevels ||
-             layerStart < 0 || layerEnd > ( int32_t ) btex.info.arrayLayers )
+        if ( mipStart < 0 || mipEnd >( int32_t ) btex.info.mipLevels ||
+            layerStart < 0 || layerEnd >( int32_t ) btex.info.arrayLayers )
         {
             VRHI_ERR( "vhUpdateTexture(): Update range out of bounds.\n" );
             return;
@@ -889,7 +889,7 @@ public:
         {
             totalLayerSize += btex.mipInfo[mip].size;
         }
-        
+
         int64_t expectedSize = totalLayerSize * cmd->numLayers;
         if ( ( int64_t ) cmd->data->size() < expectedSize )
         {
@@ -917,7 +917,7 @@ public:
             return;
         }
 
-        auto& btex = *backendTextures[ cmd->texture ];
+        auto& btex = *backendTextures[cmd->texture];
         if ( btex.info.target == nvrhi::TextureDimension::Texture3D )
         {
             VRHI_ERR( "vhReadTextureSlow() : 3D textures are not supported for readback yet!\n" );
@@ -987,7 +987,7 @@ public:
         // Ensure entry exists to make subsequent Destroy/Update safe
         if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
         {
-            backendBuffers[ cmd->buffer ] = std::make_unique< vhBackendBuffer >();
+            backendBuffers[cmd->buffer] = std::make_unique< vhBackendBuffer >();
         }
     }
 
@@ -1018,14 +1018,14 @@ public:
         }
 
         // Create the NVRHI bhandle
-        if ( !name || !name[0] ) snprintf( temps, sizeof(temps), "%s %d", autoname, buffer );
+        if ( !name || !name[0] ) snprintf( temps, sizeof( temps ), "%s %d", autoname, buffer );
         auto bufferDesc = desc
             .setByteSize( byteSize )
             .setCanHaveUAVs( flags & VRHI_BUFFER_COMPUTE_WRITE )
             .setCanHaveTypedViews( flags & VRHI_BUFFER_COMPUTE_READ )
             .setCanHaveRawViews( flags & VRHI_BUFFER_COMPUTE_READ )
             .setIsDrawIndirectArgs( flags & VRHI_BUFFER_DRAW_INDIRECT )
-            .setDebugName( (name && name[0]) ? name : temps );
+            .setDebugName( ( name && name[0] ) ? name : temps );
 
         nvrhi::BufferHandle bhandle = nullptr;
         {
@@ -1051,8 +1051,8 @@ public:
             BE_UpdateBuffer( *bbuf, 0, data );
         }
 
-        backendBuffers[ buffer ] = std::move( bbuf );
-        return backendBuffers[ buffer ].get();
+        backendBuffers[buffer] = std::move( bbuf );
+        return backendBuffers[buffer].get();
     }
 
     void Handle_vhUpdateBufferCommon_Internal( const char* fn, vhBuffer buffer, uint64_t offsetElements, const vhMem* data, uint64_t count, bool isVertexBuffer )
@@ -1064,7 +1064,7 @@ public:
             VRHI_ERR( "%s() : Buffer %d not found!\n", fn, buffer );
             return;
         }
-        auto& bbuf = backendBuffers[ buffer ];
+        auto& bbuf = backendBuffers[buffer];
 
         // Convert element offset to byte offset
         uint64_t byteOffset = 0;
@@ -1075,7 +1075,7 @@ public:
         else
         {
             // Index buffer - determine index size from flags
-            uint64_t indexSize = (bbuf->flags & VRHI_BUFFER_INDEX32) ? sizeof(uint32_t) : sizeof(uint16_t);
+            uint64_t indexSize = ( bbuf->flags & VRHI_BUFFER_INDEX32 ) ? sizeof( uint32_t ) : sizeof( uint16_t );
             byteOffset = offsetElements * indexSize;
         }
 
@@ -1083,7 +1083,7 @@ public:
         {
             if ( byteOffset + data->size() > bbuf->desc.byteSize && !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
             {
-                VRHI_ERR( "%s() : Update range [%llu, %llu] exceeds buffer size %llu!\n", 
+                VRHI_ERR( "%s() : Update range [%llu, %llu] exceeds buffer size %llu!\n",
                     fn, byteOffset, byteOffset + data->size(), bbuf->desc.byteSize );
                 return;
             }
@@ -1129,7 +1129,7 @@ public:
         }
 
         // Partially initialise nvrhi::BufferDesc
-        nvrhi::BufferDesc desc; 
+        nvrhi::BufferDesc desc;
         desc.setIsVertexBuffer( true );
         desc.enableAutomaticStateTracking( nvrhi::ResourceStates::VertexBuffer );
 
@@ -1142,7 +1142,7 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
-        
+
         Handle_vhUpdateBufferCommon_Internal( "vhUpdateVertexBuffer", cmd->buffer, cmd->offsetVerts, cmd->data, cmd->numVerts, true );
     }
 
@@ -1150,7 +1150,7 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
-        
+
         if ( cmd->buffer == VRHI_INVALID_HANDLE )
         {
             VRHI_ERR( "vhCreateIndexBuffer() : Invalid bhandle handle!\n" );
@@ -1158,7 +1158,7 @@ public:
         }
 
         // Partially initialise nvrhi::BufferDesc
-        nvrhi::BufferDesc desc; 
+        nvrhi::BufferDesc desc;
         desc.setIsIndexBuffer( true );
         desc.enableAutomaticStateTracking( nvrhi::ResourceStates::IndexBuffer );
         uint64_t stride = cmd->flags & VRHI_BUFFER_INDEX32 ? sizeof( uint32_t ) : sizeof( uint16_t );
@@ -1170,7 +1170,7 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         auto dataRAII = BE_MemRAII( cmd->data );
-        
+
         Handle_vhUpdateBufferCommon_Internal( "vhUpdateIndexBuffer", cmd->buffer, cmd->offsetIndices, cmd->data, cmd->numIndices, false );
     }
 
@@ -1257,7 +1257,7 @@ public:
     void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
-        
+
         if ( cmd->shader == VRHI_INVALID_HANDLE ) return;
 
         nvrhi::ShaderType type = nvrhi::ShaderType::None;
@@ -1286,7 +1286,7 @@ public:
         // Reflection
         nvrhi::BindingLayoutDesc layoutDesc;
         std::vector< vhShaderReflectionResource > resources;
-        glm::uvec3 groupSize = {0,0,0};
+        glm::uvec3 groupSize = { 0,0,0 };
         std::vector< vhPushConstantRange > pushConstants;
         std::vector< vhVertexLayoutDef > inputLayout;
 
@@ -1294,7 +1294,7 @@ public:
         vhReflectSpirv( cmd->spirv, layoutDesc, resources, groupSize, pushConstants, &inputLayout );
 
         // Set visibility based on shader stage.
-        layoutDesc.visibility = type; 
+        layoutDesc.visibility = type;
 
         // Create Shader via NVRHI
         nvrhi::ShaderDesc desc( type );
@@ -1303,13 +1303,13 @@ public:
         nvrhi::ShaderHandle handle = nullptr;
         {
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-            handle = g_vhDevice->createShader( desc, cmd->spirv.data( ), cmd->spirv.size( ) * sizeof( uint32_t ) );
+            handle = g_vhDevice->createShader( desc, cmd->spirv.data(), cmd->spirv.size() * sizeof( uint32_t ) );
         }
 
         // Store in Backend Map
         if ( handle )
         {
-            auto backendShader = std::make_unique< vhBackendShader >( );
+            auto backendShader = std::make_unique< vhBackendShader >();
             backendShader->name = cmd->name;
             backendShader->handle = handle;
             backendShader->flags = cmd->flags;
@@ -1323,10 +1323,10 @@ public:
             // Create binding layout if we have bindings
             if ( !layoutDesc.bindings.empty() )
             {
-                 std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-                 backendShader->layout = g_vhDevice->createBindingLayout( layoutDesc );
+                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                backendShader->layout = g_vhDevice->createBindingLayout( layoutDesc );
             }
-            
+
             backendShaders[cmd->shader] = std::move( backendShader );
         }
         else
@@ -1343,7 +1343,7 @@ public:
             return;
         }
 
-        if ( backendShaders.find( cmd->shader ) == backendShaders.end( ) )
+        if ( backendShaders.find( cmd->shader ) == backendShaders.end() )
         {
             VRHI_ERR( "vhDestroyShader() : Shader %d not found!\n", cmd->shader );
             return;
@@ -1431,7 +1431,7 @@ public:
         BE_CmdRAII cmdRAII( cmd );
         backendStates[cmd->id].indexBinding = { cmd->buffer, cmd->first, cmd->num, cmd->offset };
     }
-    
+
     void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
@@ -1467,7 +1467,7 @@ public:
         BE_CmdRAII cmdRAII( cmd );
         backendStates[cmd->id].uniforms = cmd->uniforms;
     }
-    
+
     void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) override
     {
         BE_CmdRAII cmdRAII( cmd );
@@ -1488,11 +1488,11 @@ public:
         if ( cmd->waitForGPU )
         {
             // This uses g_nvRHIStateMutex then gives it up, we need to avoid double-locking.
-            vhCmdListFlushAll(); 
+            vhCmdListFlushAll();
         }
 
         {
-            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); 
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
             if ( cmd->waitForGPU )
             {
                 g_vhDevice->waitForIdle();
@@ -1510,13 +1510,13 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->workGroupCount.x == 0 || cmd->workGroupCount.y == 0 || cmd->workGroupCount.z == 0 ) return;
-        
+
         // Ensure state exists
         auto itState = backendStates.find( cmd->stateID );
         if ( itState == backendStates.end() )
         {
-             VRHI_ERR( "vhDispatch: State %llu not found!\n", cmd->stateID );
-             return;
+            VRHI_ERR( "vhDispatch: State %llu not found!\n", cmd->stateID );
+            return;
         }
         auto& state = itState->second;
 
@@ -1532,7 +1532,7 @@ public:
             VRHI_ERR( "vhDispatch: Shader %llu not found for state %llu!\n", state.program[0], cmd->stateID );
             return;
         }
-        
+
         BE_Dispatch( state, *itShader->second, cmd->workGroupCount );
     }
 
@@ -1540,19 +1540,19 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->indirectBuffer == VRHI_INVALID_HANDLE ) return;
-        
+
         auto itBuf = backendBuffers.find( cmd->indirectBuffer );
         if ( itBuf == backendBuffers.end() )
         {
-             VRHI_ERR( "vhDispatchIndirect: Indirect buffer %d not found!\n", cmd->indirectBuffer );
-             return;
+            VRHI_ERR( "vhDispatchIndirect: Indirect buffer %d not found!\n", cmd->indirectBuffer );
+            return;
         }
 
         auto itState = backendStates.find( cmd->stateID );
         if ( itState == backendStates.end() )
         {
-             VRHI_ERR( "vhDispatchIndirect: State %llu not found!\n", cmd->stateID );
-             return;
+            VRHI_ERR( "vhDispatchIndirect: State %llu not found!\n", cmd->stateID );
+            return;
         }
         auto& state = itState->second;
 
@@ -1576,19 +1576,19 @@ public:
     {
         BE_CmdRAII cmdRAII( cmd );
         if ( cmd->dst == VRHI_INVALID_HANDLE || cmd->src == VRHI_INVALID_HANDLE || cmd->size == 0 ) return;
-        
+
         auto itDst = backendBuffers.find( cmd->dst );
         auto itSrc = backendBuffers.find( cmd->src );
 
-        if ( itDst == backendBuffers.end() ) 
+        if ( itDst == backendBuffers.end() )
         {
-             VRHI_ERR( "vhBlitBuffer: Destination buffer %d not found!\n", cmd->dst );
-             return;
+            VRHI_ERR( "vhBlitBuffer: Destination buffer %d not found!\n", cmd->dst );
+            return;
         }
-        if ( itSrc == backendBuffers.end() ) 
+        if ( itSrc == backendBuffers.end() )
         {
-             VRHI_ERR( "vhBlitBuffer: Source buffer %d not found!\n", cmd->src );
-             return;
+            VRHI_ERR( "vhBlitBuffer: Source buffer %d not found!\n", cmd->src );
+            return;
         }
 
         // We can't clamp size if offset is out of bounds.
@@ -1628,7 +1628,7 @@ public:
             if ( !g_vhCmds.try_dequeue( cmd ) )
             {
                 // Block until there is a command to process
-                if ( ! g_vhCmds.wait_dequeue_timed( cmd, std::chrono::milliseconds( 8 ) ) )
+                if ( !g_vhCmds.wait_dequeue_timed( cmd, std::chrono::milliseconds( 8 ) ) )
                     continue;
             }
             if ( cmd != nullptr )
@@ -1837,7 +1837,7 @@ bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colors, 
 {
     auto fb1 = g_vhCmdBackendState.UNITTEST_GetFrameBuffer( colors, depth, 0, 0 );
     auto fb2 = g_vhCmdBackendState.UNITTEST_GetFrameBuffer( colors, depth, 0, 0 );
-    
+
     if ( !fb1 || !fb2 ) return false;
     return fb1.Get() == fb2.Get();
 }

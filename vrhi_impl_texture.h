@@ -30,72 +30,72 @@
 
 glm::ivec2 vhGetImageSliceSize( const vhFormatInfo& info, const glm::ivec3& dimensions )
 {
-	int pitch = -1, blockHeight = -1;
+    int pitch = -1, blockHeight = -1;
 
-	bool compressed = info.compressionBlockWidth != -1;
-	if ( compressed )
-	{
-		// For compressed formats, round dimensions to blockWidth / blockHeight.
-		assert( info.compressionBlockWidth > 0 && info.compressionBlockHeight > 0 && info.elementSize > 0 );
-		pitch = std::max( 1, ( ( dimensions.x + ( info.compressionBlockWidth - 1 ) ) / info.compressionBlockWidth ) ) * info.elementSize;
-		blockHeight = std::max( 1, ( ( dimensions.y + ( info.compressionBlockHeight - 1 ) ) / info.compressionBlockHeight ) );
-	}
-	else
-	{
-		// For non-compressed formats, treat as tightly packed.
-		pitch = dimensions.x * info.elementSize;
-		blockHeight = dimensions.y;
-	}
+    bool compressed = info.compressionBlockWidth != -1;
+    if ( compressed )
+    {
+        // For compressed formats, round dimensions to blockWidth / blockHeight.
+        assert( info.compressionBlockWidth > 0 && info.compressionBlockHeight > 0 && info.elementSize > 0 );
+        pitch = std::max( 1, ( ( dimensions.x + ( info.compressionBlockWidth - 1 ) ) / info.compressionBlockWidth ) ) * info.elementSize;
+        blockHeight = std::max( 1, ( ( dimensions.y + ( info.compressionBlockHeight - 1 ) ) / info.compressionBlockHeight ) );
+    }
+    else
+    {
+        // For non-compressed formats, treat as tightly packed.
+        pitch = dimensions.x * info.elementSize;
+        blockHeight = dimensions.y;
+    }
 
-	return glm::ivec2( pitch * blockHeight, pitch );
+    return glm::ivec2( pitch * blockHeight, pitch );
 }
 
-void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t &pitchSize, int64_t& arraySize, const vhTexInfo& info )
+void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t& pitchSize, int64_t& arraySize, const vhTexInfo& info )
 {
-	mipInfo.clear();
-	pitchSize = 0;
+    mipInfo.clear();
+    pitchSize = 0;
 
-	auto levelDimensions = info.dimensions;
-	auto formatInfo = vhGetFormat( info.format );
-	bool compressed = formatInfo.compressionBlockWidth > 0;
+    auto levelDimensions = info.dimensions;
+    auto formatInfo = vhGetFormat( info.format );
+    bool compressed = formatInfo.compressionBlockWidth > 0;
 
-	// Figure out texture dimensionality from target.
-	int dim = 0;
-	switch ( info.target )
-	{
-		case nvrhi::TextureDimension::Texture1D: dim = 1; break;
-		case nvrhi::TextureDimension::Texture2D: dim = 2; break;
-		case nvrhi::TextureDimension::Texture2DArray: dim = 2; break;
-		case nvrhi::TextureDimension::Texture3D: dim = 3; break;
-		case nvrhi::TextureDimension::TextureCube: dim = 2; break;
-		case nvrhi::TextureDimension::TextureCubeArray: dim = 2; break;
-		default:
-			assert( !"Unknown texture target." );
-			break;
-	}
+    // Figure out texture dimensionality from target.
+    int dim = 0;
+    switch ( info.target )
+    {
+        case nvrhi::TextureDimension::Texture1D: dim = 1; break;
+        case nvrhi::TextureDimension::Texture2D: dim = 2; break;
+        case nvrhi::TextureDimension::Texture2DArray: dim = 2; break;
+        case nvrhi::TextureDimension::Texture3D: dim = 3; break;
+        case nvrhi::TextureDimension::TextureCube: dim = 2; break;
+        case nvrhi::TextureDimension::TextureCubeArray: dim = 2; break;
+        default:
+            assert( !"Unknown texture target." );
+            break;
+    }
 
-	// Loop through mip map levels and calculate info.
-	int offset = 0;
-	for ( int i = 0; i < info.mipLevels; i++ )
-	{
-		mipInfo.push_back( vhTextureMipInfo() );
-		vhTextureMipInfo& linfo = mipInfo.back();
+    // Loop through mip map levels and calculate info.
+    int offset = 0;
+    for ( int i = 0; i < info.mipLevels; i++ )
+    {
+        mipInfo.push_back( vhTextureMipInfo() );
+        vhTextureMipInfo& linfo = mipInfo.back();
 
-		linfo.dimensions = levelDimensions;
+        linfo.dimensions = levelDimensions;
 
-		auto sinfo = vhGetImageSliceSize( formatInfo, levelDimensions );
-		linfo.slice_size = sinfo.x;
-		linfo.pitch = sinfo.y;
-		linfo.size = linfo.slice_size * levelDimensions.z;
-		linfo.offset = offset;
-		offset += ( int ) linfo.size;
+        auto sinfo = vhGetImageSliceSize( formatInfo, levelDimensions );
+        linfo.slice_size = sinfo.x;
+        linfo.pitch = sinfo.y;
+        linfo.size = linfo.slice_size * levelDimensions.z;
+        linfo.offset = offset;
+        offset += ( int ) linfo.size;
 
-		// Calculate the size of the next mipmap level.
-		levelDimensions = vhGetImageNextMipmapDim( levelDimensions );
-	}
+        // Calculate the size of the next mipmap level.
+        levelDimensions = vhGetImageNextMipmapDim( levelDimensions );
+    }
 
-	arraySize = offset;
-	pitchSize = arraySize * info.arrayLayers;
+    arraySize = offset;
+    pitchSize = arraySize * info.arrayLayers;
 }
 
 int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel )
@@ -119,8 +119,8 @@ bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions,
         return false;
     }
     if ( offset.x + extent.x > mipDimensions.x ||
-         offset.y + extent.y > mipDimensions.y ||
-         offset.z + extent.z > mipDimensions.z )
+        offset.y + extent.y > mipDimensions.y ||
+        offset.z + extent.z > mipDimensions.z )
     {
         VRHI_ERR( "%s: Region [%d, %d, %d] + [%d, %d, %d] exceeds mip dimensions [%d, %d, %d]\n",
             debugName, offset.x, offset.y, offset.z, extent.x, extent.y, extent.z, mipDimensions.x, mipDimensions.y, mipDimensions.z );
@@ -136,7 +136,7 @@ vhTexture vhAllocTexture()
     std::lock_guard< std::mutex > lock( g_vhTextureIDListMutex );
     uint32_t id = g_vhTextureIDList.alloc();
     g_vhTextureIDValid[id] = true;
-    
+
     vhResetTexture( id );
     return id;
 }
@@ -180,7 +180,7 @@ void vhCreateTexture(
 )
 {
     if ( texture == VRHI_INVALID_HANDLE ) return;
-    
+
     // Verify parameters
 
     if ( target == nvrhi::TextureDimension::TextureCube || target == nvrhi::TextureDimension::TextureCubeArray )
@@ -200,7 +200,7 @@ void vhCreateTexture(
     {
         dimensions.z = 1;
     }
-    
+
     // Queue up command to create texture
     auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, target, dimensions, numMips, numLayers, format, flag, data );
     assert( cmd );
@@ -230,12 +230,12 @@ void vhReadTextureSlow(
 {
     // Ensure all pending GPU work is complete before reading
     vhFinish();
-    
+
     // Queue up command to read texture
     auto cmd = vhCmdAlloc<VIDL_vhReadTextureSlow>( texture, mip, layer, outData );
     assert( cmd );
     vhCmdEnqueue( cmd );
-    
+
     // Wait for readback to complete
     vhFinish();
 }

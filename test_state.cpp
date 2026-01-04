@@ -65,16 +65,16 @@ UTEST( State, MultipleSlots )
     vhState state1 = {}, state2 = {};
     state1.SetViewRect( glm::vec4( 0, 0, 100, 100 ) );
     state2.SetViewRect( glm::vec4( 0, 0, 200, 200 ) );
-    
+
     vhStateId id1 = 10, id2 = 20;
     vhSetState( id1, state1 );
     vhSetState( id2, state2 );
     vhFlush();
-    
+
     vhState r1 = {}, r2 = {};
     ASSERT_TRUE( vhGetState( id1, r1 ) );
     ASSERT_TRUE( vhGetState( id2, r2 ) );
-    
+
     EXPECT_EQ( r1.viewRect, state1.viewRect );
     EXPECT_EQ( r2.viewRect, state2.viewRect );
 }
@@ -89,7 +89,7 @@ UTEST( State, InvalidId )
 
     vhState state = {};
     vhStateId nonExistent = 999999;
-    
+
     // GetState should return false for non-existent ID
     ASSERT_FALSE( vhGetState( nonExistent, state ) );
 }
@@ -104,16 +104,16 @@ UTEST( State, BasicSetGet )
 
     vhState state = {};
     state.SetViewRect( glm::vec4( 0, 0, 1280, 720 ) )
-         .SetViewTransform( glm::mat4( 1.0f ), glm::mat4( 2.0f ) )
-         .SetWorldTransform( glm::mat4( 3.0f ), 1 );
-    
+        .SetViewTransform( glm::mat4( 1.0f ), glm::mat4( 2.0f ) )
+        .SetWorldTransform( glm::mat4( 3.0f ), 1 );
+
     vhStateId id = 1;
     ASSERT_TRUE( vhSetState( id, state ) );
     vhFlush(); // Wait for command to process
-    
+
     vhState retrieved = {};
     ASSERT_TRUE( vhGetState( id, retrieved ) );
-    
+
     EXPECT_EQ( retrieved.viewRect, state.viewRect );
     EXPECT_EQ( retrieved.viewMatrix, state.viewMatrix );
     EXPECT_EQ( retrieved.projMatrix, state.projMatrix );
@@ -127,21 +127,21 @@ UTEST( State, Attachments )
     vhState::RenderTarget rt;
     rt.texture = 101;
     rt.mipLevel = 1;
-    
+
     std::vector< vhState::RenderTarget > colours = { rt };
     vhState::RenderTarget depth;
     depth.texture = 201;
-    
+
     state.SetAttachments( colours, depth );
-    
+
     vhStateId id = 500;
     ASSERT_TRUE( vhSetState( id, state ) );
     vhFlush();
-    
+
     vhState retrieved = {};
     ASSERT_TRUE( vhGetState( id, retrieved ) );
-    
-    ASSERT_EQ( retrieved.colourAttachment.size(), (size_t)1 );
+
+    ASSERT_EQ( retrieved.colourAttachment.size(), ( size_t ) 1 );
     EXPECT_EQ( retrieved.colourAttachment[0].texture, 101u );
     EXPECT_EQ( retrieved.colourAttachment[0].mipLevel, 1u );
     EXPECT_EQ( retrieved.depthAttachment.texture, 201u );
@@ -186,7 +186,7 @@ UTEST( State, Extensions )
     // Test 5: Dirty Flags for PushConstants
     {
         vhState state;
-        state.SetPushConstants( glm::vec4(1.0f) );
+        state.SetPushConstants( glm::vec4( 1.0f ) );
         EXPECT_EQ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS, VRHI_DIRTY_PUSH_CONSTANTS );
     }
 
@@ -212,31 +212,31 @@ UTEST( State, BackendPropagation )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
-    
-    vhStateId id = 123; 
+
+    vhStateId id = 123;
     vhState state;
-    
+
     // Set some state
     state.SetPushConstants( glm::vec4( 1.1f, 2.2f, 3.3f, 4.4f ) );
-    
+
     vhState::TextureBinding tex;
     tex.name = "PropTex";
     tex.slot = 3;
     tex.texture = 101;
     state.SetTextures( { tex } );
-    
+
     vhSetState( id, state );
     vhFlush();
-    
+
     // Verify backend state
     vhState backendState;
     EXPECT_TRUE( vhGetState( id, backendState ) );
-    
+
     EXPECT_NEAR( backendState.pushConstants.x, 1.1f, 0.001f );
     EXPECT_NEAR( backendState.pushConstants.y, 2.2f, 0.001f );
     EXPECT_NEAR( backendState.pushConstants.z, 3.3f, 0.001f );
     EXPECT_NEAR( backendState.pushConstants.w, 4.4f, 0.001f );
-    
+
     ASSERT_EQ( backendState.textures.size(), 1u );
     EXPECT_STREQ( backendState.textures[0].name, "PropTex" );
     EXPECT_EQ( backendState.textures[0].slot, 3 );
@@ -250,19 +250,19 @@ UTEST( State, BackendPropagation )
 UTEST( State, IndividualAccessors )
 {
     vhState state;
-    
+
     // Texture with auto-resize
     {
         vhState::TextureBinding tex;
         tex.name = "ResizeTex";
         tex.slot = 10;
         state.SetTexture( 5, tex ); // Index 5, so size should be 6
-        
+
         EXPECT_EQ( state.textures.size(), 6u );
         EXPECT_STREQ( state.textures[5].name, "ResizeTex" );
         EXPECT_EQ( state.textures[5].slot, 10 );
         EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
-        
+
         // Get with resize
         state.GetTexture( 8 ); // Index 8, size -> 9
         EXPECT_EQ( state.textures.size(), 9u );
@@ -272,11 +272,11 @@ UTEST( State, IndividualAccessors )
     {
         vhState::SamplerDefinition samp;
         samp.slot = 20;
-        state.SetSampler( 3, samp ); 
-        
+        state.SetSampler( 3, samp );
+
         EXPECT_EQ( state.samplers.size(), 4u );
         EXPECT_EQ( state.samplers[3].slot, 20 );
-        
+
         state.GetSampler( 6 );
         EXPECT_EQ( state.samplers.size(), 7u );
     }
@@ -286,11 +286,11 @@ UTEST( State, IndividualAccessors )
         vhState::BufferBinding buf;
         buf.slot = 30;
         state.SetBuffer( 4, buf );
-        
+
         EXPECT_EQ( state.buffers.size(), 5u );
         EXPECT_EQ( state.buffers[4].slot, 30 );
         EXPECT_EQ( state.dirty & VRHI_DIRTY_BUFFERS, VRHI_DIRTY_BUFFERS );
-        
+
         state.GetBuffer( 5 );
         EXPECT_EQ( state.buffers.size(), 6u );
     }
@@ -300,11 +300,11 @@ UTEST( State, IndividualAccessors )
         vhState::ConstantBufferValue c;
         c.name = "ConstBuf";
         state.SetConstant( 2, c );
-        
+
         EXPECT_EQ( state.constants.size(), 3u );
         EXPECT_STREQ( state.constants[2].name, "ConstBuf" );
         EXPECT_EQ( state.dirty & VRHI_DIRTY_CONSTANTS, VRHI_DIRTY_CONSTANTS );
-        
+
         state.GetConstant( 4 );
         EXPECT_EQ( state.constants.size(), 5u );
     }
@@ -313,10 +313,10 @@ UTEST( State, IndividualAccessors )
 UTEST( State, IndividualAttachments )
 {
     vhState state;
-    
+
     // Set color attachment at index 2 (forces resize)
     state.SetColourAttachment( 2, 101, 1, 2, nvrhi::Format::RGBA8_UNORM, true );
-    
+
     EXPECT_EQ( state.colourAttachment.size(), 3u );
     EXPECT_EQ( state.colourAttachment[2].texture, 101u );
     EXPECT_EQ( state.colourAttachment[2].mipLevel, 1u );
@@ -324,11 +324,11 @@ UTEST( State, IndividualAttachments )
     EXPECT_EQ( state.colourAttachment[2].formatOverride, nvrhi::Format::RGBA8_UNORM );
     EXPECT_TRUE( state.colourAttachment[2].readOnly );
     EXPECT_EQ( ( state.dirty & VRHI_DIRTY_ATTACHMENTS ), VRHI_DIRTY_ATTACHMENTS );
-    
+
     // Reset dirty and check depth
     state.dirty = 0;
     state.SetDepthAttachment( 201, 0, 0, nvrhi::Format::D32, false );
-    
+
     EXPECT_EQ( state.depthAttachment.texture, 201u );
     EXPECT_EQ( state.depthAttachment.formatOverride, nvrhi::Format::D32 );
     EXPECT_FALSE( state.depthAttachment.readOnly );
@@ -339,11 +339,11 @@ UTEST( State, DebugFlags )
 {
     vhState state;
     state.SetDebugFlags( VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
-    
+
     vhStateId id = 600;
     ASSERT_TRUE( vhSetState( id, state ) );
     vhFlush();
-    
+
     vhState retrieved = {};
     ASSERT_TRUE( vhGetState( id, retrieved ) );
     EXPECT_EQ( retrieved.debugFlags, VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
@@ -354,7 +354,7 @@ UTEST( Hashing, GraphicsPipeline )
     nvrhi::GraphicsPipelineDesc desc;
     desc.primType = nvrhi::PrimitiveType::TriangleList;
     nvrhi::FramebufferInfo fbInfo;
-    
+
     // 1. Stability
     uint64_t hash1 = vhHashGraphicsPipeline( desc, fbInfo );
     uint64_t hash2 = vhHashGraphicsPipeline( desc, fbInfo );
@@ -364,12 +364,12 @@ UTEST( Hashing, GraphicsPipeline )
     desc.renderState.blendState.targets[0].blendEnable = true;
     uint64_t hash3 = vhHashGraphicsPipeline( desc, fbInfo );
     EXPECT_NE( hash1, hash3 );
-    
+
     // 3. Sensitivity (RenderState - Raster)
     desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::Front;
     uint64_t hash4 = vhHashGraphicsPipeline( desc, fbInfo );
     EXPECT_NE( hash3, hash4 );
-    
+
     // 4. Sensitivity (Framebuffer)
     fbInfo.sampleCount = 4;
     uint64_t hash5 = vhHashGraphicsPipeline( desc, fbInfo );
@@ -379,7 +379,7 @@ UTEST( Hashing, GraphicsPipeline )
 UTEST( Hashing, ComputePipeline )
 {
     nvrhi::ComputePipelineDesc desc;
-    
+
     // 1. Stability
     uint64_t h1 = vhHashComputePipeline( desc );
     uint64_t h2 = vhHashComputePipeline( desc );
@@ -396,7 +396,7 @@ UTEST( Hashing, BindingLayout )
     nvrhi::BindingLayoutDesc desc2 = desc1; // Same
 
     nvrhi::BindingLayoutDesc desc3; // Diff
-    desc3.visibility = nvrhi::ShaderType::Compute; 
+    desc3.visibility = nvrhi::ShaderType::Compute;
     desc3.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
 
     uint64_t h1 = vhHashBindingLayout( desc1 );
@@ -406,7 +406,7 @@ UTEST( Hashing, BindingLayout )
     EXPECT_NE( h1, 0 );
     EXPECT_EQ( h1, h2 );
     EXPECT_NE( h1, h3 );
-    
+
     // Test ordering sensitivity
     nvrhi::BindingLayoutDesc desc4;
     desc4.visibility = nvrhi::ShaderType::AllGraphics;
@@ -414,7 +414,7 @@ UTEST( Hashing, BindingLayout )
     desc4.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
 
     uint64_t h4 = vhHashBindingLayout( desc4 );
-    EXPECT_NE( h1, h4 ); 
+    EXPECT_NE( h1, h4 );
 }
 
 UTEST( Hashing, InputLayout )
@@ -424,13 +424,13 @@ UTEST( Hashing, InputLayout )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
-    
+
     nvrhi::VertexAttributeDesc attr1;
     attr1.name = "POSITION";
     attr1.format = nvrhi::Format::RGB32_FLOAT;
     attr1.bufferIndex = 0;
     attr1.elementStride = 12;
-    
+
     nvrhi::VertexAttributeDesc attr2;
     attr2.name = "TEXCOORD";
     attr2.format = nvrhi::Format::RG32_FLOAT;
@@ -441,21 +441,21 @@ UTEST( Hashing, InputLayout )
     nvrhi::InputLayoutHandle layout1;
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        layout1 = g_vhDevice->createInputLayout( attrs1.data(), (uint32_t)attrs1.size(), nullptr );
+        layout1 = g_vhDevice->createInputLayout( attrs1.data(), ( uint32_t ) attrs1.size(), nullptr );
     }
 
     std::vector<nvrhi::VertexAttributeDesc> attrs2 = { attr1, attr2 };
     nvrhi::InputLayoutHandle layout2;
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        layout2 = g_vhDevice->createInputLayout( attrs2.data(), (uint32_t)attrs2.size(), nullptr );
+        layout2 = g_vhDevice->createInputLayout( attrs2.data(), ( uint32_t ) attrs2.size(), nullptr );
     }
 
     std::vector<nvrhi::VertexAttributeDesc> attrs3 = { attr2, attr1 };
     nvrhi::InputLayoutHandle layout3;
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        layout3 = g_vhDevice->createInputLayout( attrs3.data(), (uint32_t)attrs3.size(), nullptr );
+        layout3 = g_vhDevice->createInputLayout( attrs3.data(), ( uint32_t ) attrs3.size(), nullptr );
     }
 
     ASSERT_NE( layout1, nullptr );
@@ -465,7 +465,7 @@ UTEST( Hashing, InputLayout )
     uint64_t h1 = vhHashInputLayout( layout1 );
     uint64_t h2 = vhHashInputLayout( layout2 );
     uint64_t h3 = vhHashInputLayout( layout3 );
-    
+
     EXPECT_NE( h1, 0 );
     EXPECT_EQ( h1, h2 );
     EXPECT_NE( h1, h3 );
@@ -555,7 +555,7 @@ UTEST( Hashing, BindingSet_Differentiation )
     // Check resource handle differentiation
     {
         nvrhi::BindingSetDesc desc = baseDesc;
-        desc.bindings[0].resourceHandle = ( nvrhi::ITexture* )0x12345678;
+        desc.bindings[0].resourceHandle = ( nvrhi::ITexture* ) 0x12345678;
         EXPECT_NE( baseHash, vhHashBindingSet( desc, layout ) );
     }
 }
@@ -596,7 +596,7 @@ UTEST( Hashing, BindingSet_ViewParameters )
     // Handle is NON-NULL: view parameters SHOULD change the hash
     {
         nvrhi::BindingSetDesc desc;
-        desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* )0xDEADBEEF ) );
+        desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* ) 0xDEADBEEF ) );
         uint64_t validHandleHash = vhHashBindingSet( desc, layout );
 
         // Check format impact
@@ -613,7 +613,7 @@ UTEST( Hashing, BindingSet_ViewParameters )
         desc.bindings[0].subresources.baseMipLevel = 5;
         uint64_t mipHash = vhHashBindingSet( desc, layout );
         EXPECT_NE( dimHash, mipHash );
-        
+
         desc.bindings[0].subresources.numMipLevels = 2;
         EXPECT_NE( mipHash, vhHashBindingSet( desc, layout ) );
     }
@@ -638,7 +638,7 @@ UTEST( Hashing, BindingSet_ArrayElement )
 
     nvrhi::BindingSetDesc desc;
     desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, nullptr ) );
-    
+
     desc.bindings[0].arrayElement = 0;
     uint64_t h0 = vhHashBindingSet( desc, layout );
 
@@ -666,12 +666,12 @@ UTEST( Hashing, BindingSet_RawData )
     }
 
     nvrhi::BindingSetDesc desc;
-    desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* )0x1 ) );
+    desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* ) 0x1 ) );
 
     // Verify rawData[0] impact
     desc.bindings[0].rawData[0] = 100;
     uint64_t h0 = vhHashBindingSet( desc, layout );
-    
+
     desc.bindings[0].rawData[0] = 200;
     uint64_t h1 = vhHashBindingSet( desc, layout );
     EXPECT_NE( h0, h1 );
