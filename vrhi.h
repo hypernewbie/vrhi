@@ -63,12 +63,13 @@ struct vhInitData
 {
     std::string appName = "VRHI_APP";
     std::string engineName = "VRHI_ENGINE";
-    bool debug = false;
     int deviceIndex = -1; // -1 for auto-selection (Discrete > Integrated > CPU)
-    bool raytracing = true;
     glm::ivec2 resolution = glm::ivec2( 1280, 720 );
     std::function<void( bool error, const std::string& )> fnLogCallback = nullptr;
     std::function<void() > fnThreadInitCallback = nullptr;
+
+    bool debug = false;
+    bool raytracing = true;
 
 #ifdef VRHI_SHADER_COMPILER
     std::string shaderCompileTempDir = "./tmp/shader_cache/";

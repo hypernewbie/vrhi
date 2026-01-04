@@ -656,6 +656,7 @@ uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout )
 
 static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
 {
+    static_assert( sizeof( nvrhi::RenderState ) == 144, "nvrhi::RenderState size mismatch" );
     uint64_t h = 0;
 
     // Blend State
@@ -730,6 +731,7 @@ static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
 
 static uint64_t vhHashFramebufferInfo( const nvrhi::FramebufferInfo& fb )
 {
+    static_assert( sizeof( nvrhi::FramebufferInfo ) == 32, "nvrhi::FramebufferInfo size mismatch" );
     uint64_t h = 0;
     for ( auto fmt : fb.colorFormats ) h = komihash( &fmt, sizeof( fmt ), h );
     h = komihash( &fb.depthFormat, sizeof( fb.depthFormat ), h );
@@ -740,6 +742,7 @@ static uint64_t vhHashFramebufferInfo( const nvrhi::FramebufferInfo& fb )
 
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo )
 {
+    static_assert( sizeof( nvrhi::GraphicsPipelineDesc ) == 280, "nvrhi::GraphicsPipelineDesc size mismatch" );
     uint64_t h = 0;
 
     // Core State
@@ -794,6 +797,7 @@ uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const 
 
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
 {
+    static_assert( sizeof( nvrhi::ComputePipelineDesc ) == 80, "nvrhi::ComputePipelineDesc size mismatch" );
     uint64_t h = 0;
 
     uint64_t hCS = vhHashShaderBytecode( desc.CS );
@@ -812,4 +816,78 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
     return h;
 }
 
+static std::unordered_map< uint64_t, nvrhi::ComputePipelineHandle > s_PSOCache_Compute;
+static std::unordered_map< uint64_t, nvrhi::GraphicsPipelineHandle > s_PSOCache_Graphics;
 
+void vhPSOCacheShutdown()
+{
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+    s_PSOCache_Compute.clear();
+    s_PSOCache_Graphics.clear();
+}
+
+nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& desc )
+{
+    uint64_t hash = vhHashComputePipeline( desc );
+
+    auto it = s_PSOCache_Compute.find( hash );
+    if ( it != s_PSOCache_Compute.end() )
+        return it->second;
+
+    nvrhi::ComputePipelineHandle pso = nullptr;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        pso = g_vhDevice->createComputePipeline( desc );
+        s_PSOCache_Compute[ hash ] = pso;
+    }
+    return pso;
+}
+
+nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo )
+{
+    uint64_t hash = vhHashGraphicsPipeline( desc, fbInfo );
+
+    auto it = s_PSOCache_Graphics.find( hash );
+    if ( it != s_PSOCache_Graphics.end() )
+        return it->second;
+
+    nvrhi::GraphicsPipelineHandle pso = nullptr;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        pso = g_vhDevice->createGraphicsPipeline( desc, fbInfo );
+        s_PSOCache_Graphics[ hash ] = pso;
+    }
+    return pso;
+}
+
+uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout )
+{
+    static_assert( sizeof( nvrhi::BindingSetItem ) == 40, "nvrhi::BindingSetItem size mismatch" );
+    uint64_t h = 0;
+
+    void* pLayout = layout.Get();
+    h = komihash( &pLayout, sizeof( pLayout ), h );
+    h = komihash( &desc.trackLiveness, sizeof( desc.trackLiveness ), h );
+
+    for ( const auto& item : desc.bindings )
+    {
+        h = komihash( &item.slot, sizeof( item.slot ), h );
+        h = komihash( &item.arrayElement, sizeof( item.arrayElement ), h );
+
+        uint32_t itemType = ( uint32_t ) item.type;
+        h = komihash( &itemType, sizeof( itemType ), h );
+        h = komihash( &item.resourceHandle, sizeof( item.resourceHandle ), h );
+
+        if ( item.resourceHandle )
+        {
+            uint32_t itemFormat = ( uint32_t ) item.format;
+            uint32_t itemDimension = ( uint32_t ) item.dimension;
+            h = komihash( &itemFormat, sizeof( itemFormat ), h );
+            h = komihash( &itemDimension, sizeof( itemDimension ), h );
+            h = komihash( &item.rawData[0], sizeof( item.rawData[0] ), h );
+            h = komihash( &item.rawData[1], sizeof( item.rawData[1] ), h );
+        }
+    }
+
+    return h;
+}

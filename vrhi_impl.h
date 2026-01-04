@@ -200,8 +200,11 @@ bool vhReflectSpirv(
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
 uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc );
+uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
 uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
+nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& desc );
+nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
 nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint32_t frontStencil, uint32_t backStencil );

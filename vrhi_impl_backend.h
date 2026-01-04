@@ -417,7 +417,6 @@ struct vhCmdBackendState : public VIDLHandler
     )
     {
         assert( shaders && shaderCount > 0 );
-        bool matchedAny = false;
         const vhBackendShader* vertexShader = nullptr;
 
         for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
@@ -490,10 +489,7 @@ struct vhCmdBackendState : public VIDLHandler
                 {
                     if( s_layoutLocationTable.find( def.location ) != s_layoutLocationTable.end() )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VERTEX_ATTRIB_MISMATCH )
-                        {
-                            VRHI_ERR( "Vertex Attribute Collision: Location %d already bound by previous buffer", def.location );
-                        }
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Collision: Location %d already bound by previous buffer", def.location );
                         return false;
                     }
                     s_layoutLocationTable[def.location] = &def;
@@ -511,19 +507,12 @@ struct vhCmdBackendState : public VIDLHandler
                     auto it = s_layoutLocationTable.find( vsAttribDef.location );
                     if ( it == s_layoutLocationTable.end() )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VERTEX_ATTRIB_MISMATCH )
-                        {
-                            VRHI_ERR( "Vertex Attribute Missing: Shader expects Location %d, but no bound buffer provides it.", vsAttribDef.location );
-                        }
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Missing: Shader expects Location %d, but no bound buffer provides it.", vsAttribDef.location );
                         return false; 
                     }
                     if ( it->second->format != vsAttribDef.format )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VERTEX_ATTRIB_MISMATCH )
-                        {
-                            VRHI_ERR( "Vertex Attribute Format Mismatch at Location %d (Buffer: %d, Shader: %d)", 
-                                vsAttribDef.location,  ( int ) it->second->format, ( int ) vsAttribDef.format );
-                        }
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Mismatch at Location %d (Buffer: %d, Shader: %d)", vsAttribDef.location,  ( int ) it->second->format, ( int ) vsAttribDef.format );
                         return false;
                     }
                 }
@@ -655,6 +644,34 @@ struct vhCmdBackendState : public VIDLHandler
 
         assert( computeShader.handle );
 
+        nvrhi::ComputePipelineDesc desc;
+        if ( !BE_PresubmitPipelineDescCommon( state, &computeShader, 1, &desc, nullptr ) )
+        {
+            VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
+            return;
+        }
+
+        nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( desc );
+        if ( !pso )
+        {
+            VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
+            return;
+        }
+    
+        nvrhi::ComputeState cstate;
+        cstate.setPipeline( pso.Get() );
+        if ( !BE_PreSubmitCommon( state, &computeShader, 1, &cstate, nullptr ) )
+        {
+            VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
+            return;
+        }
+
+        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Compute );
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            cmdlist->setComputeState( cstate );
+            cmdlist->dispatch( workGroupCount.x, workGroupCount.y, workGroupCount.z );
+        }
     }
 
     void BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset )

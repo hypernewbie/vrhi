@@ -2883,11 +2883,25 @@ UTEST( Hashing, InputLayout )
     attr2.elementStride = 8;
 
     std::vector<nvrhi::VertexAttributeDesc> attrs1 = { attr1, attr2 };
-    nvrhi::InputLayoutHandle layout1 = g_vhDevice->createInputLayout( attrs1.data(), (uint32_t)attrs1.size(), nullptr );
+    nvrhi::InputLayoutHandle layout1;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout1 = g_vhDevice->createInputLayout( attrs1.data(), (uint32_t)attrs1.size(), nullptr );
+    }
+
     std::vector<nvrhi::VertexAttributeDesc> attrs2 = { attr1, attr2 };
-    nvrhi::InputLayoutHandle layout2 = g_vhDevice->createInputLayout( attrs2.data(), (uint32_t)attrs2.size(), nullptr );
+    nvrhi::InputLayoutHandle layout2;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout2 = g_vhDevice->createInputLayout( attrs2.data(), (uint32_t)attrs2.size(), nullptr );
+    }
+
     std::vector<nvrhi::VertexAttributeDesc> attrs3 = { attr2, attr1 };
-    nvrhi::InputLayoutHandle layout3 = g_vhDevice->createInputLayout( attrs3.data(), (uint32_t)attrs3.size(), nullptr );
+    nvrhi::InputLayoutHandle layout3;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout3 = g_vhDevice->createInputLayout( attrs3.data(), (uint32_t)attrs3.size(), nullptr );
+    }
 
     ASSERT_NE( layout1, nullptr );
     ASSERT_NE( layout2, nullptr );
@@ -2941,6 +2955,215 @@ UTEST( Hashing, ShaderBytecode )
     EXPECT_NE( h1, 0 );
     EXPECT_EQ( h1, h2 );
     EXPECT_NE( h1, h3 );
+}
+
+UTEST( Hashing, BindingSet_Basics )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    nvrhi::BindingLayoutHandle layout;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+
+    nvrhi::BindingSetDesc desc;
+    desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, nullptr ) );
+
+    // Consistency check
+    uint64_t h1 = vhHashBindingSet( desc, layout );
+    uint64_t h2 = vhHashBindingSet( desc, layout );
+    EXPECT_EQ( h1, h2 );
+
+    // Layout dependency check
+    nvrhi::BindingLayoutDesc layoutDesc2;
+    layoutDesc2.visibility = nvrhi::ShaderType::All;
+    layoutDesc2.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 1 ) );
+    nvrhi::BindingLayoutHandle layout2;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout2 = g_vhDevice->createBindingLayout( layoutDesc2 );
+    }
+    uint64_t h3 = vhHashBindingSet( desc, layout2 );
+    EXPECT_NE( h1, h3 );
+
+    // Liveness dependency check
+    nvrhi::BindingSetDesc desc2 = desc;
+    desc2.trackLiveness = !desc.trackLiveness;
+    uint64_t h4 = vhHashBindingSet( desc2, layout );
+    EXPECT_NE( h1, h4 );
+}
+
+UTEST( Hashing, BindingSet_Differentiation )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    nvrhi::BindingLayoutHandle layout;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+
+    nvrhi::BindingSetDesc baseDesc;
+    baseDesc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, nullptr ) );
+    uint64_t baseHash = vhHashBindingSet( baseDesc, layout );
+
+    // Check slot differentiation
+    {
+        nvrhi::BindingSetDesc desc = baseDesc;
+        desc.bindings[0].slot = 1;
+        EXPECT_NE( baseHash, vhHashBindingSet( desc, layout ) );
+    }
+
+    // Check type differentiation
+    {
+        nvrhi::BindingSetDesc desc = baseDesc;
+        desc.bindings[0].type = nvrhi::ResourceType::Texture_UAV;
+        EXPECT_NE( baseHash, vhHashBindingSet( desc, layout ) );
+    }
+
+    // Check resource handle differentiation
+    {
+        nvrhi::BindingSetDesc desc = baseDesc;
+        desc.bindings[0].resourceHandle = ( nvrhi::ITexture* )0x12345678;
+        EXPECT_NE( baseHash, vhHashBindingSet( desc, layout ) );
+    }
+}
+
+UTEST( Hashing, BindingSet_ViewParameters )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    nvrhi::BindingLayoutHandle layout;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+
+    // Handle is NULL: view parameters should NOT change the hash
+    {
+        nvrhi::BindingSetDesc desc;
+        desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, nullptr ) );
+        uint64_t nullHandleHash = vhHashBindingSet( desc, layout );
+
+        desc.bindings[0].format = nvrhi::Format::RGBA32_FLOAT;
+        EXPECT_EQ( nullHandleHash, vhHashBindingSet( desc, layout ) );
+
+        desc.bindings[0].dimension = nvrhi::TextureDimension::TextureCube;
+        EXPECT_EQ( nullHandleHash, vhHashBindingSet( desc, layout ) );
+
+        desc.bindings[0].subresources.baseMipLevel = 5;
+        EXPECT_EQ( nullHandleHash, vhHashBindingSet( desc, layout ) );
+    }
+
+    // Handle is NON-NULL: view parameters SHOULD change the hash
+    {
+        nvrhi::BindingSetDesc desc;
+        desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* )0xDEADBEEF ) );
+        uint64_t validHandleHash = vhHashBindingSet( desc, layout );
+
+        // Check format impact
+        desc.bindings[0].format = nvrhi::Format::RGBA32_FLOAT;
+        uint64_t fmtHash = vhHashBindingSet( desc, layout );
+        EXPECT_NE( validHandleHash, fmtHash );
+
+        // Check dimension impact
+        desc.bindings[0].dimension = nvrhi::TextureDimension::TextureCube;
+        uint64_t dimHash = vhHashBindingSet( desc, layout );
+        EXPECT_NE( fmtHash, dimHash );
+
+        // Check subresource impact
+        desc.bindings[0].subresources.baseMipLevel = 5;
+        uint64_t mipHash = vhHashBindingSet( desc, layout );
+        EXPECT_NE( dimHash, mipHash );
+        
+        desc.bindings[0].subresources.numMipLevels = 2;
+        EXPECT_NE( mipHash, vhHashBindingSet( desc, layout ) );
+    }
+}
+
+UTEST( Hashing, BindingSet_ArrayElement )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    nvrhi::BindingLayoutHandle layout;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+
+    nvrhi::BindingSetDesc desc;
+    desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, nullptr ) );
+    
+    desc.bindings[0].arrayElement = 0;
+    uint64_t h0 = vhHashBindingSet( desc, layout );
+
+    desc.bindings[0].arrayElement = 1;
+    uint64_t h1 = vhHashBindingSet( desc, layout );
+
+    EXPECT_NE( h0, h1 );
+}
+
+UTEST( Hashing, BindingSet_RawData )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    nvrhi::BindingLayoutHandle layout;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+
+    nvrhi::BindingSetDesc desc;
+    desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* )0x1 ) );
+
+    // Verify rawData[0] impact
+    desc.bindings[0].rawData[0] = 100;
+    uint64_t h0 = vhHashBindingSet( desc, layout );
+    
+    desc.bindings[0].rawData[0] = 200;
+    uint64_t h1 = vhHashBindingSet( desc, layout );
+    EXPECT_NE( h0, h1 );
+
+    // Verify rawData[1] impact
+    desc.bindings[0].rawData[1] = 500;
+    uint64_t h2 = vhHashBindingSet( desc, layout );
+    EXPECT_NE( h1, h2 );
 }
 
 UTEST_STATE();
