@@ -405,3 +405,4 @@ nvrhi::VertexAttributeDesc vhTranslateVertexAttribute( const vhVertexLayoutDef& 
     attr.isInstanced = false;
     return attr;
 }
+

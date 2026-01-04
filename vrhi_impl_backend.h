@@ -526,20 +526,24 @@ struct vhCmdBackendState : public VIDLHandler
         return true;
     }
 
+    bool BE_PreSubmitCommon_FindResource(
+        vhState& state,
+        nvrhi::BindingLayoutItem& item,
+        nvrhi::BindingSetItem& outItem
+    )
+    {
+        return false;
+    }
+
     bool BE_PreSubmitCommon_State(
         vhState& state,
         vhBackendShader* shaders,
         int shaderCount,
-        nvrhi::ComputePipelineHandle computePSO,  // set to nullptr if not using compute.
-        nvrhi::GraphicsPipelineHandle graphicsPSO, // set to nullptr if not using graphics.
+        nvrhi::BindingLayoutVector& layouts,  // set to nullptr if not using compute.
         nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
         nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
     )
     {
-        // TODO: ################ implementation ################
-        return false;
-        assert( computePSO || graphicsPSO );
-
         // Build map of layouts --> shader.
 
         static std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
@@ -552,14 +556,6 @@ struct vhCmdBackendState : public VIDLHandler
             assert( s_layoutToShader.find( shader.layout ) == s_layoutToShader.end() ); // Duplicate layouts should be impossible.
             s_layoutToShader[shader.layout] = &shader;
         }
-
-        // Select the binding layouts based on the PSO.
-
-        const nvrhi::BindingLayoutVector* playouts = nullptr;
-        if ( computePSO ) playouts = &computePSO->getDesc().bindingLayouts;
-        if ( graphicsPSO ) playouts = &graphicsPSO->getDesc().bindingLayouts;
-        assert( playouts );
-        const auto& layouts = *playouts;
 
         // Loop through the layouts and bind resources.
 
@@ -609,20 +605,13 @@ struct vhCmdBackendState : public VIDLHandler
                 if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
                     return false;
                 
-                bool findResource = false;
-                // TODO: find resourc
-
-                if ( findResource )
+                nvrhi::BindingSetItem item;
+                if ( !BE_PreSubmitCommon_FindResource( state, binding, item ) )
                 {
-                    // TODO: bind resource
-                }
-                else
-                {
-                    // Bind dummy resource.
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in state. Dummy resource bound.\n", binding.slot );
-                    auto dummyResourceItem = vhGetDummyBindingItem( binding, reflection.format, reflection.dim );
-                    bsetDesc.addItem( dummyResourceItem );
+                    item = vhGetDummyBindingItem( binding, reflection.format, reflection.dim );
                 }
+                bsetDesc.addItem( item );
             }
 
             // Create Binding Set.
@@ -662,98 +651,7 @@ struct vhCmdBackendState : public VIDLHandler
             graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
         }
 
-        /*bool matchedAny = false;
-        bool complete = true;
-        static std::unordered_map< uint32_t, bool > s_backendSlotBindingFilled;
-        s_backendSlotBindingFilled.clear();
-
-        for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
-        {
-            auto& shader = shaders[shaderIdx];
-            nvrhi::BindingSetDesc bsetDesc = nvrhi::BindingSetDesc();
-
-            // We only bind resources for the shader stage that is being used.
-            if ( !BE_Util_ShaderStageMatches( shader.flags, computeState != nullptr, graphicsState != nullptr ) )
-                continue;
-            matchedAny = true;
-
-            // Bind Textures.
-            for ( auto& texture : state.textures )
-            {
-                if ( texture.texture == VRHI_INVALID_HANDLE ) continue;
-                if ( backendTextures.find( texture.texture ) == backendTextures.end() )
-                {
-                    VRHI_ERR( "vhCreateTexture() : Failed to find texture %u!\n", texture.texture );
-                    continue;
-                }
-                assert( backendTextures[texture.texture].get() );
-                auto& btex = *backendTextures[texture.texture];
-
-                int32_t slot = texture.slot;
-                nvrhi::ResourceType type = nvrhi::ResourceType::Texture_SRV;
-                if ( texture.computeUAV && btex.flags & VRHI_TEXTURE_COMPUTE_WRITE )
-                {
-                    type = nvrhi::ResourceType::Texture_UAV;
-                }
-
-                if ( texture.name )
-                {
-                    // Resolve name to slot.
-                    slot = BE_Util_ResolveBindingSlot( texture.name, type, shader );
-                }
-                if ( slot == -1 )
-                {
-                    // Empty slots are OK, we just ignore them.
-                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS )
-                    {
-                        VRHI_ERR( "vhSetState() : Missing binding for texture %u! (Disable VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS to remove this warning).\n", texture.texture );
-                    }
-                    continue;
-                }
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
-                {
-                    VRHI_ERR( "vhSetState() : Binding texture %u to slot %d.\n", texture.texture, slot );
-                }
-
-                bsetDesc.addItem(
-                    type == nvrhi::ResourceType::Texture_UAV ?
-                    nvrhi::BindingSetItem::Texture_UAV( slot, btex.handle, texture.formatOverride, texture.subresources, texture.dimensionOverride ) :
-                    nvrhi::BindingSetItem::Texture_SRV( slot, btex.handle, texture.formatOverride, texture.subresources, texture.dimensionOverride )
-                );
-                s_backendSlotBindingFilled[slot] = true;
-            }
-
-            // Iterate layout and fill any empty slots with dummy bindings.
-            for ( const auto& binding : shader.layoutDesc.bindings )
-            {
-                if ( s_backendSlotBindingFilled.find( binding.slot ) != s_backendSlotBindingFilled.end() )
-                    continue;
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS )
-                {
-                    VRHI_ERR( "vhSetState() : Missing binding for slot %d! Binding dummy resource. (Disable VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS to remove this warning).\n", binding.slot );
-                }
-                // TODO: Dummy resource support.
-                assert( !"Unimplemented!" );
-            }
-
-            // Create Binding Set.
-            nvrhi::BindingSetHandle bset = nullptr;
-            {
-                std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-                bset = g_vhDevice->createBindingSet( bsetDesc, shader.layout );
-            }
-            if ( !bset )
-            {
-                VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %u!\n", shader.handle );
-                complete = false;
-                break;
-            }
-
-            if ( computeState )  computeState->addBindingSet( bset );
-            if ( graphicsState ) graphicsState->addBindingSet( bset );
-        }
-
-        return matchedAny && complete;*/
+        return false;
     }
 
     void BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount )
@@ -784,7 +682,7 @@ struct vhCmdBackendState : public VIDLHandler
     
         nvrhi::ComputeState cstate;
         cstate.setPipeline( pso.Get() );
-        if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, pso, nullptr, &cstate, nullptr ) )
+        if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, desc.bindingLayouts, &cstate, nullptr ) )
         {
             VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
             return;
