@@ -70,6 +70,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vhVKDebugCallback(
 
 void vhInit( bool quiet )
 {
+    g_vhErrorCounter = 0;
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
 
     std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
