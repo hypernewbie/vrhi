@@ -150,8 +150,15 @@ struct vhCmdBackendState : public VIDLHandler
 
     inline bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics )
     {
-        if ( ( flags & VRHI_SHADER_STAGE_COMPUTE ) && useCompute ) return true;
-        if ( ( flags & ( VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_STAGE_PIXEL ) ) && useGraphics ) return true;
+        uint64_t stage = flags & VRHI_SHADER_STAGE_MASK;
+        if ( ( stage == VRHI_SHADER_STAGE_COMPUTE ) && useCompute ) return true;
+        if ( ( stage == VRHI_SHADER_STAGE_VERTEX || 
+               stage == VRHI_SHADER_STAGE_PIXEL ||
+               stage == VRHI_SHADER_STAGE_HULL ||
+               stage == VRHI_SHADER_STAGE_DOMAIN ||
+               stage == VRHI_SHADER_STAGE_GEOMETRY ||
+               stage == VRHI_SHADER_STAGE_MESH ||
+               stage == VRHI_SHADER_STAGE_AMPLIFICATION ) && useGraphics ) return true;
         return false;
     };
 
@@ -432,9 +439,21 @@ struct vhCmdBackendState : public VIDLHandler
                 graphicsPipelineDesc->setVertexShader( shader.handle );
                 vertexShader = &shader;
             }
+            if ( shader.flags & VRHI_SHADER_STAGE_HULL && graphicsPipelineDesc )
+            {
+                graphicsPipelineDesc->setHullShader( shader.handle );
+            }
+            if ( shader.flags & VRHI_SHADER_STAGE_DOMAIN && graphicsPipelineDesc )
+            {
+                graphicsPipelineDesc->setDomainShader( shader.handle );
+            }
+            if ( shader.flags & VRHI_SHADER_STAGE_GEOMETRY && graphicsPipelineDesc )
+            {
+                graphicsPipelineDesc->setGeometryShader( shader.handle );
+            }
             if ( shader.flags & VRHI_SHADER_STAGE_PIXEL && graphicsPipelineDesc )
             {
-                graphicsPipelineDesc->setFragmentShader( shader.handle );
+                graphicsPipelineDesc->setPixelShader( shader.handle );
             }
         }
 
@@ -446,7 +465,6 @@ struct vhCmdBackendState : public VIDLHandler
             graphicsPipelineDesc->renderState.rasterState = vhTranslateRasterState( state.stateFlags );
 
             // [TODO] The following fields are not currently populated from vhState:
-            // - inputLayout: requires separate resolution from vertex layout strings. <-- done below
             // - HS, DS, GS: hull, domain, and geometry shaders are not currently supported by VRHI.
             // - patchControlPoints: tessellation is only supported if we add it.
 
@@ -1205,6 +1223,9 @@ public:
         switch ( stage )
         {
             case VRHI_SHADER_STAGE_VERTEX:        type = nvrhi::ShaderType::Vertex; break;
+            case VRHI_SHADER_STAGE_HULL:          type = nvrhi::ShaderType::Hull; break;
+            case VRHI_SHADER_STAGE_DOMAIN:        type = nvrhi::ShaderType::Domain; break;
+            case VRHI_SHADER_STAGE_GEOMETRY:      type = nvrhi::ShaderType::Geometry; break;
             case VRHI_SHADER_STAGE_PIXEL:         type = nvrhi::ShaderType::Pixel; break;
             case VRHI_SHADER_STAGE_COMPUTE:       type = nvrhi::ShaderType::Compute; break;
             case VRHI_SHADER_STAGE_RAYGEN:        type = nvrhi::ShaderType::RayGeneration; break;
