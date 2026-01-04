@@ -31,6 +31,7 @@
 #include <komihash/komihash.h>
 
 std::unique_ptr< vkb::Device > g_vulkanBDevice;
+void vhPSOCacheShutdown();
 
 class vhVK_MessageCallback : public nvrhi::IMessageCallback
 {
@@ -315,6 +316,7 @@ void vhShutdown( bool quiet )
         if ( !quiet ) VRHI_LOG( "    Allowing Vulkan Device to finish...\n" );
         vkDeviceWaitIdle( g_vulkanDevice );
     }
+    vhPSOCacheShutdown();
 
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     g_vhDevice = nullptr; // RefCountPtr handles the release()
