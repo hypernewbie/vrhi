@@ -33,6 +33,11 @@
     vhCmdBackendState g_vhCmdBackendState;
 #endif
 
+extern bool g_testInit;
+extern bool g_testInitQuiet;
+extern std::atomic<int32_t> g_vhErrorCounter;
+extern bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth );
+
 #ifdef VRHI_UNIT_TEST
 class vhCmdBackendStateTest
 {
@@ -154,4 +159,27 @@ UTEST( BackendInternal, PipelineValidation )
     // Case 2: Valid shader, no pipeline desc
     // Returns true (success) because it simply matches no stages and exits cleanly.
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, nullptr, nullptr ) );
+}
+
+UTEST( Backend, FramebufferCaching )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTexture colour = vhAllocTexture();
+    vhTexture depth = vhAllocTexture();
+
+    vhCreateTexture2D( colour, glm::ivec2( 128, 128 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    vhCreateTexture2D( depth, glm::ivec2( 128, 128 ), 2, nvrhi::Format::D24S8, VRHI_TEXTURE_RT );
+    vhFinish();
+
+    // Verify caching/deduplication
+    EXPECT_TRUE( vhBackend_UNITTEST_GetFrameBuffer( { colour }, depth ) );
+
+    vhDestroyTexture( colour );
+    vhDestroyTexture( depth );
+    vhFinish();
 }

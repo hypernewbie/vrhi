@@ -46,24 +46,24 @@ set(SOURCES
     utest.h
     
     vrhi_impl_backend.h
-    test_impl_backend.cpp
+    test_backend.cpp
     
     vrhi_impl_device.h
-    test_impl_device.cpp
+    test_device.cpp
     
     vrhi_impl_texture.h
-    test_impl_texture.cpp
+    test_texture.cpp
 
     vrhi_impl_buffer.h
-    test_impl_buffer.cpp
+    test_buffer.cpp
 
     vrhi_impl_shader.h
-    test_impl_shader.cpp
+    test_shader.cpp
     
     vrhi_impl_state.h
-    test_impl_state.cpp
+    test_state.cpp
     
-    test_impl_definitions.cpp
+    test_definitions.cpp
 )
 
 # Add executable

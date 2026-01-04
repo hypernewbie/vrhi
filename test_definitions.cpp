@@ -19,8 +19,12 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+// Global definitions for sharded builds
+
 #define VRHI_UNIT_TEST
 #define VRHI_SHADER_COMPILER
 #ifdef VRHI_SHARDED_BUILD
-    #include "vrhi_impl_device.h"
+    #define VRHI_IMPL_DEFINITIONS
+    #include "vrhi_impl.h"
 #endif
+
