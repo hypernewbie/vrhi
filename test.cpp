@@ -134,6 +134,49 @@ UTEST( ShaderInternal, StateToDesc )
     }
 }
 
+UTEST( Shader, ValidateBinding )
+{
+    vhShaderReflectionResource res;
+    res.name = "TestRes";
+    res.slot = 5;
+    res.set = 0;
+    res.type = nvrhi::ResourceType::Texture_SRV;
+    res.arraySize = 1;
+
+    nvrhi::BindingLayoutItem item;
+    item.slot = 5;
+    item.type = nvrhi::ResourceType::Texture_SRV;
+    item.size = 1;
+
+    // 1. Valid match
+    EXPECT_TRUE( vhShaderValidateBinding( res, item, true ) );
+
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 2. Slot mismatch
+    item.slot = 6;
+    EXPECT_FALSE( vhShaderValidateBinding( res, item, true ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 1 );
+    item.slot = 5;
+
+    // 3. Type mismatch
+    item.type = nvrhi::ResourceType::Texture_UAV;
+    EXPECT_FALSE( vhShaderValidateBinding( res, item, true ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 2 );
+    item.type = nvrhi::ResourceType::Texture_SRV;
+
+    // 4. Array Size mismatch
+    item.size = 4;
+    EXPECT_FALSE( vhShaderValidateBinding( res, item, true ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 3 );
+    item.size = 1;
+
+    // 5. No log error
+    item.slot = 6;
+    EXPECT_FALSE( vhShaderValidateBinding( res, item, false ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 3 ); // Should not increment
+}
+
 UTEST( RHI, Init )
 {
     // If global init is active, shut it down to test clean init
@@ -2329,11 +2372,13 @@ UTEST( Shader, Reflection )
         struct Data { float4 val; };
         ConstantBuffer<Data> g_Constants;
         RWStructuredBuffer<Data> g_Output;
+        Texture2D<float4> g_Tex2D;
+        [[vk::image_format("rgba32f")]] RWTexture3D<float4> g_RWTex3D;
 
         [numthreads(8, 4, 1)]
         void main(uint3 threadID : SV_DispatchThreadID)
         {
-            g_Output[threadID.x].val = g_Constants.val;
+            g_Output[threadID.x].val = g_Constants.val + g_Tex2D.Load( int3( 0, 0, 0 ) ) + g_RWTex3D.Load( int3( 0, 0, 0 ) );
         }
     )";
 
@@ -2356,15 +2401,44 @@ UTEST( Shader, Reflection )
     EXPECT_EQ( groupSize.z, 1 );
 
     // Expecting 2 resources: ConstantBuffer at b0 and StructuredBuffer_UAV at u1
-    EXPECT_EQ( resources.size(), 2 );
+    EXPECT_EQ( resources.size(), 4 );
+
+    bool foundTex2D = false;
+    bool foundRWTex3D = false;
+
+    for ( const auto& res : resources )
+    {
+        if ( res.name == "g_Tex2D" )
+        {
+            foundTex2D = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::Texture_SRV );
+            EXPECT_EQ( res.dim, nvrhi::TextureDimension::Texture2D );
+        }
+        else if ( res.name == "g_RWTex3D" )
+        {
+            foundRWTex3D = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::Texture_UAV );
+            EXPECT_EQ( res.dim, nvrhi::TextureDimension::Texture3D );
+            // RWTexture with float4 should map to RGBA32_FLOAT
+            EXPECT_EQ( res.format, nvrhi::Format::RGBA32_FLOAT );
+        }
+    }
+
+    EXPECT_TRUE( foundTex2D );
+    EXPECT_TRUE( foundRWTex3D );
 
     bool foundCB = false;
     bool foundSB = false;
     for ( const auto& res : resources )
     {
-        printf( "    Reflected Resource: %s, Slot: %u, Set: %u, Type: %d\n", res.name.c_str(), res.slot, res.set, (int)res.type );
-        if ( res.name == "g_Constants" && res.type == nvrhi::ResourceType::ConstantBuffer ) foundCB = true;
-        if ( res.name == "g_Output" && res.type == nvrhi::ResourceType::StructuredBuffer_UAV ) foundSB = true;
+        if ( res.name == "g_Constants" && res.type == nvrhi::ResourceType::ConstantBuffer )
+        {
+            foundCB = true;
+        }
+        if ( res.name == "g_Output" && res.type == nvrhi::ResourceType::StructuredBuffer_UAV )
+        {
+            foundSB = true;
+        }
     }
     EXPECT_TRUE( foundCB );
     EXPECT_TRUE( foundSB );

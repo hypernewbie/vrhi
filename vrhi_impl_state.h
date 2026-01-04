@@ -344,25 +344,24 @@ nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint
         desc.stencilFunc = fnConvertComparisonFunc( func );
     };
 
-    if ( backStencil != VRHI_STENCIL_NONE )
+    if ( frontStencil != VRHI_STENCIL_NONE || backStencil != VRHI_STENCIL_NONE )
     {
         dsState.stencilEnable = true;
         fnUnpackStencil( frontStencil, dsState.frontFaceStencil );
-        fnUnpackStencil( backStencil, dsState.backFaceStencil );
+
+        if ( backStencil != VRHI_STENCIL_NONE )
+        {
+            fnUnpackStencil( backStencil, dsState.backFaceStencil );
+        }
+        else
+        {
+            dsState.backFaceStencil = dsState.frontFaceStencil;
+        }
         
         dsState.stencilRefValue = ( uint8_t ) ( ( frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
         dsState.stencilReadMask = ( uint8_t ) ( ( frontStencil & VRHI_STENCIL_FUNC_RMASK_MASK ) >> VRHI_STENCIL_FUNC_RMASK_SHIFT );
         dsState.stencilWriteMask = dsState.stencilReadMask;
-    }
-    else if ( frontStencil != VRHI_STENCIL_NONE )
-    {
-        dsState.stencilEnable = true;
-        fnUnpackStencil( frontStencil, dsState.frontFaceStencil );
-        dsState.backFaceStencil = dsState.frontFaceStencil;
-        
-        dsState.stencilRefValue = ( uint8_t ) ( ( frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
-        dsState.stencilReadMask = ( uint8_t ) ( ( frontStencil & VRHI_STENCIL_FUNC_RMASK_MASK ) >> VRHI_STENCIL_FUNC_RMASK_SHIFT );
-        dsState.stencilWriteMask = dsState.stencilReadMask;
+        dsState.dynamicStencilRef = false;
     }
 
     return dsState;

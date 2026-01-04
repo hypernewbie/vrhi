@@ -510,6 +510,8 @@ struct vhShaderReflectionResource
     uint32_t slot;
     uint32_t set;
     nvrhi::ResourceType type;
+    nvrhi::Format format;
+    nvrhi::TextureDimension dim;
     uint32_t arraySize;
     uint32_t sizeInBytes; // Validation
 };

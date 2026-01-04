@@ -127,12 +127,34 @@ bool vhReflectSpirv(
             default: return nvrhi::Format::UNKNOWN;
         }
     };
+    auto fnMapSpvImageFormat = []( SpvImageFormat fmt ) -> nvrhi::Format
+    {
+        if ( fmt == SpvImageFormatRgba32f ) return nvrhi::Format::RGBA32_FLOAT;
+        if ( fmt == SpvImageFormatRgba16f ) return nvrhi::Format::RGBA16_FLOAT;
+        if ( fmt == SpvImageFormatR32f )    return nvrhi::Format::R32_FLOAT;
+        if ( fmt == SpvImageFormatRgba8 )   return nvrhi::Format::RGBA8_UNORM;
+        if ( fmt == SpvImageFormatRgba8Snorm ) return nvrhi::Format::RGBA8_SNORM;
+        
+        if ( fmt == SpvImageFormatRg32f )   return nvrhi::Format::RG32_FLOAT;
+        if ( fmt == SpvImageFormatRg16f )   return nvrhi::Format::RG16_FLOAT;
+        
+        if ( fmt == SpvImageFormatR32i )    return nvrhi::Format::R32_SINT;
+        if ( fmt == SpvImageFormatR32ui )   return nvrhi::Format::R32_UINT;
+        
+        if ( fmt == SpvImageFormatRg32i )    return nvrhi::Format::RG32_SINT;
+        if ( fmt == SpvImageFormatRg32ui )   return nvrhi::Format::RG32_UINT;
+        
+        if ( fmt == SpvImageFormatRgba32i )  return nvrhi::Format::RGBA32_SINT;
+        if ( fmt == SpvImageFormatRgba32ui ) return nvrhi::Format::RGBA32_UINT;
+        
+        return nvrhi::Format::UNKNOWN;
+    };
 
     SpvReflectShaderModule module;
     SpvReflectResult result = spvReflectCreateShaderModule( spirvBlob.size() * sizeof(uint32_t), spirvBlob.data(), &module );
     if ( result != SPV_REFLECT_RESULT_SUCCESS )
     {
-        VRHI_ERR( "vhReflectSpirv: Failed to create shader module reflection" );
+        VRHI_ERR( "vhReflectSpirv: Failed to create shader module reflection\n" );
         return false;
     }
 
@@ -161,6 +183,26 @@ bool vhReflectSpirv(
     std::vector< SpvReflectDescriptorSet* > sets( count );
     spvReflectEnumerateDescriptorSets( &module, &count, sets.data() );
 
+    auto fnGetTextureDimension = []( const SpvReflectImageTraits& image ) -> nvrhi::TextureDimension
+    {
+        switch ( image.dim )
+        {
+            case SpvDim1D:
+                return image.arrayed ? nvrhi::TextureDimension::Texture1DArray : nvrhi::TextureDimension::Texture1D;
+            case SpvDim2D:
+                if ( image.ms )
+                    return image.arrayed ? nvrhi::TextureDimension::Texture2DMSArray : nvrhi::TextureDimension::Texture2DMS;
+                else
+                    return image.arrayed ? nvrhi::TextureDimension::Texture2DArray : nvrhi::TextureDimension::Texture2D;
+            case SpvDim3D:
+                return nvrhi::TextureDimension::Texture3D;
+            case SpvDimCube:
+                return image.arrayed ? nvrhi::TextureDimension::TextureCubeArray : nvrhi::TextureDimension::TextureCube;
+            default:
+                return nvrhi::TextureDimension::Unknown;
+        }
+    };
+
     for ( auto* set : sets )
     {
         for ( uint32_t i = 0; i < set->binding_count; ++i )
@@ -181,6 +223,8 @@ bool vhReflectSpirv(
             res.slot = binding->binding;
             res.set = binding->set;
             res.type = type;
+            res.format = fnMapSpvImageFormat( binding->image.image_format );
+            res.dim = fnGetTextureDimension( binding->image );
             res.arraySize = binding->count;
             res.sizeInBytes = binding->block.size; 
             
@@ -525,4 +569,27 @@ void vhDestroyShader( vhShader shader )
     auto cmd = vhCmdAlloc<VIDL_vhDestroyShader>( shader );
     assert( cmd );
     vhCmdEnqueue( cmd );
+}
+
+bool vhShaderValidateBinding( const vhShaderReflectionResource& reflection, const nvrhi::BindingLayoutItem& binding, bool logError )
+{
+    if ( reflection.slot != binding.slot )
+    {
+        if ( logError ) VRHI_ERR( "Binding Slot %d mismatch in shader reflection (Expected Slot %d).\n", binding.slot, reflection.slot );
+        return false;
+    }
+
+    if ( reflection.type != binding.type )
+    {
+        if ( logError ) VRHI_ERR( "Binding Slot %d type mismatch: Layout expects %d, Shader reflects %d.\n", binding.slot, ( int ) binding.type, ( int ) reflection.type );
+        return false;
+    }
+
+    if ( reflection.arraySize != binding.getArraySize( ) )
+    {
+        if ( logError ) VRHI_ERR( "Binding Slot %d array size mismatch: Layout expects %d, Shader reflects %d.\n", binding.slot, binding.getArraySize( ), reflection.arraySize );
+        return false;
+    }
+
+    return true;
 }

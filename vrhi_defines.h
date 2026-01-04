@@ -309,6 +309,7 @@
 #define VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS     UINT64_C(0x0000000000000001) //!< Enable debug logging for missing bindings.
 #define VRHI_STATE_DEBUG_LOG_ALL_BINDINGS         UINT64_C(0x0000000000000002) //!< Enable debug logging for all bindings.
 #define VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH     UINT64_C(0x0000000000000004) //!< Enable debug logging for vertex attribute mismatches.
+#define VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH     UINT64_C(0x0000000000000008) //!< Enable debug logging for binding mismatches.
 
 #define VRHI_DIRTY_WORLD                          ( 1ULL << 0 )
 #define VRHI_DIRTY_VERTEX_INDEX                   ( 1ULL << 1 )
