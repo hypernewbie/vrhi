@@ -1,0 +1,310 @@
+/*
+    -- Vrhi --
+
+    Copyright 2026 UAA Software
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+    associated documentation files (the "Software"), to deal in the Software without restriction,
+    including without limitation the rights to use, copy, modify, merge, publish, distribute,
+    sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all copies or substantial
+    portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+    NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+    OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+    CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+#pragma once
+
+#include "vrhi_internal.h"
+#include "vrhi_utils.h"
+#include <komihash/komihash.h>
+
+// --------------------------------------------------------------------------
+// Backend Types
+// --------------------------------------------------------------------------
+
+struct vhBackendTexture
+{
+    std::string name;
+    nvrhi::TextureHandle handle;
+    vhTexInfo info;
+    int64_t pitchSize;
+    int64_t arraySize;
+    std::vector< vhTextureMipInfo > mipInfo;
+    uint64_t flags = 0;
+};
+
+struct vhBackendBuffer
+{
+    std::string name;
+    nvrhi::BufferHandle handle;
+    nvrhi::BufferDesc desc;
+    uint32_t stride = 0;
+    uint64_t flags = 0;
+    std::vector< vhVertexLayoutDef > layout;
+};
+
+struct vhBackendShader
+{
+    std::string name;
+    nvrhi::ShaderHandle handle;
+    uint64_t flags;
+    std::string entry;
+
+    // Reflection Data
+    std::vector< vhShaderReflectionResource > reflection;
+    std::vector< vhVertexLayoutDef > inputLayout;
+    nvrhi::BindingLayoutHandle layout;
+    nvrhi::BindingLayoutDesc layoutDesc;
+
+    // Metadata
+    glm::uvec3 threadGroupSize = { 0, 0, 0 };
+    std::vector< vhPushConstantRange > pushConstants;
+    std::vector< vhSpecConstant > specConstants;
+};
+
+// --------------------------------------------------------------------------
+// Main Backend State
+// --------------------------------------------------------------------------
+
+class vhCmdBackendState : public VIDLHandler
+{
+    friend class vhCmdBackendStateTest;
+
+    std::mutex backendMutex;
+    char temps[1024];
+    std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
+    std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
+    std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
+    std::map< vhStateId, vhState > backendStates;
+    std::unordered_map< uint64_t, nvrhi::FramebufferHandle > backendFramebuffers;
+
+    // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
+    inline std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
+    {
+        return std::unique_ptr< vhMem >( const_cast< vhMem* >( mem ) );
+    }
+
+    // --------------------------------------------------------------------------
+    // Backend :: Utils & Helpers
+    // --------------------------------------------------------------------------
+
+    // RAII helper for the VIDL_* commands. Helps with syntax.
+    // Usage: BE_CmdRAII cmdRAII( cmd );
+    template< typename T >
+    struct BE_CmdRAII
+    {
+        T* ptr = nullptr;
+        BE_CmdRAII( T* ptr ) : ptr( ptr ) {}
+        ~BE_CmdRAII() { if ( ptr ) vhCmdRelease( ptr ); }
+
+        // Non-copyable (prevents double-free)
+        BE_CmdRAII( const BE_CmdRAII& ) = delete;
+        BE_CmdRAII& operator=( const BE_CmdRAII& ) = delete;
+
+        // Movable
+        BE_CmdRAII( BE_CmdRAII&& other ) noexcept : ptr( other.ptr ) { other.ptr = nullptr; }
+        BE_CmdRAII& operator=( BE_CmdRAII&& other ) noexcept
+        {
+            if ( this != &other )
+            {
+                if ( ptr ) vhCmdRelease( ptr );
+                ptr = other.ptr;
+                other.ptr = nullptr;
+            }
+            return *this;
+        }
+    };
+
+    // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
+    template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>;
+
+    int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader );
+
+    bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics );
+
+    // --------------------------------------------------------------------------
+    // Backend :: Complex BE Low Level NVRHI Device Functions
+    // --------------------------------------------------------------------------
+
+    void BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, glm::ivec4 arrayMipUpdateRange = glm::ivec4( 0, INT_MAX, 0, INT_MAX ) );
+
+    void BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture& bsrc, int dstMip, int srcMip, int dstLayer, int srcLayer, glm::ivec3 dstOffset, glm::ivec3 srcOffset, glm::ivec3 extent );
+
+    void BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer );
+
+    void BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size );
+
+    void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data );
+
+    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth, int mip = 0, int layer = 0 );
+
+    bool BE_PresubmitCommon_PipelineDesc(
+        vhState& state,
+        vhBackendShader* shaders,
+        int shaderCount,
+        nvrhi::ComputePipelineDesc* computePipelineDesc, // set to nullptr if not using compute.
+        nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc // set to nullptr if not using graphics.
+    );
+
+    bool BE_PreSubmitCommon_FindResource(
+        vhState& state,
+        nvrhi::BindingLayoutItem& item,
+        nvrhi::BindingSetItem& outItem
+    );
+
+    bool BE_PreSubmitCommon_State(
+        vhState& state,
+        vhBackendShader* shaders,
+        int shaderCount,
+        nvrhi::BindingLayoutVector& layouts,  // set to nullptr if not using compute.
+        nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
+        nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
+    );
+
+    void BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount );
+
+    void BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset );
+
+    void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size );
+
+public:
+
+    void init();
+
+    void shutdown();
+
+    // --------------------------------------------------------------------------
+    // Backend :: VIDL Command Handlers
+    // --------------------------------------------------------------------------
+
+    void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) override;
+
+    void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) override;
+
+    void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override;
+
+    void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override;
+
+    void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override;
+
+    void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override;
+
+    void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) override;
+
+    void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override;
+
+    vhBackendBuffer* Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
+        const vhMem* data, uint64_t count, uint64_t stride, uint64_t flags );
+
+    void Handle_vhUpdateBufferCommon_Internal( const char* fn, vhBuffer buffer, uint64_t offsetElements, const vhMem* data, uint64_t count, bool isVertexBuffer );
+
+    void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override;
+
+    void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) override;
+
+    void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) override;
+
+    void Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cmd ) override;
+
+    void Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer* cmd ) override;
+
+    void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) override;
+
+    void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) override;
+
+    void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) override;
+
+    void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override;
+
+    void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) override;
+
+    void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override;
+
+
+    void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) override;
+
+    void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) override;
+
+    void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) override;
+
+    void Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* cmd ) override;
+
+    void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) override;
+
+    void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) override;
+
+    void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) override;
+
+    void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) override;
+
+    void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override;
+
+    void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) override;
+
+    void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) override;
+
+    void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) override;
+
+    void Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd ) override;
+
+    void Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd ) override;
+
+    void Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd ) override;
+
+    void Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd ) override;
+
+    void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) override;
+
+    void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) override;
+
+    void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override;
+
+    void Handle_vhDispatch( VIDL_vhDispatch* cmd ) override;
+
+    void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) override;
+
+    void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) override;
+
+    // --------------------------------------------------------------------------
+    // Backend :: RHIThreadEntry
+    // --------------------------------------------------------------------------
+
+    void RHIThreadEntry( std::function<void()> initCallback );
+
+    // --------------------------------------------------------------------------
+    // Backend :: Query
+    // --------------------------------------------------------------------------
+
+    // The query functions are a fastpath for getting info about objects from the main-thread. They directly lock the backend mutex and access the backend maps, rather than 
+    // sending a command to the backend thread and then waiting for a response. Object info queries are usually extremely short and fast, so this is OK. Query functions should never do 
+    // significant work or take a long time to complete, because that would bubble the hell out of the command thread.
+
+    vhTexInfo QueryTextureInfo( vhTexture handle, std::vector< vhTextureMipInfo >* outMipInfo );
+
+    void* QueryTextureHandle( vhTexture handle );
+
+    uint64_t QueryBufferInfo( vhBuffer handle, uint32_t* outStride, uint64_t* outFlags );
+
+    void* QueryBufferHandle( vhBuffer handle );
+
+    const std::vector< vhVertexLayoutDef >* QueryBufferLayout( vhBuffer handle );
+
+    void QueryShaderInfo(
+        vhShader handle,
+        glm::uvec3* outGroupSize,
+        std::vector< vhShaderReflectionResource >* outResources,
+        std::vector< vhPushConstantRange >* outPushConstants,
+        std::vector< vhSpecConstant >* outSpecConstants
+    );
+
+    void* QueryShaderHandle( vhShader handle );
+
+    bool QueryState( vhStateId id, vhState& outState );
+};

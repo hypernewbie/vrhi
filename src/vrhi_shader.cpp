@@ -19,36 +19,10 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#pragma once
-
-#ifndef VRHI_IMPLEMENTATION
-#include "vrhi_impl.h"
-#endif // VRHI_IMPLEMENTATION
+#include "vrhi_internal.h"
 #include "vrhi_utils.h"
 #include <komihash/komihash.h>
-
-// Handle SPIRV-Reflect.
-#ifndef VRHI_SPIRV_REFLECT_ALREADY_LINKED
-    #if defined(_MSC_VER)
-        #pragma warning(push)
-        #pragma warning(disable: 4244) // conversion loss of data
-        #pragma warning(disable: 4267) // size_t to int
-        #pragma warning(disable: 4013) // undefined function assumed extern (C issue)
-    #elif defined(__GNUC__) || defined(__clang__)
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-    #endif
-
-    #include <spirv_reflect.c>
-
-    #if defined(_MSC_VER)
-        #pragma warning(pop)
-    #elif defined(__GNUC__) || defined(__clang__)
-        #pragma GCC diagnostic pop
-    #endif
-#else
-    #include <spirv_reflect.h>
-#endif
+#include <spirv_reflect.h>
 
 // ------------ Shader Utilities ------------
 
@@ -258,8 +232,6 @@ bool vhReflectSpirv(
     return true;
 }
 
-#ifdef VRHI_SHADER_COMPILER
-
 static bool vhLoadSpirvFile( const std::filesystem::path& path, std::vector< uint32_t >& outSpirv )
 {
     std::ifstream file( path, std::ios::binary | std::ios::ate );
@@ -284,39 +256,37 @@ static bool vhLoadSpirvFile( const std::filesystem::path& path, std::vector< uin
     return true;
 }
 
-#ifdef _WIN32
-#include <stdio.h> 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+    // Map to Windows underscore variants
+    #define VH_POPEN       _popen
+    #define VH_PCLOSE      _pclose
+    #define VH_PUTENV      _putenv
 
-// Map to Windows underscore variants
-#define VH_POPEN       _popen
-#define VH_PCLOSE      _pclose
-#define VH_PUTENV      _putenv
+    // Windows pclose returns the exit code directly
+    #define VH_WEXITSTATUS(x) (x)
+    #define VH_WIFEXITED(x)   ((x) != -1)
+#else // VK_USE_PLATFORM_WIN32_KHR
+    #include <unistd.h>
+    #include <sys/wait.h>
 
-// Windows pclose returns the exit code directly
-#define VH_WEXITSTATUS(x) (x)
-#define VH_WIFEXITED(x)   ((x) != -1)
-#else
-#include <unistd.h>
-#include <sys/wait.h>
+    // Map to standard POSIX names
+    #define VH_POPEN       popen
+    #define VH_PCLOSE      pclose
+    #define VH_PUTENV      putenv
 
-// Map to standard POSIX names
-#define VH_POPEN       popen
-#define VH_PCLOSE      pclose
-#define VH_PUTENV      putenv
-
-// Map to standard POSIX macros
-#define VH_WEXITSTATUS(x) WEXITSTATUS(x)
-#define VH_WIFEXITED(x)   WIFEXITED(x)
-#endif
+    // Map to standard POSIX macros
+    #define VH_WEXITSTATUS(x) WEXITSTATUS(x)
+    #define VH_WIFEXITED(x)   WIFEXITED(x)
+#endif // VK_USE_PLATFORM_WIN32_KHR
 
 bool vhRunExe( const std::string& command, std::string& outOutput )
 {
-#ifdef _WIN32
+#ifdef VK_USE_PLATFORM_WIN32_KHR
     // Wrap in quotes to prevent cmd.exe from stripping the executable's quotes
     std::string fullCommand = "\"" + command + "\" 2>&1";
-#else
+#else // VK_USE_PLATFORM_WIN32_KHR
     std::string fullCommand = command + " 2>&1";
-#endif
+#endif // VK_USE_PLATFORM_WIN32_KHR
 
     // Use the prefixed macro
     FILE* pipe = VH_POPEN( fullCommand.c_str(), "r" );
@@ -394,7 +364,6 @@ std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
 
     return args;
 }
-#endif
 
 // ------------ Shader Implementation ------------
 
@@ -406,7 +375,6 @@ vhShader vhAllocShader()
     return id;
 }
 
-#ifdef VRHI_SHADER_COMPILER
 bool vhCompileShader(
     const char* name,
     const char* source,
@@ -525,7 +493,6 @@ bool vhCompileShader(
 
     return vhLoadSpirvFile( spvPath, outSpirv );
 }
-#endif // VRHI_SHADER_COMPILER
 
 void vhCreateShader(
     vhShader shader,

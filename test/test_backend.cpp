@@ -19,26 +19,17 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-
 #ifdef _WIN32
 #include <windows.h>
-#endif
+#endif // _WIN32
 #include "utest.h"
-
-#define VRHI_UNIT_TEST
-#define VRHI_SHADER_COMPILER
-#ifdef VRHI_SHARDED_BUILD
-    #include "vrhi_impl_backend.h"
-    // Backend state defined here in sharded builds, in vrhi_impl.h for unity builds
-    vhCmdBackendState g_vhCmdBackendState;
-#endif
+#include <vrhi.h>
+#include <vrhi_backend.h>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
-extern bool vhBackend_UNITTEST_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth );
 
-#ifdef VRHI_UNIT_TEST
 class vhCmdBackendStateTest
 {
 public:
@@ -75,8 +66,16 @@ public:
     {
         return Get().BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, compute, graphics );
     }
+
+    static bool GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth )
+    {
+        auto fb1 = Get().BE_GetFrameBuffer( colors, depth, 0, 0 );
+        auto fb2 = Get().BE_GetFrameBuffer( colors, depth, 0, 0 );
+
+        if ( !fb1 || !fb2 ) return false;
+        return fb1.Get() == fb2.Get();
+    }
 };
-#endif
 
 
 UTEST( BackendInternal, ShaderStageMatches )
@@ -177,7 +176,7 @@ UTEST( Backend, FramebufferCaching )
     vhFinish();
 
     // Verify caching/deduplication
-    EXPECT_TRUE( vhBackend_UNITTEST_GetFrameBuffer( { colour }, depth ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { colour }, depth ) );
 
     vhDestroyTexture( colour );
     vhDestroyTexture( depth );

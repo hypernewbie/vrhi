@@ -19,11 +19,7 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#pragma once
-
-#ifndef VRHI_IMPLEMENTATION
-#include "vrhi_impl.h"
-#endif // VRHI_IMPLEMENTATION
+#include "vrhi_internal.h"
 #include "vrhi_utils.h"
 
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES

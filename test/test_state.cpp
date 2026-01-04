@@ -24,14 +24,10 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#endif
+#endif // _WIN32
 #include "utest.h"
-
-#define VRHI_UNIT_TEST
-#define VRHI_SHADER_COMPILER
-#ifdef VRHI_SHARDED_BUILD
-    #include "vrhi_impl_state.h"
-#endif
+#include <vrhi.h>
+#include <vrhi_internal.h>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -596,7 +592,7 @@ UTEST( Hashing, BindingSet_ViewParameters )
     // Handle is NON-NULL: view parameters SHOULD change the hash
     {
         nvrhi::BindingSetDesc desc;
-        desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* ) 0xDEADBEEF ) );
+        desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, ( nvrhi::ITexture* ) 0xDEADBEEFull ) );
         uint64_t validHandleHash = vhHashBindingSet( desc, layout );
 
         // Check format impact

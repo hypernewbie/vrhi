@@ -19,12 +19,55 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-// Global definitions for sharded builds
+#include <cstdio>
+#include <chrono>
+#include <filesystem>
+#include <string>
+#include <vector>
+#include <iostream>
+#include <random>
+#include <algorithm>
 
-#define VRHI_UNIT_TEST
-#define VRHI_SHADER_COMPILER
-#ifdef VRHI_SHARDED_BUILD
-    #define VRHI_IMPL_DEFINITIONS
-    #include "vrhi_impl.h"
+#ifdef _WIN32
+#include <windows.h>
+#endif // _WIN32
+#include "utest.h"
+#include <vrhi.h>
+
+UTEST( Vrhi, Dummy )
+{
+    ASSERT_TRUE( true );
+}
+
+bool g_testInit = false;
+bool g_testInitQuiet = true;
+
+UTEST_STATE();
+
+int main( int argc, const char* const argv[] )
+{
+#ifndef NDEBUG
+    g_vhInit.debug = true;
 #endif
 
+#ifdef _WIN32
+    g_vhInit.shaderMakePath = "../tools/win_release";
+    g_vhInit.shaderMakeSlangPath = "../tools/win_release";
+#elif defined(__APPLE__)
+    g_vhInit.shaderMakePath = "../tools/mac_release";
+    g_vhInit.shaderMakeSlangPath = "../tools/mac_release";
+#else
+    g_vhInit.shaderMakePath = "../tools/linux_release";
+    g_vhInit.shaderMakeSlangPath = "../tools/linux_release";
+#endif
+
+    int result = utest_main( argc, argv );
+
+    if ( g_testInit )
+    {
+        vhShutdown( g_testInitQuiet );
+        g_testInit = false;
+    }
+
+    return result;
+}

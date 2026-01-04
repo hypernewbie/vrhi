@@ -21,15 +21,8 @@
 
 #pragma once
 
-#if !defined(_WIN32) && !defined(VK_USE_PLATFORM_XLIB_KHR) && !defined(__APPLE__)
-    #define VK_USE_PLATFORM_XLIB_KHR
-#endif
-
-#if defined(__APPLE__) && !defined(VK_USE_PLATFORM_METAL_EXT)
-    #define VK_USE_PLATFORM_METAL_EXT
-#endif
-
-#ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES // Define this if you have these in PCH already.
+// Define this if you have these in PCH already.
+#ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -39,21 +32,7 @@
 #include <glm/glm.hpp>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
-#ifdef VK_USE_PLATFORM_XLIB_KHR
-// We need to proactively include vulkan on Linux / mac and undefine the stupid common name macro defines from X11.
-#include <vulkan/vulkan.h>
-#ifdef None
-    #undef None
-#endif
-    #ifdef Always
-    #undef Always
-#endif
-    #ifdef TileShape
-    #undef TileShape
-#endif
-#endif // #if VK_USE_PLATFORM_XLIB_KHR
-
-#include <nvrhi/vulkan.h>
+#include <nvrhi/nvrhi.h>
 #include "vrhi_defines.h"
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
@@ -71,12 +50,10 @@ struct vhInitData
     bool debug = false;
     bool raytracing = true;
 
-#ifdef VRHI_SHADER_COMPILER
     std::string shaderCompileTempDir = "./tmp/shader_cache/";
     std::string shaderMakePath = "./tools/linux_release";
     std::string shaderMakeSlangPath = "./tools/linux_release";
     bool forceShaderRecompile = false;
-#endif // VRHI_SHADER_COMPILER
 };
 
 typedef uint32_t vhTexture;
@@ -532,7 +509,6 @@ void vhGetShaderInfo(
 // Returns the raw NVRHI handle (nvrhi::IShader*).
 void* vhGetShaderNvrhiHandle( vhShader shader );
 
-#ifdef VRHI_SHADER_COMPILER
 bool vhCompileShader(
     const char* name,
     const char* source,
@@ -543,7 +519,6 @@ bool vhCompileShader(
     const std::vector< std::string >& includes = {},
     std::string* outError = nullptr
 );
-#endif // VRHI_SHADER_COMPILER
 
 // Enqueues a command to create a shader from SPIR-V bytecode.
 //
@@ -934,14 +909,11 @@ void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t by
 // TODO: vhSubmit
 
 // --------------------------------------------------------------------------
-// Implementation
+// Internals. DO NOT USE.
 // --------------------------------------------------------------------------
-
-#ifdef VRHI_IMPLEMENTATION
 
 // VIDL_GENERATE
 void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU = false );
-
 // VIDL_GENERATE
 void vhCmdSetStateViewRect( vhStateId id, glm::vec4 rect );
 // VIDL_GENERATE
@@ -978,60 +950,3 @@ void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data );
 void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms );
 // VIDL_GENERATE
 void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colours, vhState::RenderTarget depth );
-
-// In header-only mode, we want definitions.
-#define VRHI_IMPL_DEFINITIONS
-#include "vrhi_impl.h"
-#endif // VRHI_IMPLEMENTATION
-
-/*
- * ============================================================================
- * VRHI Build Architecture
- * ============================================================================
- *
- * UNITY/BUILD ( Header-Only Library )
- * ----------------------------------
- * Single translation unit compiles everything via VRHI_IMPLEMENTATION.
- *
- *   test.cpp
- *       |
- *       | #define VRHI_IMPLEMENTATION
- *       v
- *   vrhi.h ──────────────────────────────────────────┐
- *       |                                            |
- *       | #define VRHI_IMPL_DEFINITIONS              |
- *       v                                            v
- *   vrhi_impl.h ─────────────> [globals defined]     |
- *       |                                            |
- *       | #ifdef VRHI_IMPLEMENTATION                 |
- *       +───────────────────────────┬────────────────+
- *       v                           v                v
- *   vrhi_impl_backend.h    vrhi_impl_device.h    vrhi_impl_texture.h
- *
- *
- * SHARDED BUILD ( Traditional Library )
- * ---------------------
- * Multiple translation units for faster incremental builds.
- * Touching one module only recompiles that shard.
- *
- *   test.cpp                        test_impl_definitions.cpp
- *       |                                   |
- *       | (no VRHI_IMPLEMENTATION)          | #define VRHI_IMPL_DEFINITIONS
- *       v                                   v
- *   vrhi.h (API only)               vrhi_impl.h ──> [globals defined]
- *                                           |
- *                                           | (submodule includes SKIPPED)
- *                                           x
- *
- *   test_impl_backend.cpp     test_impl_device.cpp     test_impl_texture.cpp
- *           |                         |                         |
- *           v                         v                         v
- *   vrhi_impl_backend.h       vrhi_impl_device.h        vrhi_impl_texture.h
- *           |                         |                         |
- *           v                         v                         v
- *   [g_vhCmdBackendState]     [vhInit, vhShutdown]      [vhCreateTexture]
- *
- * Key insight: vrhi_impl.h guards submodule includes with #ifdef VRHI_IMPLEMENTATION.
- * In sharded builds, each shard includes its module directly, bypassing the hub.
- * ============================================================================
- */

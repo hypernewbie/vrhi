@@ -22,16 +22,13 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+
 #ifdef _WIN32
 #include <windows.h>
-#endif
+#endif // _WIN32
 #include "utest.h"
-
-#define VRHI_UNIT_TEST
-#define VRHI_SHADER_COMPILER
-#ifdef VRHI_SHARDED_BUILD
-    #include "vrhi_impl_texture.h"
-#endif
+#include <vrhi.h>
+#include <vrhi_internal.h>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;

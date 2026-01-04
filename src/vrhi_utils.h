@@ -21,6 +21,9 @@
 
 #pragma once
 
+#include <vector>
+#include <cstdint>
+
 // -------------------------------------------------------- Utils --------------------------------------------------------
 
 // Allocator for list of object IDs.
