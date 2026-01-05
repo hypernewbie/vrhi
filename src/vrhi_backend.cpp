@@ -26,6 +26,13 @@
 
 vhCmdBackendState g_vhCmdBackendState;
 
+// Static member definitions
+std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
+vhStateResolveCache vhCmdBackendState::s_resolveCache;
+std::unordered_map< uint32_t, vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
+std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
+std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
+
 // --------------------------------------------------------------------------
 // Implementation
 // --------------------------------------------------------------------------
@@ -356,8 +363,8 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
 
         // Resolve Input Layout
 
-        static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
-        static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
+        // Resolve Input Layout
+
         s_layoutLocationTable.clear();
         s_attributes.clear();
 
@@ -515,7 +522,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 {
     // Build map of layouts --> shader.
 
-    static std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
     s_layoutToShader.clear();
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
@@ -527,7 +533,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
 
     // Loop through the layouts and bind resources.
-    static vhStateResolveCache s_resolveCache;
     s_resolveCache.Clear();
     BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, s_resolveCache );
     if ( !s_resolveCache.init )
@@ -547,7 +552,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
         // Build a map of reflection slots --> reflection resources.
 
-        static std::unordered_map< uint32_t, vhShaderReflectionResource* > s_slotToReflection;
         s_slotToReflection.clear();
         assert( s_layoutToShader.find( layout ) != s_layoutToShader.end() );
         auto shader = s_layoutToShader[layout];
@@ -712,10 +716,18 @@ void vhCmdBackendState::shutdown()
 {
     std::lock_guard< std::mutex > lock( backendMutex );
     std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
+
     backendTextures.clear();
     backendBuffers.clear();
     backendShaders.clear();
     backendFramebuffers.clear();
+
+    // Clear static caches
+    s_layoutToShader.clear();
+    s_resolveCache.Clear();
+    s_slotToReflection.clear();
+    s_layoutLocationTable.clear();
+    s_attributes.clear();
 }
 
 

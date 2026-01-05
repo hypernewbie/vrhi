@@ -110,13 +110,7 @@ void vhInit( bool quiet )
     VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12Features.timelineSemaphore = VK_TRUE;
     v12Features.bufferDeviceAddress = VK_TRUE;
-
-    VkPhysicalDeviceFeatures features = {};
-    if ( g_vhInit.robust )
-    {
-        features.robustBufferAccess = VK_TRUE;
-    }
-
+    VkPhysicalDeviceFeatures features = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
     selector.set_minimum_version( 1, 1 )
         .set_required_features_12( v12Features )
         .set_required_features( features );

@@ -215,6 +215,14 @@ class vhCmdBackendState : public VIDLHandler
 
     void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size );
 
+protected:
+    // Static caches to avoid reallocation overhead, explicitly cleared in shutdown()
+    static std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
+    static vhStateResolveCache s_resolveCache;
+    static std::unordered_map< uint32_t, vhShaderReflectionResource* > s_slotToReflection;
+    static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
+    static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
+
 public:
 
     void init();
