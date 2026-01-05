@@ -49,16 +49,16 @@ uint32_t g_QueueFamilyTransfer = ( uint32_t ) -1;
 
 // # Graphics Resource Objects
 
-vhAllocatorObjectFreeList g_vhTextureIDList( 256 );
+vhAllocatorObjectFreeList g_vhTextureIDList( 16 * 1024 );
 std::unordered_map< vhTexture, bool > g_vhTextureIDValid;
 std::mutex g_vhTextureIDListMutex;
 
-vhAllocatorObjectFreeList g_vhBufferIDList( 256 );
+vhAllocatorObjectFreeList g_vhBufferIDList( 16 * 1024 );
 std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
 std::mutex g_vhBufferIDListMutex;
 
 // Shader
-vhAllocatorObjectFreeList g_vhShaderIDList( 256 );
+vhAllocatorObjectFreeList g_vhShaderIDList( 16 * 1024 );
 std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 std::mutex g_vhShaderIDListMutex;
 

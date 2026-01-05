@@ -392,9 +392,23 @@ UTEST( BackendInternal, FindResource )
     EXPECT_EQ( outItem.resourceHandle, hBuf );
     EXPECT_EQ( outItem.type, nvrhi::ResourceType::RawBuffer_UAV );
 
+    // Test Sampler
+    uint64_t samplerFlags = VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP;
+    nvrhi::SamplerHandle hSampler = vhGetSamplerHandle( samplerFlags );
+    EXPECT_TRUE( hSampler != nullptr );
+    stageTable.samplerTable[4] = hSampler;
+
+    nvrhi::BindingLayoutItem layoutSampler = nvrhi::BindingLayoutItem::Sampler( 4 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutSampler, outItem ) );
+    EXPECT_EQ( outItem.resourceHandle, hSampler );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::Sampler );
+
     // Test Fail: Missing Slot
     nvrhi::BindingLayoutItem layoutMissing = nvrhi::BindingLayoutItem::Texture_SRV( 99 );
     EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutMissing, outItem ) );
+
+    nvrhi::BindingLayoutItem layoutMissingSampler = nvrhi::BindingLayoutItem::Sampler( 99 );
+    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutMissingSampler, outItem ) );
 
     vhDestroyTexture( tex );
     vhDestroyBuffer( buf );

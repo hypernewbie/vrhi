@@ -658,7 +658,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             if ( !result->handle || !result->binding )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Buffer %s found in cache at slot %d but invalid configuration.\n", isUAV ? "UAV" : "SRV", item.slot );
-                assert( !"Buffer found in cache at slot %d but invalid configuration. This is likely a Vrhi bug." );
+                assert( !"Buffer found in cache at slot but invalid configuration. This is likely a Vrhi bug." );
                 return false;
             }
             
