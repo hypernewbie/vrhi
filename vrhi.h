@@ -54,6 +54,7 @@ struct vhInitData
     std::string shaderMakePath = "./tools/linux_release";
     std::string shaderMakeSlangPath = "./tools/linux_release";
     bool forceShaderRecompile = false;
+    bool robust = true;
 };
 
 typedef uint32_t vhTexture;

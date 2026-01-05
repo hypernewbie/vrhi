@@ -111,8 +111,15 @@ void vhInit( bool quiet )
     v12Features.timelineSemaphore = VK_TRUE;
     v12Features.bufferDeviceAddress = VK_TRUE;
 
+    VkPhysicalDeviceFeatures features = {};
+    if ( g_vhInit.robust )
+    {
+        features.robustBufferAccess = VK_TRUE;
+    }
+
     selector.set_minimum_version( 1, 1 )
-        .set_required_features_12( v12Features );
+        .set_required_features_12( v12Features )
+        .set_required_features( features );
 
     vkb::PhysicalDevice vkbPhys;
 
@@ -152,6 +159,12 @@ void vhInit( bool quiet )
             vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
     }
 
+    bool robustness2Enabled = false;
+    if ( g_vhInit.robust )
+    {
+        robustness2Enabled = vkbPhys.enable_extension_if_present( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
+    }
+
     if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
     vkb::DeviceBuilder devBuilder( vkbPhys );
 
@@ -169,6 +182,20 @@ void vhInit( bool quiet )
     else
     {
         if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions missing. RT features disabled.\n" );
+    }
+
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness2Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
+    if ( robustness2Enabled )
+    {
+        robustness2Features.nullDescriptor = VK_TRUE;
+        robustness2Features.robustBufferAccess2 = VK_TRUE;
+        robustness2Features.robustImageAccess2 = VK_TRUE;
+        devBuilder.add_pNext( &robustness2Features );
+        if ( !quiet ) VRHI_LOG( "    Robustness2 extension enabled.\n" );
+    }
+    else
+    {
+        if ( !quiet && g_vhInit.robust ) VRHI_LOG( "    Robustness2 extension missing or disabled.\n" );
     }
 
     auto devRet = devBuilder.build();
@@ -234,6 +261,10 @@ void vhInit( bool quiet )
         s_enabledExtensions.push_back( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME );
         s_enabledExtensions.push_back( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME );
         s_enabledExtensions.push_back( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+    }
+    if ( robustness2Enabled )
+    {
+        s_enabledExtensions.push_back( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
     }
 
     g_vulkanEnabledExtensionCount = ( uint32_t ) s_enabledExtensions.size();
@@ -314,6 +345,7 @@ void vhShutdown( bool quiet )
         vkDeviceWaitIdle( g_vulkanDevice );
     }
     vhPSOCacheShutdown();
+    vhSamplerCacheShutdown();
 
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     g_vhDevice = nullptr; // RefCountPtr handles the release()
@@ -887,6 +919,25 @@ uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayo
             h = komihash( &item.rawData[1], sizeof( item.rawData[1] ), h );
         }
     }
+
+    return h;
+}
+
+uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc )
+{
+    static_assert( sizeof( nvrhi::SamplerDesc ) == 32, "nvrhi::SamplerDesc size mismatch" );
+    uint64_t h = 0;
+    
+    h = komihash( &desc.borderColor, sizeof( desc.borderColor ), h );
+    h = komihash( &desc.maxAnisotropy, sizeof( desc.maxAnisotropy ), h );
+    h = komihash( &desc.mipBias, sizeof( desc.mipBias ), h );
+    h = komihash( &desc.minFilter, sizeof( desc.minFilter ), h );
+    h = komihash( &desc.magFilter, sizeof( desc.magFilter ), h );
+    h = komihash( &desc.mipFilter, sizeof( desc.mipFilter ), h );
+    h = komihash( &desc.addressU, sizeof( desc.addressU ), h );
+    h = komihash( &desc.addressV, sizeof( desc.addressV ), h );
+    h = komihash( &desc.addressW, sizeof( desc.addressW ), h );
+    h = komihash( &desc.reductionType, sizeof( desc.reductionType ), h );
 
     return h;
 }

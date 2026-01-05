@@ -1411,3 +1411,42 @@ UTEST( ResourceQueries, Texture )
     EXPECT_EQ( info.format, nvrhi::Format::UNKNOWN );
     EXPECT_EQ( vhGetTextureNvrhiHandle( tex ), nullptr );
 }
+
+UTEST( Sampler, Hashing )
+{
+    nvrhi::SamplerDesc d1;
+    d1.addressU = nvrhi::SamplerAddressMode::Clamp;
+    
+    nvrhi::SamplerDesc d2;
+    d2.addressU = nvrhi::SamplerAddressMode::Wrap;
+
+    nvrhi::SamplerDesc d3;
+    d3.addressU = nvrhi::SamplerAddressMode::Clamp;
+
+    uint64_t h1 = vhHashSamplerDesc( d1 );
+    uint64_t h2 = vhHashSamplerDesc( d2 );
+    uint64_t h3 = vhHashSamplerDesc( d3 );
+
+    EXPECT_NE( h1, h2 );
+    EXPECT_EQ( h1, h3 );
+}
+
+UTEST( Sampler, HandleCaching )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Same flags should return same handle (pointer equality)
+    nvrhi::SamplerHandle s1 = vhGetSamplerHandle( VRHI_SAMPLER_UVW_CLAMP );
+    nvrhi::SamplerHandle s2 = vhGetSamplerHandle( VRHI_SAMPLER_UVW_CLAMP );
+    
+    EXPECT_NE( s1, nullptr );
+    EXPECT_EQ( s1, s2 );
+
+    // Different flags should return different handle
+    nvrhi::SamplerHandle s3 = vhGetSamplerHandle( VRHI_SAMPLER_UVW_WRAP );
+    EXPECT_NE( s1, s3 );
+}

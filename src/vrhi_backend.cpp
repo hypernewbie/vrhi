@@ -414,12 +414,93 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     return true;
 }
 
+void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
+    const vhState& state,
+    vhBackendShader* shaders,
+    int shaderCount,
+    vhStateResolveCache& scache
+)
+{
+    assert( !scache.init );
+
+    // Build the backend pointer caches.
+    scache.btex.resize( state.textures.size(), nullptr );
+    scache.bbuf.resize( state.buffers.size(), nullptr );
+
+    // Resolve backend pointers.
+
+    for ( size_t i = 0; i < state.textures.size(); i++ )
+    {
+        if ( state.textures[i].texture == VRHI_INVALID_HANDLE )
+            continue;
+        const auto& it = backendTextures.find( state.textures[i].texture );
+        if ( it != backendTextures.end() )
+            scache.btex[i] = it->second.get();
+    }
+
+    for ( size_t i = 0; i < state.buffers.size(); i++ )
+    {
+        if ( state.buffers[i].buffer == VRHI_INVALID_HANDLE )
+            continue;
+        const auto& it = backendBuffers.find( state.buffers[i].buffer );
+        if ( it != backendBuffers.end() )
+            scache.bbuf[i] = it->second.get();
+    }
+
+    // Build slot maps.
+
+    scache.stageBinding.clear();
+    for ( int i = 1; i <= VRHI_SHADER_STAGE_MAX; i++ )
+    {
+        scache.stageBinding[i] = std::make_unique< vhStateResolveCache::ShaderStageBindingSlotState >();
+    }
+
+    for ( size_t i = 0; i < state.samplers.size(); i++ )
+    {
+        const auto& s = state.samplers[i];
+        for ( int j = 0; j < shaderCount; j++ )
+        {
+            int32_t slot = ( s.name && s.name[0] ) ? BE_Util_ResolveBindingSlot( s.name, nvrhi::ResourceType::Sampler, shaders[j] ) : s.slot;
+            if ( slot < 0 )
+            {
+                // Having extra resources bound that the shader doesn't use is fair dinkum.
+                continue;
+            }
+
+            uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
+            assert( scache.stageBinding[stage].get() );
+            if ( scache.stageBinding[stage]->samplerTable.find( slot ) != scache.stageBinding[stage]->samplerTable.end() )
+            {
+                // Duplicate binding slots is not fair dinkum.
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Sampler Binding Slot Collision: Slot %d already bound by previous shader\n", slot );
+                return;
+            }
+
+            auto shandle = vhGetSamplerHandle( s.flags );
+            if ( !shandle )
+            {
+                VRHI_ERR( "vhSetState(): Failed to get sampler handle for sampler at index %zu\n", i );
+                return;
+            }
+            scache.stageBinding[stage]->samplerTable[slot] = shandle;
+        }
+    }
+
+    scache.init = true;
+}
+
 bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
-    vhState& state,
-    nvrhi::BindingLayoutItem& item,
+    const vhState& state,
+    const uint32_t stage,
+    const vhStateResolveCache& scache,
+    const nvrhi::BindingLayoutItem& item,
     nvrhi::BindingSetItem& outItem
 )
 {
+    assert( scache.init );
+    assert( scache.btex.size() == state.textures.size() );
+    assert( scache.bbuf.size() == state.buffers.size() );
     return false;
 }
 
@@ -446,6 +527,14 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
 
     // Loop through the layouts and bind resources.
+    static vhStateResolveCache s_resolveCache;
+    s_resolveCache.Clear();
+    BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, s_resolveCache );
+    if ( !s_resolveCache.init )
+    {
+        VRHI_ERR( "vhSetState(): Failed to resolve state resource cache.\n" );
+        return false;
+    }
 
     for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
     {
@@ -457,6 +546,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         assert( layoutDesc );
 
         // Build a map of reflection slots --> reflection resources.
+
         static std::unordered_map< uint32_t, vhShaderReflectionResource* > s_slotToReflection;
         s_slotToReflection.clear();
         assert( s_layoutToShader.find( layout ) != s_layoutToShader.end() );
@@ -468,8 +558,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             assert( s_slotToReflection.find( reflection.slot ) == s_slotToReflection.end() );
             s_slotToReflection[reflection.slot] = &reflection;
         }
+        uint32_t stage = ( uint32_t ) ( shader->flags & VRHI_SHADER_STAGE_MASK );
+        assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
 
         // Loop through the required bindings for this layout.
+
         for ( uint32_t bindingIdx = 0; bindingIdx < layoutDesc->bindings.size(); bindingIdx++ )
         {
             auto binding = layoutDesc->bindings[bindingIdx];
@@ -494,7 +587,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 return false;
 
             nvrhi::BindingSetItem item;
-            if ( !BE_PreSubmitCommon_FindResource( state, binding, item ) )
+            if ( !BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item ) )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in state. Dummy resource bound.\n", binding.slot );
                 item = vhGetDummyBindingItem( binding, reflection.format, reflection.dim );

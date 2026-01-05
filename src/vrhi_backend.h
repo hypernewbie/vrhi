@@ -69,6 +69,38 @@ struct vhBackendShader
     std::vector< vhSpecConstant > specConstants;
 };
 
+struct vhStateResolveCache
+{
+    bool init = false;
+
+    std::vector< vhBackendTexture* > btex;
+    std::vector< vhBackendBuffer* > bbuf;
+
+    // We work with ShaderMake defaults, which define bindings into 4 ranges:
+    //
+    // * Samplers (s registers): Default shift is 100.
+    // * Textures (t registers): Default shift is 200.
+    // * Constant Buffers (b registers): Default shift is 300.
+    // * UAVs (u registers): Default shift is 400.
+    //
+    struct ShaderStageBindingSlotState
+    {
+        std::unordered_map< uint32_t, nvrhi::SamplerHandle > samplerTable; // slot -> sampler
+        std::unordered_map< uint32_t, nvrhi::TextureHandle > textureTable; // slot -> texture
+        std::unordered_map< uint32_t, nvrhi::BufferHandle > bufferTable; // slot -> buffer
+        std::unordered_map< uint32_t, std::pair< nvrhi::TextureHandle, nvrhi::BufferHandle > > uavTable; // slot -> UAV. Either texture or buffer, but not both.
+    };
+    std::unordered_map< uint32_t, std::unique_ptr< ShaderStageBindingSlotState > > stageBinding; // stage flag -> binding slot state
+
+    inline void Clear()
+    {
+        init = false;
+        btex.clear();
+        bbuf.clear();
+        stageBinding.clear();
+    }
+};
+
 // --------------------------------------------------------------------------
 // Main Backend State
 // --------------------------------------------------------------------------
@@ -153,9 +185,18 @@ class vhCmdBackendState : public VIDLHandler
         nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc // set to nullptr if not using graphics.
     );
 
+    void BE_PreSubmitCommon_ResolveStateCache(
+        const vhState& state,
+        vhBackendShader* shaders,
+        int shaderCount,
+        vhStateResolveCache& scache
+    );
+
     bool BE_PreSubmitCommon_FindResource(
-        vhState& state,
-        nvrhi::BindingLayoutItem& item,
+        const vhState& state,
+        const uint32_t stage,
+        const vhStateResolveCache& scache,
+        const nvrhi::BindingLayoutItem& item,
         nvrhi::BindingSetItem& outItem
     );
 

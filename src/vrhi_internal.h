@@ -190,6 +190,8 @@ int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
 int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel = 0 );
 bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions, glm::ivec3 offset, glm::ivec3 extent, const char* debugName );
 nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags );
+nvrhi::SamplerHandle vhGetSamplerHandle( uint64_t samplerFlags );
+void vhSamplerCacheShutdown();
 bool vhReflectSpirv(
     const std::vector< uint32_t >& spirvBlob,
     nvrhi::BindingLayoutDesc& outDesc,
@@ -205,6 +207,7 @@ uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc );
 uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
 uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
+uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );
 nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& desc );
 nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );

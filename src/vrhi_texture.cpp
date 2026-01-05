@@ -262,6 +262,8 @@ void* vhGetTextureNvrhiHandle( vhTexture texture )
     return vhBackendQueryTextureHandle( texture );
 }
 
+// ------------ Sampler Implementation ------------
+
 nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags )
 {
     nvrhi::SamplerDesc desc;
@@ -309,3 +311,33 @@ nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags )
     return desc;
 }
 
+static std::unordered_map< uint64_t, nvrhi::SamplerHandle > s_samplerCache;
+static std::mutex s_samplerCacheMutex;
+
+nvrhi::SamplerHandle vhGetSamplerHandle( uint64_t samplerFlags )
+{
+    nvrhi::SamplerDesc desc = vhGetSamplerDesc( samplerFlags );
+    uint64_t hash = vhHashSamplerDesc( desc );
+
+    std::lock_guard< std::mutex > lock( s_samplerCacheMutex );
+    auto it = s_samplerCache.find( hash );
+    if ( it != s_samplerCache.end() )
+    {
+        assert( it->second );
+        return it->second;
+    }
+
+    nvrhi::SamplerHandle sampler = nullptr;
+    {
+        std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
+        sampler = g_vhDevice->createSampler( desc );
+    }
+    if ( sampler ) s_samplerCache[hash] = sampler;
+    return sampler;
+}
+
+void vhSamplerCacheShutdown()
+{
+    std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
+    s_samplerCache.clear(); 
+}

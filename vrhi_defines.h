@@ -32,6 +32,7 @@
 #define VRHI_SHADER_STAGE_CLOSEST_HIT   9
 #define VRHI_SHADER_STAGE_MESH          10
 #define VRHI_SHADER_STAGE_AMPLIFICATION 11
+#define VRHI_SHADER_STAGE_MAX           11
 #define VRHI_SHADER_STAGE_MASK          0xF
 
 #define VRHI_SHADER_SM_5_0              ( 1 << 4 )

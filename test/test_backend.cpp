@@ -264,7 +264,6 @@ UTEST( BackendInternal, PreSubmitCommon_State_Compute )
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, layouts, &computeState, nullptr ) );
 
     vhFlush();
-
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         layoutFail = nullptr;
