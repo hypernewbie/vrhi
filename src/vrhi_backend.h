@@ -76,6 +76,18 @@ struct vhStateResolveCache
     std::vector< vhBackendTexture* > btex;
     std::vector< vhBackendBuffer* > bbuf;
 
+    struct ResolvedTexture
+    {
+        nvrhi::TextureHandle handle = nullptr;
+        const vhState::TextureBinding* binding = nullptr;
+    };
+
+    struct ResolvedBuffer
+    {
+        nvrhi::BufferHandle handle = nullptr;
+        const vhState::BufferBinding* binding = nullptr;
+    };
+
     // We work with ShaderMake defaults, which define bindings into 4 ranges:
     //
     // * Samplers (s registers): Default shift is 100.
@@ -86,9 +98,9 @@ struct vhStateResolveCache
     struct ShaderStageBindingSlotState
     {
         std::unordered_map< uint32_t, nvrhi::SamplerHandle > samplerTable; // slot -> sampler
-        std::unordered_map< uint32_t, nvrhi::TextureHandle > textureTable; // slot -> texture
-        std::unordered_map< uint32_t, nvrhi::BufferHandle > bufferTable; // slot -> buffer
-        std::unordered_map< uint32_t, std::pair< nvrhi::TextureHandle, nvrhi::BufferHandle > > uavTable; // slot -> UAV. Either texture or buffer, but not both.
+        std::unordered_map< uint32_t, ResolvedTexture > textureTable; // slot -> texture
+        std::unordered_map< uint32_t, ResolvedBuffer > bufferTable; // slot -> buffer
+        std::unordered_map< uint32_t, std::pair< ResolvedTexture, ResolvedBuffer > > uavTable; // slot -> UAV. Either texture or buffer, but not both.
     };
     std::unordered_map< uint32_t, std::unique_ptr< ShaderStageBindingSlotState > > stageBinding; // stage flag -> binding slot state
 

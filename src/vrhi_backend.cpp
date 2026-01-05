@@ -462,19 +462,21 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         scache.stageBinding[i] = std::make_unique< vhStateResolveCache::ShaderStageBindingSlotState >();
     }
 
+    auto fnResolveSlot = [&]( const char* name, int32_t fallbackSlot, nvrhi::ResourceType type, vhBackendShader& shader ) -> int32_t
+    {
+        return ( name && name[0] ) ? BE_Util_ResolveBindingSlot( name, type, shader ) : fallbackSlot;
+    };
+
     for ( size_t i = 0; i < state.samplers.size(); i++ )
     {
         const auto& s = state.samplers[i];
         for ( int j = 0; j < shaderCount; j++ )
         {
-            int32_t slot = ( s.name && s.name[0] ) ? BE_Util_ResolveBindingSlot( s.name, nvrhi::ResourceType::Sampler, shaders[j] ) : s.slot;
+            const int32_t slot = fnResolveSlot( s.name, s.slot, nvrhi::ResourceType::Sampler, shaders[j] );
             if ( slot < 0 )
-            {
-                // Having extra resources bound that the shader doesn't use is fair dinkum.
-                continue;
-            }
+                continue; // Having extra resources bound that the shader doesn't use is fair dinkum.
 
-            uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
             assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
             assert( scache.stageBinding[stage].get() );
             if ( scache.stageBinding[stage]->samplerTable.find( slot ) != scache.stageBinding[stage]->samplerTable.end() )
@@ -494,6 +496,85 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         }
     }
 
+    for ( size_t i = 0; i < state.textures.size(); i++ )
+    {
+        assert( scache.btex[i] );
+
+        const auto& t = state.textures[i];
+        for ( int j = 0; j < shaderCount; j++ )
+        {
+            const nvrhi::ResourceType bindingType = t.computeUAV ? nvrhi::ResourceType::Texture_UAV : nvrhi::ResourceType::Texture_SRV;
+            const int32_t slot = fnResolveSlot( t.name, t.slot, bindingType, shaders[j] );
+            if ( slot < 0 )
+                continue; // Having extra resources bound that the shader doesn't use is fair dinkum.
+
+            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
+            auto& stageTable = *scache.stageBinding[stage];
+
+            if ( t.computeUAV )
+            {
+                auto& uavEntry = stageTable.uavTable[slot];
+                if ( uavEntry.first.handle || uavEntry.second.handle )
+                {
+                    // If either part of the pair is already filled, that's a collision.
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
+                    return;
+                }
+                uavEntry.first = { scache.btex[i]->handle, &t };
+            }
+            else
+            { 
+                if ( stageTable.textureTable.find( slot ) != stageTable.textureTable.end() )
+                {
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
+                    return;
+                }
+                stageTable.textureTable[slot] = { scache.btex[i]->handle, &t };
+            }
+        }
+    }
+
+    for ( size_t i = 0; i < state.buffers.size(); i++ )
+    {
+        assert( scache.bbuf[i] );
+
+        const auto& b = state.buffers[i];
+        for ( int j = 0; j < shaderCount; j++ )
+        {
+            // Only RawBuffer supported
+            const nvrhi::ResourceType bindingType = b.computeUAV ? nvrhi::ResourceType::RawBuffer_UAV : nvrhi::ResourceType::RawBuffer_SRV;
+            const int32_t slot = fnResolveSlot( b.name, b.slot, bindingType, shaders[j] );
+            if ( slot < 0 )
+                continue; // Having extra resources bound that the shader doesn't use is fair dinkum.
+
+            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
+            auto& stageTable = *scache.stageBinding[stage];
+
+            if ( b.computeUAV )
+            {
+                auto& uavEntry = stageTable.uavTable[slot];
+                if ( uavEntry.first.handle || uavEntry.second.handle )
+                {
+                    // If either part of the pair is already filled, that's a collision.
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
+                    return;
+                }
+                uavEntry.second = { scache.bbuf[i]->handle, &b };
+            }
+            else
+            {
+                if ( stageTable.bufferTable.find( slot ) != stageTable.bufferTable.end() )
+                {
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
+                    return;
+                }
+                stageTable.bufferTable[slot] = { scache.bbuf[i]->handle, &b };
+            }
+        }
+    }
+
     scache.init = true;
 }
 
@@ -508,6 +589,113 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
     assert( scache.init );
     assert( scache.btex.size() == state.textures.size() );
     assert( scache.bbuf.size() == state.buffers.size() );
+
+    if ( scache.stageBinding.find( stage ) == scache.stageBinding.end() )
+    {
+        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Stage %d not found in cache.\n", stage );
+        return false;
+    }
+    const auto& stageTable = *scache.stageBinding.at( stage );
+
+    switch ( item.type )
+    {
+        case nvrhi::ResourceType::Texture_SRV:
+        case nvrhi::ResourceType::Texture_UAV:
+        {
+            const bool isUAV = ( item.type == nvrhi::ResourceType::Texture_UAV );
+            const vhStateResolveCache::ResolvedTexture* result = nullptr;
+
+            if ( isUAV )
+            {
+                auto it = stageTable.uavTable.find( item.slot );
+                if ( it != stageTable.uavTable.end() ) result = &it->second.first;
+            }
+            else
+            {
+                auto it = stageTable.textureTable.find( item.slot );
+                if ( it != stageTable.textureTable.end() ) result = &it->second;
+            }
+            if ( !result )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Texture %s not found in cache at slot %d\n", isUAV ? "UAV" : "SRV", item.slot );
+                break;
+            }
+            if ( !result->handle || !result->binding )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Texture %s found in cache at slot %d but invalid configuration.\n", isUAV ? "UAV" : "SRV", item.slot );
+                return false;
+            }
+
+            outItem = isUAV ? nvrhi::BindingSetItem::Texture_UAV( item.slot, result->handle ) : nvrhi::BindingSetItem::Texture_SRV( item.slot, result->handle );
+
+            outItem.format = result->binding->formatOverride;
+            outItem.subresources = result->binding->subresources;
+            outItem.dimension = result->binding->dimensionOverride;
+            return true;
+        }
+
+        case nvrhi::ResourceType::RawBuffer_SRV:
+        case nvrhi::ResourceType::RawBuffer_UAV:
+        {
+            const bool isUAV = ( item.type == nvrhi::ResourceType::RawBuffer_UAV );
+            const vhStateResolveCache::ResolvedBuffer* result = nullptr;
+
+            if ( isUAV )
+            {
+                 auto it = stageTable.uavTable.find( item.slot );
+                 if ( it != stageTable.uavTable.end() ) result = &it->second.second;
+            }
+            else
+            {
+                 auto it = stageTable.bufferTable.find( item.slot );
+                 if ( it != stageTable.bufferTable.end() ) result = &it->second;
+            }
+            if ( !result )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Buffer %s not found in cache at slot %d\n", isUAV ? "UAV" : "SRV", item.slot );
+                break;
+            }
+            if ( !result->handle || !result->binding )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Buffer %s found in cache at slot %d but invalid configuration.\n", isUAV ? "UAV" : "SRV", item.slot );
+                assert( !"Buffer found in cache at slot %d but invalid configuration. This is likely a Vrhi bug." );
+                return false;
+            }
+            
+            // RawBuffer SRV and UAV require 16 byte alignment on NVIDIA hardware, ensuring this for all vendors is safe practice.
+            if ( result->binding->byteOffset % 16 != 0 || result->binding->byteSize % 16 != 0 )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Offset and size must be aligned to 16 bytes for RawBuffer %ss.\n", isUAV ? "UAV" : "SRV" );
+                return false;
+            }
+            
+            uint64_t size = result->binding->byteSize ? result->binding->byteSize : result->handle->getDesc().byteSize;
+            nvrhi::BufferRange range( result->binding->byteOffset, size );
+            outItem = isUAV ? nvrhi::BindingSetItem::RawBuffer_UAV( item.slot, result->handle, range ) : nvrhi::BindingSetItem::RawBuffer_SRV( item.slot, result->handle, range );
+            return true;
+        }
+        case nvrhi::ResourceType::Sampler:
+        {
+            auto it = stageTable.samplerTable.find( item.slot );
+            if ( it == stageTable.samplerTable.end() )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler not found in cache at slot %d\n", item.slot );
+                break;
+            }
+            
+            if ( !it->second )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler found in cache at slot %d but handle is null\n", item.slot );
+                return false;
+            }
+            outItem = nvrhi::BindingSetItem::Sampler( item.slot, it->second );
+            return true;
+        }
+        default:
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown or unsupported resource type %d at slot %d\n", ( int ) item.type, item.slot );
+            break;
+    }
+
     return false;
 }
 

@@ -87,6 +87,17 @@ public:
         if ( !fb1 || !fb2 ) return false;
         return fb1.Get() == fb2.Get();
     }
+
+    static bool PreSubmitCommon_FindResource(
+        const vhState& state,
+        const uint32_t stage,
+        const vhStateResolveCache& scache,
+        const nvrhi::BindingLayoutItem& item,
+        nvrhi::BindingSetItem& outItem
+    )
+    {
+        return Get().BE_PreSubmitCommon_FindResource( state, stage, scache, item, outItem );
+    }
 };
 
 
@@ -291,5 +302,101 @@ UTEST( Backend, FramebufferCaching )
 
     vhDestroyTexture( colour );
     vhDestroyTexture( depth );
+    vhFinish();
+}
+
+UTEST( BackendInternal, FindResource )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Create dummy resources
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( tex, { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateStorageBuffer( buf, "TestBuf", nullptr, 1024 );
+
+    vhFinish();
+
+    nvrhi::TextureHandle hTex = ( nvrhi::ITexture* ) vhGetTextureNvrhiHandle( tex );
+    nvrhi::BufferHandle hBuf = ( nvrhi::IBuffer* ) vhGetBufferNvrhiHandle( buf );
+
+    EXPECT_TRUE( hTex != nullptr );
+    EXPECT_TRUE( hBuf != nullptr );
+
+    // Setup State Binding (Dummy)
+    vhState::TextureBinding texBind;
+    texBind.texture = tex;
+    texBind.formatOverride = nvrhi::Format::RGBA8_UNORM;
+    texBind.subresources = nvrhi::TextureSubresourceSet( 0, 1, 0, 1 );
+
+    vhState::BufferBinding bufBind;
+    bufBind.buffer = buf;
+    bufBind.byteOffset = 256;
+    bufBind.byteSize = 512;
+
+    // Setup Cache
+    vhStateResolveCache scache;
+    scache.init = true;
+    
+    // Resize btex/bbuf to satisfy size assertions
+    // We need to attach them to a state to match sizes, 
+    // but the test primarily mocks the scache logic manually.
+    // The assertions check against 'state' passed in.
+    vhState state;
+    state.textures.resize( 1 );
+    state.buffers.resize( 1 );
+    scache.btex.resize( 1 );
+    scache.bbuf.resize( 1 );
+
+    // Mock Stage Binding
+    uint32_t stage = VRHI_SHADER_STAGE_COMPUTE;
+    scache.stageBinding[stage] = std::make_unique< vhStateResolveCache::ShaderStageBindingSlotState >();
+    auto& stageTable = *scache.stageBinding[stage];
+
+    stageTable.textureTable[0] = { hTex, &texBind };
+    stageTable.bufferTable[1] = { hBuf, &bufBind };
+    stageTable.uavTable[2].first = { hTex, &texBind };
+    stageTable.uavTable[3].second = { hBuf, &bufBind };
+
+    nvrhi::BindingSetItem outItem;
+
+    // Test Texture SRV
+    nvrhi::BindingLayoutItem layoutTexSRV = nvrhi::BindingLayoutItem::Texture_SRV( 0 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutTexSRV, outItem ) );
+    EXPECT_EQ( outItem.resourceHandle, hTex );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::Texture_SRV );
+    EXPECT_EQ( outItem.format, nvrhi::Format::RGBA8_UNORM );
+
+    // Test Buffer SRV
+    nvrhi::BindingLayoutItem layoutBufSRV = nvrhi::BindingLayoutItem::RawBuffer_SRV( 1 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutBufSRV, outItem ) );
+    EXPECT_EQ( outItem.resourceHandle, hBuf );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::RawBuffer_SRV );
+    EXPECT_EQ( outItem.range.byteOffset, 256u );
+    EXPECT_EQ( outItem.range.byteSize, 512u );
+
+    // Test Texture UAV
+    nvrhi::BindingLayoutItem layoutTexUAV = nvrhi::BindingLayoutItem::Texture_UAV( 2 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutTexUAV, outItem ) );
+    EXPECT_EQ( outItem.resourceHandle, hTex );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::Texture_UAV );
+
+    // Test Buffer UAV
+    nvrhi::BindingLayoutItem layoutBufUAV = nvrhi::BindingLayoutItem::RawBuffer_UAV( 3 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutBufUAV, outItem ) );
+    EXPECT_EQ( outItem.resourceHandle, hBuf );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::RawBuffer_UAV );
+
+    // Test Fail: Missing Slot
+    nvrhi::BindingLayoutItem layoutMissing = nvrhi::BindingLayoutItem::Texture_SRV( 99 );
+    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutMissing, outItem ) );
+
+    vhDestroyTexture( tex );
+    vhDestroyBuffer( buf );
     vhFinish();
 }
