@@ -37,12 +37,42 @@ std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
 // Implementation
 // --------------------------------------------------------------------------
 
-int32_t vhCmdBackendState::BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader )
+static const char* vhResourceTypeToString( nvrhi::ResourceType type )
+{
+    switch ( type )
+    {
+        case nvrhi::ResourceType::None: return "None";
+        case nvrhi::ResourceType::Texture_SRV: return "Texture_SRV";
+        case nvrhi::ResourceType::Texture_UAV: return "Texture_UAV";
+        case nvrhi::ResourceType::TypedBuffer_SRV: return "TypedBuffer_SRV";
+        case nvrhi::ResourceType::TypedBuffer_UAV: return "TypedBuffer_UAV";
+        case nvrhi::ResourceType::StructuredBuffer_SRV: return "StructuredBuffer_SRV";
+        case nvrhi::ResourceType::StructuredBuffer_UAV: return "StructuredBuffer_UAV";
+        case nvrhi::ResourceType::RawBuffer_SRV: return "RawBuffer_SRV";
+        case nvrhi::ResourceType::RawBuffer_UAV: return "RawBuffer_UAV";
+        case nvrhi::ResourceType::ConstantBuffer: return "ConstantBuffer";
+        case nvrhi::ResourceType::VolatileConstantBuffer: return "VolatileConstantBuffer";
+        case nvrhi::ResourceType::Sampler: return "Sampler";
+        case nvrhi::ResourceType::RayTracingAccelStruct: return "RayTracingAccelStruct";
+        case nvrhi::ResourceType::PushConstants: return "PushConstants";
+        case nvrhi::ResourceType::SamplerFeedbackTexture_UAV: return "SamplerFeedbackTexture_UAV";
+        default: return "Invalid";
+    }
+}
+
+int32_t vhCmdBackendState::BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader, bool debugLog )
 {
     for ( auto& resource : shader.reflection )
     {
-        if ( resource.type != type ) continue;
-        if ( resource.name == name ) return resource.slot;
+        if ( resource.name == name ) 
+        {
+            if ( resource.type != type )
+            {
+                if ( debugLog ) VRHI_LOG( "vhSetState(): WARNING: '%s' name found BUT under different type. Shader wants %s but vhState binds %s\n", name, vhResourceTypeToString( resource.type ), vhResourceTypeToString( type ) );
+                continue;
+            }
+            return resource.slot;
+        }
     }
     return -1;
 }
@@ -465,7 +495,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
     auto fnResolveSlot = [&]( const char* name, int32_t fallbackSlot, nvrhi::ResourceType type, vhBackendShader& shader ) -> int32_t
     {
-        return ( name && name[0] ) ? BE_Util_ResolveBindingSlot( name, type, shader ) : fallbackSlot;
+        return ( name && name[0] ) ? BE_Util_ResolveBindingSlot( name, type, shader, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) ) : fallbackSlot;
     };
 
     for ( size_t i = 0; i < state.samplers.size(); i++ )
@@ -494,12 +524,14 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                 return;
             }
             scache.stageBinding[stage]->samplerTable[slot] = shandle;
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Sampler 0x%llx bound to slot %d '%s'\n", s.flags, slot, s.name ? s.name : "" );
         }
     }
 
     for ( size_t i = 0; i < state.textures.size(); i++ )
     {
         assert( scache.btex[i] );
+        auto& btex = *scache.btex[i];
 
         const auto& t = state.textures[i];
         for ( int j = 0; j < shaderCount; j++ )
@@ -522,7 +554,8 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                uavEntry.first = { scache.btex[i]->handle, &t };
+                uavEntry.first = { btex.handle, &t };
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Texture UAV '%s' bound to slot %d '%s'\n", btex.name.c_str(), slot, t.name ? t.name : "" );
             }
             else
             { 
@@ -531,7 +564,8 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                stageTable.textureTable[slot] = { scache.btex[i]->handle, &t };
+                stageTable.textureTable[slot] = { btex.handle, &t };
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Texture SRV '%s' bound to slot %d '%s'\n", btex.name.c_str(), slot, t.name ? t.name : "" );
             }
         }
     }
@@ -539,6 +573,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
     for ( size_t i = 0; i < state.buffers.size(); i++ )
     {
         assert( scache.bbuf[i] );
+        auto& bbuf = *scache.bbuf[i];
 
         const auto& b = state.buffers[i];
         for ( int j = 0; j < shaderCount; j++ )
@@ -562,7 +597,8 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                uavEntry.second = { scache.bbuf[i]->handle, &b };
+                uavEntry.second = { bbuf.handle, &b };
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Buffer UAV '%s' bound to slot %d '%s'\n", bbuf.name.c_str(), slot, b.name ? b.name : "" );
             }
             else
             {
@@ -571,7 +607,8 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                stageTable.bufferTable[slot] = { scache.bbuf[i]->handle, &b };
+                stageTable.bufferTable[slot] = { bbuf.handle, &b };
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Buffer SRV '%s' bound to slot %d '%s'\n", bbuf.name.c_str(), slot, b.name ? b.name : ""  );
             }
         }
     }
@@ -632,13 +669,18 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             outItem.format = result->binding->formatOverride;
             outItem.subresources = result->binding->subresources;
             outItem.dimension = result->binding->dimensionOverride;
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Texture %s found in cache at slot %d\n", isUAV ? "UAV" : "SRV", item.slot );
             return true;
         }
 
+        case nvrhi::ResourceType::TypedBuffer_SRV:
+        case nvrhi::ResourceType::TypedBuffer_UAV:
+        case nvrhi::ResourceType::StructuredBuffer_SRV:
+        case nvrhi::ResourceType::StructuredBuffer_UAV:
         case nvrhi::ResourceType::RawBuffer_SRV:
         case nvrhi::ResourceType::RawBuffer_UAV:
         {
-            const bool isUAV = ( item.type == nvrhi::ResourceType::RawBuffer_UAV );
+            const bool isUAV = ( item.type == nvrhi::ResourceType::RawBuffer_UAV || item.type == nvrhi::ResourceType::StructuredBuffer_UAV || item.type == nvrhi::ResourceType::TypedBuffer_UAV );
             const vhStateResolveCache::ResolvedBuffer* result = nullptr;
 
             if ( isUAV )
@@ -663,7 +705,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 return false;
             }
             
-            // RawBuffer SRV and UAV require 16 byte alignment on NVIDIA hardware, ensuring this for all vendors is safe practice.
+            // RawBuffer SRV and UAV require 16 byte alignment.
             if ( result->binding->byteOffset % 16 != 0 || result->binding->byteSize % 16 != 0 )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Offset and size must be aligned to 16 bytes for RawBuffer %ss.\n", isUAV ? "UAV" : "SRV" );
@@ -672,7 +714,50 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             
             uint64_t size = result->binding->byteSize ? result->binding->byteSize : result->handle->getDesc().byteSize;
             nvrhi::BufferRange range( result->binding->byteOffset, size );
-            outItem = isUAV ? nvrhi::BindingSetItem::RawBuffer_UAV( item.slot, result->handle, range ) : nvrhi::BindingSetItem::RawBuffer_SRV( item.slot, result->handle, range );
+            nvrhi::Format format = result->handle->getDesc().format;
+
+            switch ( item.type )
+            {
+                case nvrhi::ResourceType::TypedBuffer_SRV:
+                case nvrhi::ResourceType::TypedBuffer_UAV:
+                {
+                    if ( format == nvrhi::Format::UNKNOWN )
+                    {
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format for typed buffer." );
+                        return false;
+                    }
+                    outItem = ( item.type == nvrhi::ResourceType::TypedBuffer_UAV ) 
+                        ? nvrhi::BindingSetItem::TypedBuffer_UAV( item.slot, result->handle, format, range )
+                        : nvrhi::BindingSetItem::TypedBuffer_SRV( item.slot, result->handle, format, range );
+                    break;
+                }
+                case nvrhi::ResourceType::StructuredBuffer_SRV:
+                case nvrhi::ResourceType::StructuredBuffer_UAV:
+                {
+                    if ( format == nvrhi::Format::UNKNOWN )
+                    {
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format for structured buffer." );
+                        return false;
+                    }
+                    outItem = ( item.type == nvrhi::ResourceType::StructuredBuffer_UAV )
+                        ? nvrhi::BindingSetItem::StructuredBuffer_UAV( item.slot, result->handle, format, range )
+                        : nvrhi::BindingSetItem::StructuredBuffer_SRV( item.slot, result->handle, format, range );
+                    break;
+                }
+                case nvrhi::ResourceType::RawBuffer_SRV:
+                case nvrhi::ResourceType::RawBuffer_UAV:
+                {
+                    outItem = ( item.type == nvrhi::ResourceType::RawBuffer_UAV )
+                        ? nvrhi::BindingSetItem::RawBuffer_UAV( item.slot, result->handle, range )
+                        : nvrhi::BindingSetItem::RawBuffer_SRV( item.slot, result->handle, range );
+                    break;
+                }
+                default: 
+                    assert( !"Invalid resource type. This is likely a Vrhi bug." );
+                    return false;
+            }
+
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: %s %s found in cache at slot %d\n", vhResourceTypeToString( item.type ), isUAV ? "UAV" : "SRV", item.slot );
             return true;
         }
         case nvrhi::ResourceType::Sampler:
@@ -690,6 +775,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 return false;
             }
             outItem = nvrhi::BindingSetItem::Sampler( item.slot, it->second );
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Sampler found in cache at slot %d\n", item.slot );
             return true;
         }
         default:
@@ -978,7 +1064,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     }
 
     // Create the NVRHI texture.
-    snprintf( temps, sizeof( temps ), "Texture %d\n", cmd->texture );
+    snprintf( temps, sizeof( temps ), "Texture %d", cmd->texture );
     auto textureDesc = nvrhi::TextureDesc()
         .setDimension( cmd->target )
         .setWidth( cmd->dimensions.x )

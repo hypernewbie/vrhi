@@ -88,12 +88,15 @@ struct vhStateResolveCache
         const vhState::BufferBinding* binding = nullptr;
     };
 
-    // We work with ShaderMake defaults, which define bindings into 4 ranges:
+    // We work with ShaderMake defaults, which define bindings into 4 ranges.
     //
     // * Samplers (s registers): Default shift is 100.
     // * Textures (t registers): Default shift is 200.
     // * Constant Buffers (b registers): Default shift is 300.
     // * UAVs (u registers): Default shift is 400.
+    //
+    // The range values can be customised, the separation pattern cannot.
+    // Must be s < t < b < u shifts, with uRegShift having highest value.
     //
     struct ShaderStageBindingSlotState
     {
@@ -169,7 +172,7 @@ class vhCmdBackendState : public VIDLHandler
     // Deduction guide (usually implicit in C++17, but being explicit helps some compilers)
     template< typename T > BE_CmdRAII( T* ) -> BE_CmdRAII<T>;
 
-    int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader );
+    int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader, bool debugLog = false );
 
     bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics );
 

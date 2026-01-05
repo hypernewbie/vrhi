@@ -78,7 +78,7 @@ UTEST( Compute, EndToEnd_TextureWrite )
 
     // Setup State
     vhState state = g_state0; // Copy base state
-    state.debugFlags = VRHI_STATE_DEBUG_ALL;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
     state.SetProgram( vhCreateComputeProgram( cs ) );
     
     vhState::TextureBinding tb;
@@ -165,6 +165,7 @@ UTEST( Compute, ReadFromTexture )
 
     // State
     vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
     state.SetProgram( vhCreateComputeProgram( cs ) );
 
     vhState::TextureBinding tbIn;
@@ -203,29 +204,14 @@ UTEST( Compute, ReadFromTexture )
 
 UTEST( Compute, ReadFromBuffer )
 {
+    // ################################ TODO: Unused binding is still broken. Add Compute, Unusedbindings tests #################################
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     vhFlush();
-
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
-    // TODO: THIS TEST IS BROKEN. DEBUG.
 
     // Resources
     // Input Buffer: 64 floats (matching 8x8 pixels)
@@ -257,7 +243,7 @@ UTEST( Compute, ReadFromBuffer )
         {
             uint idx = id.y * 8 + id.x;
             float val = asfloat(g_In.Load(idx * 4));
-            g_Out[id.xy] = val * 0.0001 + ( idx / 255.0 ); // TODO: THIS TEST IS BROKEN. DEBUG. Removing this also creates binding issues.
+            g_Out[id.xy] = val;
         }
     )";
     
@@ -270,6 +256,7 @@ UTEST( Compute, ReadFromBuffer )
 
     // State
     vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
     state.SetProgram( vhCreateComputeProgram( cs ) );
 
     vhState::BufferBinding bIn;

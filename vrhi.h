@@ -55,6 +55,21 @@ struct vhInitData
     std::string shaderMakeSlangPath = "./tools/linux_release";
     bool forceShaderRecompile = false;
     bool robust = true;
+
+    // We work with ShaderMake defaults, which define bindings into 4 ranges.
+    //
+    // * Samplers (s registers): Default shift is 100.
+    // * Textures (t registers): Default shift is 200.
+    // * Constant Buffers (b registers): Default shift is 300.
+    // * UAVs (u registers): Default shift is 400.
+    //
+    // The range values can be customised, the separation pattern cannot.
+    // Must be s < t < b < u shifts, with uRegShift having highest value.
+    //
+    uint32_t shaderMake_sRegShift = 100;
+    uint32_t shaderMake_tRegShift = 200;
+    uint32_t shaderMake_bRegShift = 300;
+    uint32_t shaderMake_uRegShift = 400;
 };
 
 typedef uint32_t vhTexture;

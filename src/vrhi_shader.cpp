@@ -49,14 +49,16 @@ bool vhReflectSpirv(
                 return nvrhi::ResourceType::Texture_UAV;
             case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
                 return nvrhi::ResourceType::Sampler;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+                return nvrhi::ResourceType::TypedBuffer_SRV;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+                return nvrhi::ResourceType::TypedBuffer_UAV;
             case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
             {
-                bool isReadOnly = false;
-                if ( binding.type_description && ( binding.type_description->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE ) )
-                {
-                    isReadOnly = true;
-                }
-                return isReadOnly ? nvrhi::ResourceType::StructuredBuffer_SRV : nvrhi::ResourceType::StructuredBuffer_UAV;
+                // isReadOnly from reflection is very unreliable. Instead we match binding against register range shifts.
+                // uRegShift is guaranteed to have highest value, so we can just test against that.
+                bool isReadOnly = ( binding.binding < g_vhInit.shaderMake_uRegShift );
+                return isReadOnly ? nvrhi::ResourceType::RawBuffer_SRV : nvrhi::ResourceType::RawBuffer_UAV;
             }
             default:
                 return nvrhi::ResourceType::None;
