@@ -61,7 +61,7 @@ struct vhBackendShader
     std::vector< vhShaderReflectionResource > reflection;
     std::vector< vhVertexLayoutDef > inputLayout;
     nvrhi::BindingLayoutHandle layout;
-    nvrhi::BindingLayoutDesc layoutDesc;
+    nvrhi::BindingLayoutDesc layoutDesc = { .bindingOffsets = { 0, 0, 0, 0 } };
 
     // Metadata
     glm::uvec3 threadGroupSize = { 0, 0, 0 };

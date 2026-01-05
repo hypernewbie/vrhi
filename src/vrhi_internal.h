@@ -189,9 +189,15 @@ int vhVertexLayoutDefSize( const vhVertexLayoutDef& def );
 int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
 int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel = 0 );
 bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions, glm::ivec3 offset, glm::ivec3 extent, const char* debugName );
+
 nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags );
 nvrhi::SamplerHandle vhGetSamplerHandle( uint64_t samplerFlags );
 void vhSamplerCacheShutdown();
+nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& desc );
+nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
+void vhBindingSetCacheClear();
+nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
+
 bool vhReflectSpirv(
     const std::vector< uint32_t >& spirvBlob,
     nvrhi::BindingLayoutDesc& outDesc,
@@ -200,6 +206,7 @@ bool vhReflectSpirv(
     std::vector< vhPushConstantRange >& outPushConstants,
     std::vector< vhVertexLayoutDef >* outInputLayout = nullptr
 );
+
 bool vhShaderValidateBinding( const vhShaderReflectionResource& reflection, const nvrhi::BindingLayoutItem& binding, bool logError );
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
@@ -208,8 +215,6 @@ uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayo
 uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );
-nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& desc );
-nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
 nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint32_t frontStencil, uint32_t backStencil );

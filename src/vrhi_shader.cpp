@@ -185,10 +185,12 @@ bool vhReflectSpirv(
             nvrhi::ResourceType type = fnGetResourceTypeFromReflect( *binding );
 
             if ( type == nvrhi::ResourceType::None ) continue;
+            assert( binding->count > 0 );
 
             nvrhi::BindingLayoutItem item{};
-            item.slot = binding->binding;
-            item.type = type;
+            item.setSlot( binding->binding );
+            item.setType( type );
+            item.setSize( binding->count );
 
             outDesc.addItem( item );
 

@@ -227,7 +227,7 @@ UTEST( BackendInternal, PreSubmitCommon_State_Compute )
     shader.flags = VRHI_SHADER_STAGE_COMPUTE;
     
     // Create a real binding layout to satisfy getDesc() calls
-    nvrhi::BindingLayoutDesc layoutDesc;
+    nvrhi::BindingLayoutDesc layoutDesc = { .bindingOffsets = { 0, 0, 0, 0 } };
     layoutDesc.visibility = nvrhi::ShaderType::All;
     layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
     
@@ -254,7 +254,7 @@ UTEST( BackendInternal, PreSubmitCommon_State_Compute )
     state.debugFlags = VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH;
 
     // CASE: Missing reflection (Should fail)
-    nvrhi::BindingLayoutDesc layoutDescFail;
+    nvrhi::BindingLayoutDesc layoutDescFail = { .bindingOffsets = { 0, 0, 0, 0 } };
     layoutDescFail.visibility = nvrhi::ShaderType::All;
     layoutDescFail.addItem( nvrhi::BindingLayoutItem::PushConstants( 1, 64 ) ); // Slot 1 not in reflection
     nvrhi::BindingLayoutHandle layoutFail;

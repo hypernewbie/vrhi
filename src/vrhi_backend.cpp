@@ -321,6 +321,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
             continue;
 
+        assert( shader.layout );
         if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
         if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
 
@@ -716,6 +717,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto& shader = shaders[shaderIdx];
         if ( !BE_Util_ShaderStageMatches( shader.flags, computeState != nullptr, graphicsState != nullptr ) )
             continue;
+        assert( shader.layout );
         assert( s_layoutToShader.find( shader.layout ) == s_layoutToShader.end() ); // Duplicate layouts should be impossible.
         s_layoutToShader[shader.layout] = &shader;
     }
@@ -758,11 +760,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         for ( uint32_t bindingIdx = 0; bindingIdx < layoutDesc->bindings.size(); bindingIdx++ )
         {
             auto binding = layoutDesc->bindings[bindingIdx];
-            // binding.slot
-            // binding.type :: nvrhi::ResourceType
-            // binding.size
-            // binding.getArraySize()
-            // binding.PushConstants()
 
             // Find the corresponding reflection resource.
             auto reflectionItr = s_slotToReflection.find( binding.slot );
@@ -788,11 +785,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
 
         // Create Binding Set.
-        nvrhi::BindingSetHandle bset = nullptr;
-        {
-            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-            bset = g_vhDevice->createBindingSet( bsetDesc, shader->layout );
-        }
+        nvrhi::BindingSetHandle bset = vhGetBindingSet( bsetDesc, shader->layout );
         if ( !bset )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %u!\n", shader->handle );
@@ -861,7 +854,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
         return;
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Compute );
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
@@ -1461,7 +1454,8 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
     }
 
     // Reflection
-    nvrhi::BindingLayoutDesc layoutDesc;
+    static_assert( sizeof( nvrhi::VulkanBindingOffsets ) == 4 * sizeof( uint32_t ) );
+    nvrhi::BindingLayoutDesc layoutDesc = { .bindingOffsets = { 0, 0, 0, 0 } };
     std::vector< vhShaderReflectionResource > resources;
     glm::uvec3 groupSize = { 0,0,0 };
     std::vector< vhPushConstantRange > pushConstants;
@@ -1496,14 +1490,11 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
         backendShader->threadGroupSize = groupSize;
         backendShader->pushConstants = std::move( pushConstants );
         backendShader->layoutDesc = layoutDesc;
-
-        // Create binding layout if we have bindings
-        if ( !layoutDesc.bindings.empty() )
         {
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
             backendShader->layout = g_vhDevice->createBindingLayout( layoutDesc );
         }
-
+        assert( backendShader->layout );
         backendShaders[cmd->shader] = std::move( backendShader );
     }
     else

@@ -53,7 +53,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vhVKDebugCallback(
 {
     if ( s >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT )
     {
-        VRHI_LOG( "[VULKAN] %s\n", pData->pMessage );
+        VRHI_ERR( "[VULKAN] %s\n", pData->pMessage );
     }
     else
     {
@@ -85,7 +85,7 @@ void vhInit( bool quiet )
         .require_api_version( 1, 3, 0 )
         .set_headless( true )
         .request_validation_layers( g_vhInit.debug )
-        .use_default_debug_messenger()
+        .set_debug_callback( vhVKDebugCallback )
         .build();
 
     if ( !instRet )
@@ -340,6 +340,7 @@ void vhShutdown( bool quiet )
     }
     vhPSOCacheShutdown();
     vhSamplerCacheShutdown();
+    vhBindingSetCacheClear();
 
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     g_vhDevice = nullptr; // RefCountPtr handles the release()
@@ -830,6 +831,7 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
 
     for ( const auto& layoutHandle : desc.bindingLayouts )
     {
+        assert( layoutHandle );
         const nvrhi::BindingLayoutDesc* layoutDesc = layoutHandle->getDesc();
         if ( layoutDesc )
         {
@@ -917,6 +919,31 @@ uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayo
     return h;
 }
 
+static std::unordered_map< uint64_t, nvrhi::BindingSetHandle > s_bindingSetCache;
+
+void vhBindingSetCacheClear()
+{
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+    s_bindingSetCache.clear();
+}
+
+nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout )
+{
+    uint64_t hash = vhHashBindingSet( desc, layout );
+
+    auto it = s_bindingSetCache.find( hash );
+    if ( it != s_bindingSetCache.end() )
+        return it->second;
+
+    nvrhi::BindingSetHandle bset = nullptr;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        bset = g_vhDevice->createBindingSet( desc, layout );
+        s_bindingSetCache[hash] = bset;
+    }
+    return bset;
+}
+
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc )
 {
     static_assert( sizeof( nvrhi::SamplerDesc ) == 32, "nvrhi::SamplerDesc size mismatch" );
@@ -935,3 +962,5 @@ uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc )
 
     return h;
 }
+
+
