@@ -213,7 +213,7 @@ uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const 
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
 uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc );
 uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
-uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader );
+uint64_t vhHashShaderDebugName( nvrhi::ShaderHandle shader );
 uint64_t vhHashShaderSPIRV( const std::vector< uint32_t >& spirv );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );

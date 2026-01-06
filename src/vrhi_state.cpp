@@ -422,6 +422,19 @@ bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nv
             continue;
         }
 
+        const auto* actualSetDesc = bindings[i]->getDesc();
+        if ( actualSetDesc )
+        {
+            for ( const auto& item : actualSetDesc->bindings )
+            {
+                if ( !item.resourceHandle )
+                {
+                    VRHI_ERR( "vhDebugLayoutDiffCheck: Binding set in slot %d has NULL resource at binding slot %u\n", i, item.slot );
+                    anyErrors = true;
+                }
+            }
+        }
+
         nvrhi::IBindingLayout* setLayout = bindings[i]->getLayout();
         nvrhi::IBindingLayout* expectedLayout = layouts[i];
         

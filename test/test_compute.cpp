@@ -34,8 +34,8 @@ void Helper_FillPattern( std::vector<uint8_t>& data, int width, int height )
 
 UTEST( Compute, EndToEnd_TextureWrite )
 {
-    g_vhInit.logBackendCmds = true;
-    g_vhInit.logPSOCache = true;
+    // g_vhInit.logBackendCmds = true;
+    // g_vhInit.logPSOCache = true;
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -58,7 +58,7 @@ UTEST( Compute, EndToEnd_TextureWrite )
         void main(uint3 id : SV_DispatchThreadID)
         {
             float val = float((id.x + id.y) % 256) / 255.0;
-            g_Out[id.xy] = 0.12345;
+            g_Out[id.xy] = val;
         }
     )";
 
@@ -187,6 +187,8 @@ UTEST( Compute, ReadFromTexture )
 
     vhStateId sid = 124;
     vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
     // Verify
     vhMem readData;
     vhReadTextureSlow( outTex, 0, 0, &readData );
@@ -238,14 +240,14 @@ UTEST( Compute, ReadFromBuffer )
 
     // Shader
     const char* csSource = R"(
-        ByteAddressBuffer g_In;
+        ByteAddressBuffer g_InRaw;
         [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
         
         [numthreads(8, 8, 1)]
         void main(uint3 id : SV_DispatchThreadID)
         {
             uint idx = id.y * 8 + id.x;
-            float val = asfloat(g_In.Load(idx * 4));
+            float val = asfloat(g_InRaw.Load(idx * 4));
             g_Out[id.xy] = val;
         }
     )";
@@ -263,7 +265,7 @@ UTEST( Compute, ReadFromBuffer )
     state.SetProgram( vhCreateComputeProgram( cs ) );
 
     vhState::BufferBinding bIn;
-    bIn.name = "g_In";
+    bIn.name = "g_InRaw";
     bIn.buffer = inBuf;
     bIn.byteSize = count * sizeof( float );
     state.SetBuffer( 0, bIn );
@@ -303,8 +305,8 @@ UTEST( Compute, ReadFromBuffer )
 
 UTEST( Compute, ReadFromBuffer_Unbound )
 {
-    g_vhInit.logBackendCmds = true;
-    g_vhInit.logPSOCache = true;
+    // g_vhInit.logBackendCmds = true;
+    // g_vhInit.logPSOCache = true;
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -335,7 +337,7 @@ UTEST( Compute, ReadFromBuffer_Unbound )
 
     // Shader
     const char* csSource = R"(
-        ByteAddressBuffer g_In;
+        ByteAddressBuffer g_InRaw;
         [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
         
         [numthreads(8, 8, 1)]
@@ -359,7 +361,7 @@ UTEST( Compute, ReadFromBuffer_Unbound )
     state.SetProgram( vhCreateComputeProgram( cs ) );
 
     vhState::BufferBinding bIn;
-    bIn.name = "g_In";
+    bIn.name = "g_InRaw";
     bIn.buffer = inBuf;
     bIn.byteSize = count * sizeof( float );
     state.SetBuffer( 0, bIn );

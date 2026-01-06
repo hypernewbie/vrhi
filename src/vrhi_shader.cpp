@@ -55,10 +55,16 @@ bool vhReflectSpirv(
                 return nvrhi::ResourceType::TypedBuffer_UAV;
             case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
             {
-                // isReadOnly from reflection is very unreliable. Instead we match binding against register range shifts.
+                // isSRV from reflection is very unreliable. Instead we match binding against register range shifts.
                 // uRegShift is guaranteed to have highest value, so we can just test against that.
-                bool isReadOnly = ( binding.binding < g_vhInit.shaderMake_uRegShift );
-                return isReadOnly ? nvrhi::ResourceType::RawBuffer_SRV : nvrhi::ResourceType::RawBuffer_UAV;
+                // isStructured is impossible from reflection, thus we use a hack to read member_count.
+                static const uint64_t s_structTypedFlags = ( SPV_REFLECT_TYPE_FLAG_BOOL | SPV_REFLECT_TYPE_FLAG_FLOAT | SPV_REFLECT_TYPE_FLAG_VECTOR | SPV_REFLECT_TYPE_FLAG_MATRIX );
+                bool isSRV = ( binding.binding < g_vhInit.shaderMake_uRegShift );
+                bool isRaw = ( std::string( binding.name ).find( "Raw" ) != std::string::npos );
+                if ( isRaw )
+                    return isSRV ? nvrhi::ResourceType::RawBuffer_SRV : nvrhi::ResourceType::RawBuffer_UAV;
+                else
+                    return isSRV ? nvrhi::ResourceType::StructuredBuffer_SRV : nvrhi::ResourceType::StructuredBuffer_UAV;
             }
             default:
                 return nvrhi::ResourceType::None;

@@ -339,23 +339,43 @@ UTEST( Shader, Reflection )
         g_testInit = true;
     }
 
+    // Note ByteAddressBuffer and RWByteAddressBuffer MUST have "Raw" in their name in order to spirv_reflect correctly.
+
     const char* c_shaderSource = R"(
         struct Data { float4 val; };
         ConstantBuffer<Data> g_Constants;
         RWStructuredBuffer<Data> g_Output;
         Texture2D<float4> g_Tex2D;
         [[vk::image_format("rgba32f")]] RWTexture3D<float4> g_RWTex3D;
+        
+        Buffer<float4> g_TypedSRV;
+        RWBuffer<float4> g_TypedUAV;
+        ByteAddressBuffer g_RawSRV;
+        RWByteAddressBuffer g_RawUAV;
+        StructuredBuffer<Data> g_StructSRV;
+        StructuredBuffer<float> g_StructFloatSRV;
 
         [numthreads(8, 4, 1)]
         void main(uint3 threadID : SV_DispatchThreadID)
         {
-            g_Output[threadID.x].val = g_Constants.val + g_Tex2D.Load( int3( 0, 0, 0 ) ) + g_RWTex3D.Load( int3( 0, 0, 0 ) );
+            float4 val = g_Constants.val
+                + g_Tex2D.Load( int3( 0, 0, 0 ) )
+                + g_RWTex3D.Load( int3( 0, 0, 0 ) )
+                + g_TypedSRV.Load( 0 )
+                + g_TypedUAV.Load( 0 )
+                + asfloat( g_RawSRV.Load( 0 ) )
+                + asfloat( g_RawUAV.Load( 0 ) )
+                + g_StructSRV[0].val
+                + g_StructFloatSRV[0];
+
+            g_Output[threadID.x].val = val;
         }
     )";
 
     std::vector<uint32_t> spirv;
     std::string error;
     bool compiled = vhCompileShader( "TestQueryShader", c_shaderSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if (!compiled) std::cout << "Compile Error: " << error << std::endl;
     ASSERT_TRUE( compiled );
 
     vhShader shader = vhAllocShader();
@@ -371,11 +391,19 @@ UTEST( Shader, Reflection )
     EXPECT_EQ( groupSize.y, 4 );
     EXPECT_EQ( groupSize.z, 1 );
 
-    // Expecting 2 resources: ConstantBuffer at b0 and StructuredBuffer_UAV at u1
-    EXPECT_EQ( resources.size(), 4 );
+    // Expecting at least 10 resources
+    EXPECT_GE( resources.size(), 10 );
 
     bool foundTex2D = false;
     bool foundRWTex3D = false;
+    bool foundTypedSRV = false;
+    bool foundTypedUAV = false;
+    bool foundRawSRV = false;
+    bool foundRawUAV = false;
+    bool foundStructSRV = false;
+    bool foundStructFloatSRV = false;
+    bool foundStructUAV = false;
+    bool foundCB = false;
 
     for ( const auto& res : resources )
     {
@@ -390,29 +418,59 @@ UTEST( Shader, Reflection )
             foundRWTex3D = true;
             EXPECT_EQ( res.type, nvrhi::ResourceType::Texture_UAV );
             EXPECT_EQ( res.dim, nvrhi::TextureDimension::Texture3D );
-            // RWTexture with float4 should map to RGBA32_FLOAT
             EXPECT_EQ( res.format, nvrhi::Format::RGBA32_FLOAT );
+        }
+        else if ( res.name == "g_TypedSRV" )
+        {
+            foundTypedSRV = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::TypedBuffer_SRV );
+        }
+        else if ( res.name == "g_TypedUAV" )
+        {
+            foundTypedUAV = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::TypedBuffer_UAV );
+        }
+        else if ( res.name == "g_RawSRV" )
+        {
+            foundRawSRV = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::RawBuffer_SRV );
+        }
+        else if ( res.name == "g_RawUAV" )
+        {
+            foundRawUAV = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::RawBuffer_UAV );
+        }
+        else if ( res.name == "g_StructSRV" )
+        {
+            foundStructSRV = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::StructuredBuffer_SRV );
+        }
+        else if ( res.name == "g_StructFloatSRV" )
+        {
+            foundStructFloatSRV = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::StructuredBuffer_SRV );
+        }
+        else if ( res.name == "g_Output" )
+        {
+            foundStructUAV = true;
+            EXPECT_EQ( res.type, nvrhi::ResourceType::StructuredBuffer_UAV );
+        }
+        else if ( res.name == "g_Constants" && res.type == nvrhi::ResourceType::ConstantBuffer )
+        {
+            foundCB = true;
         }
     }
 
     EXPECT_TRUE( foundTex2D );
     EXPECT_TRUE( foundRWTex3D );
-
-    bool foundCB = false;
-    bool foundSB = false;
-    for ( const auto& res : resources )
-    {
-        if ( res.name == "g_Constants" && res.type == nvrhi::ResourceType::ConstantBuffer )
-        {
-            foundCB = true;
-        }
-        if ( res.name == "g_Output" && res.type == nvrhi::ResourceType::StructuredBuffer_UAV )
-        {
-            foundSB = true;
-        }
-    }
+    EXPECT_TRUE( foundTypedSRV );
+    EXPECT_TRUE( foundTypedUAV );
+    EXPECT_TRUE( foundRawSRV );
+    EXPECT_TRUE( foundRawUAV );
+    EXPECT_TRUE( foundStructSRV );
+    EXPECT_TRUE( foundStructFloatSRV );
+    EXPECT_TRUE( foundStructUAV );
     EXPECT_TRUE( foundCB );
-    EXPECT_TRUE( foundSB );
 
     // Query Handle
     void* handle = vhGetShaderNvrhiHandle( shader );
@@ -426,39 +484,59 @@ UTEST( Shader, Reflection )
     EXPECT_EQ( handleAfter, nullptr );
 }
 
-UTEST( Hashing, ShaderBytecode )
+UTEST( Hashing, ShaderDebugName )
 {
     // Basic null check
-    EXPECT_EQ( vhHashShaderBytecode( nullptr ), 0 );
+    EXPECT_EQ( vhHashShaderDebugName( nullptr ), 0 );
 
+    // Declare internal function if not already visible
+    extern uint64_t vhHashShaderSPIRV( const std::vector< uint32_t >& spirv );
+
+    // 1. Test vhHashShaderSPIRV stability and differentiation
+    std::vector< uint32_t > codeA = { 10, 20, 30, 40 };
+    std::vector< uint32_t > codeB = { 10, 20, 30, 40 }; // Same as A
+    std::vector< uint32_t > codeC = { 40, 30, 20, 10 }; // Different
+
+    uint64_t hashA = vhHashShaderSPIRV( codeA );
+    uint64_t hashB = vhHashShaderSPIRV( codeB );
+    uint64_t hashC = vhHashShaderSPIRV( codeC );
+
+    EXPECT_NE( hashA, 0 );
+    EXPECT_EQ( hashA, hashB );
+    EXPECT_NE( hashA, hashC );
+
+    // 2. Test vhHashShaderDebugName using simulated backend naming (Name # Hash)
     struct MockShader : public nvrhi::RefCounter<nvrhi::IShader>
     {
-        std::vector< uint8_t > data;
         nvrhi::ShaderDesc d;
-        MockShader( std::initializer_list< uint8_t > l ) : data( l ) {}
+        MockShader( const std::string& name ) { d.debugName = name; }
         const nvrhi::ShaderDesc& getDesc() const override { return d; }
         void getBytecode( const void** ppBytecode, size_t* pSize ) const override
         {
-            *ppBytecode = data.data();
-            *pSize = data.size();
+            *ppBytecode = nullptr;
+            *pSize = 0;
         }
     };
 
-    MockShader* raw1 = new MockShader( { 1, 2, 3, 4 } );
+    // Simulate what Handle_vhCreateShader does:
+    std::string debugNameA = "MyShader # " + std::to_string( hashA );
+    std::string debugNameC = "MyShader # " + std::to_string( hashC );
+
+    MockShader* raw1 = new MockShader( debugNameA );
     nvrhi::ShaderHandle s1( raw1 );
     raw1->Release();
 
-    MockShader* raw2 = new MockShader( { 1, 2, 3, 4 } );
+    MockShader* raw2 = new MockShader( debugNameA ); // Identical content -> Identical Name
     nvrhi::ShaderHandle s2( raw2 );
     raw2->Release();
 
-    MockShader* raw3 = new MockShader( { 4, 3, 2, 1 } );
+    MockShader* raw3 = new MockShader( debugNameC ); // Different content -> Different Name
     nvrhi::ShaderHandle s3( raw3 );
     raw3->Release();
 
-    uint64_t h1 = vhHashShaderBytecode( s1 );
-    uint64_t h2 = vhHashShaderBytecode( s2 );
-    uint64_t h3 = vhHashShaderBytecode( s3 );
+    uint64_t h1 = vhHashShaderDebugName( s1 );
+    uint64_t h2 = vhHashShaderDebugName( s2 );
+    uint64_t h3 = vhHashShaderDebugName( s3 );
 
     EXPECT_NE( h1, 0 );
     EXPECT_EQ( h1, h2 );
