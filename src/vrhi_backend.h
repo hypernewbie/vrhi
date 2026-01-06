@@ -219,7 +219,6 @@ class vhCmdBackendState : public VIDLHandler
         vhState& state,
         vhBackendShader* shaders,
         int shaderCount,
-        nvrhi::BindingLayoutVector& layouts,  // set to nullptr if not using compute.
         nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
         nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
     );
@@ -243,6 +242,8 @@ public:
     void init();
 
     void shutdown();
+
+    void HandleLogFunction( const char* str ) override;
 
     // --------------------------------------------------------------------------
     // Backend :: VIDL Command Handlers

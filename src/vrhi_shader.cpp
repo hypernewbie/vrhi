@@ -398,9 +398,12 @@ bool vhCompileShader(
 
     // Hash input into cache key
 
-    std::string hashInput = std::string( name ) + source + std::to_string( flags ) + entry;
+    std::string hashInput = std::string( name ) + "@@SRC@@" + source + "@@SRC@@" + std::to_string(flags) + "@@ENTRY@@" + entry;
+    hashInput += "@@DEFINES@@";
     for ( const auto& d : defines ) hashInput += d;
+    hashInput += "@@INCLUDES@@";
     for ( const auto& i : includes ) hashInput += i;
+    hashInput += "@@SRC@@";
     uint64_t hash = komihash( hashInput.data(), hashInput.size(), 0 );
 
     std::string prefix = std::string( name ) + "_" + std::to_string( hash );
@@ -410,6 +413,7 @@ bool vhCompileShader(
 
     std::string outputFilename = prefix + ".spirv";
     std::filesystem::path spvPath = tempDir / outputFilename;
+    // VRHI_LOG( "Looking for shader %s\n", outputFilename.c_str() );
     if ( !g_vhInit.forceShaderRecompile && std::filesystem::exists( spvPath ) )
     {
         if ( vhLoadSpirvFile( spvPath, outSpirv ) )

@@ -403,3 +403,91 @@ nvrhi::VertexAttributeDesc vhTranslateVertexAttribute( const vhVertexLayoutDef& 
     return attr;
 }
 
+bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nvrhi::BindingSetVector& bindings )
+{
+    if ( layouts.size() != bindings.size() )
+    {
+        VRHI_ERR( "vhDebugLayoutDiffCheck: Number of binding sets provided (%llu) does not match the number of binding layouts in the pipeline (%llu)\n", ( uint64_t ) bindings.size(), ( uint64_t ) layouts.size() );
+        return false;
+    }
+
+    bool anyErrors = false;
+
+    for ( int i = 0; i < ( int ) layouts.size(); ++i )
+    {
+        if ( !bindings[i] )
+        {
+            VRHI_ERR( "vhDebugLayoutDiffCheck: Binding set in slot %d is NULL\n", i );
+            anyErrors = true;
+            continue;
+        }
+
+        nvrhi::IBindingLayout* setLayout = bindings[i]->getLayout();
+        nvrhi::IBindingLayout* expectedLayout = layouts[i];
+        
+        bool setIsBindless = ( bindings[i]->getDesc() == nullptr );
+        bool expectedBindless = ( expectedLayout->getBindlessDesc() != nullptr );
+
+        if ( !expectedBindless && setLayout != expectedLayout )
+        {
+            VRHI_ERR( "vhDebugLayoutDiffCheck: Binding set in slot %d does not match the layout in pipeline slot %d. setLayout %p != expectedLayout %p.\n", i, i, setLayout, expectedLayout );
+
+            const auto* setDesc = setLayout->getDesc();
+            const auto* expDesc = expectedLayout->getDesc();
+
+            if ( !setDesc || !expDesc )
+            {
+                VRHI_ERR( "    Invalid descriptors. SetDesc: %p, ExpectedDesc: %p (Is one bindless? Set: %d, Exp: %d)\n", setDesc, expDesc, setIsBindless, expectedBindless );
+            }
+            else
+            {
+                if ( setDesc->visibility != expDesc->visibility )
+                    VRHI_ERR( "    Visibility mismatch. Set: %d, Expected: %d\n", ( int ) setDesc->visibility, ( int ) expDesc->visibility );
+
+                std::map< uint32_t, const nvrhi::BindingLayoutItem* > setBindings;
+                for ( const auto& b : setDesc->bindings ) setBindings[b.slot] = &b;
+
+                std::map< uint32_t, const nvrhi::BindingLayoutItem* > expBindings;
+                for ( const auto& b : expDesc->bindings ) expBindings[b.slot] = &b;
+
+                for ( const auto& pair : expBindings )
+                {
+                    uint32_t slot = pair.first;
+                    const auto* expItem = pair.second;
+                    auto it = setBindings.find( slot );
+                    if ( it == setBindings.end() )
+                    {
+                        VRHI_ERR( "    Missing binding at Slot %u. Expected Type: %d\n", slot, ( int ) expItem->type );
+                    }
+                    else
+                    {
+                        const auto* setItem = it->second;
+                        if ( setItem->type != expItem->type )
+                            VRHI_ERR( "    Type mismatch at Slot %u. Set: %d, Expected: %d\n", slot, ( int ) setItem->type, ( int ) expItem->type );
+                        if ( setItem->size != expItem->size )
+                            VRHI_ERR( "    Size/Array mismatch at Slot %u. Set: %d, Expected: %d\n", slot, ( int ) setItem->size, ( int ) expItem->size );
+                    }
+                }
+
+                for ( const auto& pair : setBindings )
+                {
+                    if ( expBindings.find( pair.first ) == expBindings.end() )
+                    {
+                        VRHI_ERR( "    Unexpected extra binding at Slot %u in Set. Type: %d\n", pair.first, ( int ) pair.second->type );
+                    }
+                }
+            }
+
+            anyErrors = true;
+        }
+
+        if ( expectedBindless && !setIsBindless )
+        {
+            VRHI_ERR( "vhDebugLayoutDiffCheck: Binding set in slot %d is regular while the layout expects a descriptor table\n", i );
+            anyErrors = true;
+        }
+    }
+
+    return !anyErrors;
+}
+

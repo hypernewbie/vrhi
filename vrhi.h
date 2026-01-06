@@ -49,6 +49,8 @@ struct vhInitData
 
     bool debug = false;
     bool raytracing = true;
+    bool logBackendCmds = false;
+    bool logPSOCache = false;
 
     std::string shaderCompileTempDir = "./tmp/shader_cache/";
     std::string shaderMakePath = "./tools/linux_release";
@@ -82,6 +84,7 @@ typedef std::vector< vhShader > vhProgram;
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
 extern std::atomic<int32_t> g_vhErrorCounter;
+extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 // --------------------------------------------------------------------------
 // Interface

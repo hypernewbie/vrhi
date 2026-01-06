@@ -790,11 +790,32 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     vhState& state,
     vhBackendShader* shaders,
     int shaderCount,
-    nvrhi::BindingLayoutVector& layouts,  // set to nullptr if not using compute.
     nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
     nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
 )
 {
+    const nvrhi::BindingLayoutVector* psoLayouts = nullptr;
+    if ( computeState ) psoLayouts = &computeState->pipeline->getDesc().bindingLayouts;
+    if ( graphicsState ) psoLayouts = &graphicsState->pipeline->getDesc().bindingLayouts;
+    if ( !psoLayouts )
+    {
+        VRHI_ERR( "vhSetState(): No PSO layout. This is likely a Vrhi bug.\n" );
+        assert( !"No state or PSO layout" );
+        return false;
+    }
+    const nvrhi::BindingLayoutVector& layouts = *psoLayouts;
+
+    // Build map of hash --> psoLayouts.
+    static std::unordered_map< uint64_t, const nvrhi::BindingLayoutHandle* > s_hashToPSOlayout;
+    s_hashToPSOlayout.clear();
+    for ( int i = 0; i < layouts.size(); i++ )
+    {
+        auto bdesc = layouts[i]->getDesc();
+        if ( !bdesc ) continue;
+        auto hash = vhHashBindingLayout( *bdesc );
+        s_hashToPSOlayout[hash] = &layouts[i];
+    }
+
     // Build map of layouts --> shader.
 
     s_layoutToShader.clear();
@@ -803,12 +824,31 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto& shader = shaders[shaderIdx];
         if ( !BE_Util_ShaderStageMatches( shader.flags, computeState != nullptr, graphicsState != nullptr ) )
             continue;
-        assert( shader.layout );
-        assert( s_layoutToShader.find( shader.layout ) == s_layoutToShader.end() ); // Duplicate layouts should be impossible.
-        s_layoutToShader[shader.layout] = &shader;
+
+        if ( !shader.layout )
+        {
+            VRHI_ERR( "vhSetState(): NULL shader layout. Stripped spirv-reflection?" );
+            assert( !"NULL shader layout" );
+            continue;
+        }
+
+        // Match shader.layout to equivalent state->pipeline->getDesc().bindingLayouts->layout.
+        assert( shader.layout->getDesc() );
+        auto hash = vhHashBindingLayout( *shader.layout->getDesc() );
+        if ( s_hashToPSOlayout.find( hash ) == s_hashToPSOlayout.end() || !s_hashToPSOlayout[hash] )
+        {
+            VRHI_ERR( "vhSetState(): Mismatch between shader layout and PSO layout. This is likely a Vrhi bug." );
+            assert( !"Mismatch between shader layout and PSO layout" );
+            continue;
+        }
+        const auto& tempPSOLayout = *s_hashToPSOlayout[hash];
+        assert( s_layoutToShader.find( tempPSOLayout ) == s_layoutToShader.end() ); // Duplicate layouts should be impossible.
+        s_layoutToShader[ tempPSOLayout ] = &shader;
     }
+    s_hashToPSOlayout.clear();
 
     // Loop through the layouts and bind resources.
+
     s_resolveCache.Clear();
     BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, s_resolveCache );
     if ( !s_resolveCache.init )
@@ -871,7 +911,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
 
         // Create Binding Set.
-        nvrhi::BindingSetHandle bset = vhGetBindingSet( bsetDesc, shader->layout );
+        nvrhi::BindingSetHandle bset = vhGetBindingSet( bsetDesc, layout );
         if ( !bset )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %u!\n", shader->handle );
@@ -903,6 +943,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
     }
 
+    // Final layout check and detailed diff print.
+
+    const nvrhi::BindingSetVector* stateLayouts = nullptr;
+    if ( computeState ) stateLayouts = &computeState->bindings;
+    if ( graphicsState ) stateLayouts = &graphicsState->bindings;
+    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH && stateLayouts )
+    {
+        assert( psoLayouts );
+        if ( !vhDebugLayoutDiffCheck( *psoLayouts, *stateLayouts ) )
+            return false;
+    }
     return true;
 }
 
@@ -934,7 +985,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
 
     nvrhi::ComputeState cstate;
     cstate.setPipeline( pso.Get() );
-    if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, desc.bindingLayouts, &cstate, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, &cstate, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
         return;
@@ -997,6 +1048,10 @@ void vhCmdBackendState::shutdown()
     s_attributes.clear();
 }
 
+void vhCmdBackendState::HandleLogFunction( const char* str )
+{
+    if ( g_vhInit.logBackendCmds ) VRHI_LOG( "BackendCmd: %s\n", str );
+}
 
 // --------------------------------------------------------------------------
 // Backend :: VIDL Command Handlers
@@ -1579,6 +1634,7 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
         {
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
             backendShader->layout = g_vhDevice->createBindingLayout( layoutDesc );
+            backendShaders[cmd->shader] = nullptr;
         }
         assert( backendShader->layout );
         backendShaders[cmd->shader] = std::move( backendShader );

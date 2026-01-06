@@ -71,12 +71,11 @@ public:
         vhState& state,
         vhBackendShader* shaders,
         int shaderCount,
-        nvrhi::BindingLayoutVector& layouts,
         nvrhi::ComputeState* compute,
         nvrhi::GraphicsState* graphics
     )
     {
-        return Get().BE_PreSubmitCommon_State( state, shaders, shaderCount, layouts, compute, graphics );
+        return Get().BE_PreSubmitCommon_State( state, shaders, shaderCount, compute, graphics );
     }
 
     static bool GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth )
@@ -144,6 +143,12 @@ UTEST( BackendInternal, ResolveBindingSlot )
 
 UTEST( BackendInternal, PipelineValidation )
 {
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
     // Construct dummy setup for PreSubmitCommon_PipelineDesc
     // We want to verify it catches layout mismatches or missing shaders without needing a full device
 
@@ -152,6 +157,14 @@ UTEST( BackendInternal, PipelineValidation )
     shader.name = "TestShader";
     shader.flags = VRHI_SHADER_STAGE_COMPUTE;
     shader.threadGroupSize = { 8, 8, 1 };
+
+    // Create a dummy layout to satisfy assertions in BE_PresubmitCommon_PipelineDesc
+    nvrhi::BindingLayoutDesc layoutDesc = { .bindingOffsets = { 0, 0, 0, 0 } };
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
 
     // Add a resource requirement
     vhShaderReflectionResource res;
@@ -181,15 +194,33 @@ UTEST( BackendInternal, PipelineValidation )
     // Case 2: Valid shader, no pipeline desc
     // Returns true (success) because it simply matches no stages and exits cleanly.
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, nullptr, nullptr ) );
+
+    vhFlush();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = nullptr;
+    }
 }
 
 UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
 {
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
     vhState state;
     vhBackendShader shader;
     shader.handle = nullptr; 
     shader.flags = VRHI_SHADER_STAGE_COMPUTE;
-    shader.layout = nullptr;
+    
+    nvrhi::BindingLayoutDesc layoutDesc = { .bindingOffsets = { 0, 0, 0, 0 } };
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
 
     nvrhi::ComputePipelineDesc computeDesc;
 
@@ -204,14 +235,36 @@ UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
     shaders[0] = shader;
     shaders[1].handle = nullptr;
     shaders[1].flags = VRHI_SHADER_STAGE_VERTEX;
-    shaders[1].layout = nullptr;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shaders[1].layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
 
     nvrhi::ComputePipelineDesc computeDesc2;
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, shaders, 2, &computeDesc2, nullptr ) );
     EXPECT_EQ( computeDesc2.CS.Get(), shaders[0].handle.Get() );
     EXPECT_EQ( computeDesc2.bindingLayouts.size(), 1u );
     EXPECT_EQ( computeDesc2.bindingLayouts[0].Get(), shaders[0].layout.Get() );
+
+    vhFlush();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = nullptr;
+        shaders[0].layout = nullptr;
+        shaders[1].layout = nullptr;
+    }
 }
+
+class MockComputePipeline : public nvrhi::RefCounter<nvrhi::IComputePipeline>
+{
+    nvrhi::ComputePipelineDesc desc;
+public:
+    MockComputePipeline( const nvrhi::BindingLayoutVector& layouts )
+    {
+        desc.bindingLayouts = layouts;
+    }
+    const nvrhi::ComputePipelineDesc& getDesc() const override { return desc; }
+};
 
 UTEST( BackendInternal, PreSubmitCommon_State_Compute )
 {
@@ -250,7 +303,9 @@ UTEST( BackendInternal, PreSubmitCommon_State_Compute )
     nvrhi::BindingLayoutVector layouts;
     layouts.push_back( shader.layout );
 
+    nvrhi::ComputePipelineHandle mockPipeline = nvrhi::ComputePipelineHandle::Create( new MockComputePipeline( layouts ) );
     nvrhi::ComputeState computeState;
+    computeState.pipeline = mockPipeline;
     state.debugFlags = VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH;
 
     // CASE: Missing reflection (Should fail)
@@ -269,10 +324,14 @@ UTEST( BackendInternal, PreSubmitCommon_State_Compute )
     vhBackendShader shaderFail = shader;
     shaderFail.layout = layoutFail;
 
-    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderFail, 1, layoutsFail, &computeState, nullptr ) );
+    nvrhi::ComputePipelineHandle mockPipelineFail = nvrhi::ComputePipelineHandle::Create( new MockComputePipeline( layoutsFail ) );
+    nvrhi::ComputeState computeStateFail;
+    computeStateFail.pipeline = mockPipelineFail;
+
+    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderFail, 1, &computeStateFail, nullptr ) );
 
     // CASE: Happy Path
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, layouts, &computeState, nullptr ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, &computeState, nullptr ) );
 
     vhFlush();
     {

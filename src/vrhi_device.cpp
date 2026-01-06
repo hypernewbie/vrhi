@@ -66,8 +66,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vhVKDebugCallback(
 
 void vhInit( bool quiet )
 {
-    g_vhErrorCounter = 0;
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
+    g_vhErrorCounter = 0;
+    g_vhPSOCompileCounter = 0;
 
     std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
     if ( g_vhDevice )
@@ -859,13 +860,18 @@ nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& de
 
     auto it = s_PSOCache_Compute.find( hash );
     if ( it != s_PSOCache_Compute.end() )
+    {
+        if ( g_vhInit.logPSOCache ) VRHI_LOG( "vhPSOCacheGet() : Compute PSO hash 0x%llx found in cache.\n", hash );
         return it->second;
+    }
+    if ( g_vhInit.logPSOCache ) VRHI_LOG( "vhPSOCacheGet() : Compute PSO hash 0x%llx cache missing. Compiling.\n", hash );
 
     nvrhi::ComputePipelineHandle pso = nullptr;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         pso = g_vhDevice->createComputePipeline( desc );
         s_PSOCache_Compute[hash] = pso;
+        g_vhPSOCompileCounter++;
     }
     return pso;
 }
@@ -876,13 +882,18 @@ nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& 
 
     auto it = s_PSOCache_Graphics.find( hash );
     if ( it != s_PSOCache_Graphics.end() )
+    {
+        if ( g_vhInit.logPSOCache ) VRHI_LOG( "vhPSOCacheGet() : Graphics PSO hash 0x%llx found in cache.\n", hash );
         return it->second;
+    }
+    if ( g_vhInit.logPSOCache ) VRHI_LOG( "vhPSOCacheGet() : Graphics PSO hash 0x%llx cache missing. Compiling.\n", hash );
 
     nvrhi::GraphicsPipelineHandle pso = nullptr;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         pso = g_vhDevice->createGraphicsPipeline( desc, fbInfo );
         s_PSOCache_Graphics[hash] = pso;
+        g_vhPSOCompileCounter++;
     }
     return pso;
 }

@@ -32,6 +32,7 @@ std::mutex g_nvRHIStateMutex;
 vhInitData g_vhInit;
 nvrhi::DeviceHandle g_vhDevice = nullptr;
 std::atomic<int32_t> g_vhErrorCounter = 0;
+std::atomic<int32_t> g_vhPSOCompileCounter = 0;
 
 VkInstance g_vulkanInstance = VK_NULL_HANDLE;
 VkPhysicalDevice g_vulkanPhysicalDevice = VK_NULL_HANDLE;

@@ -716,3 +716,157 @@ UTEST( Hashing, BindingSet_RawData )
         layout = nullptr;
     }
 }
+
+UTEST( Debug, LayoutDiffCheck )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Create a simple buffer for binding
+    nvrhi::BufferHandle buffer;
+    {
+        nvrhi::BufferDesc bufDesc;
+        bufDesc.byteSize = 256;
+        bufDesc.isConstantBuffer = true;
+        bufDesc.debugName = "TestCB";
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        buffer = g_vhDevice->createBuffer( bufDesc );
+    }
+    ASSERT_NE( buffer, nullptr );
+
+    // 1. Create Layout A (ConstantBuffer at Slot 0)
+    nvrhi::BindingLayoutHandle layoutA;
+    {
+        nvrhi::BindingLayoutDesc desc;
+        desc.visibility = nvrhi::ShaderType::All;
+        desc.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( 0 ) );
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layoutA = g_vhDevice->createBindingLayout( desc );
+    }
+    ASSERT_NE( layoutA, nullptr );
+
+    // 2. Create Layout B (Texture_SRV at Slot 0)
+    nvrhi::BindingLayoutHandle layoutB;
+    {
+        nvrhi::BindingLayoutDesc desc;
+        desc.visibility = nvrhi::ShaderType::All;
+        desc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        layoutB = g_vhDevice->createBindingLayout( desc );
+    }
+    ASSERT_NE( layoutB, nullptr );
+
+    // 3. Create Binding Set A (Matches Layout A)
+    nvrhi::BindingSetHandle setA;
+    {
+        nvrhi::BindingSetDesc desc;
+        desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( 0, buffer ) );
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        setA = g_vhDevice->createBindingSet( desc, layoutA );
+    }
+    ASSERT_NE( setA, nullptr );
+
+    // Test 1: Perfect Match
+    {
+        nvrhi::BindingLayoutVector layouts;
+        layouts.push_back( layoutA );
+        nvrhi::BindingSetVector sets;
+        sets.push_back( setA );
+        EXPECT_TRUE( vhDebugLayoutDiffCheck( layouts, sets ) );
+    }
+
+    // Test 2: Count Mismatch
+    {
+        nvrhi::BindingLayoutVector layouts;
+        layouts.push_back( layoutA );
+        layouts.push_back( layoutB ); // 2 layouts
+        nvrhi::BindingSetVector sets;
+        sets.push_back( setA ); // 1 set
+        EXPECT_FALSE( vhDebugLayoutDiffCheck( layouts, sets ) );
+    }
+
+    // Test 3: Type Mismatch (Layout B wants Texture, Set A has ConstantBuffer)
+    {
+        nvrhi::BindingLayoutVector layouts;
+        layouts.push_back( layoutB );
+        nvrhi::BindingSetVector sets;
+        sets.push_back( setA );
+        EXPECT_FALSE( vhDebugLayoutDiffCheck( layouts, sets ) );
+    }
+
+    // Test 4: Create Binding Set Null (Matches Layout A slots, but null resource)
+    nvrhi::BindingSetHandle setNull;
+    {
+        nvrhi::BindingSetDesc desc;
+        desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( 0, nullptr ) );
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        setNull = g_vhDevice->createBindingSet( desc, layoutA );
+    }
+    
+    if ( setNull )
+    {
+        nvrhi::BindingLayoutVector layouts;
+        layouts.push_back( layoutA );
+        nvrhi::BindingSetVector sets;
+        sets.push_back( setNull );
+        EXPECT_FALSE( vhDebugLayoutDiffCheck( layouts, sets ) );
+        
+        {
+             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+             setNull = nullptr;
+        }
+    }
+
+    // Clean up
+    vhFlush();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        setA = nullptr;
+        layoutA = nullptr;
+        layoutB = nullptr;
+        buffer = nullptr;
+    }
+}
+
+UTEST( State, DirtyAll )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    const vhStateId sid = 1337;
+    
+    // Ensure we start from a clean slate for this ID
+    vhState empty = {};
+    vhSetState( sid, empty, VRHI_DIRTY_ALL );
+    vhFlush();
+
+    vhState localState = {};
+    localState.SetViewRect( glm::vec4( 10, 20, 30, 40 ) );
+    localState.dirty = 0x0ull; // Manually clear dirty bits
+
+    // 1. Null test: passing 0x0 force mask with no dirty bits should NOT update the backend
+    vhSetState( sid, localState, 0x0ull );
+    vhFlush();
+
+    vhState retrieved = {};
+    ASSERT_TRUE( vhGetState( sid, retrieved ) );
+    EXPECT_NE( retrieved.viewRect, localState.viewRect );
+    EXPECT_EQ( retrieved.viewRect, empty.viewRect );
+
+    // 2. Force test: passing VRHI_DIRTY_ALL should update everything regardless of local dirty bits
+    vhSetState( sid, localState, VRHI_DIRTY_ALL );
+    vhFlush();
+
+    ASSERT_TRUE( vhGetState( sid, retrieved ) );
+    EXPECT_EQ( retrieved.viewRect, localState.viewRect );
+
+    // 3. Cleanup: reset the state ID to avoid leaving leftovers
+    vhSetState( sid, empty, VRHI_DIRTY_ALL );
+    vhFlush();
+} 

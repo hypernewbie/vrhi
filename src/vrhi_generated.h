@@ -276,7 +276,7 @@ struct VIDL_vhCreateShader
     vhShader shader;
     const char* name;
     uint64_t flags;
-    const std::vector< uint32_t > spirv;
+    const std::vector< uint32_t >& spirv;
     const char* entry = "main";
 
     VIDL_vhCreateShader() = default;
@@ -497,7 +497,7 @@ struct VIDL_vhCmdSetStateTextures
     static constexpr uint64_t kMagic = 0x3A615501;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::TextureBinding > textures;
+    const std::vector< vhState::TextureBinding >& textures;
 
     VIDL_vhCmdSetStateTextures() = default;
 
@@ -510,7 +510,7 @@ struct VIDL_vhCmdSetStateSamplers
     static constexpr uint64_t kMagic = 0xFCB052A2;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::SamplerDefinition > samplers;
+    const std::vector< vhState::SamplerDefinition >& samplers;
 
     VIDL_vhCmdSetStateSamplers() = default;
 
@@ -523,7 +523,7 @@ struct VIDL_vhCmdSetStateBuffers
     static constexpr uint64_t kMagic = 0x953A85B6;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::BufferBinding > buffers;
+    const std::vector< vhState::BufferBinding >& buffers;
 
     VIDL_vhCmdSetStateBuffers() = default;
 
@@ -536,7 +536,7 @@ struct VIDL_vhCmdSetStateConstants
     static constexpr uint64_t kMagic = 0x23287787;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::ConstantBufferValue > constants;
+    const std::vector< vhState::ConstantBufferValue >& constants;
 
     VIDL_vhCmdSetStateConstants() = default;
 
@@ -562,7 +562,7 @@ struct VIDL_vhCmdSetStateUniforms
     static constexpr uint64_t kMagic = 0xAB3B2AB3;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::UniformBufferValue > uniforms;
+    const std::vector< vhState::UniformBufferValue >& uniforms;
 
     VIDL_vhCmdSetStateUniforms() = default;
 
@@ -575,7 +575,7 @@ struct VIDL_vhCmdSetStateAttachments
     static constexpr uint64_t kMagic = 0xD3B53061;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::RenderTarget > colours;
+    const std::vector< vhState::RenderTarget >& colours;
     vhState::RenderTarget depth;
 
     VIDL_vhCmdSetStateAttachments() = default;
@@ -628,132 +628,175 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) { (void) cmd; };
 
+    virtual void HandleLogFunction( const char* str ) {};
+
     virtual void HandleCmd( void* cmd )
     {
         uint64_t magic = *(uint64_t*)cmd;
         switch ( magic )
         {
         case 0xF3F4A7CF:
+            HandleLogFunction("Handle_vhResizeCleanup");
             Handle_vhResizeCleanup( (VIDL_vhResizeCleanup*) cmd );
             break;
         case 0xE74D1798:
+            HandleLogFunction("Handle_vhResetTexture");
             Handle_vhResetTexture( (VIDL_vhResetTexture*) cmd );
             break;
         case 0x19331E16:
+            HandleLogFunction("Handle_vhResetBuffer");
             Handle_vhResetBuffer( (VIDL_vhResetBuffer*) cmd );
             break;
         case 0xC090699A:
+            HandleLogFunction("Handle_vhDestroyTexture");
             Handle_vhDestroyTexture( (VIDL_vhDestroyTexture*) cmd );
             break;
         case 0xB40533D3:
+            HandleLogFunction("Handle_vhCreateTexture");
             Handle_vhCreateTexture( (VIDL_vhCreateTexture*) cmd );
             break;
         case 0x79B006BB:
+            HandleLogFunction("Handle_vhUpdateTexture");
             Handle_vhUpdateTexture( (VIDL_vhUpdateTexture*) cmd );
             break;
         case 0x3BDDAB67:
+            HandleLogFunction("Handle_vhReadTextureSlow");
             Handle_vhReadTextureSlow( (VIDL_vhReadTextureSlow*) cmd );
             break;
         case 0xD7782E0F:
+            HandleLogFunction("Handle_vhBlitTexture");
             Handle_vhBlitTexture( (VIDL_vhBlitTexture*) cmd );
             break;
         case 0xBBF8D184:
+            HandleLogFunction("Handle_vhCreateVertexBuffer");
             Handle_vhCreateVertexBuffer( (VIDL_vhCreateVertexBuffer*) cmd );
             break;
         case 0x57AF47B4:
+            HandleLogFunction("Handle_vhUpdateVertexBuffer");
             Handle_vhUpdateVertexBuffer( (VIDL_vhUpdateVertexBuffer*) cmd );
             break;
         case 0x22AE59E6:
+            HandleLogFunction("Handle_vhCreateIndexBuffer");
             Handle_vhCreateIndexBuffer( (VIDL_vhCreateIndexBuffer*) cmd );
             break;
         case 0x6B219F18:
+            HandleLogFunction("Handle_vhUpdateIndexBuffer");
             Handle_vhUpdateIndexBuffer( (VIDL_vhUpdateIndexBuffer*) cmd );
             break;
         case 0x2EFADC4C:
+            HandleLogFunction("Handle_vhCreateUniformBuffer");
             Handle_vhCreateUniformBuffer( (VIDL_vhCreateUniformBuffer*) cmd );
             break;
         case 0xD6050AA7:
+            HandleLogFunction("Handle_vhUpdateUniformBuffer");
             Handle_vhUpdateUniformBuffer( (VIDL_vhUpdateUniformBuffer*) cmd );
             break;
         case 0x797A3950:
+            HandleLogFunction("Handle_vhCreateStorageBuffer");
             Handle_vhCreateStorageBuffer( (VIDL_vhCreateStorageBuffer*) cmd );
             break;
         case 0x6153A4D9:
+            HandleLogFunction("Handle_vhUpdateStorageBuffer");
             Handle_vhUpdateStorageBuffer( (VIDL_vhUpdateStorageBuffer*) cmd );
             break;
         case 0x15BFFC71:
+            HandleLogFunction("Handle_vhBlitBuffer");
             Handle_vhBlitBuffer( (VIDL_vhBlitBuffer*) cmd );
             break;
         case 0x3A87A73E:
+            HandleLogFunction("Handle_vhDestroyBuffer");
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );
             break;
         case 0x21DB7127:
+            HandleLogFunction("Handle_vhCreateShader");
             Handle_vhCreateShader( (VIDL_vhCreateShader*) cmd );
             break;
         case 0x3328C9A7:
+            HandleLogFunction("Handle_vhDestroyShader");
             Handle_vhDestroyShader( (VIDL_vhDestroyShader*) cmd );
             break;
         case 0x8A8ABD80:
+            HandleLogFunction("Handle_vhDispatch");
             Handle_vhDispatch( (VIDL_vhDispatch*) cmd );
             break;
         case 0x76CD9435:
+            HandleLogFunction("Handle_vhDispatchIndirect");
             Handle_vhDispatchIndirect( (VIDL_vhDispatchIndirect*) cmd );
             break;
         case 0x83140D26:
+            HandleLogFunction("Handle_vhFlushInternal");
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );
             break;
         case 0x25DC7E64:
+            HandleLogFunction("Handle_vhCmdSetStateViewRect");
             Handle_vhCmdSetStateViewRect( (VIDL_vhCmdSetStateViewRect*) cmd );
             break;
         case 0xD89EF1E1:
+            HandleLogFunction("Handle_vhCmdSetStateViewScissor");
             Handle_vhCmdSetStateViewScissor( (VIDL_vhCmdSetStateViewScissor*) cmd );
             break;
         case 0xAB6B3FB4:
+            HandleLogFunction("Handle_vhCmdSetStateViewClear");
             Handle_vhCmdSetStateViewClear( (VIDL_vhCmdSetStateViewClear*) cmd );
             break;
         case 0x106BC354:
+            HandleLogFunction("Handle_vhCmdSetStateProgram");
             Handle_vhCmdSetStateProgram( (VIDL_vhCmdSetStateProgram*) cmd );
             break;
         case 0x95EE7C8C:
+            HandleLogFunction("Handle_vhCmdSetStateViewTransform");
             Handle_vhCmdSetStateViewTransform( (VIDL_vhCmdSetStateViewTransform*) cmd );
             break;
         case 0x8FB805B7:
+            HandleLogFunction("Handle_vhCmdSetStateWorldTransform");
             Handle_vhCmdSetStateWorldTransform( (VIDL_vhCmdSetStateWorldTransform*) cmd );
             break;
         case 0xC3CE00B4:
+            HandleLogFunction("Handle_vhCmdSetStateFlags");
             Handle_vhCmdSetStateFlags( (VIDL_vhCmdSetStateFlags*) cmd );
             break;
         case 0x9CFC0ABD:
+            HandleLogFunction("Handle_vhCmdSetStateDebugFlags");
             Handle_vhCmdSetStateDebugFlags( (VIDL_vhCmdSetStateDebugFlags*) cmd );
             break;
         case 0x007FD9BA:
+            HandleLogFunction("Handle_vhCmdSetStateStencil");
             Handle_vhCmdSetStateStencil( (VIDL_vhCmdSetStateStencil*) cmd );
             break;
         case 0xF0E68F37:
+            HandleLogFunction("Handle_vhCmdSetStateVertexBuffer");
             Handle_vhCmdSetStateVertexBuffer( (VIDL_vhCmdSetStateVertexBuffer*) cmd );
             break;
         case 0xE36C062A:
+            HandleLogFunction("Handle_vhCmdSetStateIndexBuffer");
             Handle_vhCmdSetStateIndexBuffer( (VIDL_vhCmdSetStateIndexBuffer*) cmd );
             break;
         case 0x3A615501:
+            HandleLogFunction("Handle_vhCmdSetStateTextures");
             Handle_vhCmdSetStateTextures( (VIDL_vhCmdSetStateTextures*) cmd );
             break;
         case 0xFCB052A2:
+            HandleLogFunction("Handle_vhCmdSetStateSamplers");
             Handle_vhCmdSetStateSamplers( (VIDL_vhCmdSetStateSamplers*) cmd );
             break;
         case 0x953A85B6:
+            HandleLogFunction("Handle_vhCmdSetStateBuffers");
             Handle_vhCmdSetStateBuffers( (VIDL_vhCmdSetStateBuffers*) cmd );
             break;
         case 0x23287787:
+            HandleLogFunction("Handle_vhCmdSetStateConstants");
             Handle_vhCmdSetStateConstants( (VIDL_vhCmdSetStateConstants*) cmd );
             break;
         case 0x0A9462A0:
+            HandleLogFunction("Handle_vhCmdSetStatePushConstants");
             Handle_vhCmdSetStatePushConstants( (VIDL_vhCmdSetStatePushConstants*) cmd );
             break;
         case 0xAB3B2AB3:
+            HandleLogFunction("Handle_vhCmdSetStateUniforms");
             Handle_vhCmdSetStateUniforms( (VIDL_vhCmdSetStateUniforms*) cmd );
             break;
         case 0xD3B53061:
+            HandleLogFunction("Handle_vhCmdSetStateAttachments");
             Handle_vhCmdSetStateAttachments( (VIDL_vhCmdSetStateAttachments*) cmd );
             break;
         }

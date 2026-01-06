@@ -34,6 +34,8 @@ void Helper_FillPattern( std::vector<uint8_t>& data, int width, int height )
 
 UTEST( Compute, EndToEnd_TextureWrite )
 {
+    g_vhInit.logBackendCmds = true;
+    g_vhInit.logPSOCache = true;
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -41,6 +43,7 @@ UTEST( Compute, EndToEnd_TextureWrite )
     }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
 
     // Allocate and Create 8x8 R8 Texture
     vhTexture outTex = vhAllocTexture();
@@ -55,7 +58,7 @@ UTEST( Compute, EndToEnd_TextureWrite )
         void main(uint3 id : SV_DispatchThreadID)
         {
             float val = float((id.x + id.y) % 256) / 255.0;
-            g_Out[id.xy] = val;
+            g_Out[id.xy] = 0.12345;
         }
     )";
 
@@ -100,6 +103,7 @@ UTEST( Compute, EndToEnd_TextureWrite )
     vhReadTextureSlow( outTex, 0, 0, &readData );
     vhFinish();
 
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
     ASSERT_EQ( readData.size(), 64 * 1 );
 
@@ -115,7 +119,7 @@ UTEST( Compute, EndToEnd_TextureWrite )
 
     vhDestroyTexture( outTex );
     vhDestroyShader( cs );
-    vhSetState( sid, g_state0 );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
 
@@ -127,6 +131,7 @@ UTEST( Compute, ReadFromTexture )
         g_testInit = true;
     }
     vhFlush();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
 
     // Setup Resources
     vhTexture inTex = vhAllocTexture();
@@ -182,13 +187,12 @@ UTEST( Compute, ReadFromTexture )
 
     vhStateId sid = 124;
     vhSetState( sid, state );
-    vhDispatch( sid, { 1, 1, 1 } );
-
     // Verify
     vhMem readData;
     vhReadTextureSlow( outTex, 0, 0, &readData );
     vhFinish();
 
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     ASSERT_EQ( readData.size(), 64 );
     for ( int i = 0; i < 64; ++i )
     {
@@ -198,20 +202,19 @@ UTEST( Compute, ReadFromTexture )
     vhDestroyTexture( inTex );
     vhDestroyTexture( outTex );
     vhDestroyShader( cs );
-    vhSetState( sid, g_state0 );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
 
 UTEST( Compute, ReadFromBuffer )
 {
-    // ################################ TODO: Unused binding is still broken. Add Compute, Unusedbindings tests #################################
-
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
     vhFlush();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
 
     // Resources
     // Input Buffer: 64 floats (matching 8x8 pixels)
@@ -281,6 +284,7 @@ UTEST( Compute, ReadFromBuffer )
     vhReadTextureSlow( outTex, 0, 0, &readData );
     vhFinish();
 
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     ASSERT_EQ( readData.size(), 64 );
     for ( int i = 0; i < 64; ++i )
     {
@@ -292,6 +296,102 @@ UTEST( Compute, ReadFromBuffer )
     vhDestroyBuffer( inBuf );
     vhDestroyTexture( outTex );
     vhDestroyShader( cs );
-    vhSetState( sid, g_state0 );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+
+UTEST( Compute, ReadFromBuffer_Unbound )
+{
+    g_vhInit.logBackendCmds = true;
+    g_vhInit.logPSOCache = true;
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
+
+    // Resources
+    // Input Buffer: 64 floats (matching 8x8 pixels)
+    // Output Texture: 8x8 R8
+    vhBuffer inBuf = vhAllocBuffer();
+    vhTexture outTex = vhAllocTexture();
+
+    int width = 8, height = 8;
+    int count = width * height;
+
+    vhMem* data = vhAllocMem( count * sizeof( float ) );
+    float* fData = reinterpret_cast<float*>( data->data() );
+    for ( int i = 0; i < count; ++i )
+    {
+        // Pattern: i / 255.0
+        fData[i] = static_cast<float>( i ) / 255.0f;
+    }
+
+    vhCreateStorageBuffer( inBuf, "InBuf", data, count * sizeof( float ), VRHI_BUFFER_COMPUTE_READ );
+    vhCreateTexture2D( outTex, { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    // Shader
+    const char* csSource = R"(
+        ByteAddressBuffer g_In;
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
+        
+        [numthreads(8, 8, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            // uint idx = id.y * 8 + id.x;
+            g_Out[id.xy] = 0.5;
+        }
+    )";
+
+    std::vector<uint32_t> spirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "CS_BufRead_Unbound", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err ) );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_BufRead_Unbound", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    // State
+    vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+
+    vhState::BufferBinding bIn;
+    bIn.name = "g_In";
+    bIn.buffer = inBuf;
+    bIn.byteSize = count * sizeof( float );
+    state.SetBuffer( 0, bIn );
+
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = outTex;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+
+    vhStateId sid = 125;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } ); // 64 threads
+
+    // Verify
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
+    ASSERT_EQ( readData.size(), 64 );
+    for ( int i = 0; i < 64; ++i )
+    {
+        // Expected: i (since we wrote i/255.0 and R8 stores round(val*255))
+        uint8_t expected = 127;
+        EXPECT_NEAR( expected, readData[i], 1 );
+    }
+
+    vhDestroyBuffer( inBuf );
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
