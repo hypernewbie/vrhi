@@ -644,17 +644,24 @@ uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
     return h;
 }
 
-uint64_t vhHashShaderBytecode( nvrhi::ShaderHandle shader )
+uint64_t vhHashShaderDebugName( nvrhi::ShaderHandle shader )
 {
     if ( !shader ) return 0;
-    const void* bytecode = nullptr;
-    size_t size = 0;
-    shader->getBytecode( &bytecode, &size );
-    if ( bytecode && size > 0 )
+    const std::string& debugName = shader->getDesc().debugName;
+    if ( !debugName.empty() )
     {
-        return komihash( bytecode, size, 0 );
+        return komihash( debugName.data(), debugName.size(), 0 );
     }
     return 0;
+}
+
+uint64_t vhHashShaderSPIRV( const std::vector< uint32_t >& spirv )
+{
+    auto sz = spirv.size();
+    uint64_t h = 0;
+    h = komihash( &sz, sizeof( sz ), h );
+    h = komihash( spirv.data(), sz * sizeof( uint32_t ), h );
+    return h;
 }
 
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout )
@@ -784,11 +791,11 @@ uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const 
 
     // Shaders
 
-    uint64_t hVS = vhHashShaderBytecode( desc.VS ); h = komihash( &hVS, sizeof( hVS ), h );
-    uint64_t hHS = vhHashShaderBytecode( desc.HS ); h = komihash( &hHS, sizeof( hHS ), h );
-    uint64_t hDS = vhHashShaderBytecode( desc.DS ); h = komihash( &hDS, sizeof( hDS ), h );
-    uint64_t hGS = vhHashShaderBytecode( desc.GS ); h = komihash( &hGS, sizeof( hGS ), h );
-    uint64_t hPS = vhHashShaderBytecode( desc.PS ); h = komihash( &hPS, sizeof( hPS ), h );
+    uint64_t hVS = vhHashShaderDebugName( desc.VS ); h = komihash( &hVS, sizeof( hVS ), h );
+    uint64_t hHS = vhHashShaderDebugName( desc.HS ); h = komihash( &hHS, sizeof( hHS ), h );
+    uint64_t hDS = vhHashShaderDebugName( desc.DS ); h = komihash( &hDS, sizeof( hDS ), h );
+    uint64_t hGS = vhHashShaderDebugName( desc.GS ); h = komihash( &hGS, sizeof( hGS ), h );
+    uint64_t hPS = vhHashShaderDebugName( desc.PS ); h = komihash( &hPS, sizeof( hPS ), h );
 
     // Render State
 
@@ -827,7 +834,7 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
     static_assert( sizeof( nvrhi::ComputePipelineDesc ) == 80, "nvrhi::ComputePipelineDesc size mismatch" );
     uint64_t h = 0;
 
-    uint64_t hCS = vhHashShaderBytecode( desc.CS );
+    uint64_t hCS = vhHashShaderDebugName( desc.CS );
     h = komihash( &hCS, sizeof( hCS ), h );
 
     for ( const auto& layoutHandle : desc.bindingLayouts )

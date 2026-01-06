@@ -1608,10 +1608,11 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
     // Set visibility based on shader stage.
     layoutDesc.visibility = type;
 
-    // Create Shader via NVRHI
+    // Create Shader via NVRHI. We actually unique hash into debug name, for which we will rely on for PSO hash later.
     nvrhi::ShaderDesc desc( type );
     desc.entryName = cmd->entry;
     desc.debugName = cmd->name;
+    desc.debugName += " # " + std::to_string( vhHashShaderSPIRV( cmd->spirv ) );
     nvrhi::ShaderHandle handle = nullptr;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
