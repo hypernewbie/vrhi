@@ -219,11 +219,13 @@ struct VIDL_vhCreateStorageBuffer
     const vhMem* data;
     uint64_t size = 0;
     uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE;
+    uint32_t stride = 0;
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
 
     VIDL_vhCreateStorageBuffer() = default;
 
-    VIDL_vhCreateStorageBuffer(vhBuffer _buffer, const char* _name, const vhMem* _data, uint64_t _size, uint16_t _flags)
-        : buffer(_buffer), name(_name), data(_data), size(_size), flags(_flags) {}
+    VIDL_vhCreateStorageBuffer(vhBuffer _buffer, const char* _name, const vhMem* _data, uint64_t _size, uint16_t _flags, uint32_t _stride, nvrhi::Format _format)
+        : buffer(_buffer), name(_name), data(_data), size(_size), flags(_flags), stride(_stride), format(_format) {}
 };
 
 struct VIDL_vhUpdateStorageBuffer

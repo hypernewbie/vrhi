@@ -1530,6 +1530,10 @@ void vhCmdBackendState::Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer
     desc.setByteSize( cmd->size );
     desc.setCanHaveUAVs( true );
     desc.setCanHaveRawViews( true );
+    desc.setStructStride( cmd->stride );
+    desc.setFormat( cmd->format );
+    desc.setCanHaveTypedViews( cmd->format != nvrhi::Format::UNKNOWN );
+
     desc.enableAutomaticStateTracking( nvrhi::ResourceStates::UnorderedAccess );
 
     // Reuse common logic with stride = 1 (byte-oriented)

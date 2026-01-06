@@ -90,7 +90,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 // Interface
 // --------------------------------------------------------------------------
 
-// Manually Regenerate this with py vidl.py vrhi.h vrhi_generated.h
+// Manually Regenerate this with py vidl.py vrhi.h src/vrhi_generated.h
 // Cmake should automatically do this already.
 
 // ------------ Device ------------
@@ -451,14 +451,42 @@ void vhUpdateUniformBuffer(
 // |data| is optional initial data. Takes ownership of the memory.
 // |size| is the size in bytes. It is ignored if |data| is not null.
 // |flags| specifies usage options.
+// |stride| is the structure stride for Structured Buffers (default 0 for Raw/ByteAddress).
+// |format| is the format for Typed Buffers (default UNKNOWN).
 // VIDL_GENERATE
 void vhCreateStorageBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
     uint64_t size = 0,
-    uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE
+    uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE,
+    uint32_t stride = 0,
+    nvrhi::Format format = nvrhi::Format::UNKNOWN
 );
+
+inline void vhCreateStorageStructuredBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t size,
+    uint32_t stride,
+    uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE
+)
+{
+    vhCreateStorageBuffer( buffer, name, data, size, flags, stride, nvrhi::Format::UNKNOWN );
+}
+
+inline void vhCreateStorageTypedBuffer(
+    vhBuffer buffer,
+    const char* name,
+    const vhMem* data,
+    uint64_t size,
+    nvrhi::Format format,
+    uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE
+)
+{
+    vhCreateStorageBuffer( buffer, name, data, size, flags, 0, format );
+}
 
 // Enqueues a command to update a storage buffer with the specified data.
 //

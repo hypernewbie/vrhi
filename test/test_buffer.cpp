@@ -538,3 +538,54 @@ UTEST( ResourceQueries, Buffer )
     EXPECT_EQ( vhGetBufferInfo( buf ), 0 );
     EXPECT_EQ( vhGetBufferNvrhiHandle( buf ), nullptr );
 }
+
+UTEST( Buffer, StorageBufferCreation )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 1. Structured Buffer
+    vhBuffer bStruct = vhAllocBuffer();
+    // Create a structured buffer with stride 64
+    vhCreateStorageStructuredBuffer( bStruct, "StructBuffer", nullptr, 64 * 10, 64 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // Verify NVRHI desc
+    {
+        nvrhi::IBuffer* buf = (nvrhi::IBuffer*)vhGetBufferNvrhiHandle( bStruct );
+        ASSERT_TRUE( buf );
+        const nvrhi::BufferDesc& desc = buf->getDesc();
+        EXPECT_EQ( desc.byteSize, 640 );
+        EXPECT_EQ( desc.structStride, 64 );
+        EXPECT_EQ( desc.format, nvrhi::Format::UNKNOWN );
+        EXPECT_TRUE( desc.canHaveUAVs );
+        EXPECT_TRUE( desc.canHaveRawViews );
+    }
+
+    // 2. Typed Buffer
+    vhBuffer bTyped = vhAllocBuffer();
+    vhCreateStorageTypedBuffer( bTyped, "TypedBuffer", nullptr, 4 * 100, nvrhi::Format::R32_FLOAT );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    {
+        nvrhi::IBuffer* buf = (nvrhi::IBuffer*)vhGetBufferNvrhiHandle( bTyped );
+        ASSERT_TRUE( buf );
+        const nvrhi::BufferDesc& desc = buf->getDesc();
+        EXPECT_EQ( desc.byteSize, 400 );
+        EXPECT_EQ( desc.structStride, 0 );
+        EXPECT_EQ( desc.format, nvrhi::Format::R32_FLOAT );
+        EXPECT_TRUE( desc.canHaveTypedViews );
+        EXPECT_TRUE( desc.canHaveRawViews );
+    }
+
+    vhDestroyBuffer( bStruct );
+    vhDestroyBuffer( bTyped );
+    vhFlush();
+}

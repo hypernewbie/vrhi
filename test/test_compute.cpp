@@ -254,7 +254,9 @@ UTEST( Compute, ReadFromBuffer )
     
     std::vector<uint32_t> spirv;
     std::string err;
-    ASSERT_TRUE( vhCompileShader( "CS_BufRead", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err ) );
+    bool res = vhCompileShader( "CS_BufRead", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
+    if ( !res ) printf( "Shader Compile Error: %s\n", err.c_str() );
+    ASSERT_TRUE( res );
     
     vhShader cs = vhAllocShader();
     vhCreateShader( cs, "CS_BufRead", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );

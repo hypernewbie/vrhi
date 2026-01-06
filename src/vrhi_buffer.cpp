@@ -372,12 +372,14 @@ void vhCreateStorageBuffer(
     const char* name,
     const vhMem* data,
     uint64_t size,
-    uint16_t flags
+    uint16_t flags,
+    uint32_t stride,
+    nvrhi::Format format
 )
 {
     if ( buffer == VRHI_INVALID_HANDLE ) return;
 
-    auto cmd = vhCmdAlloc<VIDL_vhCreateStorageBuffer>( buffer, name, data, size, flags );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateStorageBuffer>( buffer, name, data, size, flags, stride, format );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
