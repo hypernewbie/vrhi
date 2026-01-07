@@ -68,10 +68,10 @@ jobs:
 
       - name: Configure CMake
         run: |
-          cmake -S . -B build ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Debug
 
       - name: Configure Environment (Windows)
         if: runner.os == 'Windows'
@@ -84,12 +84,16 @@ jobs:
           }
           # Set VK_LAYER_PATH to SDK Bin for validation layers
           echo "VK_LAYER_PATH=$env:VULKAN_SDK\Bin" >> $env:GITHUB_ENV
+          # Enable Loader Debugging
+          echo "VK_LOADER_DEBUG=all" >> $env:GITHUB_ENV
 
       - name: Configure Environment (macOS)
         if: runner.os == 'macOS'
         run: |
           # Disable Metal Argument Buffers to prevent crash on Paravirt GPU
           echo "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0" >> $GITHUB_ENV
+          # Enable debug logging for MoltenVK
+          echo "MVK_CONFIG_LOG_LEVEL=3" >> $GITHUB_ENV
           
           # Check common locations for MoltenVK ICD
           if [ -f "$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" ]; then
@@ -112,4 +116,4 @@ jobs:
           fi
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Debug --verbose
