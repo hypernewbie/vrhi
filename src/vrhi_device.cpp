@@ -182,9 +182,16 @@ void vhInit( bool quiet )
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
     if ( robustness2Enabled )
     {
-        robustness2Features.nullDescriptor = VK_TRUE;
-        robustness2Features.robustBufferAccess2 = VK_TRUE;
-        robustness2Features.robustImageAccess2 = VK_TRUE;
+        // Query supported features first!
+        VkPhysicalDeviceRobustness2FeaturesEXT supported = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
+        VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        features2.pNext = &supported;
+        vkGetPhysicalDeviceFeatures2( vkbPhys.physical_device, &features2 );
+
+        if ( supported.nullDescriptor ) robustness2Features.nullDescriptor = VK_TRUE;
+        if ( supported.robustBufferAccess2 ) robustness2Features.robustBufferAccess2 = VK_TRUE;
+        if ( supported.robustImageAccess2 ) robustness2Features.robustImageAccess2 = VK_TRUE;
+
         devBuilder.add_pNext( &robustness2Features );
         if ( !quiet ) VRHI_LOG( "    Robustness2 extension enabled.\n" );
     }

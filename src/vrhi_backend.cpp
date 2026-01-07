@@ -914,7 +914,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         nvrhi::BindingSetHandle bset = vhGetBindingSet( bsetDesc, layout );
         if ( !bset )
         {
-            VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %u!\n", shader->handle );
+            VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
             return false;
         }
 
@@ -972,14 +972,14 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     nvrhi::ComputePipelineDesc desc;
     if ( !BE_PresubmitCommon_PipelineDesc( state, &computeShader, 1, &desc, nullptr ) )
     {
-        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
+        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
 
     nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( desc );
     if ( !pso )
     {
-        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
+        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
 
@@ -987,7 +987,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     cstate.setPipeline( pso.Get() );
     if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, &cstate, nullptr ) )
     {
-        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %u! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle );
+        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
 

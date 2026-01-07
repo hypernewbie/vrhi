@@ -750,6 +750,8 @@ struct vhState
         uint32_t arrayLayer = 0;
         nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN;
         bool readOnly = false;
+
+        RenderTarget() {}
     };
 
     std::vector< RenderTarget > colourAttachment;
@@ -908,13 +910,22 @@ struct vhState
     vhState& SetColourAttachment( uint32_t idx, vhTexture texture, uint32_t mipLevel = 0, uint32_t arrayLayer = 0, nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN, bool readOnly = false )
     {
         if ( idx >= colourAttachment.size() ) colourAttachment.resize( idx + 1 );
-        colourAttachment[idx] = { texture, mipLevel, arrayLayer, formatOverride, readOnly };
+        auto& rt = colourAttachment[idx];
+        rt.texture = texture;
+        rt.mipLevel = mipLevel;
+        rt.arrayLayer = arrayLayer;
+        rt.formatOverride = formatOverride;
+        rt.readOnly = readOnly;
         dirty |= VRHI_DIRTY_ATTACHMENTS;
         return *this;
     }
     vhState& SetDepthAttachment( vhTexture texture, uint32_t mipLevel = 0, uint32_t arrayLayer = 0, nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN, bool readOnly = false )
     {
-        depthAttachment = { texture, mipLevel, arrayLayer, formatOverride, readOnly };
+        depthAttachment.texture = texture;
+        depthAttachment.mipLevel = mipLevel;
+        depthAttachment.arrayLayer = arrayLayer;
+        depthAttachment.formatOverride = formatOverride;
+        depthAttachment.readOnly = readOnly;
         dirty |= VRHI_DIRTY_ATTACHMENTS;
         return *this;
     }

@@ -23,6 +23,9 @@ endif()
 find_package(Python3 COMPONENTS Interpreter)
 
 # Find Vulkan (REQUIRED) - moved up to ensure Vulkan_INCLUDE_DIR is set
+if(DEFINED ENV{VULKAN_SDK})
+    set(Vulkan_ROOT $ENV{VULKAN_SDK})
+endif()
 find_package(Vulkan REQUIRED)
 
 set(GENERATED_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/vrhi_generated.h")
@@ -39,8 +42,20 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 # VRHI Library Sources
-set(SPIRV_REFLECT_SOURCE "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect/spirv_reflect.c")
-set(SPIRV_REFLECT_HEADER "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect/spirv_reflect.h")
+find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
+    HINTS 
+        "$ENV{VULKAN_SDK}/source/SPIRV-Reflect"
+        "$ENV{VULKAN_SDK}/Source/SPIRV-Reflect"
+        "${Vulkan_INCLUDE_DIR}/../source/SPIRV-Reflect"
+        "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect"
+)
+
+if(SPIRV_REFLECT_DIR)
+    set(SPIRV_REFLECT_SOURCE "${SPIRV_REFLECT_DIR}/spirv_reflect.c")
+    set(SPIRV_REFLECT_HEADER "${SPIRV_REFLECT_DIR}/spirv_reflect.h")
+else()
+    message(FATAL_ERROR "SPIRV-Reflect not found in Vulkan SDK")
+endif()
 
 set(VRHI_SOURCES
     vrhi.h
@@ -99,7 +114,7 @@ target_include_directories(vrhi PUBLIC
 
 # Add Vulkan SDK Source/SPIRV-Reflect to include paths so we can directly inline inc the .c file
 target_include_directories(vrhi PRIVATE
-    "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect"
+    "${SPIRV_REFLECT_DIR}"
 )
 
 # Library search paths
