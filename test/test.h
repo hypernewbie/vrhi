@@ -25,6 +25,9 @@
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
 
+#if defined(__cplusplus) && (__cplusplus >= 201103L)
+#ifdef __clang__
+
 // Specialisation for GLM vec3 (int)
 template <> struct utest_type_deducer< glm::ivec3, false >
 {
@@ -61,3 +64,6 @@ struct utest_type_deducer< nvrhi::RefCountPtr< T >, false >
         UTEST_PRINTF( "%p", static_cast< void* >( ptr.Get() ) );
     }
 };
+
+#endif // __clang__
+#endif defined(__cplusplus) && (__cplusplus >= 201103L)

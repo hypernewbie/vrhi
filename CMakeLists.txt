@@ -78,8 +78,9 @@ set(VRHI_SOURCES
 
 # Test Sources
 set(TEST_SOURCES
-    test/test.cpp
+    test/test.h
     test/utest.h
+    test/test.cpp
     test/test_backend.cpp
     test/test_device.cpp
     test/test_texture.cpp
