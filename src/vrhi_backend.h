@@ -120,6 +120,25 @@ struct vhStateResolveCache
 // Main Backend State
 // --------------------------------------------------------------------------
 
+struct vhGlobalUniform
+{
+    glm::vec4 u_viewRect;
+    glm::vec4 u_viewTexel;
+    glm::mat4 u_view;
+    glm::mat4 u_invView;
+    glm::mat4 u_proj;
+    glm::mat4 u_invProj;
+    glm::mat4 u_viewProj;
+    glm::mat4 u_invViewProj;
+    glm::mat4 u_model[4];
+    glm::mat4 u_modelView;
+    glm::mat4 u_modelViewProj;
+    glm::vec4 u_alphaRef4;
+    glm::vec4 u_global[32];
+};
+static_assert( sizeof( vhGlobalUniform ) < 16384, "vhGlobalUniform must be smaller than 16KB" );
+static_assert( sizeof( vhGlobalUniform ) == 1328, "vhGlobalUniform packing mismatch" );
+
 class vhCmdBackendState : public VIDLHandler
 {
     friend class vhCmdBackendStateTest;
@@ -132,6 +151,8 @@ class vhCmdBackendState : public VIDLHandler
     std::map< vhStateId, vhState > backendStates;
     std::unordered_map< uint64_t, nvrhi::FramebufferHandle > backendFramebuffers;
 
+    // Internal Global Uniform Buffer
+    std::unique_ptr< vhBackendBuffer > m_globalUniformBuffer;
     // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
     inline std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
     {

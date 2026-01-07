@@ -1028,12 +1028,39 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
 void vhCmdBackendState::init()
 {
     std::lock_guard< std::mutex > lock( backendMutex );
+
+    if ( !m_globalUniformBuffer )
+    {
+        // Called from vhInit which already holds g_nvRHIStateMutex lock, and before RHI thread even starts.
+        // So we don't need to lock g_nvRHIStateMutex here.
+    
+        nvrhi::BufferDesc desc;
+        desc.setByteSize( sizeof( vhGlobalUniform ) );
+        desc.setIsConstantBuffer( true );
+        desc.setDebugName( "GlobalUniforms" );
+        nvrhi::BufferHandle bhandle = g_vhDevice->createBuffer( desc );
+        if ( !bhandle ) 
+        {
+            VRHI_ERR( "vhCmdBackendState::init() : Failed to create Global Uniform Buffer!\n" );
+            assert( !"Failed to create Global Uniform Buffer." );
+            return;
+        }
+
+        m_globalUniformBuffer = std::make_unique< vhBackendBuffer >();
+        m_globalUniformBuffer->handle = bhandle;
+        m_globalUniformBuffer->name = "GlobalUniforms";
+        m_globalUniformBuffer->desc = desc;
+        m_globalUniformBuffer->stride = sizeof( vhGlobalUniform );
+        m_globalUniformBuffer->flags = VRHI_BUFFER_NONE;
+    }
 }
 
 void vhCmdBackendState::shutdown()
 {
     std::lock_guard< std::mutex > lock( backendMutex );
     std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
+
+    m_globalUniformBuffer.reset();
 
     backendTextures.clear();
     backendBuffers.clear();
