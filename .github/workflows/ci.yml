@@ -82,10 +82,15 @@ jobs:
           } else {
             echo "::error::VK_DRIVER_FILES not found at: $env:VK_DRIVER_FILES"
           }
+          # Set VK_LAYER_PATH to SDK Bin for validation layers
+          echo "VK_LAYER_PATH=$env:VULKAN_SDK\Bin" >> $env:GITHUB_ENV
 
       - name: Configure Environment (macOS)
         if: runner.os == 'macOS'
         run: |
+          # Disable Metal Argument Buffers to prevent crash on Paravirt GPU
+          echo "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0" >> $GITHUB_ENV
+          
           # Check common locations for MoltenVK ICD
           if [ -f "$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" ]; then
             echo "Found MoltenVK at share/..."

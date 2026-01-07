@@ -144,6 +144,12 @@ void vhInit( bool quiet )
     g_vulkanPhysicalDevice = vkbPhys.physical_device;
     if ( !quiet ) VRHI_LOG( "    Selected GPU Device: %s\n", vkbPhys.name.c_str() );
 
+    VkPhysicalDeviceDriverProperties driverProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
+    VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+    props2.pNext = &driverProps;
+    vkGetPhysicalDeviceProperties2( g_vulkanPhysicalDevice, &props2 );
+    VRHI_LOG( "    Vulkan Driver: %s (%s)\n", driverProps.driverName, driverProps.driverInfo );
+
     // Device Creation & Queues (via vk-bootstrap)
 
     bool rtExtEnabled = false;
