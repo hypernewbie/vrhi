@@ -126,14 +126,14 @@ nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
 // - Copy feeds Compute and Graphics
 // - Compute feeds Graphics
 //
-void vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue type )
+void vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue type )
 {
+    // WARNING: Lock g_nvRHIStateMutex before calling this.
     auto typeIdx = ( uint64_t ) type;
     uint64_t instance = 0;
 
     if ( g_vhCmdLists[typeIdx] )
     {
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         g_vhCmdLists[typeIdx]->close();
 
         // Execute and get the instance ID for synchronisation
@@ -160,20 +160,22 @@ void vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue type )
 
 void vhCmdListFlush( nvrhi::CommandQueue type )
 {
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+
     // Both queues depend on copy; flush copy first
     if ( type == nvrhi::CommandQueue::Graphics || type == nvrhi::CommandQueue::Compute )
     {
-        vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Copy );
+        vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue::Copy );
     }
 
     // Graphics depends on compute; flush compute first
     if ( type == nvrhi::CommandQueue::Graphics )
     {
-        vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Compute );
+        vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue::Compute );
     }
 
     // Flush the requested queue
-    vhCmdListFlush_SingleQueueInternal( type );
+    vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( type );
 }
 
 void vhCmdListFlushTransferIfNeeded()
@@ -186,13 +188,20 @@ void vhCmdListFlushTransferIfNeeded()
     }
 }
 
-void vhCmdListFlushAll()
+void vhCmdListFlushAll_DeviceStateLocked()
 {
+    // WARNING: Lock g_nvRHIStateMutex before calling this.
     // The order here matters slightly for efficiency ( Flush upsteam first ),
     // but the actual dependency correctness is handled by the waits inserted inside vhCmdListFlush.
-    vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Copy );
-    vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Compute );
-    vhCmdListFlush_SingleQueueInternal( nvrhi::CommandQueue::Graphics );
+    vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue::Copy );
+    vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue::Compute );
+    vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+}
+
+void vhCmdListFlushAll()
+{
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    vhCmdListFlushAll_DeviceStateLocked();
 }
 
 // Global states for user convenience.

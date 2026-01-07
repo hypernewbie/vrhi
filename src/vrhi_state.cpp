@@ -506,7 +506,6 @@ bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nv
 
 void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out )
 {
-    // Clear
     memset( &out, 0, sizeof( vhGlobalUniform ) );
 
     // Viewport / Camera

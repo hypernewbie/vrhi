@@ -25,8 +25,8 @@
 #include <komihash/komihash.h>
 
 vhCmdBackendState g_vhCmdBackendState;
+void vhCmdListFlushAll_DeviceStateLocked();
 
-// Static member definitions
 std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
 vhStateResolveCache vhCmdBackendState::s_resolveCache;
 std::unordered_map< uint32_t, vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
@@ -1886,33 +1886,27 @@ void vhCmdBackendState::Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttac
 void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
-    // TODO: Flush all transient buffer maps here.
-    {
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        m_globalUniformBuffer.Unmap_DeviceStateLocked();
-    }
+    // Flush and step transient buffer maps here.
+    // This needs to be done *before* we flush the command lists to GPU!!
+    m_globalUniformBuffer.Unmap_DeviceStateLocked();
+    m_globalUniformBuffer.Step();
+    m_globalUniformBufferLastHash = 0;
 
+    // Send it!!
+    vhCmdListFlushAll_DeviceStateLocked();
 
     // Free all cmd memory allocations, because hitting this flush means all previous commands have been processed.
     {
-        std::lock_guard<std::mutex> lock( g_vhMemListMutex );
+        std::lock_guard< std::mutex > lock( g_vhMemListMutex );
         g_vhMemList.clear();
     }
-
-    // This uses g_nvRHIStateMutex then gives it up, we need to avoid double-locking.
-    vhCmdListFlushAll();
-
+    if ( cmd->waitForGPU )
     {
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        if ( cmd->waitForGPU )
-        {
-            g_vhDevice->waitForIdle();
-        }
-        g_vhDevice->runGarbageCollection();
-        m_globalUniformBuffer.Step();
-        m_globalUniformBufferLastHash = 0;
+        g_vhDevice->waitForIdle();
     }
+    g_vhDevice->runGarbageCollection();
 
     // Notify caller that we're done.
     // Safety warning : fence is probably from stack of caller
