@@ -47,9 +47,11 @@ jobs:
       - name: Setup Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
-          vulkan-version: 1.4.335.0
+          vulkan_version: 1.4.335.0
           cache: true
           install_swiftshader: ${{ matrix.install_swiftshader }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -70,6 +72,10 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release
+
+      - name: Set VK_ICD_FILENAMES (Windows)
+        if: runner.os == 'Windows'
+        run: echo "VK_ICD_FILENAMES=$env:VK_DRIVER_FILES" >> $env:GITHUB_ENV
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure

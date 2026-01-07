@@ -121,22 +121,30 @@ target_include_directories(vrhi PRIVATE
 
 # Library search paths
 # Generator expressions select the correct path based on build configuration
-target_link_directories(vrhi PUBLIC
-    $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_debug>
-    $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
-    $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
-    $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
-    # Linux paths
-    $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_debug>
-    $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
-    $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
-    $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
-    # Mac paths
-    $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_debug>
-    $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
-    $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
-    $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
-)
+if(WIN32)
+    target_link_directories(vrhi PUBLIC
+        $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_debug>
+        $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
+        $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
+        $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
+    )
+elseif(APPLE)
+    target_link_directories(vrhi PUBLIC
+        # Mac paths
+        $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_debug>
+        $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
+        $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
+        $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
+    )
+else() # Linux
+    target_link_directories(vrhi PUBLIC
+        # Linux paths
+        $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_debug>
+        $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
+        $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
+        $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
+    )
+endif()
 
 # NVRHI and helper libraries
 set(VRHI_LIBS
