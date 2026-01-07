@@ -21,12 +21,21 @@ jobs:
             # Windows defaults to MSVC, which is what we want.
             # CMakeLists.txt handles MSVC specific flags.
             cmake_extra_args: ""
+            install_swiftshader: true
 
           - name: Linux
             os: ubuntu-latest
             cmake_gen: "-G Ninja"
             # Installing Clang 21 as per user's environment
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21"
+            install_swiftshader: false
+
+          - name: macOS
+            os: macos-14 # Apple Silicon (M1/M2)
+            cmake_gen: "-G Ninja"
+            # Explicitly using Homebrew Clang 17
+            cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
+            install_swiftshader: false
 
     steps:
       - name: Checkout
@@ -40,6 +49,7 @@ jobs:
         with:
           vulkan-version: 1.4.335.0
           cache: true
+          install_swiftshader: ${{ matrix.install_swiftshader }}
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -47,12 +57,12 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 21
-          sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev mesa-vulkan-drivers
+          sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev mesa-vulkan-drivers libc++-21-dev libc++abi-21-dev
 
       - name: Install Dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ninja
+          brew install ninja llvm@17
 
       - name: Configure CMake
         run: |
