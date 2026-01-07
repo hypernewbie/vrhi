@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            cmake_gen: ""
+            # Windows defaults to MSVC, which is what we want.
+            # CMakeLists.txt handles MSVC specific flags.
+            cmake_extra_args: ""
+
+          - name: Linux
+            os: ubuntu-latest
+            cmake_gen: "-G Ninja"
+            # Installing Clang 17 to ensure C++23 support and "recent" version
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17"
+
+          - name: macOS
+            os: macos-14 # Apple Silicon (M1/M2)
+            cmake_gen: "-G Ninja"
+            # Using system Clang (Apple Clang) which is sufficient on macos-14
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: Setup Vulkan SDK
+        uses: lunarg/setup-vulkan-sdk@v1
+        with:
+          vulkan-query-version: 1.3.268.0
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 17
+          sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev mesa-vulkan-drivers
+          # Basic X11/Vulkan libs needed for linking/running even if headless
+
+      - name: Install Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
