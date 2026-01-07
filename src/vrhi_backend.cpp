@@ -34,7 +34,7 @@ std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_la
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
 
 // --------------------------------------------------------------------------
-// Implementation
+// Backend :: Utils & Helpers
 // --------------------------------------------------------------------------
 
 static const char* vhResourceTypeToString( nvrhi::ResourceType type )
@@ -90,6 +90,42 @@ bool vhCmdBackendState::BE_Util_ShaderStageMatches( uint64_t flags, bool useComp
         stage == VRHI_SHADER_STAGE_AMPLIFICATION ) && useGraphics ) return true;
     return false;
 }
+
+int64_t vhCmdBackendState::BE_Util_WriteGlobalUniform( const vhState& state, vhBackendTransientBuffer& tbuf, uint64_t& lastHash )
+{
+    vhGlobalUniform u;
+    vhWriteStateToGlobalUniform( state, u );
+    uint64_t hash = vhHashGlobalUniform( u );
+    
+    if ( hash == lastHash && tbuf.offset >= sizeof( vhGlobalUniform ) )
+        return tbuf.offset - sizeof( vhGlobalUniform );
+
+    if ( ( tbuf.offset % VRHI_CBUF_ALIGN ) != 0 )
+        return -1;
+
+    int64_t offset = tbuf.Alloc( sizeof( vhGlobalUniform ) );
+    if ( offset < 0 )
+        return -1;
+
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        uint8_t* ptr = tbuf.Map_DeviceStateLocked();
+        if ( !ptr )
+        {
+            VRHI_ERR("BE_Util_WriteGlobalUniform: Failed to map global uniform buffer!\n");
+            return -1;
+        }
+        memcpy( ptr + offset, &u, sizeof( u ) );
+        // Unmap is deferred until Frame/Flush boundary
+    }
+
+    lastHash = hash;
+    return offset;
+}
+
+// --------------------------------------------------------------------------
+// Backend :: Complex BE Low Level NVRHI Device Functions
+// --------------------------------------------------------------------------
 
 void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, glm::ivec4 arrayMipUpdateRange )
 {
@@ -637,6 +673,47 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
 
     switch ( item.type )
     {
+        case nvrhi::ResourceType::ConstantBuffer:
+        case nvrhi::ResourceType::VolatileConstantBuffer:
+        {
+            if ( item.slot == 0 )
+            {
+                // TODO: Implement global uniform buffer binding.
+                return false;
+            }
+
+            auto it = stageTable.bufferTable.find( item.slot );
+            if ( it == stageTable.bufferTable.end() )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer not found in cache at slot %d\n", item.slot );
+                return false;
+            }
+            const auto result = &it->second;
+            assert( result );
+            if ( !result->handle )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer found in cache at slot %d but null handle.\n", item.slot );
+                return false;
+            }
+            if ( !result->handle->getDesc().isConstantBuffer )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer found in cache at slot %d but NOT a ConstantBuffer.\n", item.slot );
+                return false;
+            }
+
+            uint64_t size = result->binding->byteSize ? result->binding->byteSize : result->handle->getDesc().byteSize;
+            nvrhi::BufferRange range( result->binding->byteOffset, size );
+            outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, result->handle, range );
+            if ( result->handle->getDesc().isVolatile && item.type != nvrhi::ResourceType::VolatileConstantBuffer )
+            {
+                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Volatile Buffer bound to Static ConstantBuffer slot %d. This may be unsafe!\n", item.slot );
+                return false;
+            }
+            outItem.type = item.type;
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: ConstantBuffer found in cache at slot %d\n", item.slot );
+            return true;
+        }
+
         case nvrhi::ResourceType::Texture_SRV:
         case nvrhi::ResourceType::Texture_UAV:
         {
@@ -1029,29 +1106,17 @@ void vhCmdBackendState::init()
 {
     std::lock_guard< std::mutex > lock( backendMutex );
 
-    if ( !m_globalUniformBuffer )
+    if ( !m_globalUniformBuffer.handle[0] )
     {
         // Called from vhInit which already holds g_nvRHIStateMutex lock, and before RHI thread even starts.
         // So we don't need to lock g_nvRHIStateMutex here.
-    
-        nvrhi::BufferDesc desc;
-        desc.setByteSize( sizeof( vhGlobalUniform ) );
-        desc.setIsConstantBuffer( true );
-        desc.setDebugName( "GlobalUniforms" );
-        nvrhi::BufferHandle bhandle = g_vhDevice->createBuffer( desc );
-        if ( !bhandle ) 
-        {
-            VRHI_ERR( "vhCmdBackendState::init() : Failed to create Global Uniform Buffer!\n" );
-            assert( !"Failed to create Global Uniform Buffer." );
-            return;
-        }
 
-        m_globalUniformBuffer = std::make_unique< vhBackendBuffer >();
-        m_globalUniformBuffer->handle = bhandle;
-        m_globalUniformBuffer->name = "GlobalUniforms";
-        m_globalUniformBuffer->desc = desc;
-        m_globalUniformBuffer->stride = sizeof( vhGlobalUniform );
-        m_globalUniformBuffer->flags = VRHI_BUFFER_NONE;
+        nvrhi::BufferDesc desc;
+        desc.setByteSize( 16 * 1024 * sizeof( vhGlobalUniform ) ); // 16MB
+        desc.setIsConstantBuffer( true );
+        desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
+        desc.setDebugName( "GlobalUniforms" );
+        m_globalUniformBuffer.Init_DeviceStateLocked( desc );
     }
 }
 
@@ -1060,7 +1125,7 @@ void vhCmdBackendState::shutdown()
     std::lock_guard< std::mutex > lock( backendMutex );
     std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
 
-    m_globalUniformBuffer.reset();
+    m_globalUniformBuffer.Shutdown_DeviceStateLocked();
 
     backendTextures.clear();
     backendBuffers.clear();
@@ -1821,17 +1886,22 @@ void vhCmdBackendState::Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttac
 void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
+
+    // TODO: Flush all transient buffer maps here.
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        m_globalUniformBuffer.Unmap_DeviceStateLocked();
+    }
+
+
     // Free all cmd memory allocations, because hitting this flush means all previous commands have been processed.
     {
         std::lock_guard<std::mutex> lock( g_vhMemListMutex );
         g_vhMemList.clear();
     }
 
-    if ( cmd->waitForGPU )
-    {
-        // This uses g_nvRHIStateMutex then gives it up, we need to avoid double-locking.
-        vhCmdListFlushAll();
-    }
+    // This uses g_nvRHIStateMutex then gives it up, we need to avoid double-locking.
+    vhCmdListFlushAll();
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -1840,6 +1910,8 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
             g_vhDevice->waitForIdle();
         }
         g_vhDevice->runGarbageCollection();
+        m_globalUniformBuffer.Step();
+        m_globalUniformBufferLastHash = 0;
     }
 
     // Notify caller that we're done.

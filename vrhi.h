@@ -108,10 +108,13 @@ void vhShutdown( bool quiet = false );
 // Returns a string containing information about the selected physical device and queues.
 std::string vhGetDeviceInfo();
 
-// Blocks until all commands currently in the queue have been processed by the backend.
+// Flushes the command queue to the backend.
 //
-// This does not wait for the GPU to finish execution.
-void vhFlush();
+// If |wait| is true, blocks until the backend has processed all queued commands.
+// If |wait| is false, returns immediately after submitting the flush.
+//
+// This does not wait for the GPU to finish executing the work; use `vhFinish()` for that.
+void vhFlush( bool wait = true );
 
 // Blocks until all commands have been processed and the GPU has reached an idle state.
 void vhFinish();

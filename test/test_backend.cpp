@@ -98,6 +98,11 @@ public:
     {
         return Get().BE_PreSubmitCommon_FindResource( state, stage, scache, item, outItem );
     }
+
+    static int64_t Util_WriteGlobalUniform( const vhState& state, vhBackendTransientBuffer& tbuf, uint64_t& lastHash )
+    {
+        return Get().BE_Util_WriteGlobalUniform( state, tbuf, lastHash );
+    }
 };
 
 
@@ -473,4 +478,169 @@ UTEST( BackendInternal, FindResource )
     vhDestroyTexture( tex );
     vhDestroyBuffer( buf );
     vhFinish();
+}
+
+UTEST( Backend, TransientBuffer )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhBackendTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientTest";
+    desc.isConstantBuffer = true;
+
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    // Verify Initialisation
+    EXPECT_EQ( tb.size, 1024 );
+    EXPECT_EQ( tb.offset, 0 );
+    EXPECT_EQ( tb.frameIdx, 0u );
+    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
+    {
+        EXPECT_NE( tb.handle[i], nullptr );
+    }
+
+    // Test Allocation
+    int64_t offset1 = tb.Alloc( 256 );
+    EXPECT_EQ( offset1, 0 );
+    EXPECT_EQ( tb.offset, 256 );
+
+    int64_t offset2 = tb.Alloc( 256 );
+    EXPECT_EQ( offset2, 256 );
+    EXPECT_EQ( tb.offset, 512 );
+
+    // Test Allocation Failure (Too large)
+    int64_t offsetFail = tb.Alloc( 1000 );
+    EXPECT_EQ( offsetFail, -1 );
+    EXPECT_EQ( tb.offset, 512 ); // Should not change
+
+    // Test Step
+    tb.Step();
+    EXPECT_EQ( tb.frameIdx, 1u );
+    EXPECT_EQ( tb.offset, 0 );
+
+    // Allocate again on new frame
+    int64_t offset3 = tb.Alloc( 100 );
+    EXPECT_EQ( offset3, 0 );
+    EXPECT_EQ( tb.offset, 100 );
+
+    // Shutdown
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+
+    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
+    {
+        EXPECT_EQ( tb.handle[i], nullptr );
+    }
+}
+
+UTEST( Backend, Util_WriteGlobalUniform )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Use a local transient buffer for testing logic
+    vhBackendTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.setByteSize( 1024 * 1024 ); // 1MB
+    desc.setIsConstantBuffer( true );
+    desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
+    desc.setDebugName( "TestTransient" );
+    
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    uint64_t lastHash = 0;
+    vhState state = {};
+    state.viewRect = glm::vec4( 0, 0, 100, 100 );
+
+    // First Write
+    int64_t offset1 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    
+    EXPECT_GE( offset1, 0 );
+    EXPECT_EQ( offset1, 0 );
+    EXPECT_NE( lastHash, 0ull );
+    EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
+
+    // Duplicate Write (Dedup)
+    int64_t offset2 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    EXPECT_EQ( offset2, offset1 ); // Should reuse
+    EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) ); // Should not advance
+
+    // New Write (Mod state)
+    state.viewRect = glm::vec4( 10, 10, 200, 200 );
+    int64_t offset3 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    
+    EXPECT_GT( offset3, offset1 );
+    
+    // Verify alignment
+    EXPECT_EQ( offset3 % VRHI_CBUF_ALIGN, 0 );
+    
+    // Check it advanced
+    EXPECT_GT( tb.offset, offset3 );
+
+    // Create Staging Buffer
+    nvrhi::BufferDesc stgDesc;
+    stgDesc.setByteSize( sizeof( vhGlobalUniform ) );
+    stgDesc.setCpuAccess( nvrhi::CpuAccessMode::Read );
+    stgDesc.setDebugName( "TestStaging" );
+    nvrhi::BufferHandle stagingBuffer = g_vhDevice->createBuffer( stgDesc );
+    EXPECT_NE( stagingBuffer, nullptr );
+
+    // Copy from Transient Buffer (at offset3) to Staging Buffer
+    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+         cmdList->copyBuffer( stagingBuffer, 0, tb.handle[tb.frameIdx], offset3, sizeof( vhGlobalUniform ) );
+    }
+
+    // Flush and Wait
+    vhCmdListFlush( nvrhi::CommandQueue::Graphics );
+    g_vhDevice->waitForIdle();
+
+    // Map and Verify
+    void* pData = g_vhDevice->mapBuffer( stagingBuffer, nvrhi::CpuAccessMode::Read );
+    EXPECT_NE( pData, nullptr );
+    if ( pData )
+    {
+        vhGlobalUniform* u = ( vhGlobalUniform* ) pData;
+        // vhWriteStateToGlobalUniform maps viewRect directly to u_viewRect
+        EXPECT_EQ( u->u_viewRect.x, 10.0f );
+        EXPECT_EQ( u->u_viewRect.y, 10.0f );
+        EXPECT_EQ( u->u_viewRect.z, 200.0f );
+        EXPECT_EQ( u->u_viewRect.w, 200.0f );
+
+        g_vhDevice->unmapBuffer( stagingBuffer );
+    }
+
+    // Force buffer rollover logic simulation
+    // Reset offset manually (simulate Step/Reset) - requires friend access or just calling Step?
+    tb.Step();
+    
+    // lastHash is maintained by caller.
+    // If we write same state again, it should NOT dedup because offset is 0
+    int64_t offset4 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    EXPECT_EQ( offset4, 0 );
+    EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
+
+    // Shutdown
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
 }

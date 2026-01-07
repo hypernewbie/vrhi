@@ -452,10 +452,10 @@ void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU )
     vhCmdEnqueue( cmd );
 }
 
-void vhFlush()
+void vhFlush( bool wait )
 {
     std::atomic<bool> fence = false;
-    vhFlushInternal( &fence, false );
+    vhFlushInternal( wait ? &fence : nullptr, false );
 
     // Wait for fence to be signaled
     while ( !fence.load() )
@@ -994,4 +994,7 @@ uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc )
     return h;
 }
 
-
+uint64_t vhHashGlobalUniform( const vhGlobalUniform& u )
+{
+    return komihash( &u, sizeof( u ), 0 );
+}

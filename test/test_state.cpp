@@ -28,6 +28,9 @@
 #include "utest.h"
 #include "test.h"
 #include <vrhi.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <vrhi_internal.h>
 
 extern bool g_testInit;
@@ -738,7 +741,7 @@ UTEST( Debug, LayoutDiffCheck )
     }
     ASSERT_NE( buffer, nullptr );
 
-    // 1. Create Layout A (ConstantBuffer at Slot 0)
+    // Create Layout A (ConstantBuffer at Slot 0)
     nvrhi::BindingLayoutHandle layoutA;
     {
         nvrhi::BindingLayoutDesc desc;
@@ -749,7 +752,7 @@ UTEST( Debug, LayoutDiffCheck )
     }
     ASSERT_NE( layoutA, nullptr );
 
-    // 2. Create Layout B (Texture_SRV at Slot 0)
+    // Create Layout B (Texture_SRV at Slot 0)
     nvrhi::BindingLayoutHandle layoutB;
     {
         nvrhi::BindingLayoutDesc desc;
@@ -760,7 +763,7 @@ UTEST( Debug, LayoutDiffCheck )
     }
     ASSERT_NE( layoutB, nullptr );
 
-    // 3. Create Binding Set A (Matches Layout A)
+    // Create Binding Set A (Matches Layout A)
     nvrhi::BindingSetHandle setA;
     {
         nvrhi::BindingSetDesc desc;
@@ -851,7 +854,7 @@ UTEST( State, DirtyAll )
     localState.SetViewRect( glm::vec4( 10, 20, 30, 40 ) );
     localState.dirty = 0x0ull; // Manually clear dirty bits
 
-    // 1. Null test: passing 0x0 force mask with no dirty bits should NOT update the backend
+    // Null test: passing 0x0 force mask with no dirty bits should NOT update the backend
     vhSetState( sid, localState, 0x0ull );
     vhFlush();
 
@@ -860,14 +863,79 @@ UTEST( State, DirtyAll )
     EXPECT_NE( retrieved.viewRect, localState.viewRect );
     EXPECT_EQ( retrieved.viewRect, empty.viewRect );
 
-    // 2. Force test: passing VRHI_DIRTY_ALL should update everything regardless of local dirty bits
+    // Force test: passing VRHI_DIRTY_ALL should update everything regardless of local dirty bits
     vhSetState( sid, localState, VRHI_DIRTY_ALL );
     vhFlush();
 
     ASSERT_TRUE( vhGetState( sid, retrieved ) );
     EXPECT_EQ( retrieved.viewRect, localState.viewRect );
 
-    // 3. Cleanup: reset the state ID to avoid leaving leftovers
+    // Cleanup. Reset the state ID to avoid leaving leftovers
     vhSetState( sid, empty, VRHI_DIRTY_ALL );
     vhFlush();
 } 
+
+UTEST( Hashing, GlobalUniform )
+{
+    vhGlobalUniform u = {};
+    memset( &u, 0, sizeof( u ) );
+
+    uint64_t h1 = vhHashGlobalUniform( u );
+    uint64_t h2 = vhHashGlobalUniform( u );
+    EXPECT_EQ( h1, h2 );
+
+    u.u_viewRect = glm::vec4( 1.0f );
+    uint64_t h3 = vhHashGlobalUniform( u );
+    EXPECT_NE( h1, h3 );
+
+    u.u_viewRect = glm::vec4( 0.0f );
+    uint64_t h4 = vhHashGlobalUniform( u );
+    EXPECT_EQ( h1, h4 );
+    
+    u.u_global[0] = glm::vec4( 123.456f );
+    uint64_t h5 = vhHashGlobalUniform( u );
+    EXPECT_NE( h1, h5 );
+}
+
+UTEST( State, WriteGlobalUniform )
+{
+    vhGlobalUniform u = {};
+    vhState s = {};
+
+    // Setup input state
+    s.viewRect = glm::vec4( 0, 0, 100, 200 );
+    s.viewMatrix = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0, 0, -10 ) );
+    s.projMatrix = glm::perspective( 1.0f, 1.0f, 0.1f, 100.0f );
+    
+    // Check that world[0] is skipped for u_worldX array
+    s.worldMatrix.push_back( glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 0, 0 ) ) ); // Index 0
+    s.worldMatrix.push_back( glm::translate( glm::mat4( 1.0f ), glm::vec3( 2, 0, 0 ) ) ); // Index 1
+    s.worldMatrix.push_back( glm::translate( glm::mat4( 1.0f ), glm::vec3( 3, 0, 0 ) ) ); // Index 2
+
+    // Execute
+    vhWriteStateToGlobalUniform( s, u );
+
+    // Verify
+    EXPECT_EQ( u.u_viewRect, s.viewRect );
+    EXPECT_EQ( u.u_view, s.viewMatrix );
+    EXPECT_EQ( u.u_proj, s.projMatrix );
+    EXPECT_EQ( u.u_viewProj, s.projMatrix * s.viewMatrix );
+    
+    // Check derived matrices
+    // Check inverse with small epsilon? glm::inverse is precise enough for exact equality check in many cases for simple matrices,
+    // but EXPECT_TRUE( glm::all( glm::epsilonEqual(...) ) ) is safer. However, standard UTEST macros might not support glm types directly with epsilon.
+    // For now we check identity property: inv * orig == identity
+    glm::mat4 identity = glm::mat4( 1.0f );
+    // We'll trust glm::inverse works and just check the stored value matches calculation
+    EXPECT_EQ( u.u_invView, glm::inverse( s.viewMatrix ) );
+
+    // Check worldX array
+    // u.u_worldX[0] should contain s.worldMatrix[1]
+    EXPECT_EQ( u.u_worldX[0], s.worldMatrix[1] );
+    EXPECT_EQ( u.u_worldX[1], s.worldMatrix[2] );
+    // u.u_worldX[2] should be zero (index 3 was not provided)
+    EXPECT_EQ( u.u_worldX[2], glm::mat4( 0.0f ) );
+    
+    // Check u_worldView (derived from world[0])
+    EXPECT_EQ( u.u_worldView, s.viewMatrix * s.worldMatrix[0] );
+}

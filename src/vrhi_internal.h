@@ -93,6 +93,10 @@
 // Internal Declarations
 // --------------------------------------------------------------------------
 
+// Triple buffering is the max we can support.
+#define VRHI_MAX_FRAMES_INFLIGHT 3
+#define VRHI_CBUF_ALIGN 256
+
 // Internal Vulkan State
 extern VkInstance g_vulkanInstance;
 extern VkPhysicalDevice g_vulkanPhysicalDevice;
@@ -198,6 +202,25 @@ nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& 
 void vhBindingSetCacheClear();
 nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
 
+struct vhGlobalUniform
+{
+    glm::vec4 u_viewRect;
+    glm::vec4 u_viewTexel;
+    glm::mat4 u_view;
+    glm::mat4 u_invView;
+    glm::mat4 u_proj;
+    glm::mat4 u_invProj;
+    glm::mat4 u_viewProj;
+    glm::mat4 u_invViewProj;
+    glm::mat4 u_worldX[4]; // world[1+]. (world[0] is in pushbuffer).
+    glm::mat4 u_worldView;
+    glm::mat4 u_worldViewProj;
+    glm::vec4 u_alphaRef4;
+    glm::vec4 u_global[13];
+};
+static_assert( sizeof( vhGlobalUniform ) < 16384, "vhGlobalUniform must be smaller than 16KB" );
+static_assert( sizeof( vhGlobalUniform ) == 1024, "vhGlobalUniform packing mismatch" );
+
 bool vhReflectSpirv(
     const std::vector< uint32_t >& spirvBlob,
     nvrhi::BindingLayoutDesc& outDesc,
@@ -217,6 +240,8 @@ uint64_t vhHashShaderDebugName( nvrhi::ShaderHandle shader );
 uint64_t vhHashShaderSPIRV( const std::vector< uint32_t >& spirv );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );
+uint64_t vhHashGlobalUniform( const vhGlobalUniform& u );
+void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out );
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
 nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint32_t frontStencil, uint32_t backStencil );

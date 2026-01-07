@@ -504,3 +504,42 @@ bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nv
     return !anyErrors;
 }
 
+void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out )
+{
+    // Clear
+    memset( &out, 0, sizeof( vhGlobalUniform ) );
+
+    // Viewport / Camera
+    out.u_viewRect = state.viewRect;
+    out.u_viewTexel = glm::vec4( 1.0f / state.viewRect.z, 1.0f / state.viewRect.w, state.viewRect.z, state.viewRect.w );
+    out.u_view = state.viewMatrix;
+    out.u_proj = state.projMatrix;
+    
+    // Derived Camera
+    out.u_viewProj = out.u_proj * out.u_view;
+    out.u_invView = glm::inverse( out.u_view );
+    out.u_invProj = glm::inverse( out.u_proj );
+    out.u_invViewProj = glm::inverse( out.u_viewProj );
+
+    // World Transforms
+    // world[0] is used for root transform (modelView etc)
+    // world[1..4] are packed into u_worldX array.
+    if ( !state.worldMatrix.empty() )
+    {
+        // u_worldX receives world[1]...world[4]
+        for ( size_t i = 1; i < 5 && i < state.worldMatrix.size(); ++i )
+        {
+            out.u_worldX[i - 1] = state.worldMatrix[i];
+        }
+
+        // u_worldView derived from world[0]
+        out.u_worldView = out.u_view * state.worldMatrix[0];
+        out.u_worldViewProj = out.u_proj * out.u_worldView;
+    }
+    else
+    {
+        // Identity fallback for world[0]
+        out.u_worldView = out.u_view;
+        out.u_worldViewProj = out.u_viewProj;
+    }
+}

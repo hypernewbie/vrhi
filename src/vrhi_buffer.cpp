@@ -404,3 +404,4 @@ void* vhGetBufferNvrhiHandle( vhBuffer buffer )
 {
     return vhBackendQueryBufferHandle( buffer );
 }
+
