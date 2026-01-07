@@ -73,9 +73,9 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Set VK_ICD_FILENAMES (Windows)
-        if: runner.os == 'Windows'
-        run: echo "VK_ICD_FILENAMES=$env:VK_DRIVER_FILES" >> $env:GITHUB_ENV
-
       - name: Test
+        env:
+          # Explicitly point the loader to the ICDs.
+          # Windows: Use the path provided by the setup action (SwiftShader)
+          VK_ICD_FILENAMES: ${{ runner.os == 'Windows' && env.VK_DRIVER_FILES || (runner.os == 'macOS' && format('{0}/etc/vulkan/icd.d/MoltenVK_icd.json', env.VULKAN_SDK)) || '' }}
         run: ctest --test-dir build -C Release --output-on-failure
