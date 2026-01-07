@@ -48,6 +48,7 @@ find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
         "$ENV{VULKAN_SDK}/Source/SPIRV-Reflect"
         "${Vulkan_INCLUDE_DIR}/../source/SPIRV-Reflect"
         "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect"
+        "${Vulkan_INCLUDE_DIR}/SPIRV-Reflect"
 )
 
 if(SPIRV_REFLECT_DIR)
