@@ -73,9 +73,38 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Configure Environment (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (Test-Path "$env:VK_DRIVER_FILES") {
+            echo "VK_DRIVER_FILES found at: $env:VK_DRIVER_FILES"
+            echo "VK_ICD_FILENAMES=$env:VK_DRIVER_FILES" >> $env:GITHUB_ENV
+          } else {
+            echo "::error::VK_DRIVER_FILES not found at: $env:VK_DRIVER_FILES"
+          }
+
+      - name: Configure Environment (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Check common locations for MoltenVK ICD
+          if [ -f "$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" ]; then
+            echo "Found MoltenVK at share/..."
+            echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          elif [ -f "$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json" ]; then
+            echo "Found MoltenVK at etc/..."
+            echo "VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          else
+            echo "::warning::MoltenVK ICD not found in standard locations."
+            # Fallback to verify directory contents
+            ls -R "$VULKAN_SDK" || true
+          fi
+          
+          # Also set VK_LAYER_PATH just in case
+          if [ -d "$VULKAN_SDK/share/vulkan/explicit_layer.d" ]; then
+             echo "VK_LAYER_PATH=$VULKAN_SDK/share/vulkan/explicit_layer.d" >> $GITHUB_ENV
+          elif [ -d "$VULKAN_SDK/etc/vulkan/explicit_layer.d" ]; then
+             echo "VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d" >> $GITHUB_ENV
+          fi
+
       - name: Test
-        env:
-          # Explicitly point the loader to the ICDs.
-          # Windows: Use the path provided by the setup action (SwiftShader)
-          VK_ICD_FILENAMES: ${{ runner.os == 'Windows' && env.VK_DRIVER_FILES || (runner.os == 'macOS' && format('{0}/etc/vulkan/icd.d/MoltenVK_icd.json', env.VULKAN_SDK)) || '' }}
         run: ctest --test-dir build -C Release --output-on-failure
