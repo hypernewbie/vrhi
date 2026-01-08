@@ -610,8 +610,23 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         const auto& b = state.buffers[i];
         for ( int j = 0; j < shaderCount; j++ )
         {
-            // Only RawBuffer supported
-            const nvrhi::ResourceType bindingType = b.computeUAV ? nvrhi::ResourceType::RawBuffer_UAV : nvrhi::ResourceType::RawBuffer_SRV;
+            nvrhi::ResourceType bindingType = nvrhi::ResourceType::None;
+            if ( bbuf.desc.isConstantBuffer )
+            {
+                bindingType = nvrhi::ResourceType::ConstantBuffer;
+            }
+            else if ( bbuf.desc.format != nvrhi::Format::UNKNOWN )
+            {
+                bindingType = b.computeUAV ? nvrhi::ResourceType::TypedBuffer_UAV : nvrhi::ResourceType::TypedBuffer_SRV;
+            }
+            else if ( bbuf.desc.structStride > 0 )
+            {
+                bindingType = b.computeUAV ? nvrhi::ResourceType::StructuredBuffer_UAV : nvrhi::ResourceType::StructuredBuffer_SRV;
+            }
+            else
+            {
+                bindingType = b.computeUAV ? nvrhi::ResourceType::RawBuffer_UAV : nvrhi::ResourceType::RawBuffer_SRV;
+            }
             const int32_t slot = fnResolveSlot( b.name, b.slot, bindingType, shaders[j] );
             if ( slot < 0 )
                 continue; // Having extra resources bound that the shader doesn't use is fair dinkum.
@@ -672,7 +687,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
         case nvrhi::ResourceType::ConstantBuffer:
         case nvrhi::ResourceType::VolatileConstantBuffer:
         {
-            if ( item.slot == 0 )
+            if ( item.slot == g_vhInit.shaderMake_bRegShift + 0 )
             {
                 int64_t offset = BE_Util_WriteGlobalUniform( state, m_globalUniformBuffer, m_globalUniformBufferLastHash );
                 if ( offset < 0 )
@@ -686,7 +701,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: GlobalUniforms bound to slot %d\n", item.slot );
                 return true;
             }
-            if ( item.slot == 1 )
+            if ( item.slot == g_vhInit.shaderMake_bRegShift + 1 )
             {
                 int64_t offset = BE_Util_WriteWorldUniform( state, m_worldUniformBuffer, m_worldUniformBufferLastHash );
                 if ( offset < 0 )

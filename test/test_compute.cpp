@@ -399,3 +399,129 @@ UTEST( Compute, ReadFromBuffer_Unbound )
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
+
+UTEST( Compute, EndToEnd_UniformsAndConstants )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
+
+    // Resources
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, { 1, 1 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhBuffer userCB = vhAllocBuffer();
+    float userConstants[4] = { 10.0f, 20.0f, 30.0f, 40.0f };
+    vhMem* userData = vhAllocMem( sizeof( userConstants ) );
+    memcpy( userData->data(), userConstants, sizeof( userConstants ) );
+    vhCreateUniformBuffer( userCB, "UserCB", userData, sizeof( userConstants ) );
+
+    // Shader
+    // Expecting:
+    // b0 -> Global Uniforms (View/Proj)
+    // b1 -> World Uniforms (World Matrix)
+    // b2 -> User Constant Buffer
+    const char* csSource = R"(
+        cbuffer GlobalUniforms : register(b0)
+        {
+            float4 u_viewRect;
+            float4 u_viewTexel;
+            float4x4 u_view;
+            float4x4 u_invView;
+            float4x4 u_proj;
+        };
+
+        cbuffer WorldUniforms : register(b1)
+        {
+            float4x4 u_world[4];
+        };
+
+        cbuffer UserCB : register(b2)
+        {
+            float4 u_userData;
+        };
+
+        [[vk::image_format("r32f")]] RWTexture2D<float> g_Out;
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            // Read specific values to verify correct binding slots and data upload.
+            
+            // From Global: u_proj[0][0] set to 5.0
+            float valGlobal = u_proj[0][0];
+
+            // From World: u_world[0][3][0] (m30 - x translation) set to 7.0
+            float valWorld = u_world[0][3][0];
+
+            // From User: u_userData.x set to 10.0
+            float valUser = u_userData.x;
+
+            float result = valGlobal + valWorld + valUser;
+            g_Out[id.xy] = result;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string err;
+    bool res = vhCompileShader( "CS_Uniforms", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0 | VRHI_SHADER_ROW_MAJOR, spirv, "main", {}, {}, &err );
+    if ( !res ) printf( "Shader Compile Error: %s\n", err.c_str() );
+    ASSERT_TRUE( res );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_Uniforms", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    // State
+    vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+
+    // Initialise Global Uniforms via View/Proj
+    glm::mat4 proj = glm::mat4( 1.0f );
+    proj[0][0] = 5.0f;
+    state.SetViewTransform( glm::mat4( 1.0f ), proj );
+
+    // Initialise World Uniforms
+    glm::mat4 world = glm::mat4( 1.0f );
+    world[3][0] = 7.0f;
+    state.SetWorldTransform( world );
+
+    // Setup User Constant Buffer
+    vhState::BufferBinding bUser;
+    bUser.name = "UserCB";
+    bUser.buffer = userCB;
+    state.SetBuffer( 0, bUser );
+
+    // Setup Output
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = outTex;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R32_FLOAT;
+    state.SetTexture( 0, tbOut );
+
+    // Dispatch
+    vhStateId sid = 126;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    // Verify
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
+    ASSERT_EQ( readData.size(), 4 );
+    float* fData = reinterpret_cast< float* >( readData.data() );
+    EXPECT_NEAR( 22.0f, fData[0], 0.001f );
+
+    vhDestroyTexture( outTex );
+    vhDestroyBuffer( userCB );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}

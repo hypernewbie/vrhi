@@ -448,14 +448,14 @@ UTEST( BackendInternal, FindResource )
     nvrhi::BindingSetItem outItem;
 
     // Test Global Uniform (Slot 0)
-    nvrhi::BindingLayoutItem layoutGlobalUniform = nvrhi::BindingLayoutItem::ConstantBuffer( 0 );
+    nvrhi::BindingLayoutItem layoutGlobalUniform = nvrhi::BindingLayoutItem::ConstantBuffer( g_vhInit.shaderMake_bRegShift + 0 );
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutGlobalUniform, outItem ) );
     EXPECT_NE( outItem.resourceHandle, nullptr ); 
     EXPECT_EQ( outItem.type, nvrhi::ResourceType::ConstantBuffer );
     EXPECT_EQ( outItem.range.byteSize, sizeof( vhGlobalUniform ) );
 
     // Test World Uniform (Slot 1)
-    nvrhi::BindingLayoutItem layoutWorldUniform = nvrhi::BindingLayoutItem::ConstantBuffer( 1 );
+    nvrhi::BindingLayoutItem layoutWorldUniform = nvrhi::BindingLayoutItem::ConstantBuffer( g_vhInit.shaderMake_bRegShift + 1 );
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutWorldUniform, outItem ) );
     EXPECT_NE( outItem.resourceHandle, nullptr );
     EXPECT_EQ( outItem.type, nvrhi::ResourceType::ConstantBuffer );
