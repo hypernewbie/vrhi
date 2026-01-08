@@ -91,36 +91,32 @@ bool vhCmdBackendState::BE_Util_ShaderStageMatches( uint64_t flags, bool useComp
     return false;
 }
 
-int64_t vhCmdBackendState::BE_Util_WriteGlobalUniform( const vhState& state, vhBackendTransientBuffer& tbuf, uint64_t& lastHash )
+// Template helper removed - logic moved to vhTransientBuffer::Write
+
+int64_t vhCmdBackendState::BE_Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
 {
     vhGlobalUniform u;
     vhWriteStateToGlobalUniform( state, u );
     uint64_t hash = vhHashGlobalUniform( u );
-    
+
     if ( hash == lastHash && tbuf.offset >= sizeof( vhGlobalUniform ) )
         return tbuf.offset - sizeof( vhGlobalUniform );
 
-    if ( ( tbuf.offset % VRHI_CBUF_ALIGN ) != 0 )
-        return -1;
+    lastHash = hash;
+    return tbuf.Write( &u, sizeof( u ) );
+}
 
-    int64_t offset = tbuf.Alloc( sizeof( vhGlobalUniform ) );
-    if ( offset < 0 )
-        return -1;
+int64_t vhCmdBackendState::BE_Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
+{
+    vhWorldUniform u;
+    vhWriteStateToWorldUniform( state, u );
+    uint64_t hash = vhHashWorldUniform( u );
 
-    {
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        uint8_t* ptr = tbuf.Map_DeviceStateLocked();
-        if ( !ptr )
-        {
-            VRHI_ERR("BE_Util_WriteGlobalUniform: Failed to map global uniform buffer!\n");
-            return -1;
-        }
-        memcpy( ptr + offset, &u, sizeof( u ) );
-        // Unmap is deferred until Frame/Flush boundary
-    }
+    if ( hash == lastHash && tbuf.offset >= sizeof( vhWorldUniform ) )
+        return tbuf.offset - sizeof( vhWorldUniform );
 
     lastHash = hash;
-    return offset;
+    return tbuf.Write( &u, sizeof( u ) );
 }
 
 // --------------------------------------------------------------------------
@@ -1112,11 +1108,20 @@ void vhCmdBackendState::init()
         // So we don't need to lock g_nvRHIStateMutex here.
 
         nvrhi::BufferDesc desc;
-        desc.setByteSize( 16 * 1024 * sizeof( vhGlobalUniform ) ); // 16MB
+        desc.setByteSize( 16 * 1024 * sizeof( vhGlobalUniform ) ); // 16MB roughly
         desc.setIsConstantBuffer( true );
         desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
         desc.setDebugName( "GlobalUniforms" );
+        desc.setMaxVersions( 1 );
         m_globalUniformBuffer.Init_DeviceStateLocked( desc );
+        
+        nvrhi::BufferDesc descWorld;
+        descWorld.setByteSize( 16 * 1024 * sizeof( vhWorldUniform ) ); 
+        descWorld.setIsConstantBuffer( true );
+        descWorld.setCpuAccess( nvrhi::CpuAccessMode::Write );
+        descWorld.setDebugName( "WorldUniforms" );
+        descWorld.setMaxVersions( 1 );
+        m_worldUniformBuffer.Init_DeviceStateLocked( descWorld );
     }
 }
 
@@ -1126,6 +1131,7 @@ void vhCmdBackendState::shutdown()
     std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
 
     m_globalUniformBuffer.Shutdown_DeviceStateLocked();
+    m_worldUniformBuffer.Shutdown_DeviceStateLocked();
 
     backendTextures.clear();
     backendBuffers.clear();
@@ -1893,6 +1899,10 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
     m_globalUniformBuffer.Unmap_DeviceStateLocked();
     m_globalUniformBuffer.Step();
     m_globalUniformBufferLastHash = 0;
+    
+    m_worldUniformBuffer.Unmap_DeviceStateLocked();
+    m_worldUniformBuffer.Step();
+    m_worldUniformBufferLastHash = 0;
 
     // Send it!!
     vhCmdListFlushAll_DeviceStateLocked();

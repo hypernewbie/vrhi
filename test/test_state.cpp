@@ -915,27 +915,25 @@ UTEST( State, WriteGlobalUniform )
     // Execute
     vhWriteStateToGlobalUniform( s, u );
 
-    // Verify
+    // Verify Global
     EXPECT_EQ( u.u_viewRect, s.viewRect );
     EXPECT_EQ( u.u_view, s.viewMatrix );
     EXPECT_EQ( u.u_proj, s.projMatrix );
     EXPECT_EQ( u.u_viewProj, s.projMatrix * s.viewMatrix );
     
-    // Check derived matrices
-    // Check inverse with small epsilon? glm::inverse is precise enough for exact equality check in many cases for simple matrices,
-    // but EXPECT_TRUE( glm::all( glm::epsilonEqual(...) ) ) is safer. However, standard UTEST macros might not support glm types directly with epsilon.
-    // For now we check identity property: inv * orig == identity
-    glm::mat4 identity = glm::mat4( 1.0f );
-    // We'll trust glm::inverse works and just check the stored value matches calculation
     EXPECT_EQ( u.u_invView, glm::inverse( s.viewMatrix ) );
 
-    // Check worldX array
-    // u.u_worldX[0] should contain s.worldMatrix[1]
-    EXPECT_EQ( u.u_worldX[0], s.worldMatrix[1] );
-    EXPECT_EQ( u.u_worldX[1], s.worldMatrix[2] );
-    // u.u_worldX[2] should be zero (index 3 was not provided)
-    EXPECT_EQ( u.u_worldX[2], glm::mat4( 0.0f ) );
-    
+    // Verify World
+    vhWorldUniform wu = {};
+    vhWriteStateToWorldUniform( s, wu );
+
+    // u.u_world[0] should contain s.worldMatrix[0]
+    EXPECT_EQ( wu.u_world[0], s.worldMatrix[0] );
+    EXPECT_EQ( wu.u_world[1], s.worldMatrix[1] );
+    EXPECT_EQ( wu.u_world[2], s.worldMatrix[2] );
+    // u.u_world[3] should be zero
+    EXPECT_EQ( wu.u_world[3], glm::mat4( 0.0f ) );
+
     // Check u_worldView (derived from world[0])
-    EXPECT_EQ( u.u_worldView, s.viewMatrix * s.worldMatrix[0] );
+    EXPECT_EQ( wu.u_worldView, s.viewMatrix * s.worldMatrix[0] );
 }

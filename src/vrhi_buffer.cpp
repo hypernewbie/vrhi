@@ -405,3 +405,89 @@ void* vhGetBufferNvrhiHandle( vhBuffer buffer )
     return vhBackendQueryBufferHandle( buffer );
 }
 
+void vhTransientBuffer::Reset()
+{
+    size = 0;
+    frameIdx = 0;
+    offset = 0;
+    ptr = nullptr;
+}
+
+int64_t vhTransientBuffer::Alloc( int64_t bytes )
+{
+    if ( offset + bytes > size )
+        return -1;
+    int64_t ret = offset;
+    offset += bytes;
+    return ret;
+}
+
+void vhTransientBuffer::Step()
+{
+    frameIdx = ( frameIdx + 1 ) % VRHI_MAX_FRAMES_INFLIGHT;
+    offset = 0;
+}
+
+void vhTransientBuffer::Init_DeviceStateLocked( const nvrhi::BufferDesc& desc )
+{
+    // WARNING: Lock g_nvRHIStateMutex before calling this.
+    Reset();
+    size = desc.byteSize;
+    for ( uint32_t i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ )
+    {
+        handle[i] = g_vhDevice->createBuffer( desc );
+        assert( handle[i] != nullptr );
+    }
+}
+
+uint8_t* vhTransientBuffer::Map_DeviceStateLocked()
+{
+    // WARNING: Lock g_nvRHIStateMutex before calling this.
+    if ( ptr ) return ptr;
+    ptr = ( uint8_t* ) g_vhDevice->mapBuffer( handle[frameIdx], nvrhi::CpuAccessMode::Write );
+    return ptr;
+}
+
+void vhTransientBuffer::Unmap_DeviceStateLocked()
+{
+    // WARNING: Lock g_nvRHIStateMutex before calling this.
+    if ( ptr ) g_vhDevice->unmapBuffer( handle[frameIdx] );
+    ptr = nullptr;
+}
+
+
+void vhTransientBuffer::Shutdown_DeviceStateLocked()
+{
+    // WARNING: Lock g_nvRHIStateMutex before calling this.
+    for ( uint32_t i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ )
+    {
+        handle[i] = nullptr;
+    }
+}
+
+int64_t vhTransientBuffer::Write( const void* data, size_t bytes )
+{
+    // Alignment check
+    if ( ( offset % VRHI_CBUF_ALIGN ) != 0 )
+        return -1;
+
+    // Allocation
+    int64_t writeOffset = Alloc( bytes );
+    if ( writeOffset < 0 )
+        return -1;
+
+    // Write to mapped buffer
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        uint8_t* mappedPtr = Map_DeviceStateLocked();
+        if ( !mappedPtr )
+        {
+            VRHI_ERR("vhTransientBuffer::Write: Failed to map uniform buffer!\n");
+            return -1;
+        }
+        memcpy( mappedPtr + writeOffset, data, bytes );
+    }
+
+    return writeOffset;
+}
+

@@ -520,25 +520,30 @@ void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out )
     out.u_invProj = glm::inverse( out.u_proj );
     out.u_invViewProj = glm::inverse( out.u_viewProj );
 
-    // World Transforms
-    // world[0] is used for root transform (modelView etc)
-    // world[1..4] are packed into u_worldX array.
+    out.u_invViewProj = glm::inverse( out.u_viewProj );
+}
+
+void vhWriteStateToWorldUniform( const vhState& state, vhWorldUniform& out )
+{
+    memset( &out, 0, sizeof( vhWorldUniform ) );
+
     if ( !state.worldMatrix.empty() )
     {
-        // u_worldX receives world[1]...world[4]
-        for ( size_t i = 1; i < 5 && i < state.worldMatrix.size(); ++i )
+        // u_world receives world[0]...world[3]
+        for ( size_t i = 0; i < 4 && i < state.worldMatrix.size(); ++i )
         {
-            out.u_worldX[i - 1] = state.worldMatrix[i];
+            out.u_world[i] = state.worldMatrix[i];
         }
 
         // u_worldView derived from world[0]
-        out.u_worldView = out.u_view * state.worldMatrix[0];
-        out.u_worldViewProj = out.u_proj * out.u_worldView;
+        out.u_worldView = state.viewMatrix * state.worldMatrix[0];
+        out.u_worldViewProj = state.projMatrix * out.u_worldView;
     }
     else
     {
-        // Identity fallback for world[0]
-        out.u_worldView = out.u_view;
-        out.u_worldViewProj = out.u_viewProj;
+        // Identity fallback
+        out.u_world[0] = glm::mat4( 1.0f );
+        out.u_worldView = state.viewMatrix;
+        out.u_worldViewProj = state.projMatrix * out.u_worldView; // viewProj
     }
 }

@@ -202,6 +202,24 @@ nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& 
 void vhBindingSetCacheClear();
 nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
 
+struct vhTransientBuffer
+{
+    int64_t size = 0;
+    nvrhi::BufferHandle handle[VRHI_MAX_FRAMES_INFLIGHT];
+    uint32_t frameIdx = 0;
+    int64_t offset = 0;
+    uint8_t* ptr = nullptr; // For storing mapping.
+
+    void Reset();
+    int64_t Alloc( int64_t bytes );
+    void Step();
+    void Init_DeviceStateLocked( const nvrhi::BufferDesc& desc );
+    uint8_t* Map_DeviceStateLocked();
+    void Unmap_DeviceStateLocked();
+    void Shutdown_DeviceStateLocked();
+    int64_t Write( const void* data, size_t bytes );
+};
+
 struct vhGlobalUniform
 {
     glm::vec4 u_viewRect;
@@ -212,14 +230,21 @@ struct vhGlobalUniform
     glm::mat4 u_invProj;
     glm::mat4 u_viewProj;
     glm::mat4 u_invViewProj;
-    glm::mat4 u_worldX[4]; // world[1+]. (world[0] is in pushbuffer).
-    glm::mat4 u_worldView;
-    glm::mat4 u_worldViewProj;
     glm::vec4 u_alphaRef4;
-    glm::vec4 u_global[13];
+    glm::vec4 u_global[21];
 };
 static_assert( sizeof( vhGlobalUniform ) < 16384, "vhGlobalUniform must be smaller than 16KB" );
-static_assert( sizeof( vhGlobalUniform ) == 1024, "vhGlobalUniform packing mismatch" );
+static_assert( sizeof( vhGlobalUniform ) == 768, "vhGlobalUniform packing mismatch" );
+
+struct vhWorldUniform
+{
+    glm::mat4 u_world[4];
+    glm::mat4 u_worldView;
+    glm::mat4 u_worldViewProj;
+    glm::vec4 _pad[8];
+};
+static_assert( sizeof( vhWorldUniform ) < 16384, "vhWorldUniform must be smaller than 16KB" );
+static_assert( sizeof( vhWorldUniform ) == 512, "vhWorldUniform packing mismatch" );
 
 bool vhReflectSpirv(
     const std::vector< uint32_t >& spirvBlob,
@@ -241,7 +266,9 @@ uint64_t vhHashShaderSPIRV( const std::vector< uint32_t >& spirv );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );
 uint64_t vhHashGlobalUniform( const vhGlobalUniform& u );
+uint64_t vhHashWorldUniform( const vhWorldUniform& u );
 void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out );
+void vhWriteStateToWorldUniform( const vhState& state, vhWorldUniform& out );
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
 nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint32_t frontStencil, uint32_t backStencil );

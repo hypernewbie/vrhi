@@ -69,68 +69,6 @@ struct vhBackendShader
     std::vector< vhSpecConstant > specConstants;
 };
 
-struct vhBackendTransientBuffer
-{
-    int64_t size = 0;
-    nvrhi::BufferHandle handle[VRHI_MAX_FRAMES_INFLIGHT];
-    uint32_t frameIdx = 0;
-    int64_t offset = 0;
-    uint8_t* ptr = nullptr; // For storing mapping.
-
-    inline void Reset() { size = 0; frameIdx = 0; offset = 0; ptr = 0; }
-
-    inline int64_t Alloc( int64_t bytes )
-    {
-        if ( offset + bytes > size )
-            return -1;
-        int64_t ret = offset;
-        offset += bytes;
-        return ret;
-    }
-
-    inline void Step()
-    {
-        frameIdx = ( frameIdx + 1 ) % VRHI_MAX_FRAMES_INFLIGHT;
-        offset = 0;
-    }
-
-    inline void Init_DeviceStateLocked( const nvrhi::BufferDesc& desc )
-    {
-        // WARNING: Lock g_nvRHIStateMutex before calling this.
-        Reset();
-        size = desc.byteSize;
-        for ( uint32_t i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ )
-        {
-            handle[i] = g_vhDevice->createBuffer( desc );
-            assert( handle[i] != nullptr );
-        }
-    }
-
-    inline uint8_t* Map_DeviceStateLocked()
-    {
-        // WARNING: Lock g_nvRHIStateMutex before calling this.
-        if ( ptr ) return ptr;
-        ptr = ( uint8_t* ) g_vhDevice->mapBuffer( handle[frameIdx], nvrhi::CpuAccessMode::Write );
-        return ptr;
-    }
-
-    inline void Unmap_DeviceStateLocked()
-    {
-        // WARNING: Lock g_nvRHIStateMutex before calling this.
-        if ( ptr ) g_vhDevice->unmapBuffer( handle[frameIdx] );
-        ptr = nullptr;
-    }
-
-    inline void Shutdown_DeviceStateLocked()
-    {
-        // WARNING: Lock g_nvRHIStateMutex before calling this.
-        for ( uint32_t i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ )
-        {
-            handle[i] = nullptr;
-        }
-    }
-};
-
 struct vhStateResolveCache
 {
     bool init = false;
@@ -193,9 +131,11 @@ class vhCmdBackendState : public VIDLHandler
     std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
     std::map< vhStateId, vhState > backendStates;
     std::unordered_map< uint64_t, nvrhi::FramebufferHandle > backendFramebuffers;
-    vhBackendTransientBuffer m_globalUniformBuffer;
+    vhTransientBuffer m_globalUniformBuffer;
     uint64_t m_globalUniformBufferLastHash = 0;
-    
+    vhTransientBuffer m_worldUniformBuffer;
+    uint64_t m_worldUniformBufferLastHash = 0;
+
     // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
     inline std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
     {
@@ -240,7 +180,7 @@ class vhCmdBackendState : public VIDLHandler
 
     bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics );
 
-    int64_t BE_Util_WriteGlobalUniform( const vhState& state, vhBackendTransientBuffer& tbuf, uint64_t& lastHash );
+
 
     // --------------------------------------------------------------------------
     // Backend :: Complex BE Low Level NVRHI Device Functions
@@ -257,6 +197,9 @@ class vhCmdBackendState : public VIDLHandler
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data );
 
     nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth, int mip = 0, int layer = 0 );
+
+    int64_t BE_Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );
+    int64_t BE_Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );
 
     bool BE_PresubmitCommon_PipelineDesc(
         vhState& state,

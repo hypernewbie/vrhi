@@ -34,6 +34,105 @@ extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
 
+UTEST( Buffer, Transient )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientTest";
+    desc.isConstantBuffer = true;
+
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    // Verify Initialisation
+    EXPECT_EQ( tb.size, 1024 );
+    EXPECT_EQ( tb.offset, 0 );
+    EXPECT_EQ( tb.frameIdx, 0u );
+    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
+    {
+        EXPECT_NE( tb.handle[i], nullptr );
+    }
+
+    // Test Allocation
+    int64_t offset1 = tb.Alloc( 256 );
+    EXPECT_EQ( offset1, 0 );
+    EXPECT_EQ( tb.offset, 256 );
+
+    int64_t offset2 = tb.Alloc( 256 );
+    EXPECT_EQ( offset2, 256 );
+    EXPECT_EQ( tb.offset, 512 );
+
+    // Test Allocation Failure (Too large)
+    int64_t offsetFail = tb.Alloc( 1000 );
+    EXPECT_EQ( offsetFail, -1 );
+    EXPECT_EQ( tb.offset, 512 ); // Should not change
+
+    // Test Step
+    tb.Step();
+    EXPECT_EQ( tb.frameIdx, 1u );
+    EXPECT_EQ( tb.offset, 0 );
+
+    // Allocate again on new frame
+    int64_t offset3 = tb.Alloc( 100 );
+    EXPECT_EQ( offset3, 0 );
+    EXPECT_EQ( tb.offset, 100 );
+
+    // Shutdown
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+
+    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
+    {
+        EXPECT_EQ( tb.handle[i], nullptr );
+    }
+}
+
+UTEST( Buffer, TransientWrite )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientWriteTest";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    uint32_t data[4] = { 1, 2, 3, 4 };
+    
+    // Test Write
+    int64_t offset1 = tb.Write( data, sizeof( data ) );
+    EXPECT_GE( offset1, 0 );
+    EXPECT_EQ( tb.offset, sizeof( data ) );
+
+    // Shutdown
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+
 UTEST( Buffer, ValidateLayout )
 {
     // Valid cases

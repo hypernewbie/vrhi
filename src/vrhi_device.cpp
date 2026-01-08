@@ -998,3 +998,8 @@ uint64_t vhHashGlobalUniform( const vhGlobalUniform& u )
 {
     return komihash( &u, sizeof( u ), 0 );
 }
+
+uint64_t vhHashWorldUniform( const vhWorldUniform& u )
+{
+    return komihash( &u, sizeof( u ), 0 );
+}

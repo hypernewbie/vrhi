@@ -26,6 +26,7 @@
 #include "test.h"
 #include <vrhi.h>
 #include <vrhi_backend.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -99,9 +100,14 @@ public:
         return Get().BE_PreSubmitCommon_FindResource( state, stage, scache, item, outItem );
     }
 
-    static int64_t Util_WriteGlobalUniform( const vhState& state, vhBackendTransientBuffer& tbuf, uint64_t& lastHash )
+    static int64_t Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
     {
         return Get().BE_Util_WriteGlobalUniform( state, tbuf, lastHash );
+    }
+
+    static int64_t Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
+    {
+        return Get().BE_Util_WriteWorldUniform( state, tbuf, lastHash );
     }
 };
 
@@ -480,69 +486,7 @@ UTEST( BackendInternal, FindResource )
     vhFinish();
 }
 
-UTEST( Backend, TransientBuffer )
-{
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
 
-    vhBackendTransientBuffer tb;
-    nvrhi::BufferDesc desc;
-    desc.byteSize = 1024;
-    desc.debugName = "TransientTest";
-    desc.isConstantBuffer = true;
-
-    {
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        tb.Init_DeviceStateLocked( desc );
-    }
-
-    // Verify Initialisation
-    EXPECT_EQ( tb.size, 1024 );
-    EXPECT_EQ( tb.offset, 0 );
-    EXPECT_EQ( tb.frameIdx, 0u );
-    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
-    {
-        EXPECT_NE( tb.handle[i], nullptr );
-    }
-
-    // Test Allocation
-    int64_t offset1 = tb.Alloc( 256 );
-    EXPECT_EQ( offset1, 0 );
-    EXPECT_EQ( tb.offset, 256 );
-
-    int64_t offset2 = tb.Alloc( 256 );
-    EXPECT_EQ( offset2, 256 );
-    EXPECT_EQ( tb.offset, 512 );
-
-    // Test Allocation Failure (Too large)
-    int64_t offsetFail = tb.Alloc( 1000 );
-    EXPECT_EQ( offsetFail, -1 );
-    EXPECT_EQ( tb.offset, 512 ); // Should not change
-
-    // Test Step
-    tb.Step();
-    EXPECT_EQ( tb.frameIdx, 1u );
-    EXPECT_EQ( tb.offset, 0 );
-
-    // Allocate again on new frame
-    int64_t offset3 = tb.Alloc( 100 );
-    EXPECT_EQ( offset3, 0 );
-    EXPECT_EQ( tb.offset, 100 );
-
-    // Shutdown
-    {
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        tb.Shutdown_DeviceStateLocked();
-    }
-
-    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
-    {
-        EXPECT_EQ( tb.handle[i], nullptr );
-    }
-}
 
 UTEST( Backend, Util_WriteGlobalUniform )
 {
@@ -553,7 +497,7 @@ UTEST( Backend, Util_WriteGlobalUniform )
     }
 
     // Use a local transient buffer for testing logic
-    vhBackendTransientBuffer tb;
+    vhTransientBuffer tb;
     nvrhi::BufferDesc desc;
     desc.setByteSize( 1024 * 1024 ); // 1MB
     desc.setIsConstantBuffer( true );
@@ -639,6 +583,52 @@ UTEST( Backend, Util_WriteGlobalUniform )
     EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
 
     // Shutdown
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST( Backend, Util_WriteWorldUniform )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.setByteSize( 16 * 1024 * sizeof( vhWorldUniform ) );
+    desc.setIsConstantBuffer( true );
+    desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
+    desc.setDebugName( "TestTransientWorld" );
+    
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    uint64_t lastHash = 0;
+    vhState state = {};
+    state.worldMatrix.push_back( glm::mat4( 1.0f ) ); // Identity
+
+    // First Write
+    int64_t offset1 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    EXPECT_GE( offset1, 0 );
+    EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
+
+    // Dedup
+    int64_t offset2 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    EXPECT_EQ( offset2, offset1 );
+    EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
+
+    // Mod
+    state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 0, 0 ) );
+    int64_t offset3 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    EXPECT_GT( offset3, offset1 );
+    EXPECT_GT( tb.offset, offset3 );
+
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         tb.Shutdown_DeviceStateLocked();
