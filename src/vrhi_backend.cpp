@@ -674,8 +674,31 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
         {
             if ( item.slot == 0 )
             {
-                // TODO: Implement global uniform buffer binding.
-                return false;
+                int64_t offset = BE_Util_WriteGlobalUniform( state, m_globalUniformBuffer, m_globalUniformBufferLastHash );
+                if ( offset < 0 )
+                {
+                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Failed to write GlobalUniforms\n" );
+                     return false;
+                }
+                nvrhi::BufferRange range( offset, sizeof( vhGlobalUniform ) );
+                outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_globalUniformBuffer.handle[ m_globalUniformBuffer.frameIdx ], range );
+                outItem.type = item.type;
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: GlobalUniforms bound to slot %d\n", item.slot );
+                return true;
+            }
+            if ( item.slot == 1 )
+            {
+                int64_t offset = BE_Util_WriteWorldUniform( state, m_worldUniformBuffer, m_worldUniformBufferLastHash );
+                if ( offset < 0 )
+                {
+                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Failed to write WorldUniforms\n" );
+                     return false;
+                }
+                nvrhi::BufferRange range( offset, sizeof( vhWorldUniform ) );
+                outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_worldUniformBuffer.handle[ m_worldUniformBuffer.frameIdx ], range );
+                outItem.type = item.type;
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: WorldUniforms bound to slot %d\n", item.slot );
+                return true;
             }
 
             auto it = stageTable.bufferTable.find( item.slot );
@@ -1108,19 +1131,17 @@ void vhCmdBackendState::init()
         // So we don't need to lock g_nvRHIStateMutex here.
 
         nvrhi::BufferDesc desc;
-        desc.setByteSize( 16 * 1024 * sizeof( vhGlobalUniform ) ); // 16MB roughly
+        desc.setByteSize( g_vhInit.maxViewGlobals * sizeof( vhGlobalUniform ) );
         desc.setIsConstantBuffer( true );
         desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
         desc.setDebugName( "GlobalUniforms" );
-        desc.setMaxVersions( 1 );
         m_globalUniformBuffer.Init_DeviceStateLocked( desc );
         
         nvrhi::BufferDesc descWorld;
-        descWorld.setByteSize( 16 * 1024 * sizeof( vhWorldUniform ) ); 
+        descWorld.setByteSize( g_vhInit.maxWorldMatrices * sizeof( vhWorldUniform ) ); 
         descWorld.setIsConstantBuffer( true );
         descWorld.setCpuAccess( nvrhi::CpuAccessMode::Write );
         descWorld.setDebugName( "WorldUniforms" );
-        descWorld.setMaxVersions( 1 );
         m_worldUniformBuffer.Init_DeviceStateLocked( descWorld );
     }
 }

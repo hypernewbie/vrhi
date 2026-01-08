@@ -41,6 +41,16 @@ public:
         return s_instance;
     }
 
+    static void Init()
+    {
+        Get().init();
+    }
+
+    static void Shutdown()
+    {
+        Get().shutdown();
+    }
+
     static bool Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics )
     {
         return Get().BE_Util_ShaderStageMatches( flags, useCompute, useGraphics );
@@ -383,6 +393,7 @@ UTEST( BackendInternal, FindResource )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    vhCmdBackendStateTest::Init();
 
     // Create dummy resources
     vhTexture tex = vhAllocTexture();
@@ -436,6 +447,20 @@ UTEST( BackendInternal, FindResource )
 
     nvrhi::BindingSetItem outItem;
 
+    // Test Global Uniform (Slot 0)
+    nvrhi::BindingLayoutItem layoutGlobalUniform = nvrhi::BindingLayoutItem::ConstantBuffer( 0 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutGlobalUniform, outItem ) );
+    EXPECT_NE( outItem.resourceHandle, nullptr ); 
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::ConstantBuffer );
+    EXPECT_EQ( outItem.range.byteSize, sizeof( vhGlobalUniform ) );
+
+    // Test World Uniform (Slot 1)
+    nvrhi::BindingLayoutItem layoutWorldUniform = nvrhi::BindingLayoutItem::ConstantBuffer( 1 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutWorldUniform, outItem ) );
+    EXPECT_NE( outItem.resourceHandle, nullptr );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::ConstantBuffer );
+    EXPECT_EQ( outItem.range.byteSize, sizeof( vhWorldUniform ) );
+
     // Test Texture SRV
     nvrhi::BindingLayoutItem layoutTexSRV = nvrhi::BindingLayoutItem::Texture_SRV( 0 );
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutTexSRV, outItem ) );
@@ -480,6 +505,8 @@ UTEST( BackendInternal, FindResource )
 
     nvrhi::BindingLayoutItem layoutMissingSampler = nvrhi::BindingLayoutItem::Sampler( 99 );
     EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutMissingSampler, outItem ) );
+    
+    vhCmdBackendStateTest::Shutdown();
 
     vhDestroyTexture( tex );
     vhDestroyBuffer( buf );

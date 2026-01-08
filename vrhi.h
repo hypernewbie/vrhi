@@ -72,6 +72,10 @@ struct vhInitData
     uint32_t shaderMake_tRegShift = 200;
     uint32_t shaderMake_bRegShift = 300;
     uint32_t shaderMake_uRegShift = 400;
+
+    // Default configuration for global and world uniform buffers.
+    uint32_t maxViewGlobals = 4 * 1024;
+    uint32_t maxWorldMatrices = 16 * 1024;
 };
 
 typedef uint32_t vhTexture;
