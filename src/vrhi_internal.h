@@ -201,6 +201,8 @@ nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& de
 nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 void vhBindingSetCacheClear();
 nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
+nvrhi::FramebufferHandle vhFBOCacheGet( const nvrhi::FramebufferDesc& desc );
+void vhFBOCacheReset();
 
 struct vhTransientBuffer
 {
@@ -267,10 +269,13 @@ uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );
 uint64_t vhHashGlobalUniform( const vhGlobalUniform& u );
 uint64_t vhHashWorldUniform( const vhWorldUniform& u );
+uint64_t vhHashFrameBuffer( const nvrhi::FramebufferDesc& desc );
 void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out );
 void vhWriteStateToWorldUniform( const vhState& state, vhWorldUniform& out );
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
 nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint32_t frontStencil, uint32_t backStencil );
 nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
+
+
 

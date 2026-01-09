@@ -355,6 +355,7 @@ void vhShutdown( bool quiet )
     vhPSOCacheShutdown();
     vhSamplerCacheShutdown();
     vhBindingSetCacheClear();
+    vhFBOCacheReset();
 
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     g_vhDevice = nullptr; // RefCountPtr handles the release()
@@ -1003,3 +1004,47 @@ uint64_t vhHashWorldUniform( const vhWorldUniform& u )
 {
     return komihash( &u, sizeof( u ), 0 );
 }
+
+uint64_t vhHashFrameBuffer( const nvrhi::FramebufferDesc& desc )
+{
+    uint64_t h = 0;
+    for ( const auto& at : desc.colorAttachments )
+    {
+        h = komihash( &at.texture, sizeof( at.texture ), h );
+        h = komihash( &at.subresources, sizeof( at.subresources ), h );
+        h = komihash( &at.format, sizeof( at.format ), h );
+        h = komihash( &at.isReadOnly, sizeof( at.isReadOnly ), h );
+    }
+    h = komihash( &desc.depthAttachment.texture, sizeof( desc.depthAttachment.texture ), h );
+    h = komihash( &desc.depthAttachment.subresources, sizeof( desc.depthAttachment.subresources ), h );
+    h = komihash( &desc.depthAttachment.format, sizeof( desc.depthAttachment.format ), h );
+    h = komihash( &desc.depthAttachment.isReadOnly, sizeof( desc.depthAttachment.isReadOnly ), h );
+    
+    // Also hash shading rate if needed, though not explicitly requested, good practice to match struct
+    h = komihash( &desc.shadingRateAttachment.texture, sizeof( desc.shadingRateAttachment.texture ), h );
+    
+    return h;
+}
+
+static std::unordered_map< uint64_t, nvrhi::FramebufferHandle > s_FBOCache;
+
+void vhFBOCacheReset()
+{
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+    s_FBOCache.clear();
+}
+
+nvrhi::FramebufferHandle vhFBOCacheGet( const nvrhi::FramebufferDesc& desc )
+{
+    uint64_t hash = vhHashFrameBuffer( desc );
+    
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+    auto it = s_FBOCache.find( hash );
+    if ( it != s_FBOCache.end() )
+        return it->second;
+        
+    nvrhi::FramebufferHandle fb = g_vhDevice->createFramebuffer( desc );
+    if ( fb ) s_FBOCache[hash] = fb;
+    return fb;
+}
+

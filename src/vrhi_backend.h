@@ -130,7 +130,6 @@ class vhCmdBackendState : public VIDLHandler
     std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
     std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
     std::map< vhStateId, vhState > backendStates;
-    std::unordered_map< uint64_t, nvrhi::FramebufferHandle > backendFramebuffers;
     vhTransientBuffer m_globalUniformBuffer;
     uint64_t m_globalUniformBufferLastHash = 0;
     vhTransientBuffer m_worldUniformBuffer;
@@ -196,7 +195,7 @@ class vhCmdBackendState : public VIDLHandler
 
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data );
 
-    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth, int mip = 0, int layer = 0 );
+    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment );
 
     int64_t BE_Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );
     int64_t BE_Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );

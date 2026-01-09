@@ -92,8 +92,19 @@ public:
 
     static bool GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth )
     {
-        auto fb1 = Get().BE_GetFrameBuffer( colors, depth, 0, 0 );
-        auto fb2 = Get().BE_GetFrameBuffer( colors, depth, 0, 0 );
+        std::vector< vhState::RenderTarget > rtColors;
+        for ( auto c : colors )
+        {
+            vhState::RenderTarget rt;
+            rt.texture = c;
+            rtColors.push_back( rt );
+        }
+        
+        vhState::RenderTarget rtDepth;
+        rtDepth.texture = depth;
+        
+        auto fb1 = Get().BE_GetFrameBuffer( rtColors, rtDepth );
+        auto fb2 = Get().BE_GetFrameBuffer( rtColors, rtDepth );
 
         if ( !fb1 || !fb2 ) return false;
         return fb1.Get() == fb2.Get();

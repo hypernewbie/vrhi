@@ -319,50 +319,41 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
     }
 }
 
-nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector< vhTexture >& colours, vhTexture depth, int mip, int layer )
+nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment )
 {
-    // TODO: ################ Finish implementation ################
-    // TODO: THIS IS UNTESTED!! Use this at graphics render time in future.
-
-    // Combine all inputs into a hash key
-    uint64_t hashInput[32]; // Enough for color attachments + depth + mip/layer
-    int i = 0;
-    for ( auto c : colours ) hashInput[i++] = ( uint64_t ) c;
-    hashInput[i++] = ( uint64_t ) depth;
-    hashInput[i++] = ( uint32_t ) mip | ( ( uint32_t ) layer << 16 );
-
-    uint64_t key = komihash( hashInput, i * sizeof( uint64_t ), 0 );
-
-    if ( backendFramebuffers.find( key ) == backendFramebuffers.end() )
+    nvrhi::FramebufferDesc desc;
+    for ( const auto& rt : colourAttachment )
     {
-        nvrhi::FramebufferDesc desc;
-        for ( auto texture : colours )
+        if ( rt.texture == VRHI_INVALID_HANDLE ) continue;
+        auto it = backendTextures.find( rt.texture );
+        if ( it != backendTextures.end() && it->second->handle )
         {
-            auto it = backendTextures.find( texture );
-            if ( it != backendTextures.end() && it->second->handle )
-            {
-                desc.addColorAttachment( nvrhi::FramebufferAttachment( it->second->handle )
-                    .setArraySlice( layer )
-                    .setMipLevel( mip ) );
-            }
+            nvrhi::FramebufferAttachment att;
+            att.setTexture( it->second->handle );
+            att.setArraySlice( rt.arrayLayer );
+            att.setMipLevel( rt.mipLevel );
+            att.setFormat( rt.formatOverride );
+            att.setReadOnly( rt.readOnly );
+            desc.addColorAttachment( att );
         }
-
-        if ( depth != VRHI_INVALID_HANDLE )
-        {
-            auto it = backendTextures.find( depth );
-            if ( it != backendTextures.end() && it->second->handle )
-            {
-                desc.setDepthAttachment( nvrhi::FramebufferAttachment( it->second->handle )
-                    .setArraySlice( layer )
-                    .setMipLevel( mip ) );
-            }
-        }
-
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        backendFramebuffers[key] = g_vhDevice->createFramebuffer( desc );
     }
 
-    return backendFramebuffers[key];
+    if ( depthAttachment.texture != VRHI_INVALID_HANDLE )
+    {
+        auto it = backendTextures.find( depthAttachment.texture );
+        if ( it != backendTextures.end() && it->second->handle )
+        {
+            nvrhi::FramebufferAttachment att;
+            att.setTexture( it->second->handle );
+            att.setArraySlice( depthAttachment.arrayLayer );
+            att.setMipLevel( depthAttachment.mipLevel );
+            att.setFormat( depthAttachment.formatOverride );
+            att.setReadOnly( depthAttachment.readOnly );
+            desc.setDepthAttachment( att );
+        }
+    }
+
+    return vhFBOCacheGet( desc );
 }
 
 bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
@@ -1172,7 +1163,6 @@ void vhCmdBackendState::shutdown()
     backendTextures.clear();
     backendBuffers.clear();
     backendShaders.clear();
-    backendFramebuffers.clear();
 
     // Clear static caches
     s_layoutToShader.clear();
@@ -1209,8 +1199,7 @@ void vhCmdBackendState::Handle_vhResetTexture( VIDL_vhResetTexture* cmd )
 void vhCmdBackendState::Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    backendFramebuffers.clear();
+    vhFBOCacheReset();
 }
 
 void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
