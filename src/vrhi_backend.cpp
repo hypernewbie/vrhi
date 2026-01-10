@@ -1043,6 +1043,9 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
         // nvrhi::DepthStencilState::dynamicStencilRefValue is false, but we set this any way because it's fun.
         graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
+
+        // Bind Framebuffer
+        graphicsState->framebuffer = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment );
     }
 
     // Final layout check and detailed diff print.
@@ -1103,13 +1106,44 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
 
 void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset )
 {
-    // Suggested Implementation:
-    // Get Compute Queue command list: auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Compute );
-    // Validate indirect buffer flags (ensure VRHI_BUFFER_DRAW_INDIRECT is set).
-    // Validate state and create/bind Compute Pipeline (similar to BE_Dispatch).
-    // Bind Resources (using state).
-    // cmdlist->dispatchIndirect( indirectBuffer.handle, byteOffset );
-    // NOTE: byteOffset should be 4-byte aligned (checked in frontend, but check here if needed).
+    assert( computeShader.handle );
+    assert( indirectBuffer.handle );
+
+    if ( !( indirectBuffer.flags & VRHI_BUFFER_DRAW_INDIRECT ) )
+    {
+        VRHI_ERR( "BE_DispatchIndirect() : Indirect buffer %s was not created with VRHI_BUFFER_DRAW_INDIRECT! SKIPPING COMPUTE DISPATCH.\n", indirectBuffer.name.c_str() );
+        return;
+    }
+
+    nvrhi::ComputePipelineDesc desc;
+    if ( !BE_PresubmitCommon_PipelineDesc( state, &computeShader, 1, &desc, nullptr ) )
+    {
+        VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        return;
+    }
+
+    nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( desc );
+    if ( !pso )
+    {
+        VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        return;
+    }
+
+    nvrhi::ComputeState cstate;
+    cstate.setPipeline( pso.Get() );
+    if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, &cstate, nullptr ) )
+    {
+        VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        return;
+    }
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        cmdlist->setComputeState( cstate );
+        cmdlist->setIndirectParams( indirectBuffer.handle );
+        cmdlist->dispatchIndirect( ( uint32_t ) byteOffset );
+    }
 }
 
 void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size )
@@ -1455,10 +1489,10 @@ vhBackendBuffer* vhCmdBackendState::Handle_vhCreateBufferCommon_Internal( const 
     if ( !name || !name[0] ) snprintf( temps, sizeof( temps ), "%s %d", autoname, buffer );
     auto bufferDesc = desc
         .setByteSize( byteSize )
-        .setCanHaveUAVs( flags & VRHI_BUFFER_COMPUTE_WRITE )
-        .setCanHaveTypedViews( flags & VRHI_BUFFER_COMPUTE_READ )
-        .setCanHaveRawViews( flags & VRHI_BUFFER_COMPUTE_READ )
-        .setIsDrawIndirectArgs( flags & VRHI_BUFFER_DRAW_INDIRECT )
+        .setCanHaveUAVs( !!( flags & VRHI_BUFFER_COMPUTE_WRITE ) )
+        .setCanHaveTypedViews( !!( flags & VRHI_BUFFER_COMPUTE_READ ) )
+        .setCanHaveRawViews( !!( flags & VRHI_BUFFER_COMPUTE_READ ) )
+        .setIsDrawIndirectArgs( !!( flags & VRHI_BUFFER_DRAW_INDIRECT ) )
         .setDebugName( ( name && name[0] ) ? name : temps );
 
     nvrhi::BufferHandle bhandle = nullptr;
