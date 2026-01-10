@@ -25,6 +25,7 @@
 #include "utest.h"
 #include "test.h"
 #include <vrhi.h>
+#include <vrhi_internal.h>
 #include <vrhi_backend.h>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -65,6 +66,11 @@ public:
     static void InsertDummyTexture( vhTexture handle, vhBackendTexture* tex )
     {
         Get().backendTextures[handle].reset( tex );
+    }
+
+    static void InsertDummyBuffer( vhBuffer handle, vhBackendBuffer* buf )
+    {
+        Get().backendBuffers[handle].reset( buf );
     }
 
     // Test access for Pipeline Validation
@@ -624,6 +630,160 @@ UTEST( Backend, Util_WriteGlobalUniform )
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST( Backend, VertexIndexBufferBinding )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    vhCmdBackendStateTest::Init();
+
+    // Test Single Vertex Buffer Binding
+    vhBuffer vb = vhAllocBuffer();
+    // Manually populate backend buffer for the test instance
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc;
+        desc.setByteSize( 1024 );
+        desc.setIsVertexBuffer( true );
+        desc.setDebugName( "VB1" );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            bbuf->handle = g_vhDevice->createBuffer( desc );
+        }
+        ASSERT_TRUE( bbuf->handle );
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb, bbuf );
+    }
+
+    vhState state;
+    state.SetVertexBuffer( vb, 0, 0, 0, ( 1024 / 12 ) );
+
+    nvrhi::GraphicsState gstate;
+    
+    // Dummy shader required for PreSubmitCommon_State
+    vhBackendShader shader;
+    shader.flags = VRHI_SHADER_STAGE_VERTEX;
+    
+    nvrhi::BindingLayoutDesc layoutDesc = {};
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+    ASSERT_TRUE( shader.layout );
+    
+    nvrhi::BindingLayoutVector layouts;
+    layouts.push_back( shader.layout );
+    nvrhi::GraphicsPipelineDesc gdesc;
+    gdesc.bindingLayouts = layouts;
+    
+    class MockGraphicsPipeline : public nvrhi::RefCounter<nvrhi::IGraphicsPipeline>
+    {
+        nvrhi::GraphicsPipelineDesc desc;
+    public:
+        MockGraphicsPipeline( const nvrhi::BindingLayoutVector& layouts ) { desc.bindingLayouts = layouts; }
+        const nvrhi::GraphicsPipelineDesc& getDesc() const override { return desc; }
+        const nvrhi::FramebufferInfo& getFramebufferInfo() const override { static nvrhi::FramebufferInfo i; return i; }
+    };
+
+    gstate.pipeline = new MockGraphicsPipeline( layouts );
+    
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+    
+    EXPECT_EQ( gstate.vertexBuffers.size(), 1u );
+    if ( gstate.vertexBuffers.size() > 0 )
+    {
+        EXPECT_EQ( gstate.vertexBuffers[0].slot, 0u );
+        EXPECT_NE( gstate.vertexBuffers[0].buffer, nullptr );
+    }
+
+    // Test Multiple Vertex Streams
+    vhBuffer vb2 = vhAllocBuffer();
+    vhBuffer vb3 = vhAllocBuffer();
+    {
+        {
+            auto bbuf2 = new vhBackendBuffer();
+            nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+            { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf2->handle = g_vhDevice->createBuffer( desc ); }
+            bbuf2->stride = 12;
+            vhCmdBackendStateTest::InsertDummyBuffer( vb2, bbuf2 );
+        }
+
+        {
+            auto bbuf3 = new vhBackendBuffer();
+            nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+            { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf3->handle = g_vhDevice->createBuffer( desc ); }
+            bbuf3->stride = 12;
+            vhCmdBackendStateTest::InsertDummyBuffer( vb3, bbuf3 );
+        }
+    }
+
+    state.SetVertexBuffer( vb2, 1, 64 );
+    state.SetVertexBuffer( vb3, 2, 128 );
+
+    gstate.vertexBuffers = {}; // Reset
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+    EXPECT_EQ( gstate.vertexBuffers.size(), 3u );
+    for( auto& v : gstate.vertexBuffers )
+    {
+        if ( v.slot == 0 ) EXPECT_EQ( v.offset, 0u );
+        if ( v.slot == 1 ) EXPECT_EQ( v.offset, 64u );
+        if ( v.slot == 2 ) EXPECT_EQ( v.offset, 128u );
+    }
+
+    // Test 32-bit Index Buffer
+    vhBuffer ib32 = vhAllocBuffer();
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsIndexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->flags = VRHI_BUFFER_INDEX32;
+        bbuf->stride = 4;
+        vhCmdBackendStateTest::InsertDummyBuffer( ib32, bbuf );
+    }
+
+    state.SetIndexBuffer( ib32, 256 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+    
+    EXPECT_NE( gstate.indexBuffer.buffer, nullptr );
+    EXPECT_EQ( gstate.indexBuffer.offset, 256u );
+    EXPECT_EQ( gstate.indexBuffer.format, nvrhi::Format::R32_UINT );
+
+    // Test 16-bit Index Buffer
+    vhBuffer ib16 = vhAllocBuffer();
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsIndexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->flags = 0;
+        bbuf->stride = 2;
+        vhCmdBackendStateTest::InsertDummyBuffer( ib16, bbuf );
+    }
+
+    state.SetIndexBuffer( ib16, 128 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+
+    EXPECT_NE( gstate.indexBuffer.buffer, nullptr );
+    EXPECT_EQ( gstate.indexBuffer.offset, 128u );
+    EXPECT_EQ( gstate.indexBuffer.format, nvrhi::Format::R16_UINT );
+
+    // Cleanup
+    vhCmdBackendStateTest::Shutdown();
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( vb2 );
+    vhDestroyBuffer( vb3 );
+    vhDestroyBuffer( ib32 );
+    vhDestroyBuffer( ib16 );
+    
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = nullptr;
     }
 }
 

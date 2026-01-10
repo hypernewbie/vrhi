@@ -525,3 +525,89 @@ UTEST( Compute, EndToEnd_UniformsAndConstants )
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
+
+UTEST( Compute, DispatchIndirect )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
+
+    // Resources
+    // Output Texture: 8x8 R8
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    // Indirect Buffer
+    vhBuffer indirectBuf = vhAllocBuffer();
+    struct IndirectCmd { uint32_t x, y, z; };
+    IndirectCmd cmd = { 1, 1, 1 }; // 1 group of 8x8 threads
+    
+    // Create CPU staging data
+    vhMem* cmdData = vhAllocMem( sizeof( cmd ) );
+    memcpy( cmdData->data(), &cmd, sizeof( cmd ) );
+
+    // Create Indirect Buffer with REQUIRED FLAG
+    vhCreateStorageBuffer( indirectBuf, "IndirectBuf", cmdData, sizeof( cmd ), VRHI_BUFFER_DRAW_INDIRECT );
+
+    // Shader
+    // Same as basic test: write 1.0 (white)
+    const char* csSource = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
+        
+        [numthreads(8, 8, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = 1.0; 
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader( "CS_Indirect", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    ASSERT_TRUE( success );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_Indirect", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    // State
+    vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+
+    vhState::TextureBinding tb;
+    tb.name = "g_Out";
+    tb.texture = outTex;
+    tb.computeUAV = true;
+    tb.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tb );
+
+    vhStateId sid = 127;
+    vhSetState( sid, state );
+    
+    // Test: Indirect Dispatch
+    // Offset 0
+    vhDispatchIndirect( sid, indirectBuf, 0 );
+    
+    // Verify
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
+    ASSERT_EQ( readData.size(), 64 );
+    for ( int i = 0; i < 64; ++i )
+    {
+        EXPECT_EQ( readData[i], 255 );
+    }
+
+    // Cleanup
+    vhDestroyTexture( outTex );
+    vhDestroyBuffer( indirectBuf );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}

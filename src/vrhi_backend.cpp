@@ -353,6 +353,12 @@ nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector
         }
     }
 
+    if ( desc.colorAttachments.empty() && !desc.depthAttachment.valid() )
+    {
+        VRHI_ERR( "vhSetState(): No attachments specified for frame buffer.\n" );
+        return nullptr;
+    }
+
     return vhFBOCacheGet( desc );
 }
 
@@ -414,10 +420,6 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
 
         // [TODO] The following fields are not currently populated from vhState:
         // - patchControlPoints: tessellation is only supported if we add it.
-
-        // Resolve Input Layout
-
-        // Resolve Input Layout
 
         s_layoutLocationTable.clear();
         s_attributes.clear();
@@ -897,8 +899,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 )
 {
     const nvrhi::BindingLayoutVector* psoLayouts = nullptr;
-    if ( computeState ) psoLayouts = &computeState->pipeline->getDesc().bindingLayouts;
-    if ( graphicsState ) psoLayouts = &graphicsState->pipeline->getDesc().bindingLayouts;
+    if ( computeState && computeState->pipeline ) psoLayouts = &computeState->pipeline->getDesc().bindingLayouts;
+    if ( graphicsState && graphicsState->pipeline ) psoLayouts = &graphicsState->pipeline->getDesc().bindingLayouts;
     if ( !psoLayouts )
     {
         VRHI_ERR( "vhSetState(): No PSO layout. This is likely a Vrhi bug.\n" );
@@ -1046,6 +1048,36 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
         // Bind Framebuffer
         graphicsState->framebuffer = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment );
+
+        // Bind Vertex Buffers
+        for ( const auto& vb : state.vertexBindings )
+        {
+            if ( vb.buffer == VRHI_INVALID_HANDLE ) continue;
+            auto it = backendBuffers.find( vb.buffer );
+            if ( it != backendBuffers.end() && it->second->handle )
+            {
+                graphicsState->addVertexBuffer( nvrhi::VertexBufferBinding()
+                    .setBuffer( it->second->handle )
+                    .setSlot( vb.stream )
+                    .setOffset( vb.byteOffset ) );
+            }
+        }
+
+        // Bind Index Buffer
+        if ( state.indexBinding.buffer != VRHI_INVALID_HANDLE )
+        {
+            auto it = backendBuffers.find( state.indexBinding.buffer );
+            if ( it != backendBuffers.end() && it->second->handle )
+            {
+                bool is32Bit = !!( it->second->flags & VRHI_BUFFER_INDEX32 );
+                assert( it->second->stride == ( is32Bit ? 4 : 2 ) );
+
+                graphicsState->setIndexBuffer( nvrhi::IndexBufferBinding()
+                    .setBuffer( it->second->handle )
+                    .setFormat( is32Bit ? nvrhi::Format::R32_UINT : nvrhi::Format::R16_UINT )
+                    .setOffset( ( uint32_t ) state.indexBinding.byteOffset ) );
+            }
+        }
     }
 
     // Final layout check and detailed diff print.
@@ -1136,12 +1168,12 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
+    cstate.setIndirectParams( indirectBuffer.handle );
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
-        cmdlist->setIndirectParams( indirectBuffer.handle );
         cmdlist->dispatchIndirect( ( uint32_t ) byteOffset );
     }
 }
