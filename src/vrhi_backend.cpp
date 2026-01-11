@@ -319,7 +319,7 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
     }
 }
 
-nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment )
+nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment, vhTexture shadingRateImage )
 {
     nvrhi::FramebufferDesc desc;
     for ( const auto& rt : colourAttachment )
@@ -350,6 +350,15 @@ nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector
             att.setFormat( depthAttachment.formatOverride );
             att.setReadOnly( depthAttachment.readOnly );
             desc.setDepthAttachment( att );
+        }
+    }
+
+    if ( shadingRateImage != VRHI_INVALID_HANDLE )
+    {
+        auto it = backendTextures.find( shadingRateImage );
+        if ( it != backendTextures.end() && it->second->handle )
+        {
+            desc.setShadingRateAttachment( it->second->handle ); 
         }
     }
 
@@ -1077,18 +1086,10 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( state.shadingRateFlags != VRHI_VRS_1X1 || state.shadingRateImage != VRHI_INVALID_HANDLE )
         {
             auto& vrs = graphicsState->shadingRateState;
+            vrs.enabled = true;
             vrs.shadingRate = vhTranslateShadingRate( state.shadingRateFlags & 0xF );
             vrs.imageCombiner = vhTranslateShadingRateCombiner( ( state.shadingRateFlags >> 4 ) & 0xF );
-            
-            if ( state.shadingRateImage != VRHI_INVALID_HANDLE )
-            {
-                auto it = backendTextures.find( state.shadingRateImage );
-                if ( it != backendTextures.end() && it->second->handle )
-                {
-                    // TODO: NVRHI doesn't seem to have shadingRateImage in VariableRateShadingState?
-                    // vrs.shadingRateImage = it->second->handle;
-                }
-            }
+            // Image is bound in the framebuffer.
         }
 
         graphicsState->viewport.viewports.resize( 0 );
@@ -1108,7 +1109,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
 
         // Bind Framebuffer
-        graphicsState->framebuffer = fb ? fb : BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment );
+        graphicsState->framebuffer = fb ? fb : BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
 
         // Bind Vertex Buffers
         for ( const auto& vb : state.vertexBindings )
@@ -1252,7 +1253,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
         return;
     }
 
-    nvrhi::FramebufferHandle fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment );
+    nvrhi::FramebufferHandle fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
     if ( !fb )
     {
         VRHI_ERR( "BE_Submit(): Failed to get Framebuffer!\n" );

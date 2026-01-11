@@ -196,7 +196,7 @@ class vhCmdBackendState : public VIDLHandler
 
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data );
 
-    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment );
+    nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment, vhTexture shadingRateImage );
 
     int64_t BE_Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );
     int64_t BE_Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );

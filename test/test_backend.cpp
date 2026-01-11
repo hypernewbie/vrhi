@@ -100,8 +100,8 @@ public:
 
     static bool GetFrameBuffer( const std::vector< vhState::RenderTarget >& colors, const vhState::RenderTarget& depth )
     {
-        auto fb1 = Get().BE_GetFrameBuffer( colors, depth );
-        auto fb2 = Get().BE_GetFrameBuffer( colors, depth );
+        auto fb1 = Get().BE_GetFrameBuffer( colors, depth, VRHI_INVALID_HANDLE );
+        auto fb2 = Get().BE_GetFrameBuffer( colors, depth, VRHI_INVALID_HANDLE );
 
         if ( !fb1 || !fb2 ) return false;
         return fb1.Get() == fb2.Get();
@@ -109,7 +109,7 @@ public:
 
     static nvrhi::FramebufferHandle GetFrameBufferHandle( const std::vector< vhState::RenderTarget >& colors, const vhState::RenderTarget& depth )
     {
-        return Get().BE_GetFrameBuffer( colors, depth );
+        return Get().BE_GetFrameBuffer( colors, depth, VRHI_INVALID_HANDLE );
     }
 
     static bool PreSubmitCommon_FindResource(
@@ -771,8 +771,27 @@ UTEST( Backend, VertexIndexBufferBinding )
     bbuf->stride = 12;
     bbuf->flags = 0;
     vhCmdBackendStateTest::InsertDummyBuffer( vb, bbuf );
+    
+    // Add dummy RT for Framebuffer
+    vhTexture rtTex = vhAllocTexture();
+    {
+        auto btex = new vhBackendTexture();
+        nvrhi::TextureDesc tdesc;
+        tdesc.width = 16; tdesc.height = 16;
+        tdesc.format = nvrhi::Format::RGBA8_UNORM; tdesc.isRenderTarget = true;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            btex->handle = g_vhDevice->createTexture( tdesc );
+        }
+        btex->info.format = nvrhi::Format::RGBA8_UNORM;
+        btex->info.mipLevels = 1; btex->info.arrayLayers = 1;
+        btex->info.dimensions = { 16, 16, 1 };
+        vhCmdBackendStateTest::InsertDummyTexture( rtTex, btex );
+    }
 
     vhState state;
+    vhState::RenderTarget rt; rt.texture = rtTex;
+    state.colourAttachment.push_back( rt );
     state.SetVertexBuffer( vb, 0, 0, 0, ( 1024 / 12 ) );
 
     nvrhi::GraphicsState gstate;
@@ -892,6 +911,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     vhDestroyBuffer( vb3 );
     vhDestroyBuffer( ib32 );
     vhDestroyBuffer( ib16 );
+    vhDestroyTexture( rtTex );
     
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
