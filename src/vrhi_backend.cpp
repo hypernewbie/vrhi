@@ -209,6 +209,7 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
     desc.isUAV = false;
     desc.keepInitialState = true;
     desc.initialState = nvrhi::ResourceStates::CopyDest;
+    desc.debugName = "BE_ReadTextureSlow Staging Texture";
 
     nvrhi::StagingTextureHandle stagingTex;
     {
@@ -218,6 +219,10 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
 
     if ( !stagingTex ) return;
 
+    nvrhi::TextureSlice slice;
+    slice.mipLevel = mip;
+    slice.arraySlice = layer;
+
     // For this slow-path operation, just use Graphics queue for everything
     // (avoids complexity with transfer queue barriers)
     {
@@ -226,17 +231,7 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
         nvrhi::CommandListParameters params = { .queueType = nvrhi::CommandQueue::Graphics };
         auto cmdList = g_vhDevice->createCommandList( params );
         cmdList->open();
-
-        nvrhi::TextureSlice slice;
-        slice.mipLevel = mip;
-        slice.arraySlice = layer;
-
-        // Make sure source is in CopySource state
-        cmdList->setTextureState( btex.handle, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource );
-        cmdList->commitBarriers();
-
         cmdList->copyTexture( stagingTex, slice, btex.handle, slice );
-
         cmdList->close();
         g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
         g_vhDevice->waitForIdle();
@@ -248,9 +243,6 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        nvrhi::TextureSlice slice;
-        slice.mipLevel = mip;
-        slice.arraySlice = layer;
         pData = g_vhDevice->mapStagingTexture( stagingTex, slice, nvrhi::CpuAccessMode::Read, &rowPitch );
     }
 
@@ -2042,7 +2034,8 @@ void vhCmdBackendState::Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewCle
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
     state.clearFlags = cmd->flags;
-    state.clearRgba = cmd->rgba;
+    state.clearColor = cmd->color;
+    state.clearColorUInt = cmd->colorUInt;
     state.clearDepth = cmd->depth;
     state.clearStencil = cmd->stencil;
 }
@@ -2354,29 +2347,52 @@ void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
-        if ( cmd->clearFlags & VRHI_CLEAR_COLOR )
-        {
-            float r = ( ( cmd->rgba >> 24 ) & 0xFF ) / 255.0f;
-            float g = ( ( cmd->rgba >> 16 ) & 0xFF ) / 255.0f;
-            float b = ( ( cmd->rgba >> 8 ) & 0xFF ) / 255.0f;
-            float a = ( cmd->rgba & 0xFF ) / 255.0f;
-
-            for ( const auto& rt : state.colourAttachment )
+            if ( ( cmd->clearFlags & VRHI_CLEAR_COLOR ) && ( cmd->clearFlags & VRHI_CLEAR_UINT ) )
             {
-                if ( rt.texture == VRHI_INVALID_HANDLE ) continue;
-                auto it = backendTextures.find( rt.texture );
-                if ( it != backendTextures.end() && it->second->handle )
-                {
-                    nvrhi::TextureSubresourceSet subresources;
-                    subresources.baseMipLevel = rt.mipLevel;
-                    subresources.numMipLevels = 1;
-                    subresources.baseArraySlice = rt.arrayLayer;
-                    subresources.numArraySlices = 1;
+                // Integer Clear
+                // Pack glm::u8vec4 into uint32_t for NVRHI (which expects R8G8B8A8_UINT basically)
+                uint32_t clearVal = ( uint32_t( state.clearColorUInt.a ) << 24 ) |
+                                    ( uint32_t( state.clearColorUInt.b ) << 16 ) |
+                                    ( uint32_t( state.clearColorUInt.g ) << 8 ) |
+                                    ( uint32_t( state.clearColorUInt.r ) );
 
-                    cmdlist->clearTextureFloat( it->second->handle, subresources, nvrhi::Color( r, g, b, a ) );
+                for ( const auto& rt : state.colourAttachment )
+                {
+                    if ( rt.texture == VRHI_INVALID_HANDLE ) continue;
+                    auto it = backendTextures.find( rt.texture );
+                    if ( it != backendTextures.end() && it->second->handle )
+                    {
+                        nvrhi::TextureSubresourceSet subresources;
+                        subresources.baseMipLevel = rt.mipLevel;
+                        subresources.numMipLevels = 1;
+                        subresources.baseArraySlice = rt.arrayLayer;
+                        subresources.numArraySlices = 1;
+
+                        cmdlist->clearTextureUInt( it->second->handle, subresources, clearVal );
+                    }
                 }
             }
-        }
+            else if ( cmd->clearFlags & VRHI_CLEAR_COLOR )
+            {
+                // Float Clear
+                nvrhi::Color clearVal( state.clearColor.r, state.clearColor.g, state.clearColor.b, state.clearColor.a );
+
+                for ( const auto& rt : state.colourAttachment )
+                {
+                    if ( rt.texture == VRHI_INVALID_HANDLE ) continue;
+                    auto it = backendTextures.find( rt.texture );
+                    if ( it != backendTextures.end() && it->second->handle )
+                    {
+                        nvrhi::TextureSubresourceSet subresources;
+                        subresources.baseMipLevel = rt.mipLevel;
+                        subresources.numMipLevels = 1;
+                        subresources.baseArraySlice = rt.arrayLayer;
+                        subresources.numArraySlices = 1;
+
+                        cmdlist->clearTextureFloat( it->second->handle, subresources, clearVal );
+                    }
+                }
+            }
 
         // Clear Depth/Stencil Attachment
         if ( ( cmd->clearFlags & VRHI_CLEAR_DEPTH ) || ( cmd->clearFlags & VRHI_CLEAR_STENCIL ) )
@@ -2395,7 +2411,7 @@ void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
                     bool clearDepth = ( cmd->clearFlags & VRHI_CLEAR_DEPTH ) != 0;
                     bool clearStencil = ( cmd->clearFlags & VRHI_CLEAR_STENCIL ) != 0;
 
-                    cmdlist->clearDepthStencilTexture( it->second->handle, subresources, clearDepth, cmd->depth, clearStencil, cmd->stencil );
+                    cmdlist->clearDepthStencilTexture( it->second->handle, subresources, clearDepth, state.clearDepth, clearStencil, state.clearStencil );
                 }
             }
         }

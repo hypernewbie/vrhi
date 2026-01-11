@@ -37,20 +37,20 @@ UTEST_F_SETUP( Compute )
 {
     // g_vhInit.logBackendCmds = true;
     // g_vhInit.logPSOCache = true;
-    g_vhInit.renderdoc = true;
+    // g_vhInit.renderdoc = true;
     g_vhInit.markers = true;
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
-    vhCaptureStart();
+    // vhCaptureStart();
     vhBeginMarker( "Compute Test" );
 }
 UTEST_F_TEARDOWN( Compute )
 {
     vhEndMarker();
-    vhCaptureEnd();
+    // vhCaptureEnd();
 }
 
 UTEST_F( Compute, EndToEnd_TextureWrite )

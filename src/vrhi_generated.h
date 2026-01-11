@@ -368,14 +368,11 @@ struct VIDL_vhClear
     uint64_t MAGIC = kMagic;
     vhStateId state;
     uint16_t clearFlags = VRHI_CLEAR_COLOR;
-    uint32_t rgba = 0;
-    float depth = 1.0f;
-    uint8_t stencil = 0;
 
     VIDL_vhClear() = default;
 
-    VIDL_vhClear(vhStateId _state, uint16_t _clearFlags, uint32_t _rgba, float _depth, uint8_t _stencil)
-        : state(_state), clearFlags(_clearFlags), rgba(_rgba), depth(_depth), stencil(_stencil) {}
+    VIDL_vhClear(vhStateId _state, uint16_t _clearFlags)
+        : state(_state), clearFlags(_clearFlags) {}
 };
 
 struct VIDL_vhFlushInternal
@@ -423,14 +420,15 @@ struct VIDL_vhCmdSetStateViewClear
     uint64_t MAGIC = kMagic;
     vhStateId id;
     uint16_t flags;
-    uint32_t rgba;
+    glm::vec4 color;
+    glm::u8vec4 colorUInt;
     float depth;
     uint8_t stencil;
 
     VIDL_vhCmdSetStateViewClear() = default;
 
-    VIDL_vhCmdSetStateViewClear(vhStateId _id, uint16_t _flags, uint32_t _rgba, float _depth, uint8_t _stencil)
-        : id(_id), flags(_flags), rgba(_rgba), depth(_depth), stencil(_stencil) {}
+    VIDL_vhCmdSetStateViewClear(vhStateId _id, uint16_t _flags, glm::vec4 _color, glm::u8vec4 _colorUInt, float _depth, uint8_t _stencil)
+        : id(_id), flags(_flags), color(_color), colorUInt(_colorUInt), depth(_depth), stencil(_stencil) {}
 };
 
 struct VIDL_vhCmdSetStateProgram

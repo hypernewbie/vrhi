@@ -48,6 +48,8 @@ int main( int argc, const char* const argv[] )
 {
 #ifndef NDEBUG
     g_vhInit.debug = true;
+    g_vhInit.renderdoc = true;
+    g_vhInit.markers = true;
 #endif
 
 #ifdef _WIN32

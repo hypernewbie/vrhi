@@ -692,7 +692,8 @@ struct vhState
     uint64_t dirty = 0;
 
     uint16_t clearFlags = 0;
-    uint32_t clearRgba = 0;
+    glm::vec4 clearColor = glm::vec4( 0.0f );
+    glm::u8vec4 clearColorUInt = glm::u8vec4( 0 );
     float clearDepth = 1.0f;
     uint8_t clearStencil = 0;
 
@@ -802,13 +803,39 @@ struct vhState
 
     vhState& SetViewRect( const glm::vec4& rect ) { viewRect = rect; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
     vhState& SetViewScissor( const glm::vec4& scissor ) { viewScissor = scissor; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
-    vhState& SetViewClear( uint16_t clearFlags_, uint32_t rgba = 0, float depth = 1.0f, uint8_t stencil = 0 )
+    vhState& SetViewClear( uint16_t clearFlags_, const glm::vec4& color = glm::vec4( 0.0f ), float depth = 1.0f, uint8_t stencil = 0 )
     {
         clearFlags = clearFlags_;
-        clearRgba = rgba;
+        clearColor = color;
         clearDepth = depth;
         clearStencil = stencil;
-        dirty |= VRHI_DIRTY_PIPELINE;
+        clearColorUInt = glm::u8vec4( 0 );
+        dirty |= VRHI_DIRTY_VIEWPORT;
+        return *this;
+    }
+
+    vhState& SetViewClear( uint16_t clearFlags_, const glm::u8vec4& color, float depth = 1.0f, uint8_t stencil = 0 )
+    {
+        clearFlags = clearFlags_;
+        clearColorUInt = color;
+        clearDepth = depth;
+        clearStencil = stencil;
+        clearColor = glm::vec4( 0.0f );
+        dirty |= VRHI_DIRTY_VIEWPORT;
+        return *this;
+    }
+
+    vhState& SetClearColor( const glm::vec4& color )
+    {
+        clearColor = color;
+        dirty |= VRHI_DIRTY_VIEWPORT;
+        return *this;
+    }
+
+    vhState& SetClearColorUInt( const glm::u8vec4& color )
+    {
+        clearColorUInt = color;
+        dirty |= VRHI_DIRTY_VIEWPORT;
         return *this;
     }
     vhState& SetViewTransform( const glm::mat4& view, const glm::mat4& proj )
@@ -1044,11 +1071,9 @@ void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount = 1 );
 // Clears the attachments bound in the state.
 // |state| is the state ID containing bound colour and depth attachments to clear.
 // |clearFlags| specifies what to clear (VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH | VRHI_CLEAR_STENCIL).
-// |rgba| is packed RGBA8 clear colour (default 0).
-// |depth| is depth clear value (default 1.0).
-// |stencil| is stencil clear value (default 0).
+// Clear values are taken from the state.
 // VIDL_GENERATE
-void vhClear( vhStateId state, uint16_t clearFlags = VRHI_CLEAR_COLOR, uint32_t rgba = 0, float depth = 1.0f, uint8_t stencil = 0 );
+void vhClear( vhStateId state, uint16_t clearFlags = VRHI_CLEAR_COLOR );
 
 // --------------------------------------------------------------------------
 // Sub-Allocators
@@ -1202,7 +1227,7 @@ void vhCmdSetStateViewRect( vhStateId id, glm::vec4 rect );
 // VIDL_GENERATE
 void vhCmdSetStateViewScissor( vhStateId id, glm::vec4 scissor );
 // VIDL_GENERATE
-void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, uint32_t rgba, float depth, uint8_t stencil );
+void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, glm::vec4 color, glm::u8vec4 colorUInt, float depth, uint8_t stencil );
 // VIDL_GENERATE
 void vhCmdSetStateProgram( vhStateId id, vhProgram program );
 // VIDL_GENERATE

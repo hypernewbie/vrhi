@@ -552,9 +552,9 @@ void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount )
     );
 }
 
-void vhClear( vhStateId state, uint16_t clearFlags, uint32_t rgba, float depth, uint8_t stencil )
+void vhClear( vhStateId state, uint16_t clearFlags )
 {
-    VIDL_vhClear* cmd = vhCmdAlloc<VIDL_vhClear>( state, clearFlags, rgba, depth, stencil );
+    VIDL_vhClear* cmd = vhCmdAlloc<VIDL_vhClear>( state, clearFlags );
     vhCmdEnqueue( cmd );
 }
 

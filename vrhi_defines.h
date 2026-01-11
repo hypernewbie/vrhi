@@ -503,6 +503,7 @@
 #define VRHI_CLEAR_COLOR                          UINT16_C(0x0001) //!< Clear color.
 #define VRHI_CLEAR_DEPTH                          UINT16_C(0x0002) //!< Clear depth.
 #define VRHI_CLEAR_STENCIL                        UINT16_C(0x0004) //!< Clear stencil.
+#define VRHI_CLEAR_UINT                           UINT16_C(0x2000) //!< Clear as integer.
 #define VRHI_CLEAR_DISCARD_COLOR_0                UINT16_C(0x0008) //!< Discard frame buffer attachment 0.
 #define VRHI_CLEAR_DISCARD_COLOR_1                UINT16_C(0x0010) //!< Discard frame buffer attachment 1.
 #define VRHI_CLEAR_DISCARD_COLOR_2                UINT16_C(0x0020) //!< Discard frame buffer attachment 2.

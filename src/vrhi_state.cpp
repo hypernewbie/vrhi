@@ -40,9 +40,9 @@ void vhCmdSetStateViewScissor( vhStateId id, glm::vec4 scissor )
     vhCmdEnqueue( new VIDL_vhCmdSetStateViewScissor( id, scissor ) );
 }
 
-void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, uint32_t rgba, float depth, uint8_t stencil )
+void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, glm::vec4 color, glm::u8vec4 colorUInt, float depth, uint8_t stencil )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateViewClear( id, flags, rgba, depth, stencil ) );
+    vhCmdEnqueue( new VIDL_vhCmdSetStateViewClear( id, flags, color, colorUInt, depth, stencil ) );
 }
 
 void vhCmdSetStateProgram( vhStateId id, vhProgram program )
@@ -129,7 +129,7 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     {
         vhCmdSetStateViewRect( id, state.viewRect );
         vhCmdSetStateViewScissor( id, state.viewScissor );
-        vhCmdSetStateViewClear( id, state.clearFlags, state.clearRgba, state.clearDepth, state.clearStencil );
+        vhCmdSetStateViewClear( id, state.clearFlags, state.clearColor, state.clearColorUInt, state.clearDepth, state.clearStencil );
     }
 
     if ( dirty & VRHI_DIRTY_ATTACHMENTS )
