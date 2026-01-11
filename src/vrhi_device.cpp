@@ -439,6 +439,54 @@ void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t by
     vhCmdEnqueue( cmd );
 }
 
+void vhDraw( const vhState& state, uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation )
+{
+    vhDrawCommonInternal(
+        state,
+        0, // flags
+        vertexCount,
+        instanceCount,
+        startVertexLocation,
+        0, // startIndexLocation
+        startInstanceLocation,
+        0  // drawCount
+    );
+}
+
+void vhDrawIndexed( const vhState& state, uint32_t indexCount, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation )
+{
+    vhDrawCommonInternal(
+        state,
+        VRHI_DRAW_INDEXED,
+        0, // vertexCount (unused for indexed)
+        instanceCount,
+        ( uint32_t ) baseVertexLocation, // startVertexLocation acts as baseVertexLocation for indexed
+        startIndexLocation,
+        startInstanceLocation,
+        0 // drawCount
+    );
+}
+
+void vhDrawIndirect( const vhState& state, uint32_t drawCount )
+{
+    vhDrawCommonInternal(
+        state,
+        VRHI_DRAW_INDIRECT,
+        0, 0, 0, 0, 0, // unused direct args
+        drawCount
+    );
+}
+
+void vhDrawIndexedIndirect( const vhState& state, uint32_t drawCount )
+{
+    vhDrawCommonInternal(
+        state,
+        VRHI_DRAW_INDEXED | VRHI_DRAW_INDIRECT,
+        0, 0, 0, 0, 0, // unused direct args
+        drawCount
+    );
+}
+
 void vhBlitBuffer( vhBuffer dst, vhBuffer src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size )
 {
     VIDL_vhBlitBuffer* cmd = vhCmdAlloc<VIDL_vhBlitBuffer>( dst, src, dstOffset, srcOffset, size );
@@ -1048,3 +1096,8 @@ nvrhi::FramebufferHandle vhFBOCacheGet( const nvrhi::FramebufferDesc& desc )
     return fb;
 }
 
+void vhDrawCommonInternal( vhState state, uint32_t flags, uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startIndexLocation, uint32_t startInstanceLocation, uint32_t drawCount )
+{
+    VIDL_vhDrawCommonInternal* cmd = vhCmdAlloc< VIDL_vhDrawCommonInternal >( state, flags, vertexCount, instanceCount, startVertexLocation, startIndexLocation, startInstanceLocation, drawCount );
+    vhCmdEnqueue( cmd );
+}

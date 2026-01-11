@@ -586,6 +586,25 @@ struct VIDL_vhCmdSetStateAttachments
         : id(_id), colours(_colours), depth(_depth) {}
 };
 
+struct VIDL_vhDrawCommonInternal
+{
+    static constexpr uint64_t kMagic = 0x8827DC81;
+    uint64_t MAGIC = kMagic;
+    vhState state;
+    uint32_t flags;
+    uint32_t vertexCount;
+    uint32_t instanceCount;
+    uint32_t startVertexLocation;
+    uint32_t startIndexLocation;
+    uint32_t startInstanceLocation;
+    uint32_t drawCount;
+
+    VIDL_vhDrawCommonInternal() = default;
+
+    VIDL_vhDrawCommonInternal(vhState _state, uint32_t _flags, uint32_t _vertexCount, uint32_t _instanceCount, uint32_t _startVertexLocation, uint32_t _startIndexLocation, uint32_t _startInstanceLocation, uint32_t _drawCount)
+        : state(_state), flags(_flags), vertexCount(_vertexCount), instanceCount(_instanceCount), startVertexLocation(_startVertexLocation), startIndexLocation(_startIndexLocation), startInstanceLocation(_startInstanceLocation), drawCount(_drawCount) {}
+};
+
 struct VIDLHandler
 {
     virtual void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) { (void) cmd; };
@@ -629,6 +648,7 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) { (void) cmd; };
+    virtual void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) { (void) cmd; };
 
     virtual void HandleLogFunction( const char* str ) {};
 
@@ -800,6 +820,10 @@ struct VIDLHandler
         case 0xD3B53061:
             HandleLogFunction("Handle_vhCmdSetStateAttachments");
             Handle_vhCmdSetStateAttachments( (VIDL_vhCmdSetStateAttachments*) cmd );
+            break;
+        case 0x8827DC81:
+            HandleLogFunction("Handle_vhDrawCommonInternal");
+            Handle_vhDrawCommonInternal( (VIDL_vhDrawCommonInternal*) cmd );
             break;
         }
     }

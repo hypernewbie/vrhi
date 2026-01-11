@@ -329,6 +329,29 @@
 #define VRHI_DIRTY_UNIFORMS                       ( 1ULL << 11 )
 #define VRHI_DIRTY_ALL                            ( 0xFFFFFFFFFFFFFFFF )
 
+// Variable Rate Shading rates
+#define VRHI_VRS_1X1               0x0    // Full resolution (default)
+#define VRHI_VRS_1X2               0x1
+#define VRHI_VRS_2X1               0x2
+#define VRHI_VRS_2X2               0x3
+#define VRHI_VRS_2X4               0x4
+#define VRHI_VRS_4X2               0x5
+#define VRHI_VRS_4X4               0x6
+
+// VRS combiners (shift by 4 bits)
+#define VRHI_VRS_COMBINER_PASSTHROUGH  0x00
+#define VRHI_VRS_COMBINER_OVERRIDE     0x10
+#define VRHI_VRS_COMBINER_MIN          0x20
+#define VRHI_VRS_COMBINER_MAX          0x30
+#define VRHI_VRS_COMBINER_SUM          0x40
+
+#define VRHI_DIRTY_VRS             ( 1ULL << 12 )
+#define VRHI_DIRTY_INDIRECT        ( 1ULL << 13 )
+
+// Draw flags for vhDrawCommonInternal
+#define VRHI_DRAW_INDEXED          ( 1u << 0 )
+#define VRHI_DRAW_INDIRECT         ( 1u << 1 )
+
 /// Blend function separate.
 #define VRHI_STATE_BLEND_FUNC_SEPARATE(_srcRGB, _dstRGB, _srcA, _dstA) (UINT64_C(0) \
 	| ( ( (uint64_t)(_srcRGB)|( (uint64_t)(_dstRGB)<<4) )   )                       \

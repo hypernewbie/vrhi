@@ -199,6 +199,34 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     return true;
 }
 
+nvrhi::VariableShadingRate vhTranslateShadingRate( uint32_t rate )
+{
+    switch ( rate )
+    {
+        case VRHI_VRS_1X1: return nvrhi::VariableShadingRate::e1x1;
+        case VRHI_VRS_1X2: return nvrhi::VariableShadingRate::e1x2;
+        case VRHI_VRS_2X1: return nvrhi::VariableShadingRate::e2x1;
+        case VRHI_VRS_2X2: return nvrhi::VariableShadingRate::e2x2;
+        case VRHI_VRS_2X4: return nvrhi::VariableShadingRate::e2x4;
+        case VRHI_VRS_4X2: return nvrhi::VariableShadingRate::e4x2;
+        case VRHI_VRS_4X4: return nvrhi::VariableShadingRate::e4x4;
+        default: return nvrhi::VariableShadingRate::e1x1;
+    }
+}
+
+nvrhi::ShadingRateCombiner vhTranslateShadingRateCombiner( uint32_t combiner )
+{
+    switch ( combiner )
+    {
+        case VRHI_VRS_COMBINER_PASSTHROUGH: return nvrhi::ShadingRateCombiner::Passthrough;
+        case VRHI_VRS_COMBINER_OVERRIDE:    return nvrhi::ShadingRateCombiner::Override;
+        case VRHI_VRS_COMBINER_MIN:         return nvrhi::ShadingRateCombiner::Min;
+        case VRHI_VRS_COMBINER_MAX:         return nvrhi::ShadingRateCombiner::Max;
+        case VRHI_VRS_COMBINER_SUM:         return nvrhi::ShadingRateCombiner::ApplyRelative;
+        default: return nvrhi::ShadingRateCombiner::Passthrough;
+    }
+}
+
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags )
 {
     uint32_t pt = ( uint32_t ) ( ( stateFlags & VRHI_STATE_PT_MASK ) >> VRHI_STATE_PT_SHIFT );

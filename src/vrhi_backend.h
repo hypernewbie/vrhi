@@ -75,6 +75,7 @@ struct vhStateResolveCache
 
     std::vector< vhBackendTexture* > btex;
     std::vector< vhBackendBuffer* > bbuf;
+    std::vector< vhBackendShader* > bshaders;
 
     struct ResolvedTexture
     {
@@ -229,12 +230,15 @@ class vhCmdBackendState : public VIDLHandler
         vhBackendShader* shaders,
         int shaderCount,
         nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
-        nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
+        nvrhi::GraphicsState* graphicsState, // set to nullptr if not using graphics.
+        nvrhi::FramebufferHandle fb = nullptr
     );
 
     void BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount );
 
     void BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset );
+
+    void BE_Submit( vhState& state, vhBackendShader* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount );
 
     void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size );
 
@@ -273,6 +277,8 @@ public:
     void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) override;
 
     void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override;
+
+    void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) override;
 
     vhBackendBuffer* Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
         const vhMem* data, uint64_t count, uint64_t stride, uint64_t flags );

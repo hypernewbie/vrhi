@@ -501,6 +501,25 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             scache.btex[i] = it->second.get();
     }
 
+    // Resolve shaders.
+
+    scache.bshaders.clear();
+    if ( shaders && shaderCount > 0 )
+    {
+        for ( int i = 0; i < shaderCount; ++i )
+            scache.bshaders.push_back( &shaders[i] );
+    }
+    else if ( !state.program.empty() )
+    {
+        for ( vhShader h : state.program )
+        {
+            auto it = backendShaders.find( h );
+            if ( it != backendShaders.end() )
+                scache.bshaders.push_back( it->second.get() );
+        }
+    }
+    int bshaderCount = ( int ) scache.bshaders.size();
+
     for ( size_t i = 0; i < state.buffers.size(); i++ )
     {
         if ( state.buffers[i].buffer == VRHI_INVALID_HANDLE )
@@ -896,7 +915,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     vhBackendShader* shaders,
     int shaderCount,
     nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
-    nvrhi::GraphicsState* graphicsState // set to nullptr if not using graphics.
+    nvrhi::GraphicsState* graphicsState, // set to nullptr if not using graphics.
+    nvrhi::FramebufferHandle fb
 )
 {
     const nvrhi::BindingLayoutVector* psoLayouts = nullptr;
@@ -1045,6 +1065,32 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     {
         // Transfer some overlapping state from vhState to nvrhi::GraphicsState.
 
+        // Set blend constant color
+        graphicsState->blendConstantColor = nvrhi::Color(
+            state.blendConstantColor.r,
+            state.blendConstantColor.g,
+            state.blendConstantColor.b,
+            state.blendConstantColor.a
+        );
+
+        // Set variable rate shading
+        if ( state.shadingRateFlags != VRHI_VRS_1X1 || state.shadingRateImage != VRHI_INVALID_HANDLE )
+        {
+            auto& vrs = graphicsState->shadingRateState;
+            vrs.shadingRate = vhTranslateShadingRate( state.shadingRateFlags & 0xF );
+            vrs.imageCombiner = vhTranslateShadingRateCombiner( ( state.shadingRateFlags >> 4 ) & 0xF );
+            
+            if ( state.shadingRateImage != VRHI_INVALID_HANDLE )
+            {
+                auto it = backendTextures.find( state.shadingRateImage );
+                if ( it != backendTextures.end() && it->second->handle )
+                {
+                    // TODO: NVRHI doesn't seem to have shadingRateImage in VariableRateShadingState?
+                    // vrs.shadingRateImage = it->second->handle;
+                }
+            }
+        }
+
         graphicsState->viewport.viewports.resize( 0 );
         graphicsState->viewport.viewports.push_back( nvrhi::Viewport(
             state.viewRect.x, state.viewRect.x + state.viewRect.z,
@@ -1062,7 +1108,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
 
         // Bind Framebuffer
-        graphicsState->framebuffer = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment );
+        graphicsState->framebuffer = fb ? fb : BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment );
 
         // Bind Vertex Buffers
         for ( const auto& vb : state.vertexBindings )
@@ -1092,6 +1138,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                     .setFormat( is32Bit ? nvrhi::Format::R32_UINT : nvrhi::Format::R16_UINT )
                     .setOffset( ( uint32_t ) state.indexBinding.byteOffset ) );
             }
+        }
+    }
+
+    // Bind Indirect Parameters if present
+    if ( state.indirectParams.buffer != VRHI_INVALID_HANDLE )
+    {
+        auto it = backendBuffers.find( state.indirectParams.buffer );
+        if ( it != backendBuffers.end() && it->second->handle )
+        {
+            if ( graphicsState ) graphicsState->setIndirectParams( it->second->handle );
+            if ( computeState ) computeState->setIndirectParams( it->second->handle );
         }
     }
 
@@ -1183,6 +1240,66 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
         cmdlist->dispatchIndirect( ( uint32_t ) byteOffset );
+    }
+}
+
+void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
+{
+    nvrhi::GraphicsPipelineDesc pipelineDesc;
+    if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &pipelineDesc ) )
+    {
+        VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
+        return;
+    }
+
+    nvrhi::FramebufferHandle fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment );
+    if ( !fb )
+    {
+        VRHI_ERR( "BE_Submit(): Failed to get Framebuffer!\n" );
+        return;
+    }
+
+    nvrhi::GraphicsPipelineHandle pso = vhPSOCacheGet( pipelineDesc, fb->getFramebufferInfo() );
+    if ( !pso )
+    {
+        VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
+        return;
+    }
+
+    nvrhi::GraphicsState gstate;
+    gstate.setPipeline( pso.Get() );
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+
+        if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &gstate, fb ) )
+        {
+            VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
+            return;
+        }
+
+        cmdlist->setGraphicsState( gstate );
+
+        if ( flags & VRHI_DRAW_INDIRECT )
+        {
+            uint32_t offset = ( uint32_t ) state.indirectParams.byteOffset;
+            if ( flags & VRHI_DRAW_INDEXED )
+                cmdlist->drawIndexedIndirect( offset, drawCount );
+            else
+                cmdlist->drawIndirect( offset, drawCount );
+        }
+        else
+        {
+            if ( flags & VRHI_DRAW_INDEXED )
+            {
+                cmdlist->drawIndexed( args );
+            }
+            else
+            {
+                cmdlist->draw( args );
+            }
+        }
     }
 }
 
@@ -2089,6 +2206,41 @@ void vhCmdBackendState::Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd 
     }
 
     BE_DispatchIndirect( state, *itShader->second, *itBuf->second, cmd->byteOffset );
+}
+
+void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    static std::vector< vhBackendShader > s_shaders;
+    s_shaders.clear();
+    s_shaders.reserve( 16 );
+
+    for ( vhShader shaderHandle : cmd->state.program )
+    {
+        auto it = backendShaders.find( shaderHandle );
+        if ( it != backendShaders.end() )
+            s_shaders.push_back( *it->second );
+    }
+
+    if ( s_shaders.empty() )
+    {
+        VRHI_ERR( "vhDraw(): No valid shaders in program!\n" );
+        return;
+    }
+
+    // Clear indirect buffer if it's NOT an indirect draw to prevent BE_PreSubmitCommon_State from binding it
+    if ( !( cmd->flags & VRHI_DRAW_INDIRECT ) )
+        cmd->state.indirectParams.buffer = VRHI_INVALID_HANDLE;
+
+    nvrhi::DrawArguments args;
+    args.setVertexCount( cmd->vertexCount )
+        .setInstanceCount( cmd->instanceCount )
+        .setStartVertexLocation( cmd->startVertexLocation )
+        .setStartIndexLocation( cmd->startIndexLocation )
+        .setStartInstanceLocation( cmd->startInstanceLocation );
+
+    BE_Submit( cmd->state, s_shaders.data(), ( int ) s_shaders.size(), cmd->flags, args, cmd->drawCount );
 }
 
 void vhCmdBackendState::Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd )

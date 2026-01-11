@@ -679,6 +679,21 @@ struct vhState
     uint32_t backStencil = 0;
 
     glm::vec4 pushConstants = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
+    
+    // Blend constant color (for blend modes that reference constant color)
+    glm::vec4 blendConstantColor = glm::vec4( 0.0f );
+
+    // Variable Rate Shading
+    uint32_t shadingRateFlags = VRHI_VRS_1X1;
+    vhTexture shadingRateImage = VRHI_INVALID_HANDLE;
+
+    // Indirect draw parameters
+    struct IndirectParams
+    {
+        vhBuffer buffer = VRHI_INVALID_HANDLE;
+        uint64_t byteOffset = 0;
+    };
+    IndirectParams indirectParams;
 
     struct VertexBinding
     {
@@ -828,6 +843,26 @@ struct vhState
         if ( idx >= textures.size() ) textures.resize( idx + 1 );
         return textures[idx];
     }
+    vhState& SetBlendConstColor( const glm::vec4& color )
+    {
+        blendConstantColor = color;
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    vhState& SetShadingRate( uint32_t flags, vhTexture image = VRHI_INVALID_HANDLE )
+    {
+        shadingRateFlags = flags;
+        shadingRateImage = image;
+        dirty |= VRHI_DIRTY_VRS;
+        return *this;
+    }
+    vhState& SetIndirectParams( vhBuffer buffer, uint64_t offset = 0 )
+    {
+        indirectParams.buffer = buffer;
+        indirectParams.byteOffset = offset;
+        dirty |= VRHI_DIRTY_INDIRECT;
+        return *this;
+    }
     vhState& SetSamplers( const std::vector< SamplerDefinition >& samplers_ )
     {
         samplers = samplers_;
@@ -971,7 +1006,19 @@ void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount );
 // VIDL_GENERATE
 void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t byteOffset = 0 );
 
-// TODO: vhSubmit
+// Draws non-indexed primitives.
+void vhDraw( const vhState& state, uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t startVertexLocation = 0, uint32_t startInstanceLocation = 0 );
+
+// Draws indexed primitives.
+void vhDrawIndexed( const vhState& state, uint32_t indexCount, uint32_t instanceCount = 1, uint32_t startIndexLocation = 0, int32_t baseVertexLocation = 0, uint32_t startInstanceLocation = 0 );
+
+// Draws non-indexed primitives using indirect buffer.
+// Indirect buffer must be set via state.SetIndirectParams().
+void vhDrawIndirect( const vhState& state, uint32_t drawCount = 1 );
+
+// Draws indexed primitives using indirect buffer.
+// Indirect buffer must be set via state.SetIndirectParams().
+void vhDrawIndexedIndirect( const vhState& state, uint32_t drawCount = 1 );
 
 // --------------------------------------------------------------------------
 // Internals. DO NOT USE.
@@ -1015,3 +1062,16 @@ void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data );
 void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms );
 // VIDL_GENERATE
 void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colours, vhState::RenderTarget depth );
+
+// Internal omni-draw command. Do not call directly.
+// VIDL_GENERATE
+void vhDrawCommonInternal(
+    vhState state,
+    uint32_t flags,
+    uint32_t vertexCount,
+    uint32_t instanceCount,
+    uint32_t startVertexLocation,
+    uint32_t startIndexLocation,
+    uint32_t startInstanceLocation,
+    uint32_t drawCount
+);
