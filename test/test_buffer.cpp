@@ -689,3 +689,40 @@ UTEST( Buffer, StorageBufferCreation )
     vhDestroyBuffer( bTyped );
     vhFlush();
 }
+
+UTEST( Buffer, TransientRingAllocator )
+{
+    // --------------------------------------------------------------------------
+    // Ring Allocator Logic
+    // --------------------------------------------------------------------------
+    vhTransientAllocator ringAlloc;
+    vhBuffer buffers[3] = { (vhBuffer)1, (vhBuffer)2, (vhBuffer)3 };
+    ringAlloc.Init( buffers, 1024, 256 );
+
+    // Frame 0
+    EXPECT_EQ( ringAlloc.GetFrameIndex(), 0 );
+    EXPECT_EQ( ringAlloc.GetBuffer(), (vhBuffer)1 );
+    EXPECT_EQ( ringAlloc.Alloc( 100 ), 0 );
+
+    // Frame 1
+    ringAlloc.Step();
+    EXPECT_EQ( ringAlloc.GetFrameIndex(), 1 );
+    EXPECT_EQ( ringAlloc.GetBuffer(), (vhBuffer)2 );
+    
+    // Important: Step() does NOT reset. User must call Reset().
+    ringAlloc.Reset();
+    EXPECT_EQ( ringAlloc.Alloc( 100 ), 0 );
+
+    // Frame 2
+    ringAlloc.Step();
+    ringAlloc.Reset();
+    EXPECT_EQ( ringAlloc.GetFrameIndex(), 2 );
+    EXPECT_EQ( ringAlloc.GetBuffer(), (vhBuffer)3 );
+    EXPECT_EQ( ringAlloc.Alloc( 100 ), 0 );
+
+    // Frame 0 (Loop)
+    ringAlloc.Step();
+    ringAlloc.Reset();
+    EXPECT_EQ( ringAlloc.GetFrameIndex(), 0 );
+    EXPECT_EQ( ringAlloc.GetBuffer(), (vhBuffer)1 );
+}

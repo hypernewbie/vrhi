@@ -1021,6 +1021,89 @@ void vhDrawIndirect( const vhState& state, uint32_t drawCount = 1 );
 void vhDrawIndexedIndirect( const vhState& state, uint32_t drawCount = 1 );
 
 // --------------------------------------------------------------------------
+// Sub-Allocators
+// --------------------------------------------------------------------------
+
+// Triple-buffered ring allocator.
+// Use this to prevent CPU-GPU sync stalls by maintaining a separate buffer for each frame-in-flight.
+// Step() must be called once per frame to advance the ring.
+//
+class vhTransientAllocator
+{
+    vhBuffer m_buffers[3];
+    uint64_t m_size;
+    uint64_t m_offset;
+    uint32_t m_alignment;
+    uint32_t m_frameIndex;
+
+public:
+    vhTransientAllocator()
+        : m_size( 0 )
+        , m_offset( 0 )
+        , m_alignment( 256 )
+        , m_frameIndex( 0 )
+    {
+        m_buffers[0] = VRHI_INVALID_HANDLE;
+        m_buffers[1] = VRHI_INVALID_HANDLE;
+        m_buffers[2] = VRHI_INVALID_HANDLE;
+    }
+
+    void Init( vhBuffer buffers[3], uint64_t size, uint32_t alignment = 256 )
+    {
+        m_buffers[0] = buffers[0];
+        m_buffers[1] = buffers[1];
+        m_buffers[2] = buffers[2];
+        m_size = size;
+        m_alignment = alignment;
+        m_frameIndex = 0;
+        Reset();
+    }
+    
+    // Convenience helper to init with one array
+    void Init( const std::vector< vhBuffer >& buffers, uint64_t size, uint32_t alignment = 256 )
+    {
+        if ( buffers.size() < 3 ) return;
+        vhBuffer arr[3] = { buffers[0], buffers[1], buffers[2] };
+        Init( arr, size, alignment );
+    }
+
+    void Reset()
+    {
+        m_offset = 0;
+    }
+    
+    void Step()
+    {
+        m_frameIndex = ( m_frameIndex + 1 ) % 3;
+    }
+
+    int64_t Alloc( uint64_t size )
+    {
+        // Align
+        uint64_t aligned = ( m_offset + m_alignment - 1 ) & ~( ( uint64_t ) m_alignment - 1 );
+        if ( aligned + size > m_size ) return -1;
+        
+        m_offset = aligned + size;
+        return ( int64_t ) aligned;
+    }
+
+    vhBuffer GetBuffer() const
+    {
+        return m_buffers[m_frameIndex];
+    }
+    
+    uint32_t GetFrameIndex() const
+    {
+        return m_frameIndex;
+    }
+
+    uint64_t GetCurrentUsage() const
+    {
+        return m_offset;
+    }
+};
+
+// --------------------------------------------------------------------------
 // Internals. DO NOT USE.
 // --------------------------------------------------------------------------
 
