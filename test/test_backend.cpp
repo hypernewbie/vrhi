@@ -96,24 +96,18 @@ public:
         return Get().BE_PreSubmitCommon_State( state, shaders, shaderCount, compute, graphics );
     }
 
-    static bool GetFrameBuffer( const std::vector< vhTexture >& colors, vhTexture depth )
+    static bool GetFrameBuffer( const std::vector< vhState::RenderTarget >& colors, const vhState::RenderTarget& depth )
     {
-        std::vector< vhState::RenderTarget > rtColors;
-        for ( auto c : colors )
-        {
-            vhState::RenderTarget rt;
-            rt.texture = c;
-            rtColors.push_back( rt );
-        }
-        
-        vhState::RenderTarget rtDepth;
-        rtDepth.texture = depth;
-        
-        auto fb1 = Get().BE_GetFrameBuffer( rtColors, rtDepth );
-        auto fb2 = Get().BE_GetFrameBuffer( rtColors, rtDepth );
+        auto fb1 = Get().BE_GetFrameBuffer( colors, depth );
+        auto fb2 = Get().BE_GetFrameBuffer( colors, depth );
 
         if ( !fb1 || !fb2 ) return false;
         return fb1.Get() == fb2.Get();
+    }
+
+    static nvrhi::FramebufferHandle GetFrameBufferHandle( const std::vector< vhState::RenderTarget >& colors, const vhState::RenderTarget& depth )
+    {
+        return Get().BE_GetFrameBuffer( colors, depth );
     }
 
     static bool PreSubmitCommon_FindResource(
@@ -391,14 +385,119 @@ UTEST( Backend, FramebufferCaching )
     vhTexture colour = vhAllocTexture();
     vhTexture depth = vhAllocTexture();
 
-    vhCreateTexture2D( colour, glm::ivec2( 128, 128 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
-    vhCreateTexture2D( depth, glm::ivec2( 128, 128 ), 2, nvrhi::Format::D24S8, VRHI_TEXTURE_RT );
-    vhFinish();
+    // Helper to register dummy textures into the test instance
+    auto RegisterTex = []( vhTexture h, nvrhi::TextureDimension dim, uint32_t width, uint32_t height, uint32_t mips, uint32_t layers, nvrhi::Format fmt )
+    {
+        auto btex = new vhBackendTexture();
+        nvrhi::TextureDesc desc;
+        desc.dimension = dim;
+        desc.width = width;
+        desc.height = height;
+        desc.mipLevels = mips;
+        desc.arraySize = layers;
+        desc.format = fmt;
+        desc.isRenderTarget = true;
+        desc.initialState = nvrhi::ResourceStates::RenderTarget;
+        desc.keepInitialState = true;
+        
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            btex->handle = g_vhDevice->createTexture( desc );
+        }
+        btex->info.format = fmt;
+        btex->info.mipLevels = mips;
+        btex->info.arrayLayers = layers;
+        btex->info.dimensions = { width, height, 1 };
+        
+        vhCmdBackendStateTest::InsertDummyTexture( h, btex );
+    };
+
+    RegisterTex( colour, nvrhi::TextureDimension::Texture2D, 128, 128, 1, 1, nvrhi::Format::RGBA8_UNORM );
+    RegisterTex( depth, nvrhi::TextureDimension::Texture2D, 128, 128, 1, 1, nvrhi::Format::D24S8 );
 
     // Verify caching/deduplication
-    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { colour }, depth ) );
+    vhState::RenderTarget rtColor;
+    rtColor.texture = colour;
+    vhState::RenderTarget rtDepth;
+    rtDepth.texture = depth;
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtColor }, rtDepth ) );
+
+    // Mip level tests : Needs matching depth buffer dimensions
+    vhTexture colourMips = vhAllocTexture();
+    RegisterTex( colourMips, nvrhi::TextureDimension::Texture2D, 128, 128, 4, 1, nvrhi::Format::RGBA8_UNORM );
+
+    vhTexture depthMips = vhAllocTexture();
+    RegisterTex( depthMips, nvrhi::TextureDimension::Texture2D, 128, 128, 4, 1, nvrhi::Format::D24S8 );
+
+    vhState::RenderTarget rtMip0; rtMip0.texture = colourMips; rtMip0.mipLevel = 0;
+    vhState::RenderTarget rtDepthMip0; rtDepthMip0.texture = depthMips; rtDepthMip0.mipLevel = 0;
+
+    vhState::RenderTarget rtMip2; rtMip2.texture = colourMips; rtMip2.mipLevel = 2;
+    vhState::RenderTarget rtDepthMip2; rtDepthMip2.texture = depthMips; rtDepthMip2.mipLevel = 2;
+
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtMip0 }, rtDepthMip0 ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtMip2 }, rtDepthMip2 ) );
+
+    // Ensure they produce different FBOs
+    {
+        auto fb0 = vhCmdBackendStateTest::GetFrameBufferHandle( { rtMip0 }, rtDepthMip0 );
+        auto fb2 = vhCmdBackendStateTest::GetFrameBufferHandle( { rtMip2 }, rtDepthMip2 );
+        EXPECT_NE( fb0.Get(), fb2.Get() );
+    }
+
+    // Array layer tests
+    vhTexture colourArray = vhAllocTexture();
+    RegisterTex( colourArray, nvrhi::TextureDimension::Texture2DArray, 128, 128, 4, 10, nvrhi::Format::RGBA8_UNORM ); // Note: layers
+
+    vhState::RenderTarget rtLayer0; rtLayer0.texture = colourArray; rtLayer0.arrayLayer = 0;
+    vhState::RenderTarget rtLayer2; rtLayer2.texture = colourArray; rtLayer2.arrayLayer = 2;
+    // Standard depth buffer is fine for layers as long as dimensions match (128x128)
+
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtLayer0 }, rtDepth ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtLayer2 }, rtDepth ) );
+
+    {
+        auto fb0 = vhCmdBackendStateTest::GetFrameBufferHandle( { rtLayer0 }, rtDepth );
+        auto fb2 = vhCmdBackendStateTest::GetFrameBufferHandle( { rtLayer2 }, rtDepth );
+        EXPECT_NE( fb0.Get(), fb2.Get() );
+    }
+
+    // Format override tests
+    vhState::RenderTarget rtFormatDefault; rtFormatDefault.texture = colour;
+    vhState::RenderTarget rtFormatOverride; rtFormatOverride.texture = colour; rtFormatOverride.formatOverride = nvrhi::Format::RGBA8_UNORM;
+
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtFormatDefault }, rtDepth ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtFormatOverride }, rtDepth ) );
+
+    // Multiple render targets
+    vhTexture colour2 = vhAllocTexture();
+    RegisterTex( colour2, nvrhi::TextureDimension::Texture2D, 128, 128, 1, 1, nvrhi::Format::RGBA8_UNORM );
+
+    vhState::RenderTarget rtColor2;
+    rtColor2.texture = colour2;
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtColor, rtColor2 }, rtDepth ) );
+
+    // Read-only tests
+    vhState::RenderTarget rtDepthRO; rtDepthRO.texture = depth; rtDepthRO.readOnly = true;
+    vhState::RenderTarget rtDepthRW; rtDepthRW.texture = depth; rtDepthRW.readOnly = false;
+
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtColor }, rtDepthRO ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::GetFrameBuffer( { rtColor }, rtDepthRW ) );
+
+    {
+        auto fbRO = vhCmdBackendStateTest::GetFrameBufferHandle( { rtColor }, rtDepthRO );
+        auto fbRW = vhCmdBackendStateTest::GetFrameBufferHandle( { rtColor }, rtDepthRW );
+        EXPECT_NE( fbRO.Get(), fbRW.Get() );
+    }
+
+    // Cleanup not strictly necessary for test instance but good practice
+    vhCmdBackendStateTest::Shutdown();
 
     vhDestroyTexture( colour );
+    vhDestroyTexture( colour2 );
+    vhDestroyTexture( colourMips );
+    vhDestroyTexture( depthMips );
+    vhDestroyTexture( colourArray );
     vhDestroyTexture( depth );
     vhFinish();
 }
