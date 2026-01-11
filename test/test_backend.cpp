@@ -413,7 +413,7 @@ UTEST( Backend, FramebufferCaching )
     };
 
     RegisterTex( colour, nvrhi::TextureDimension::Texture2D, 128, 128, 1, 1, nvrhi::Format::RGBA8_UNORM );
-    RegisterTex( depth, nvrhi::TextureDimension::Texture2D, 128, 128, 1, 1, nvrhi::Format::D24S8 );
+    RegisterTex( depth, nvrhi::TextureDimension::Texture2D, 128, 128, 1, 1, nvrhi::Format::D32S8 );
 
     // Verify caching/deduplication
     vhState::RenderTarget rtColor;
@@ -427,7 +427,7 @@ UTEST( Backend, FramebufferCaching )
     RegisterTex( colourMips, nvrhi::TextureDimension::Texture2D, 128, 128, 4, 1, nvrhi::Format::RGBA8_UNORM );
 
     vhTexture depthMips = vhAllocTexture();
-    RegisterTex( depthMips, nvrhi::TextureDimension::Texture2D, 128, 128, 4, 1, nvrhi::Format::D24S8 );
+    RegisterTex( depthMips, nvrhi::TextureDimension::Texture2D, 128, 128, 4, 1, nvrhi::Format::D32S8 );
 
     vhState::RenderTarget rtMip0; rtMip0.texture = colourMips; rtMip0.mipLevel = 0;
     vhState::RenderTarget rtDepthMip0; rtDepthMip0.texture = depthMips; rtDepthMip0.mipLevel = 0;
@@ -757,6 +757,7 @@ UTEST( Backend, VertexIndexBufferBinding )
         }
         ASSERT_TRUE( bbuf->handle );
         bbuf->stride = 12;
+        bbuf->flags = 0;
         vhCmdBackendStateTest::InsertDummyBuffer( vb, bbuf );
     }
 
@@ -811,6 +812,7 @@ UTEST( Backend, VertexIndexBufferBinding )
             nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
             { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf2->handle = g_vhDevice->createBuffer( desc ); }
             bbuf2->stride = 12;
+            bbuf2->flags = 0;
             vhCmdBackendStateTest::InsertDummyBuffer( vb2, bbuf2 );
         }
 
@@ -819,6 +821,7 @@ UTEST( Backend, VertexIndexBufferBinding )
             nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
             { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf3->handle = g_vhDevice->createBuffer( desc ); }
             bbuf3->stride = 12;
+            bbuf3->flags = 0;
             vhCmdBackendStateTest::InsertDummyBuffer( vb3, bbuf3 );
         }
     }

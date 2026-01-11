@@ -1,6 +1,7 @@
 # Vrhi - Immediate Mode Vulkan RHI Interface For NVRHI
 
 [![build](https://github.com/hypernewbie/vrhi/actions/workflows/ci.yml/badge.svg)](https://github.com/hypernewbie/vrhi/actions/workflows/ci.yml)
+
 Vrhi is a high level Vulkan RHI interface for cross-platform graphics and compute rendering. It is inspired by the bgfx library, powered by the NVRHI library.
 It aims to provide a DX11 / DX9 style immediate mode API on top of Vulkan, in a way that is not terrible slow.
 
@@ -55,12 +56,12 @@ Because it actually has a lot of the fundamentals in place:
 * Not a "common denominator" type feature set. (It's 2026, man—even phones have bindless and RT cores.)
 * Actually profiled and performance tested
 * Transient staging buffers (no, do not allocate separate driver resources for every texture or buffer upload)
-* Raytracing support (yes, really—guys, it's been a decade, get with the times)
+* Raytracing support (yes, really, guys, it's been a decade, get with the times)
 * Cached descriptor sets (please don't create them every frame)
 * Cached PSOs (please don't create them every frame)
 * Cached frame buffer objects (please don't create them every frame)
 * Binding location-based vertex layouts (it's 2026, semantics aren't really a thing anymore)
-* Separate samplers (yes, really—it is 2026)
+* Separate samplers (yes, really, it is 2026)
 * State caching with dirty bits
 * Buffer sub-allocation support
 * Compressed texture formats support with correct mipmap + size calculation
@@ -76,7 +77,7 @@ Because it actually has a lot of the fundamentals in place:
 
 While it is easy to get a high-level Vulkan/DX12 RHI layer working, it takes strong fundamental understanding to get it equal to or faster than DX9/DX11.
 Please write one better than this, dear reader. Please write one that is equal to or faster than DX11. Then this repo wouldn't need to exist, which would be great.
-Does your Vulkan RHI have the above? If not, please read the code and add it—and even better, release it so I can use your code.
+Does your Vulkan RHI have the above? If not, please read the code and add it, and even better, release it so I can use your code.
 
 Vulkan is a graphics API from this decade. So please abstract it using concepts from this decade, using development practices from this decade.
 
