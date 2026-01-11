@@ -29,6 +29,22 @@ struct VIDL_vhEndMarker
     VIDL_vhEndMarker() = default;
 };
 
+struct VIDL_vhCaptureStart
+{
+    static constexpr uint64_t kMagic = 0x45A5468F;
+    uint64_t MAGIC = kMagic;
+
+    VIDL_vhCaptureStart() = default;
+};
+
+struct VIDL_vhCaptureEnd
+{
+    static constexpr uint64_t kMagic = 0x165DAA75;
+    uint64_t MAGIC = kMagic;
+
+    VIDL_vhCaptureEnd() = default;
+};
+
 struct VIDL_vhResetTexture
 {
     static constexpr uint64_t kMagic = 0xE74D1798;
@@ -646,6 +662,8 @@ struct VIDLHandler
     virtual void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) { (void) cmd; };
     virtual void Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd ) { (void) cmd; };
     virtual void Handle_vhEndMarker( VIDL_vhEndMarker* cmd ) { (void) cmd; };
+    virtual void Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd ) { (void) cmd; };
+    virtual void Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd ) { (void) cmd; };
     virtual void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) { (void) cmd; };
@@ -707,6 +725,14 @@ struct VIDLHandler
         case 0xFA453E7B:
             HandleLogFunction("Handle_vhEndMarker");
             Handle_vhEndMarker( (VIDL_vhEndMarker*) cmd );
+            break;
+        case 0x45A5468F:
+            HandleLogFunction("Handle_vhCaptureStart");
+            Handle_vhCaptureStart( (VIDL_vhCaptureStart*) cmd );
+            break;
+        case 0x165DAA75:
+            HandleLogFunction("Handle_vhCaptureEnd");
+            Handle_vhCaptureEnd( (VIDL_vhCaptureEnd*) cmd );
             break;
         case 0xE74D1798:
             HandleLogFunction("Handle_vhResetTexture");

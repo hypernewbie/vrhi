@@ -359,6 +359,10 @@ public:
 
     void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) override;
 
+    void Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd ) override;
+
+    void Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd ) override;
+
     // --------------------------------------------------------------------------
     // Backend :: RHIThreadEntry
     // --------------------------------------------------------------------------

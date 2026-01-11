@@ -58,6 +58,7 @@ struct vhInitData
     bool forceShaderRecompile = false;
     bool robust = true;
     bool markers = true;
+    bool renderdoc = false;
 
     // We work with ShaderMake defaults, which define bindings into 4 ranges.
     //
@@ -138,6 +139,14 @@ void vhBeginMarker( const std::string& name );
 // If g_vhInit.markers is false, this call is ignored.
 // VIDL_GENERATE
 void vhEndMarker();
+
+// Starts a RenderDoc frame capture if RenderDoc integration is enabled.
+// VIDL_GENERATE
+void vhCaptureStart();
+
+// Ends a RenderDoc frame capture if RenderDoc integration is enabled.
+// VIDL_GENERATE
+void vhCaptureEnd();
 
 // Helper to allocate memory for data upload or download.
 // The caller is responsible for allocating data to feed into vh* API functions, but not responsible for freeing it.

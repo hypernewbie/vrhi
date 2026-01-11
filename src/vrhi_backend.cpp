@@ -2605,3 +2605,22 @@ bool vhBackendQueryState( vhStateId id, vhState& outState )
 {
     return g_vhCmdBackendState.QueryState( id, outState );
 }
+
+void vhCmdBackendState::Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( g_vhRenderDoc ) g_vhRenderDoc->StartFrameCapture( NULL, NULL );
+}
+
+void vhCmdBackendState::Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    // Flush commands to GPU so they are submitted within the capture window.
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhCmdListFlushAll_DeviceStateLocked();
+    }
+
+    if ( g_vhRenderDoc ) g_vhRenderDoc->EndFrameCapture( NULL, NULL );
+}

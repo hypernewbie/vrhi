@@ -130,6 +130,9 @@ extern std::mutex g_vhShaderIDListMutex;
 
 extern bool g_vhRayTracingEnabled;
 
+#include <renderdoc_app.h>
+extern RENDERDOC_API_1_1_2* g_vhRenderDoc;
+
 // Command Queue
 extern moodycamel::BlockingConcurrentQueue< void* > g_vhCmds;
 extern std::atomic<bool> g_vhCmdsQuit;

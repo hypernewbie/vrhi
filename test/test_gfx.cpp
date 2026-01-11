@@ -265,17 +265,20 @@ UTEST_F_SETUP( Graphics )
 {
     // g_vhInit.logBackendCmds = true;
     // g_vhInit.logPSOCache = true;
+    // g_vhInit.renderdoc = true;
     g_vhInit.markers = true;
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    vhCaptureStart();
     vhBeginMarker( "Graphics Test" );
 }
 UTEST_F_TEARDOWN( Graphics )
 {
     vhEndMarker();
+    vhCaptureEnd();
 }
 
 UTEST_F( Graphics, DrawTriangle )

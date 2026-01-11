@@ -21,6 +21,7 @@
 
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
+#include "renderdoc_app.h"
 
 #include <nvrhi/validation.h>
 #include <vk-bootstrap/VkBootstrap.h>
@@ -62,6 +63,43 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vhVKDebugCallback(
     return VK_FALSE;
 }
 
+RENDERDOC_API_1_1_2* g_vhRenderDoc = nullptr;
+
+void vhEnableRenderDoc()
+{
+    if ( g_vhRenderDoc ) return;
+
+#ifdef _WIN32
+    HMODULE mod = GetModuleHandleA( "renderdoc.dll" );
+    if ( !mod ) mod = LoadLibraryA( "renderdoc.dll" );
+
+    if ( !mod )
+    {
+        VRHI_LOG( "Failed to load renderdoc.dll module.\n" );
+        return;
+    }
+
+    pRENDERDOC_GetAPI RENDERDOC_GetAPI = ( pRENDERDOC_GetAPI ) GetProcAddress( mod, "RENDERDOC_GetAPI" );
+    if ( !RENDERDOC_GetAPI )
+    {
+        VRHI_LOG( "Failed to get RENDERDOC_GetAPI address.\n" );
+        return;
+    }
+
+    int ret = RENDERDOC_GetAPI( eRENDERDOC_API_Version_1_1_2, ( void** ) &g_vhRenderDoc );
+    if ( ret != 1 )
+    {
+        VRHI_LOG( "Failed to initialise RenderDoc API.\n" );
+        return;
+    }
+    VRHI_LOG( "    RenderDoc API loaded successfully.\n" );
+    g_vhRenderDoc->SetCaptureOptionU32( eRENDERDOC_Option_APIValidation, 1 );
+    g_vhRenderDoc->SetCaptureOptionU32( eRENDERDOC_Option_CaptureAllCmdLists, 1 );
+#else
+    VRHI_LOG( "RenderDoc support implementation missing for this platform.\n" );
+#endif
+}
+
 // -------------------------------------------------------- RHI Device --------------------------------------------------------
 
 void vhInit( bool quiet )
@@ -69,6 +107,12 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
     g_vhErrorCounter = 0;
     g_vhPSOCompileCounter = 0;
+
+    if ( g_vhInit.renderdoc )
+    {
+        if ( !quiet ) VRHI_LOG( "    Enabling RenderDoc support...\n" );
+        vhEnableRenderDoc();
+    }
 
     std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
     if ( g_vhDevice )
@@ -81,14 +125,15 @@ void vhInit( bool quiet )
 
     if ( !quiet ) VRHI_LOG( "    Creating VK Instance (via vk-bootstrap)\n" );
     vkb::InstanceBuilder instBuilder;
-    auto instRet = instBuilder.set_app_name( g_vhInit.appName.c_str() )
+    instBuilder.set_app_name( g_vhInit.appName.c_str() )
         .set_engine_name( g_vhInit.engineName.c_str() )
         .require_api_version( 1, 3, 0 )
         .set_headless( true )
         .request_validation_layers( g_vhInit.debug )
-        .set_debug_callback( vhVKDebugCallback )
-        .build();
+        .set_debug_callback( vhVKDebugCallback );
+    if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 
+    auto instRet = instBuilder.build();
     if ( !instRet )
     {
         VRHI_LOG( "Failed to create Vulkan Instance: %s\n", instRet.error().message().c_str() );
@@ -318,8 +363,13 @@ void vhInit( bool quiet )
     nvrhiDesc.transferQueue = g_vulkanTransferQueue;
     nvrhiDesc.transferQueueIndex = g_QueueFamilyTransfer;
 
+    std::vector<const char*> instanceExtensions;
+    if ( g_vhInit.renderdoc ) instanceExtensions.push_back( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
+
     nvrhiDesc.deviceExtensions = s_enabledExtensionPointers.data();
     nvrhiDesc.numDeviceExtensions = ( uint32_t ) s_enabledExtensionPointers.size();
+    nvrhiDesc.instanceExtensions = instanceExtensions.data();
+    nvrhiDesc.numInstanceExtensions = ( uint32_t ) instanceExtensions.size();
 
     g_vhDevice = nvrhi::vulkan::createDevice( nvrhiDesc );
     if ( !g_vhDevice )
@@ -557,6 +607,20 @@ void vhEndMarker()
 {
     if ( !g_vhInit.markers ) return;
     VIDL_vhEndMarker* cmd = vhCmdAlloc<VIDL_vhEndMarker>();
+    vhCmdEnqueue( cmd );
+}
+
+void vhCaptureStart()
+{
+    if ( !g_vhInit.renderdoc ) return;
+    VIDL_vhCaptureStart* cmd = vhCmdAlloc<VIDL_vhCaptureStart>();
+    vhCmdEnqueue( cmd );
+}
+
+void vhCaptureEnd()
+{
+    if ( !g_vhInit.renderdoc ) return;
+    VIDL_vhCaptureEnd* cmd = vhCmdAlloc<VIDL_vhCaptureEnd>();
     vhCmdEnqueue( cmd );
 }
 
