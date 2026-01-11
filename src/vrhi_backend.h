@@ -249,6 +249,7 @@ protected:
     static std::unordered_map< uint32_t, vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
     static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
+    static std::vector< vhBackendShader > s_shaders;
 
 public:
 
@@ -261,6 +262,10 @@ public:
     // --------------------------------------------------------------------------
     // Backend :: VIDL Command Handlers
     // --------------------------------------------------------------------------
+
+    void Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd ) override;
+
+    void Handle_vhEndMarker( VIDL_vhEndMarker* cmd ) override;
 
     void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) override;
 
@@ -279,6 +284,8 @@ public:
     void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override;
 
     void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) override;
+
+    void Handle_vhClear( VIDL_vhClear* cmd ) override;
 
     vhBackendBuffer* Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
         const vhMem* data, uint64_t count, uint64_t stride, uint64_t flags );

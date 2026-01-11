@@ -156,6 +156,7 @@ bool vhReflectSpirv(
         {
             auto& pc = module.push_constant_blocks[i];
             outPushConstants.push_back( { pc.offset, pc.size, pc.name ? pc.name : "" } );
+            outDesc.addItem( nvrhi::BindingLayoutItem::PushConstants( 0, ( size_t ) pc.size ) );
         }
     }
 
@@ -332,6 +333,9 @@ const char* vhGetShaderProfile( uint64_t flags )
         case VRHI_SHADER_STAGE_VERTEX:        return "vs";
         case VRHI_SHADER_STAGE_PIXEL:         return "ps";
         case VRHI_SHADER_STAGE_COMPUTE:       return "cs";
+        case VRHI_SHADER_STAGE_HULL:          return "hs";
+        case VRHI_SHADER_STAGE_DOMAIN:        return "ds";
+        case VRHI_SHADER_STAGE_GEOMETRY:      return "gs";
         case VRHI_SHADER_STAGE_RAYGEN:
         case VRHI_SHADER_STAGE_MISS:
         case VRHI_SHADER_STAGE_CLOSEST_HIT:   return "lib";

@@ -91,6 +91,7 @@ set(TEST_SOURCES
     test/test_shader.cpp
     test/test_state.cpp
     test/test_compute.cpp
+    test/test_gfx.cpp
 )
 
 # Add VRHI Static Library

@@ -108,12 +108,26 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
     vkb::PhysicalDeviceSelector selector( vkbInst );
 
+    VkPhysicalDeviceVulkan11Features v11Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+    v11Features.shaderDrawParameters = VK_TRUE;
+
     VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12Features.timelineSemaphore = VK_TRUE;
     v12Features.bufferDeviceAddress = VK_TRUE;
+    
+    VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+    v13Features.dynamicRendering = VK_TRUE;
+
     VkPhysicalDeviceFeatures features = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
-    selector.set_minimum_version( 1, 1 )
+    features.independentBlend = VK_TRUE;
+    features.fillModeNonSolid = VK_TRUE;
+    features.samplerAnisotropy = VK_TRUE;
+    features.depthClamp = VK_TRUE;
+
+    selector.set_minimum_version( 1, 3 )
+        .set_required_features_11( v11Features )
         .set_required_features_12( v12Features )
+        .set_required_features_13( v13Features )
         .set_required_features( features );
 
     vkb::PhysicalDevice vkbPhys;
@@ -439,7 +453,7 @@ void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t by
     vhCmdEnqueue( cmd );
 }
 
-void vhDraw( const vhState& state, uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation )
+void vhDraw( vhStateId state, uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation )
 {
     vhDrawCommonInternal(
         state,
@@ -453,7 +467,7 @@ void vhDraw( const vhState& state, uint32_t vertexCount, uint32_t instanceCount,
     );
 }
 
-void vhDrawIndexed( const vhState& state, uint32_t indexCount, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation )
+void vhDrawIndexed( vhStateId state, uint32_t indexCount, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation )
 {
     vhDrawCommonInternal(
         state,
@@ -467,7 +481,8 @@ void vhDrawIndexed( const vhState& state, uint32_t indexCount, uint32_t instance
     );
 }
 
-void vhDrawIndirect( const vhState& state, uint32_t drawCount )
+
+void vhDrawIndirect( vhStateId state, uint32_t drawCount )
 {
     vhDrawCommonInternal(
         state,
@@ -477,7 +492,7 @@ void vhDrawIndirect( const vhState& state, uint32_t drawCount )
     );
 }
 
-void vhDrawIndexedIndirect( const vhState& state, uint32_t drawCount )
+void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount )
 {
     vhDrawCommonInternal(
         state,
@@ -485,6 +500,12 @@ void vhDrawIndexedIndirect( const vhState& state, uint32_t drawCount )
         0, 0, 0, 0, 0, // unused direct args
         drawCount
     );
+}
+
+void vhClear( vhStateId state, uint16_t clearFlags, uint32_t rgba, float depth, uint8_t stencil )
+{
+    VIDL_vhClear* cmd = vhCmdAlloc<VIDL_vhClear>( state, clearFlags, rgba, depth, stencil );
+    vhCmdEnqueue( cmd );
 }
 
 void vhBlitBuffer( vhBuffer dst, vhBuffer src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size )
@@ -523,6 +544,20 @@ void vhFinish()
     {
         std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
     }
+}
+
+void vhBeginMarker( const std::string& name )
+{
+    if ( !g_vhInit.markers ) return;
+    VIDL_vhBeginMarker* cmd = vhCmdAlloc<VIDL_vhBeginMarker>( name );
+    vhCmdEnqueue( cmd );
+}
+
+void vhEndMarker()
+{
+    if ( !g_vhInit.markers ) return;
+    VIDL_vhEndMarker* cmd = vhCmdAlloc<VIDL_vhEndMarker>();
+    vhCmdEnqueue( cmd );
 }
 
 // -------------------------------------------------------- Dummy Resources --------------------------------------------------------
@@ -1096,8 +1131,17 @@ nvrhi::FramebufferHandle vhFBOCacheGet( const nvrhi::FramebufferDesc& desc )
     return fb;
 }
 
-void vhDrawCommonInternal( vhState state, uint32_t flags, uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startIndexLocation, uint32_t startInstanceLocation, uint32_t drawCount )
+void vhDrawCommonInternal(
+    vhStateId state,
+    uint32_t flags,
+    uint32_t vertexCount,
+    uint32_t instanceCount,
+    uint32_t startVertexLocation,
+    uint32_t startIndexLocation,
+    uint32_t startInstanceLocation,
+    uint32_t drawCount
+)
 {
-    VIDL_vhDrawCommonInternal* cmd = vhCmdAlloc< VIDL_vhDrawCommonInternal >( state, flags, vertexCount, instanceCount, startVertexLocation, startIndexLocation, startInstanceLocation, drawCount );
+    VIDL_vhDrawCommonInternal* cmd = vhCmdAlloc<VIDL_vhDrawCommonInternal>( state, flags, vertexCount, instanceCount, startVertexLocation, startIndexLocation, startInstanceLocation, drawCount );
     vhCmdEnqueue( cmd );
 }

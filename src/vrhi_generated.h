@@ -9,6 +9,26 @@ struct VIDL_vhResizeCleanup
     VIDL_vhResizeCleanup() = default;
 };
 
+struct VIDL_vhBeginMarker
+{
+    static constexpr uint64_t kMagic = 0x2631B4CA;
+    uint64_t MAGIC = kMagic;
+    const std::string name;
+
+    VIDL_vhBeginMarker() = default;
+
+    VIDL_vhBeginMarker(const std::string& _name)
+        : name(_name) {}
+};
+
+struct VIDL_vhEndMarker
+{
+    static constexpr uint64_t kMagic = 0xFA453E7B;
+    uint64_t MAGIC = kMagic;
+
+    VIDL_vhEndMarker() = default;
+};
+
 struct VIDL_vhResetTexture
 {
     static constexpr uint64_t kMagic = 0xE74D1798;
@@ -278,7 +298,7 @@ struct VIDL_vhCreateShader
     vhShader shader;
     const char* name;
     uint64_t flags;
-    const std::vector< uint32_t >& spirv;
+    const std::vector< uint32_t > spirv;
     const char* entry = "main";
 
     VIDL_vhCreateShader() = default;
@@ -324,6 +344,22 @@ struct VIDL_vhDispatchIndirect
 
     VIDL_vhDispatchIndirect(vhStateId _stateID, vhBuffer _indirectBuffer, uint64_t _byteOffset)
         : stateID(_stateID), indirectBuffer(_indirectBuffer), byteOffset(_byteOffset) {}
+};
+
+struct VIDL_vhClear
+{
+    static constexpr uint64_t kMagic = 0xD14CA051;
+    uint64_t MAGIC = kMagic;
+    vhStateId state;
+    uint16_t clearFlags = VRHI_CLEAR_COLOR;
+    uint32_t rgba = 0;
+    float depth = 1.0f;
+    uint8_t stencil = 0;
+
+    VIDL_vhClear() = default;
+
+    VIDL_vhClear(vhStateId _state, uint16_t _clearFlags, uint32_t _rgba, float _depth, uint8_t _stencil)
+        : state(_state), clearFlags(_clearFlags), rgba(_rgba), depth(_depth), stencil(_stencil) {}
 };
 
 struct VIDL_vhFlushInternal
@@ -499,7 +535,7 @@ struct VIDL_vhCmdSetStateTextures
     static constexpr uint64_t kMagic = 0x3A615501;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::TextureBinding >& textures;
+    const std::vector< vhState::TextureBinding > textures;
 
     VIDL_vhCmdSetStateTextures() = default;
 
@@ -512,7 +548,7 @@ struct VIDL_vhCmdSetStateSamplers
     static constexpr uint64_t kMagic = 0xFCB052A2;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::SamplerDefinition >& samplers;
+    const std::vector< vhState::SamplerDefinition > samplers;
 
     VIDL_vhCmdSetStateSamplers() = default;
 
@@ -525,7 +561,7 @@ struct VIDL_vhCmdSetStateBuffers
     static constexpr uint64_t kMagic = 0x953A85B6;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::BufferBinding >& buffers;
+    const std::vector< vhState::BufferBinding > buffers;
 
     VIDL_vhCmdSetStateBuffers() = default;
 
@@ -538,7 +574,7 @@ struct VIDL_vhCmdSetStateConstants
     static constexpr uint64_t kMagic = 0x23287787;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::ConstantBufferValue >& constants;
+    const std::vector< vhState::ConstantBufferValue > constants;
 
     VIDL_vhCmdSetStateConstants() = default;
 
@@ -564,7 +600,7 @@ struct VIDL_vhCmdSetStateUniforms
     static constexpr uint64_t kMagic = 0xAB3B2AB3;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::UniformBufferValue >& uniforms;
+    const std::vector< vhState::UniformBufferValue > uniforms;
 
     VIDL_vhCmdSetStateUniforms() = default;
 
@@ -577,7 +613,7 @@ struct VIDL_vhCmdSetStateAttachments
     static constexpr uint64_t kMagic = 0xD3B53061;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::RenderTarget >& colours;
+    const std::vector< vhState::RenderTarget > colours;
     vhState::RenderTarget depth;
 
     VIDL_vhCmdSetStateAttachments() = default;
@@ -590,7 +626,7 @@ struct VIDL_vhDrawCommonInternal
 {
     static constexpr uint64_t kMagic = 0x8827DC81;
     uint64_t MAGIC = kMagic;
-    vhState state;
+    vhStateId state;
     uint32_t flags;
     uint32_t vertexCount;
     uint32_t instanceCount;
@@ -601,13 +637,15 @@ struct VIDL_vhDrawCommonInternal
 
     VIDL_vhDrawCommonInternal() = default;
 
-    VIDL_vhDrawCommonInternal(vhState _state, uint32_t _flags, uint32_t _vertexCount, uint32_t _instanceCount, uint32_t _startVertexLocation, uint32_t _startIndexLocation, uint32_t _startInstanceLocation, uint32_t _drawCount)
+    VIDL_vhDrawCommonInternal(vhStateId _state, uint32_t _flags, uint32_t _vertexCount, uint32_t _instanceCount, uint32_t _startVertexLocation, uint32_t _startIndexLocation, uint32_t _startInstanceLocation, uint32_t _drawCount)
         : state(_state), flags(_flags), vertexCount(_vertexCount), instanceCount(_instanceCount), startVertexLocation(_startVertexLocation), startIndexLocation(_startIndexLocation), startInstanceLocation(_startInstanceLocation), drawCount(_drawCount) {}
 };
 
 struct VIDLHandler
 {
     virtual void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) { (void) cmd; };
+    virtual void Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd ) { (void) cmd; };
+    virtual void Handle_vhEndMarker( VIDL_vhEndMarker* cmd ) { (void) cmd; };
     virtual void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) { (void) cmd; };
@@ -629,6 +667,7 @@ struct VIDLHandler
     virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDispatch( VIDL_vhDispatch* cmd ) { (void) cmd; };
     virtual void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) { (void) cmd; };
+    virtual void Handle_vhClear( VIDL_vhClear* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) { (void) cmd; };
@@ -660,6 +699,14 @@ struct VIDLHandler
         case 0xF3F4A7CF:
             HandleLogFunction("Handle_vhResizeCleanup");
             Handle_vhResizeCleanup( (VIDL_vhResizeCleanup*) cmd );
+            break;
+        case 0x2631B4CA:
+            HandleLogFunction("Handle_vhBeginMarker");
+            Handle_vhBeginMarker( (VIDL_vhBeginMarker*) cmd );
+            break;
+        case 0xFA453E7B:
+            HandleLogFunction("Handle_vhEndMarker");
+            Handle_vhEndMarker( (VIDL_vhEndMarker*) cmd );
             break;
         case 0xE74D1798:
             HandleLogFunction("Handle_vhResetTexture");
@@ -744,6 +791,10 @@ struct VIDLHandler
         case 0x76CD9435:
             HandleLogFunction("Handle_vhDispatchIndirect");
             Handle_vhDispatchIndirect( (VIDL_vhDispatchIndirect*) cmd );
+            break;
+        case 0xD14CA051:
+            HandleLogFunction("Handle_vhClear");
+            Handle_vhClear( (VIDL_vhClear*) cmd );
             break;
         case 0x83140D26:
             HandleLogFunction("Handle_vhFlushInternal");

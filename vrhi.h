@@ -57,6 +57,7 @@ struct vhInitData
     std::string shaderMakeSlangPath = "./tools/linux_release";
     bool forceShaderRecompile = false;
     bool robust = true;
+    bool markers = true;
 
     // We work with ShaderMake defaults, which define bindings into 4 ranges.
     //
@@ -126,6 +127,17 @@ void vhFinish();
 // Clears backend caches (e.g. framebuffers). Call this after a window resize.
 // VIDL_GENERATE
 void vhResizeCleanup();
+
+// Places a debug marker denoting the beginning of a range of commands.
+// Use vhEndMarker( ) to close the range. Ranges may be nested.
+// If g_vhInit.markers is false, this call is ignored.
+// VIDL_GENERATE
+void vhBeginMarker( const std::string& name );
+
+// Places a debug marker denoting the end of a range of commands.
+// If g_vhInit.markers is false, this call is ignored.
+// VIDL_GENERATE
+void vhEndMarker();
 
 // Helper to allocate memory for data upload or download.
 // The caller is responsible for allocating data to feed into vh* API functions, but not responsible for freeing it.
@@ -661,10 +673,10 @@ typedef uint64_t vhFramebuffer;
 //
 struct vhState
 {
-    glm::vec4 viewRect;
-    glm::vec4 viewScissor;
-    glm::mat4 viewMatrix;
-    glm::mat4 projMatrix;
+    glm::vec4 viewRect = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
+    glm::vec4 viewScissor = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
+    glm::mat4 viewMatrix = glm::mat4( 1.0f );
+    glm::mat4 projMatrix = glm::mat4( 1.0f );
     std::vector< glm::mat4 > worldMatrix; // worldMatrix[0] is copied into pushConstants[0] if worldMatrix is non-empty.
     uint64_t stateFlags = 0;
     uint64_t debugFlags = 0;
@@ -1007,18 +1019,27 @@ void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount );
 void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t byteOffset = 0 );
 
 // Draws non-indexed primitives.
-void vhDraw( const vhState& state, uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t startVertexLocation = 0, uint32_t startInstanceLocation = 0 );
+void vhDraw( vhStateId state, uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t startVertexLocation = 0, uint32_t startInstanceLocation = 0 );
 
 // Draws indexed primitives.
-void vhDrawIndexed( const vhState& state, uint32_t indexCount, uint32_t instanceCount = 1, uint32_t startIndexLocation = 0, int32_t baseVertexLocation = 0, uint32_t startInstanceLocation = 0 );
+void vhDrawIndexed( vhStateId state, uint32_t indexCount, uint32_t instanceCount = 1, uint32_t startIndexLocation = 0, int32_t baseVertexLocation = 0, uint32_t startInstanceLocation = 0 );
 
 // Draws non-indexed primitives using indirect buffer.
 // Indirect buffer must be set via state.SetIndirectParams().
-void vhDrawIndirect( const vhState& state, uint32_t drawCount = 1 );
+void vhDrawIndirect( vhStateId state, uint32_t drawCount = 1 );
 
 // Draws indexed primitives using indirect buffer.
 // Indirect buffer must be set via state.SetIndirectParams().
-void vhDrawIndexedIndirect( const vhState& state, uint32_t drawCount = 1 );
+void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount = 1 );
+
+// Clears the attachments bound in the state.
+// |state| is the state ID containing bound colour and depth attachments to clear.
+// |clearFlags| specifies what to clear (VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH | VRHI_CLEAR_STENCIL).
+// |rgba| is packed RGBA8 clear colour (default 0).
+// |depth| is depth clear value (default 1.0).
+// |stencil| is stencil clear value (default 0).
+// VIDL_GENERATE
+void vhClear( vhStateId state, uint16_t clearFlags = VRHI_CLEAR_COLOR, uint32_t rgba = 0, float depth = 1.0f, uint8_t stencil = 0 );
 
 // --------------------------------------------------------------------------
 // Sub-Allocators
@@ -1207,7 +1228,7 @@ void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderT
 // Internal omni-draw command. Do not call directly.
 // VIDL_GENERATE
 void vhDrawCommonInternal(
-    vhState state,
+    vhStateId state,
     uint32_t flags,
     uint32_t vertexCount,
     uint32_t instanceCount,

@@ -32,6 +32,7 @@ vhStateResolveCache vhCmdBackendState::s_resolveCache;
 std::unordered_map< uint32_t, vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
+std::vector< vhBackendShader > vhCmdBackendState::s_shaders;
 
 // --------------------------------------------------------------------------
 // Backend :: Utils & Helpers
@@ -382,10 +383,10 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     assert( shaders && shaderCount > 0 );
     const vhBackendShader* vertexShader = nullptr;
 
+    std::map< uint32_t, nvrhi::BindingLayoutDesc > mergedLayouts;
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
         auto& shader = shaders[shaderIdx];
-        nvrhi::BindingSetDesc bsetDesc = nvrhi::BindingSetDesc();
         if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
             continue;
 
@@ -393,28 +394,29 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
         if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
 
-        if ( shader.flags & VRHI_SHADER_STAGE_COMPUTE && computePipelineDesc )
+        const uint32_t stage = ( uint32_t ) ( shader.flags & VRHI_SHADER_STAGE_MASK );
+        if ( stage == VRHI_SHADER_STAGE_COMPUTE && computePipelineDesc )
         {
             computePipelineDesc->setComputeShader( shader.handle );
         }
-        if ( shader.flags & VRHI_SHADER_STAGE_VERTEX && graphicsPipelineDesc )
+        else if ( stage == VRHI_SHADER_STAGE_VERTEX && graphicsPipelineDesc )
         {
             graphicsPipelineDesc->setVertexShader( shader.handle );
             vertexShader = &shader;
         }
-        if ( shader.flags & VRHI_SHADER_STAGE_HULL && graphicsPipelineDesc )
+        else if ( stage == VRHI_SHADER_STAGE_HULL && graphicsPipelineDesc )
         {
             graphicsPipelineDesc->setHullShader( shader.handle );
         }
-        if ( shader.flags & VRHI_SHADER_STAGE_DOMAIN && graphicsPipelineDesc )
+        else if ( stage == VRHI_SHADER_STAGE_DOMAIN && graphicsPipelineDesc )
         {
             graphicsPipelineDesc->setDomainShader( shader.handle );
         }
-        if ( shader.flags & VRHI_SHADER_STAGE_GEOMETRY && graphicsPipelineDesc )
+        else if ( stage == VRHI_SHADER_STAGE_GEOMETRY && graphicsPipelineDesc )
         {
             graphicsPipelineDesc->setGeometryShader( shader.handle );
         }
-        if ( shader.flags & VRHI_SHADER_STAGE_PIXEL && graphicsPipelineDesc )
+        else if ( stage == VRHI_SHADER_STAGE_PIXEL && graphicsPipelineDesc )
         {
             graphicsPipelineDesc->setPixelShader( shader.handle );
         }
@@ -892,6 +894,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: %s %s found in cache at slot %d\n", vhResourceTypeToString( item.type ), isUAV ? "UAV" : "SRV", item.slot );
             return true;
         }
+        case nvrhi::ResourceType::PushConstants:
+        {
+            outItem = nvrhi::BindingSetItem::PushConstants( item.slot, item.size );
+            return true;
+        }
         case nvrhi::ResourceType::Sampler:
         {
             auto it = stageTable.samplerTable.find( item.slot );
@@ -981,20 +988,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
     s_hashToPSOlayout.clear();
 
-    // Bind push constants if they are dirty and used.
-    if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
-    {
-        assert ( cmdList );
-        for ( int i = 0; i < shaderCount; ++i )
-        {
-            if ( !shaders[i].pushConstants.empty() )
-            {
-                vhSetPushConstant_DeviceStateLocked( cmdList, state );
-                break;
-            }
-        }
-    }
-
     // Loop through the layouts and bind resources.
 
     s_resolveCache.Clear();
@@ -1035,6 +1028,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         {
             auto binding = layoutDesc->bindings[bindingIdx];
 
+            if ( binding.type == nvrhi::ResourceType::PushConstants )
+            {
+                // Special early branch for push constants.
+                nvrhi::BindingSetItem item;
+                if ( BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item ) )
+                {
+                    bsetDesc.addItem( item );
+                }
+                continue;
+            }
+
             // Find the corresponding reflection resource.
             auto reflectionItr = s_slotToReflection.find( binding.slot );
             if ( reflectionItr == s_slotToReflection.end() )
@@ -1074,15 +1078,9 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     {
         // Transfer some overlapping state from vhState to nvrhi::GraphicsState.
 
-        // Set blend constant color
-        graphicsState->blendConstantColor = nvrhi::Color(
-            state.blendConstantColor.r,
-            state.blendConstantColor.g,
-            state.blendConstantColor.b,
-            state.blendConstantColor.a
-        );
 
-        // Set variable rate shading
+        // Set blend constant color
+        graphicsState->blendConstantColor = nvrhi::Color( state.blendConstantColor.r, state.blendConstantColor.g, state.blendConstantColor.b, state.blendConstantColor.a );
         if ( state.shadingRateFlags != VRHI_VRS_1X1 || state.shadingRateImage != VRHI_INVALID_HANDLE )
         {
             auto& vrs = graphicsState->shadingRateState;
@@ -1197,6 +1195,10 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
+        
+        if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
+            vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+
         cmdlist->dispatch( workGroupCount.x, workGroupCount.y, workGroupCount.z );
     }
 }
@@ -1240,6 +1242,10 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
+        
+        if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
+            vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+
         cmdlist->dispatchIndirect( ( uint32_t ) byteOffset );
     }
 }
@@ -1269,18 +1275,28 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
 
     nvrhi::GraphicsState gstate;
     gstate.setPipeline( pso.Get() );
-
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &gstate, fb ) )
+    {
+        VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
+        return;
+    }
+
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-
-        if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &gstate, fb ) )
-        {
-            VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
-            return;
-        }
-
         cmdlist->setGraphicsState( gstate );
+
+        if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
+        {
+            for ( int i = 0; i < shaderCount; ++i )
+            {
+                if ( !shaders[i].pushConstants.empty() )
+                {
+                    vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+                    break;
+                }
+            }
+        }
 
         if ( flags & VRHI_DRAW_INDIRECT )
         {
@@ -1362,6 +1378,7 @@ void vhCmdBackendState::shutdown()
     s_slotToReflection.clear();
     s_layoutLocationTable.clear();
     s_attributes.clear();
+    s_shaders.clear();
 }
 
 void vhCmdBackendState::HandleLogFunction( const char* str )
@@ -1392,6 +1409,28 @@ void vhCmdBackendState::Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
     vhFBOCacheReset();
+}
+
+void vhCmdBackendState::Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto cmdList = vhCmdListGet();
+    if ( cmdList )
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        cmdList->beginMarker( cmd->name.c_str( ) );
+    }
+}
+
+void vhCmdBackendState::Handle_vhEndMarker( VIDL_vhEndMarker* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto cmdList = vhCmdListGet();
+    if ( cmdList )
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdList->endMarker();
+    }
 }
 
 void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
@@ -2213,11 +2252,18 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
 {
     BE_CmdRAII cmdRAII( cmd );
 
-    static std::vector< vhBackendShader > s_shaders;
+    auto itState = backendStates.find( cmd->state );
+    if ( itState == backendStates.end() )
+    {
+        VRHI_ERR( "Draw with invalid state ID %llu", cmd->state );
+        return;
+    }
+    vhState& state = itState->second;
+
     s_shaders.clear();
     s_shaders.reserve( 16 );
 
-    for ( vhShader shaderHandle : cmd->state.program )
+    for ( vhShader shaderHandle : state.program )
     {
         auto it = backendShaders.find( shaderHandle );
         if ( it != backendShaders.end() )
@@ -2232,7 +2278,7 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
 
     // Clear indirect buffer if it's NOT an indirect draw to prevent BE_PreSubmitCommon_State from binding it
     if ( !( cmd->flags & VRHI_DRAW_INDIRECT ) )
-        cmd->state.indirectParams.buffer = VRHI_INVALID_HANDLE;
+        state.indirectParams.buffer = VRHI_INVALID_HANDLE;
 
     nvrhi::DrawArguments args;
     args.setVertexCount( cmd->vertexCount )
@@ -2241,7 +2287,7 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
         .setStartIndexLocation( cmd->startIndexLocation )
         .setStartInstanceLocation( cmd->startInstanceLocation );
 
-    BE_Submit( cmd->state, s_shaders.data(), ( int ) s_shaders.size(), cmd->flags, args, cmd->drawCount );
+    BE_Submit( state, s_shaders.data(), ( int ) s_shaders.size(), cmd->flags, args, cmd->drawCount );
 }
 
 void vhCmdBackendState::Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd )
@@ -2282,6 +2328,78 @@ void vhCmdBackendState::Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd )
     }
 
     BE_BlitBuffer( *itDst->second, *itSrc->second, cmd->dstOffset, cmd->srcOffset, clampedSizeBytes );
+}
+
+void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto itState = backendStates.find( cmd->state );
+    if ( itState == backendStates.end() )
+    {
+        VRHI_ERR( "vhClear(): State %llu not found!\n", cmd->state );
+        return;
+    }
+    vhState& state = itState->second;
+
+    // Validate that at least one attachment is bound
+    if ( state.colourAttachment.empty() && state.depthAttachment.texture == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhClear(): No attachments bound in state!\n" );
+        return;
+    }
+
+    // Clear Color Attachments
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+
+        if ( cmd->clearFlags & VRHI_CLEAR_COLOR )
+        {
+            float r = ( ( cmd->rgba >> 24 ) & 0xFF ) / 255.0f;
+            float g = ( ( cmd->rgba >> 16 ) & 0xFF ) / 255.0f;
+            float b = ( ( cmd->rgba >> 8 ) & 0xFF ) / 255.0f;
+            float a = ( cmd->rgba & 0xFF ) / 255.0f;
+
+            for ( const auto& rt : state.colourAttachment )
+            {
+                if ( rt.texture == VRHI_INVALID_HANDLE ) continue;
+                auto it = backendTextures.find( rt.texture );
+                if ( it != backendTextures.end() && it->second->handle )
+                {
+                    nvrhi::TextureSubresourceSet subresources;
+                    subresources.baseMipLevel = rt.mipLevel;
+                    subresources.numMipLevels = 1;
+                    subresources.baseArraySlice = rt.arrayLayer;
+                    subresources.numArraySlices = 1;
+
+                    cmdlist->clearTextureFloat( it->second->handle, subresources, nvrhi::Color( r, g, b, a ) );
+                }
+            }
+        }
+
+        // Clear Depth/Stencil Attachment
+        if ( ( cmd->clearFlags & VRHI_CLEAR_DEPTH ) || ( cmd->clearFlags & VRHI_CLEAR_STENCIL ) )
+        {
+            if ( state.depthAttachment.texture != VRHI_INVALID_HANDLE )
+            {
+                auto it = backendTextures.find( state.depthAttachment.texture );
+                if ( it != backendTextures.end() && it->second->handle )
+                {
+                    nvrhi::TextureSubresourceSet subresources;
+                    subresources.baseMipLevel = state.depthAttachment.mipLevel;
+                    subresources.numMipLevels = 1;
+                    subresources.baseArraySlice = state.depthAttachment.arrayLayer;
+                    subresources.numArraySlices = 1;
+
+                    bool clearDepth = ( cmd->clearFlags & VRHI_CLEAR_DEPTH ) != 0;
+                    bool clearStencil = ( cmd->clearFlags & VRHI_CLEAR_STENCIL ) != 0;
+
+                    cmdlist->clearDepthStencilTexture( it->second->handle, subresources, clearDepth, cmd->depth, clearStencil, cmd->stencil );
+                }
+            }
+        }
+    }
 }
 
 void vhCmdBackendState::RHIThreadEntry( std::function<void()> initCallback )

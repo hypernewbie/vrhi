@@ -32,15 +32,26 @@ void Helper_FillPattern( std::vector<uint8_t>& data, int width, int height )
     }
 }
 
-UTEST( Compute, EndToEnd_TextureWrite )
+struct Compute {};
+UTEST_F_SETUP( Compute )
 {
     // g_vhInit.logBackendCmds = true;
     // g_vhInit.logPSOCache = true;
+    g_vhInit.markers = true;
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    vhBeginMarker( "Compute Test" );
+}
+UTEST_F_TEARDOWN( Compute )
+{
+    vhEndMarker();
+}
+
+UTEST_F( Compute, EndToEnd_TextureWrite )
+{
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
@@ -123,13 +134,8 @@ UTEST( Compute, EndToEnd_TextureWrite )
     vhFinish();
 }
 
-UTEST( Compute, ReadFromTexture )
+UTEST_F( Compute, ReadFromTexture )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -208,13 +214,8 @@ UTEST( Compute, ReadFromTexture )
     vhFinish();
 }
 
-UTEST( Compute, ReadFromBuffer )
+UTEST_F( Compute, ReadFromBuffer )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -305,15 +306,10 @@ UTEST( Compute, ReadFromBuffer )
 }
 
 
-UTEST( Compute, ReadFromBuffer_Unbound )
+UTEST_F( Compute, ReadFromBuffer_Unbound )
 {
     // g_vhInit.logBackendCmds = true;
     // g_vhInit.logPSOCache = true;
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -400,13 +396,8 @@ UTEST( Compute, ReadFromBuffer_Unbound )
     vhFinish();
 }
 
-UTEST( Compute, EndToEnd_UniformsAndConstants )
+UTEST_F( Compute, EndToEnd_UniformsAndConstants )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -526,13 +517,8 @@ UTEST( Compute, EndToEnd_UniformsAndConstants )
     vhFinish();
 }
 
-UTEST( Compute, DispatchIndirect )
+UTEST_F( Compute, DispatchIndirect )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 

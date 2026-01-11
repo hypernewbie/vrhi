@@ -99,6 +99,7 @@ Lots:
 * Multithreaded Cmdbuf
 * MSAA
 * ASTC Formats
+* Avoiding allocations. Right now it makes A LOT, which is bad.
 * About 30 years of optimisation by a team of 5 Principal Engineers
 * Benchmark cheating
 
