@@ -32,6 +32,7 @@
 extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
+extern vhCmdBackendState g_vhCmdBackendState;
 
 class vhCmdBackendStateTest
 {
@@ -90,10 +91,11 @@ public:
         vhBackendShader* shaders,
         int shaderCount,
         nvrhi::ComputeState* compute,
-        nvrhi::GraphicsState* graphics
+        nvrhi::GraphicsState* graphics,
+        nvrhi::CommandListHandle cmdList = nullptr
     )
     {
-        return Get().BE_PreSubmitCommon_State( state, shaders, shaderCount, compute, graphics );
+        return Get().BE_PreSubmitCommon_State( cmdList, state, shaders, shaderCount, compute, graphics );
     }
 
     static bool GetFrameBuffer( const std::vector< vhState::RenderTarget >& colors, const vhState::RenderTarget& depth )
@@ -129,6 +131,16 @@ public:
     static int64_t Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
     {
         return Get().BE_Util_WriteWorldUniform( state, tbuf, lastHash );
+    }
+
+    static uint64_t GetDirtyBits( vhStateId id )
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        // Use global backend state for accurate dirty bit check
+        auto it = g_vhCmdBackendState.backendStates.find( id );
+        if ( it != g_vhCmdBackendState.backendStates.end() )
+            return it->second.dirty;
+        return 0;
     }
 };
 
@@ -744,22 +756,21 @@ UTEST( Backend, VertexIndexBufferBinding )
 
     // Test Single Vertex Buffer Binding
     vhBuffer vb = vhAllocBuffer();
+
     // Manually populate backend buffer for the test instance
+    vhBackendBuffer* bbuf = new vhBackendBuffer();
+    nvrhi::BufferDesc desc;
+    desc.setByteSize( 1024 );
+    desc.setIsVertexBuffer( true );
+    desc.setDebugName( "VB1" );
     {
-        auto bbuf = new vhBackendBuffer();
-        nvrhi::BufferDesc desc;
-        desc.setByteSize( 1024 );
-        desc.setIsVertexBuffer( true );
-        desc.setDebugName( "VB1" );
-        {
-            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-            bbuf->handle = g_vhDevice->createBuffer( desc );
-        }
-        ASSERT_TRUE( bbuf->handle );
-        bbuf->stride = 12;
-        bbuf->flags = 0;
-        vhCmdBackendStateTest::InsertDummyBuffer( vb, bbuf );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        bbuf->handle = g_vhDevice->createBuffer( desc );
     }
+    ASSERT_TRUE( bbuf->handle );
+    bbuf->stride = 12;
+    bbuf->flags = 0;
+    vhCmdBackendStateTest::InsertDummyBuffer( vb, bbuf );
 
     vhState state;
     state.SetVertexBuffer( vb, 0, 0, 0, ( 1024 / 12 ) );
@@ -799,8 +810,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     EXPECT_EQ( gstate.vertexBuffers.size(), 1u );
     if ( gstate.vertexBuffers.size() > 0 )
     {
-        EXPECT_EQ( gstate.vertexBuffers[0].slot, 0u );
-        EXPECT_NE( gstate.vertexBuffers[0].buffer, nullptr );
+        EXPECT_EQ( gstate.vertexBuffers[0].buffer, bbuf->handle.Get() );
     }
 
     // Test Multiple Vertex Streams
@@ -932,5 +942,45 @@ UTEST( Backend, Util_WriteWorldUniform )
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST( Backend, PushConstantsDirtyBit )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+
+    // Create a new state
+    vhStateId sid = 1;
+    
+    // Set Push Constants
+    glm::vec4 pcData( 10, 20, 30, 40 );
+    vhCmdSetStatePushConstants( sid, pcData );
+    
+    // Flush to process commands
+    vhFlush();
+    
+    // Check Dirty Bit
+    uint64_t dirty = vhCmdBackendStateTest::GetDirtyBits( sid );
+    EXPECT_NE( dirty & VRHI_DIRTY_PUSH_CONSTANTS, 0ull );
+    
+    // Set World Transform
+    vhCmdSetStateWorldTransform( sid, { glm::mat4( 1.0f ) } );
+    vhFlush();
+    
+    dirty = vhCmdBackendStateTest::GetDirtyBits( sid );
+    EXPECT_NE( dirty & VRHI_DIRTY_WORLD, 0ull );
+    
+    // Test vhSetPushConstant execution (crash check)
+    vhState state;
+    vhGetState( sid, state );
+    {
+        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhSetPushConstant_DeviceStateLocked( cmdlist, state );
     }
 }

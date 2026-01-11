@@ -224,6 +224,7 @@ class vhCmdBackendState : public VIDLHandler
     );
 
     bool BE_PreSubmitCommon_State(
+        nvrhi::CommandListHandle cmdList,
         vhState& state,
         vhBackendShader* shaders,
         int shaderCount,

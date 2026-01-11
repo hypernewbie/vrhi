@@ -891,6 +891,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
 }
 
 bool vhCmdBackendState::BE_PreSubmitCommon_State(
+    nvrhi::CommandListHandle cmdList,
     vhState& state,
     vhBackendShader* shaders,
     int shaderCount,
@@ -950,6 +951,20 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         s_layoutToShader[ tempPSOLayout ] = &shader;
     }
     s_hashToPSOlayout.clear();
+
+    // Bind push constants if they are dirty and used.
+    if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
+    {
+        assert ( cmdList );
+        for ( int i = 0; i < shaderCount; ++i )
+        {
+            if ( !shaders[i].pushConstants.empty() )
+            {
+                vhSetPushConstant_DeviceStateLocked( cmdList, state );
+                break;
+            }
+        }
+    }
 
     // Loop through the layouts and bind resources.
 
@@ -1096,14 +1111,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
 void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount )
 {
-    // Suggested Implementation:
-    // Get Compute Queue command list: auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Compute );
-    // Create/Get Compute Pipeline (using nvrhi::ComputePipelineDesc with computeShader.handle).
-    // Bind Compute Pipeline to cmdlist.
-    // Bind Resources (descriptors, push constants, uniforms) to cmdlist (using state).
-    // IMPORTANT: Skip Viewport/Scissor as they are not for compute.
-    // cmdlist->dispatch( workGroupCount.x, workGroupCount.y, workGroupCount.z );
-
     assert( computeShader.handle );
 
     nvrhi::ComputePipelineDesc desc;
@@ -1121,14 +1128,14 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     }
 
     nvrhi::ComputeState cstate;
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     cstate.setPipeline( pso.Get() );
-    if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, &cstate, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
@@ -1161,16 +1168,17 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
         return;
     }
 
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+
     nvrhi::ComputeState cstate;
     cstate.setPipeline( pso.Get() );
-    if ( !BE_PreSubmitCommon_State( state, &computeShader, 1, &cstate, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
     cstate.setIndirectParams( indirectBuffer.handle );
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
@@ -1900,6 +1908,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWo
 {
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].worldMatrix = cmd->matrices;
+    backendStates[cmd->id].dirty |= VRHI_DIRTY_WORLD;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd )
@@ -1964,6 +1973,7 @@ void vhCmdBackendState::Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePus
 {
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].pushConstants = cmd->data;
+    backendStates[cmd->id].dirty |= VRHI_DIRTY_PUSH_CONSTANTS;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd )

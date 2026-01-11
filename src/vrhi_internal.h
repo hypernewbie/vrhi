@@ -276,6 +276,7 @@ nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
 nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint32_t frontStencil, uint32_t backStencil );
 nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
+void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state );
 
 
 

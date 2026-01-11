@@ -213,6 +213,23 @@ nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags )
     }
 }
 
+void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state )
+{
+    struct PushConstantData
+    {
+        glm::vec4 userData;
+        glm::mat4 modelViewProj;
+    } pushData;
+
+    pushData.userData = state.pushConstants;
+    if ( !state.worldMatrix.empty() )
+        pushData.modelViewProj = state.projMatrix * state.viewMatrix * state.worldMatrix[0];
+    else
+        pushData.modelViewProj = state.projMatrix * state.viewMatrix;
+
+    cmdList->setPushConstants( &pushData, sizeof( pushData ) );
+}
+
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
 {
     nvrhi::BlendState blendState;
