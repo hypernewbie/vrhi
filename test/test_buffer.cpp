@@ -708,7 +708,7 @@ UTEST( Buffer, TransientRingAllocator )
     ringAlloc.Step();
     EXPECT_EQ( ringAlloc.GetFrameIndex(), 1 );
     EXPECT_EQ( ringAlloc.GetBuffer(), (vhBuffer)2 );
-    
+
     // Important: Step() does NOT reset. User must call Reset().
     ringAlloc.Reset();
     EXPECT_EQ( ringAlloc.Alloc( 100 ), 0 );
@@ -725,4 +725,105 @@ UTEST( Buffer, TransientRingAllocator )
     ringAlloc.Reset();
     EXPECT_EQ( ringAlloc.GetFrameIndex(), 0 );
     EXPECT_EQ( ringAlloc.GetBuffer(), (vhBuffer)1 );
+}
+
+UTEST( Buffer, SubAllocator )
+{
+    // --------------------------------------------------------------------------
+    // Sub-Allocator with Deferred Freeing
+    // --------------------------------------------------------------------------
+    vhSubAllocator subAlloc;
+    vhBuffer testBuffer = (vhBuffer)12345;
+    
+    // Initialise with 1MB buffer, 256 byte alignment
+    subAlloc.Init( testBuffer, 1024 * 1024, 256 );
+    
+    EXPECT_EQ( subAlloc.GetBuffer(), testBuffer );
+    EXPECT_EQ( subAlloc.GetAlignment(), 256 );
+    
+    // Test basic allocation
+    int64_t offset1 = subAlloc.Alloc( 512 );
+    EXPECT_GE( offset1, 0 );
+    EXPECT_EQ( offset1 % 256, 0 ); // Should be aligned
+    
+    int64_t offset2 = subAlloc.Alloc( 1024 );
+    EXPECT_GE( offset2, 0 );
+    EXPECT_EQ( offset2 % 256, 0 );
+    
+    // Test that allocations don't overlap
+    EXPECT_NE( offset1, offset2 );
+    
+    // Test free with deferred freeing
+    subAlloc.Free( offset1 );
+    
+    // Offset1 should not be immediately available (deferred freeing)
+    int64_t offset3 = subAlloc.Alloc( 512 );
+    EXPECT_GE( offset3, 0 );
+    EXPECT_NE( offset3, offset1 ); // Should not get same offset back yet
+    
+    // Step through 3 frames to release deferred frees
+    subAlloc.Step(); // Frame 1
+    subAlloc.Step(); // Frame 2
+    subAlloc.Step(); // Frame 3 - offset1 should now be released
+    
+    // After 3 frames, we should be able to allocate again
+    // (though not necessarily the same offset due to fragmentation)
+    uint64_t usedBefore = subAlloc.GetUsedSpace();
+    uint64_t availableBefore = subAlloc.GetAvailableSpace();
+    
+    int64_t offset4 = subAlloc.Alloc( 512 );
+    EXPECT_GE( offset4, 0 );
+    
+    // Test allocation failure when out of space
+    // First reset to have clean state
+    subAlloc.Reset();
+    
+    // Allocate until we run out of space
+    std::vector< int64_t > largeAllocations;
+    while ( true )
+    {
+        int64_t offset = subAlloc.Alloc( 256 * 1024 ); // Try to allocate 256KB (smaller to fit multiple)
+        if ( offset < 0 )
+        {
+            break; // Out of space
+        }
+        largeAllocations.push_back( offset );
+    }
+    
+    EXPECT_GT( largeAllocations.size(), 0 ); // Should have allocated at least one
+    
+    // Free all large allocations
+    for ( int64_t offset : largeAllocations )
+    {
+        subAlloc.Free( offset );
+    }
+    
+    // Step through frames to release them
+    for ( int i = 0; i < 3; i++ )
+    {
+        subAlloc.Step();
+    }
+    
+    // Test reset
+    subAlloc.Reset();
+    
+    // After reset, should be able to allocate from beginning
+    int64_t offsetAfterReset = subAlloc.Alloc( 512 );
+    EXPECT_GE( offsetAfterReset, 0 );
+    
+    // Test alignment
+    int64_t smallOffset = subAlloc.Alloc( 1 ); // Request 1 byte
+    EXPECT_GE( smallOffset, 0 );
+    EXPECT_EQ( smallOffset % 256, 0 ); // Should be aligned to 256 bytes
+    
+    // Test invalid free (these will print error messages but should not crash)
+    subAlloc.Free( -1 ); // Should not crash
+    subAlloc.Free( 999999 ); // Unknown offset, should not crash
+    
+    // Test GetUsedSpace and GetAvailableSpace
+    uint64_t used = subAlloc.GetUsedSpace();
+    uint64_t available = subAlloc.GetAvailableSpace();
+    EXPECT_LE( used, 1024 * 1024 );
+    EXPECT_LE( available, 1024 * 1024 );
+    EXPECT_EQ( used + available, 1024 * 1024 );
 }

@@ -10,3 +10,6 @@
 	path = vdeps/vk-bootstrap
 	url = https://github.com/charles-lunarg/vk-bootstrap.git
 	ignore = dirty
+[submodule "vdeps/OffsetAllocator"]
+	path = vdeps/OffsetAllocator
+	url = https://github.com/sebbbi/OffsetAllocator

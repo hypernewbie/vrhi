@@ -75,6 +75,8 @@ set(VRHI_SOURCES
     src/vrhi_buffer.cpp
     src/vrhi_shader.cpp
     src/vrhi_state.cpp
+    vdeps/OffsetAllocator/offsetAllocator.cpp
+    vdeps/OffsetAllocator/offsetAllocator.hpp
 )
 
 # Test Sources
@@ -96,8 +98,10 @@ add_library(vrhi STATIC ${VRHI_SOURCES})
 
 if(MSVC)
     set_source_files_properties(${SPIRV_REFLECT_SOURCE} PROPERTIES COMPILE_OPTIONS "/wd4244;/wd4267;/wd4013")
+    set_source_files_properties(vdeps/OffsetAllocator/offsetAllocator.cpp PROPERTIES COMPILE_OPTIONS "/wd4244;/wd4267;/wd4013")
 else()
     set_source_files_properties(${SPIRV_REFLECT_SOURCE} PROPERTIES COMPILE_OPTIONS "-Wno-missing-field-initializers")
+    set_source_files_properties(vdeps/OffsetAllocator/offsetAllocator.cpp PROPERTIES COMPILE_OPTIONS "-Wno-missing-field-initializers")
 endif()
 
 target_compile_definitions(vrhi PRIVATE 
@@ -112,6 +116,7 @@ target_include_directories(vrhi PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
 )
 
 # Add Vulkan SDK Source/SPIRV-Reflect to include paths so we can directly inline inc the .c file

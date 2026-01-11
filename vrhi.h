@@ -1104,6 +1104,64 @@ public:
 };
 
 // --------------------------------------------------------------------------
+// vhSubAllocator - Non-transient sub-allocator with deferred freeing
+// --------------------------------------------------------------------------
+
+class vhSubAllocator
+{
+    vhBuffer m_buffer;
+    uint64_t m_size;
+    uint32_t m_alignment;
+    uint32_t m_frameIndex;
+    
+    struct DeferredFree
+    {
+        uint64_t offset;
+        uint32_t metadata; // OffsetAllocator::Allocation metadata
+    };
+    
+    void* m_allocator; // Opaque pointer to OffsetAllocator::Allocator
+    std::unordered_map< uint64_t, uint32_t > m_allocations;
+    std::vector< DeferredFree > m_deferredFrees[3];
+
+public:
+    vhSubAllocator()
+        : m_buffer( VRHI_INVALID_HANDLE )
+        , m_size( 0 )
+        , m_alignment( 256 )
+        , m_frameIndex( 0 )
+        , m_allocator( nullptr )
+    {
+    }
+
+    ~vhSubAllocator();
+    
+    void Init( vhBuffer buffer, uint64_t size, uint32_t alignment = 256 );
+    
+    int64_t Alloc( uint64_t size );
+    
+    void Free( int64_t offset );
+    
+    void Step();
+    
+    void Reset();
+    
+    vhBuffer GetBuffer() const
+    {
+        return m_buffer;
+    }
+    
+    uint32_t GetAlignment() const
+    {
+        return m_alignment;
+    }
+    
+    uint64_t GetUsedSpace() const;
+    
+    uint64_t GetAvailableSpace() const;
+};
+
+// --------------------------------------------------------------------------
 // Internals. DO NOT USE.
 // --------------------------------------------------------------------------
 

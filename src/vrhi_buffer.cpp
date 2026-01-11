@@ -21,13 +21,22 @@
 
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
+#include "vdeps/OffsetAllocator/offsetAllocator.hpp"
 
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 #include <cctype>
 #include <cstring>
 #include <vector>
 #include <string>
+#include <unordered_map>
+#include <memory>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
+
+// Forward declaration for OffsetAllocator internal type
+namespace OffsetAllocator
+{
+    class Allocator;
+}
 
 // Helper to resolve NVRHI format from type string
 nvrhi::Format vhGetFormatFromTypeString( const std::string& type, int count )
@@ -489,5 +498,154 @@ int64_t vhTransientBuffer::Write( const void* data, size_t bytes )
     }
 
     return writeOffset;
+}
+
+// --------------------------------------------------------------------------
+// vhSubAllocator
+// --------------------------------------------------------------------------
+
+vhSubAllocator::~vhSubAllocator()
+{
+    if ( m_allocator )
+    {
+        delete static_cast< OffsetAllocator::Allocator* >( m_allocator );
+        m_allocator = nullptr;
+    }
+}
+
+void vhSubAllocator::Init( vhBuffer buffer, uint64_t size, uint32_t alignment )
+{
+    m_buffer = buffer;
+    m_size = size;
+    m_alignment = alignment;
+    m_frameIndex = 0;
+    
+    // Clean up existing allocator if any
+    if ( m_allocator )
+    {
+        delete static_cast< OffsetAllocator::Allocator* >( m_allocator );
+        m_allocator = nullptr;
+    }
+    
+    // Validate size fits in uint32_t for OffsetAllocator
+    if ( size > UINT32_MAX )
+    {
+        VRHI_ERR( "vhSubAllocator::Init: Size %llu exceeds maximum supported size %u\n", size, UINT32_MAX );
+        return;
+    }
+    
+    // Create the underlying offset allocator with default max allocations (128K)
+    m_allocator = new OffsetAllocator::Allocator( static_cast< uint32_t >( size ) );
+    
+    // Clear all state
+    m_allocations.clear();
+    for ( uint32_t i = 0; i < 3; i++ )
+    {
+        m_deferredFrees[i].clear();
+    }
+}
+
+int64_t vhSubAllocator::Alloc( uint64_t size )
+{
+    if ( !m_allocator ) return -1;
+    
+    // Align size up to alignment boundary
+    uint64_t alignedSize = ( size + m_alignment - 1 ) & ~( ( uint64_t ) m_alignment - 1 );
+    
+    // Validate aligned size fits in uint32_t for OffsetAllocator
+    if ( alignedSize > UINT32_MAX )
+    {
+        VRHI_ERR( "vhSubAllocator::Alloc: Aligned size %llu exceeds maximum supported size %u\n", alignedSize, UINT32_MAX );
+        return -1;
+    }
+    
+    // Allocate from the underlying allocator
+    OffsetAllocator::Allocation allocation = static_cast< OffsetAllocator::Allocator* >( m_allocator )->allocate( static_cast< uint32_t >( alignedSize ) );
+    if ( allocation.offset == OffsetAllocator::Allocation::NO_SPACE )
+    {
+        return -1;
+    }
+    
+    // Store the allocation metadata for later freeing
+    m_allocations[allocation.offset] = allocation.metadata;
+    
+    return static_cast< int64_t >( allocation.offset );
+}
+
+void vhSubAllocator::Free( int64_t offset )
+{
+    if ( offset < 0 || !m_allocator ) return;
+    
+    uint64_t uoffset = static_cast< uint64_t >( offset );
+    
+    // Find the allocation metadata
+    auto it = m_allocations.find( uoffset );
+    if ( it == m_allocations.end() )
+    {
+        VRHI_ERR( "vhSubAllocator::Free: Attempted to free unknown offset %llu\n", uoffset );
+        return;
+    }
+    
+    // Add to deferred free queue for current frame
+    DeferredFree deferred;
+    deferred.offset = uoffset;
+    deferred.metadata = it->second;
+    m_deferredFrees[m_frameIndex].push_back( deferred );
+    
+    // Remove from active allocations map
+    m_allocations.erase( it );
+}
+
+void vhSubAllocator::Step()
+{
+    // Advance frame index
+    m_frameIndex = ( m_frameIndex + 1 ) % 3;
+    
+    // Process deferred frees from the frame that is now 3 frames old
+    // (which is the new current frame index after increment)
+    std::vector< DeferredFree >& freesToProcess = m_deferredFrees[m_frameIndex];
+    
+    for ( const DeferredFree& deferred : freesToProcess )
+    {
+        OffsetAllocator::Allocation allocation;
+        allocation.offset = static_cast< uint32_t >( deferred.offset );
+        allocation.metadata = deferred.metadata;
+        static_cast< OffsetAllocator::Allocator* >( m_allocator )->free( allocation );
+    }
+    
+    freesToProcess.clear();
+}
+
+void vhSubAllocator::Reset()
+{
+    if ( !m_allocator ) return;
+    
+    // Reset the underlying allocator
+    static_cast< OffsetAllocator::Allocator* >( m_allocator )->reset();
+    
+    // Clear all state
+    m_allocations.clear();
+    for ( uint32_t i = 0; i < 3; i++ )
+    {
+        m_deferredFrees[i].clear();
+    }
+    
+    m_frameIndex = 0;
+}
+
+uint64_t vhSubAllocator::GetUsedSpace() const
+{
+    if ( !m_allocator ) return 0;
+    
+    OffsetAllocator::StorageReport report = static_cast< OffsetAllocator::Allocator* >( m_allocator )->storageReport();
+    return m_size - report.totalFreeSpace;
+}
+
+uint64_t vhSubAllocator::GetAvailableSpace() const
+{
+    if ( !m_allocator ) return 0;
+    
+    OffsetAllocator::StorageReport report = static_cast< OffsetAllocator::Allocator* >( m_allocator )->storageReport();
+    return report.totalFreeSpace;
 }
 
