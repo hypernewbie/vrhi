@@ -460,7 +460,7 @@ UTEST_F( Graphics, DepthTest )
     state.SetVertexBuffer( vbNear, 0 );
     
     vhStateId sidNear = 401;
-    vhSetState( sidNear, state );
+    vhSetState( sidNear, state.DirtyAll() );
     vhDraw( sidNear, 6 );
     vhFinish();
 
@@ -518,7 +518,7 @@ UTEST_F( Graphics, StencilTest )
          .SetStencil( VRHI_STENCIL_TEST_EQUAL | VRHI_STENCIL_OP_FAIL_S_KEEP | VRHI_STENCIL_OP_FAIL_Z_KEEP | VRHI_STENCIL_OP_PASS_Z_KEEP | VRHI_STENCIL_FUNC_REF( 0 ) );
     
     vhStateId sid2 = 502;
-    vhSetState( sid2, state );
+    vhSetState( sid2, state.DirtyAll() );
     vhClear( sid2, VRHI_CLEAR_COLOR );
     vhDraw( sid2, 6 );
     vhFinish();
@@ -528,7 +528,7 @@ UTEST_F( Graphics, StencilTest )
     state.SetStencil( VRHI_STENCIL_TEST_EQUAL | VRHI_STENCIL_OP_FAIL_S_KEEP | VRHI_STENCIL_OP_FAIL_Z_KEEP | VRHI_STENCIL_OP_PASS_Z_KEEP | VRHI_STENCIL_FUNC_REF( 1 ) );
     
     vhStateId sid3 = 503;
-    vhSetState( sid3, state );
+    vhSetState( sid3, state.DirtyAll() );
     vhClear( sid3, VRHI_CLEAR_COLOR );
     vhDraw( sid3, 6 );
     vhFinish();
@@ -634,7 +634,7 @@ UTEST_F( Graphics, Culling )
          .SetVertexBuffer( vbCCW, 0 );
     
     vhStateId sidCCW = 601;
-    vhSetState( sidCCW, state );
+    vhSetState( sidCCW, state.DirtyAll() );
     vhClear( sidCCW, VRHI_CLEAR_COLOR );
     vhDraw( sidCCW, 3 );
     vhFinish();
@@ -1344,7 +1344,7 @@ UTEST_F( Graphics, ClearTexture )
     
     // Clear to green
     state.SetClearColor( glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ) );
-    vhSetState( sid, state );
+    vhSetState( sid, state.DirtyAll() );
     vhClear( sid, VRHI_CLEAR_COLOR );
     vhFlush();
     

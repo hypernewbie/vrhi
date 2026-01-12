@@ -502,12 +502,12 @@ struct VIDL_vhCmdSetStateStencil
     static constexpr uint64_t kMagic = 0x007FD9BA;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    uint32_t front;
-    uint32_t back;
+    uint64_t front;
+    uint64_t back;
 
     VIDL_vhCmdSetStateStencil() = default;
 
-    VIDL_vhCmdSetStateStencil(vhStateId _id, uint32_t _front, uint32_t _back)
+    VIDL_vhCmdSetStateStencil(vhStateId _id, uint64_t _front, uint64_t _back)
         : id(_id), front(_front), back(_back) {}
 };
 

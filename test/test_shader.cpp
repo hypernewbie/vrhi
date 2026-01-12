@@ -92,7 +92,7 @@ UTEST( ShaderInternal, StateToDesc )
 
     // Test Stencil Enable & Unpacking (Unified)
     {
-        uint32_t stencil =
+        uint64_t stencil =
             VRHI_STENCIL_FUNC_REF( 0x80 ) |
             VRHI_STENCIL_FUNC_RMASK( 0xFF ) |
             VRHI_STENCIL_TEST_EQUAL |
@@ -119,8 +119,8 @@ UTEST( ShaderInternal, StateToDesc )
 
     // Test Stencil Separate
     {
-        uint32_t front = VRHI_STENCIL_TEST_ALWAYS | VRHI_STENCIL_OP_PASS_Z_KEEP;
-        uint32_t back = VRHI_STENCIL_TEST_NEVER | VRHI_STENCIL_OP_PASS_Z_REPLACE;
+        uint64_t front = VRHI_STENCIL_TEST_ALWAYS | VRHI_STENCIL_OP_PASS_Z_KEEP;
+        uint64_t back = VRHI_STENCIL_TEST_NEVER | VRHI_STENCIL_OP_PASS_Z_REPLACE;
 
         nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, front, back );
 

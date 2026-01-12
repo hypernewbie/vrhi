@@ -697,8 +697,8 @@ struct vhState
     float clearDepth = 1.0f;
     uint8_t clearStencil = 0;
 
-    uint32_t frontStencil = 0;
-    uint32_t backStencil = 0;
+    uint64_t frontStencil = 0;
+    uint64_t backStencil = 0;
 
     glm::vec4 pushConstants = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
     
@@ -861,7 +861,7 @@ struct vhState
     }
     vhState& SetStateFlags( uint64_t flags ) { stateFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
     vhState& SetDebugFlags( uint64_t flags ) { debugFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
-    vhState& SetStencil( uint32_t front, uint32_t back = 0 )
+    vhState& SetStencil( uint64_t front, uint64_t back = 0 )
     {
         frontStencil = front;
         backStencil = back;
