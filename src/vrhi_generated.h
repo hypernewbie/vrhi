@@ -511,6 +511,21 @@ struct VIDL_vhCmdSetStateStencil
         : id(_id), front(_front), back(_back) {}
 };
 
+struct VIDL_vhCmdSetStateDepthBias
+{
+    static constexpr uint64_t kMagic = 0x3290E5BB;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    int bias;
+    float clamp;
+    float slopeScaled;
+
+    VIDL_vhCmdSetStateDepthBias() = default;
+
+    VIDL_vhCmdSetStateDepthBias(vhStateId _id, int _bias, float _clamp, float _slopeScaled)
+        : id(_id), bias(_bias), clamp(_clamp), slopeScaled(_slopeScaled) {}
+};
+
 struct VIDL_vhCmdSetStateVertexBuffer
 {
     static constexpr uint64_t kMagic = 0xF0E68F37;
@@ -694,6 +709,7 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) { (void) cmd; };
@@ -859,6 +875,10 @@ struct VIDLHandler
         case 0x007FD9BA:
             HandleLogFunction("Handle_vhCmdSetStateStencil");
             Handle_vhCmdSetStateStencil( (VIDL_vhCmdSetStateStencil*) cmd );
+            break;
+        case 0x3290E5BB:
+            HandleLogFunction("Handle_vhCmdSetStateDepthBias");
+            Handle_vhCmdSetStateDepthBias( (VIDL_vhCmdSetStateDepthBias*) cmd );
             break;
         case 0xF0E68F37:
             HandleLogFunction("Handle_vhCmdSetStateVertexBuffer");

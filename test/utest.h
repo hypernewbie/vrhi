@@ -1190,7 +1190,8 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
 
 #define UTEST_F_SETUP(FIXTURE)                                                 \
   static void utest_f_setup_##FIXTURE(int *utest_result,                       \
-                                      struct FIXTURE *utest_fixture)
+                                      struct FIXTURE *utest_fixture,           \
+                                      const char* utest_test_name) /* [UAA] : Add test name to fixture */
 
 #define UTEST_F_TEARDOWN(FIXTURE)                                              \
   static void utest_f_teardown_##FIXTURE(int *utest_result,                    \
@@ -1199,7 +1200,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
 #define UTEST_F(FIXTURE, NAME)                                                 \
   UTEST_SURPRESS_WARNINGS_BEGIN                                                \
   UTEST_EXTERN struct utest_state_s utest_state;                               \
-  static void utest_f_setup_##FIXTURE(int *, struct FIXTURE *);                \
+  static void utest_f_setup_##FIXTURE(int *, struct FIXTURE *, const char*); /* [UAA] : Add test name to fixture */                \
   static void utest_f_teardown_##FIXTURE(int *, struct FIXTURE *);             \
   static void utest_run_##FIXTURE##_##NAME(int *, struct FIXTURE *);           \
   static void utest_f_##FIXTURE##_##NAME(int *utest_result,                    \
@@ -1207,7 +1208,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
     struct FIXTURE fixture;                                                    \
     (void)utest_index;                                                         \
     memset(&fixture, 0, sizeof(fixture));                                      \
-    utest_f_setup_##FIXTURE(utest_result, &fixture);                           \
+    utest_f_setup_##FIXTURE(utest_result, &fixture, #FIXTURE "." #NAME); /* [UAA] : Add test name to fixture */                           \
     if (UTEST_TEST_PASSED != *utest_result) {                                  \
       return;                                                                  \
     }                                                                          \

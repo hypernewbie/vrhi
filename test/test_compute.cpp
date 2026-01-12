@@ -13,6 +13,7 @@
 #include <windows.h>
 #endif // _WIN32
 #include "utest.h"
+#include "test.h"
 #include <vrhi.h>
 #include <vrhi_internal.h>
 
@@ -44,13 +45,16 @@ UTEST_F_SETUP( Compute )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
-    // vhCaptureStart();
-    vhBeginMarker( "Compute Test" );
+    if ( !g_captureActive )
+    {
+        vhCaptureStart();
+        g_captureActive = true;
+    }
+    vhBeginMarker( utest_test_name );
 }
 UTEST_F_TEARDOWN( Compute )
 {
     vhEndMarker();
-    // vhCaptureEnd();
 }
 
 UTEST_F( Compute, EndToEnd_TextureWrite )

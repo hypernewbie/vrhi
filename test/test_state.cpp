@@ -37,6 +37,28 @@ extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
 
+struct State {};
+
+UTEST_F_SETUP( State )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    if ( !g_captureActive )
+    {
+        vhCaptureStart();
+        g_captureActive = true;
+    }
+    vhBeginMarker( utest_test_name );
+}
+
+UTEST_F_TEARDOWN( State )
+{
+    vhEndMarker();
+}
+
 UTEST( Translate, VertexAttribute )
 {
     vhVertexLayoutDef def;
@@ -54,13 +76,9 @@ UTEST( Translate, VertexAttribute )
     EXPECT_FALSE( attr.isInstanced );
 }
 
-UTEST( State, MultipleSlots )
+UTEST_F( State, MultipleSlots )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhState state1 = {}, state2 = {};
     state1.SetViewRect( glm::vec4( 0, 0, 100, 100 ) );
@@ -79,13 +97,9 @@ UTEST( State, MultipleSlots )
     EXPECT_EQ( r2.viewRect, state2.viewRect );
 }
 
-UTEST( State, InvalidId )
+UTEST_F( State, InvalidId )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhState state = {};
     vhStateId nonExistent = 999999;
@@ -94,13 +108,9 @@ UTEST( State, InvalidId )
     ASSERT_FALSE( vhGetState( nonExistent, state ) );
 }
 
-UTEST( State, BasicSetGet )
+UTEST_F( State, BasicSetGet )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhState state = {};
     state.SetViewRect( glm::vec4( 0, 0, 1280, 720 ) )
@@ -121,7 +131,7 @@ UTEST( State, BasicSetGet )
     EXPECT_EQ( retrieved.worldMatrix[0], state.worldMatrix[0] );
 }
 
-UTEST( State, Attachments )
+UTEST_F( State, Attachments )
 {
     vhState state = {};
     vhState::RenderTarget rt;
@@ -147,7 +157,7 @@ UTEST( State, Attachments )
     EXPECT_EQ( retrieved.depthAttachment.texture, 201u );
 }
 
-UTEST( State, Extensions )
+UTEST_F( State, Extensions )
 {
     // Test 1: Dirty Flags for Vertex/Index
     {
@@ -205,13 +215,9 @@ UTEST( State, Extensions )
     }
 }
 
-UTEST( State, BackendPropagation )
+UTEST_F( State, BackendPropagation )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhStateId id = 123;
     vhState state;
@@ -247,7 +253,7 @@ UTEST( State, BackendPropagation )
     EXPECT_FALSE( vhGetState( 999, otherState ) );
 }
 
-UTEST( State, IndividualAccessors )
+UTEST_F( State, IndividualAccessors )
 {
     vhState state;
 
@@ -310,7 +316,7 @@ UTEST( State, IndividualAccessors )
     }
 }
 
-UTEST( State, IndividualAttachments )
+UTEST_F( State, IndividualAttachments )
 {
     vhState state;
 
@@ -335,7 +341,7 @@ UTEST( State, IndividualAttachments )
     EXPECT_EQ( ( state.dirty & VRHI_DIRTY_ATTACHMENTS ), VRHI_DIRTY_ATTACHMENTS );
 }
 
-UTEST( State, DebugFlags )
+UTEST_F( State, DebugFlags )
 {
     vhState state;
     state.SetDebugFlags( VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
@@ -349,7 +355,7 @@ UTEST( State, DebugFlags )
     EXPECT_EQ( retrieved.debugFlags, VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
 }
 
-UTEST( Hashing, GraphicsPipeline )
+UTEST_F( State, Hashing_GraphicsPipeline )
 {
     nvrhi::GraphicsPipelineDesc desc;
     desc.primType = nvrhi::PrimitiveType::TriangleList;
@@ -376,7 +382,7 @@ UTEST( Hashing, GraphicsPipeline )
     EXPECT_NE( hash4, hash5 );
 }
 
-UTEST( Hashing, ComputePipeline )
+UTEST_F( State, Hashing_ComputePipeline )
 {
     nvrhi::ComputePipelineDesc desc;
 
@@ -386,7 +392,7 @@ UTEST( Hashing, ComputePipeline )
     EXPECT_EQ( h1, h2 );
 }
 
-UTEST( Hashing, BindingLayout )
+UTEST_F( State, Hashing_BindingLayout )
 {
     nvrhi::BindingLayoutDesc desc1;
     desc1.visibility = nvrhi::ShaderType::AllGraphics;
@@ -417,13 +423,9 @@ UTEST( Hashing, BindingLayout )
     EXPECT_NE( h1, h4 );
 }
 
-UTEST( Hashing, InputLayout )
+UTEST_F( State, Hashing_InputLayout )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     nvrhi::VertexAttributeDesc attr1;
     attr1.name = "POSITION";
@@ -480,13 +482,9 @@ UTEST( Hashing, InputLayout )
     }
 }
 
-UTEST( Hashing, BindingSet_Basics )
+UTEST_F( State, Hashing_BindingSet_Basics )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
@@ -531,13 +529,9 @@ UTEST( Hashing, BindingSet_Basics )
     }
 }
 
-UTEST( Hashing, BindingSet_Differentiation )
+UTEST_F( State, Hashing_BindingSet_Differentiation )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
@@ -580,13 +574,9 @@ UTEST( Hashing, BindingSet_Differentiation )
     }
 }
 
-UTEST( Hashing, BindingSet_ViewParameters )
+UTEST_F( State, Hashing_BindingSet_ViewParameters )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
@@ -645,13 +635,9 @@ UTEST( Hashing, BindingSet_ViewParameters )
     }
 }
 
-UTEST( Hashing, BindingSet_ArrayElement )
+UTEST_F( State, Hashing_BindingSet_ArrayElement )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
@@ -681,13 +667,9 @@ UTEST( Hashing, BindingSet_ArrayElement )
     }
 }
 
-UTEST( Hashing, BindingSet_RawData )
+UTEST_F( State, Hashing_BindingSet_RawData )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
@@ -721,13 +703,9 @@ UTEST( Hashing, BindingSet_RawData )
     }
 }
 
-UTEST( Debug, LayoutDiffCheck )
+UTEST_F( State, Debug_LayoutDiffCheck )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     // Create a simple buffer for binding
     nvrhi::BufferHandle buffer;
@@ -835,13 +813,9 @@ UTEST( Debug, LayoutDiffCheck )
     }
 }
 
-UTEST( State, DirtyAll )
+UTEST_F( State, DirtyAll )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const vhStateId sid = 1337;
     
@@ -875,7 +849,7 @@ UTEST( State, DirtyAll )
     vhFlush();
 } 
 
-UTEST( Hashing, GlobalUniform )
+UTEST_F( State, Hashing_GlobalUniform )
 {
     vhGlobalUniform u = {};
     memset( &u, 0, sizeof( u ) );
@@ -897,7 +871,7 @@ UTEST( Hashing, GlobalUniform )
     EXPECT_NE( h1, h5 );
 }
 
-UTEST( State, WriteGlobalUniform )
+UTEST_F( State, WriteGlobalUniform )
 {
     vhGlobalUniform u = {};
     vhState s = {};

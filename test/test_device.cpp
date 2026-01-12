@@ -26,6 +26,7 @@
 #include <windows.h>
 #endif // _WIN32
 #include "utest.h"
+#include "test.h"
 #include <vrhi.h>
 #include <vrhi_internal.h>
 
@@ -38,11 +39,7 @@ extern bool vhRunExe( const std::string& command, std::string& outOutput );
 UTEST( RHI, Init )
 {
     // If global init is active, shut it down to test clean init
-    if ( g_testInit )
-    {
-        vhShutdown( g_testInitQuiet );
-        g_testInit = false;
-    }
+    TestEnsureShutdown();
 
     // Test init
     vhInit( g_testInitQuiet );
@@ -67,11 +64,8 @@ UTEST( RHI, Init )
 UTEST( RHI, LogCallback )
 {
     // Ensure clean state
-    if ( g_testInit )
-    {
-        vhShutdown( g_testInitQuiet );
-        g_testInit = false;
-    }
+    // Ensure clean state
+    TestEnsureShutdown();
 
     std::vector<std::string> logs;
     int errorCount = 0;
@@ -118,11 +112,8 @@ UTEST( RHI, LogCallback )
 UTEST( RHI, RayTracingControl )
 {
     // If global init is active, shut it down to test clean init
-    if ( g_testInit )
-    {
-        vhShutdown( g_testInitQuiet );
-        g_testInit = false;
-    }
+    // If global init is active, shut it down to test clean init
+    TestEnsureShutdown();
 
     // Case 1: Disable RT
     g_vhInit.raytracing = false;

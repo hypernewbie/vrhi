@@ -35,13 +35,33 @@ extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
 
-UTEST( Texture, CreateDestroyError )
+struct Texture {};
+
+UTEST_F_SETUP( Texture )
 {
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+
+    if ( !g_captureActive )
+    {
+        vhCaptureStart();
+        g_captureActive = true;
+    }
+    
+    vhBeginMarker( utest_test_name );
+}
+
+UTEST_F_TEARDOWN( Texture )
+{
+    vhEndMarker();
+}
+
+UTEST_F( Texture, CreateDestroyError )
+{
+
     int32_t startErrors = g_vhErrorCounter.load();
 
     vhTexture tex = vhAllocTexture();
@@ -65,13 +85,9 @@ UTEST( Texture, CreateDestroyError )
     vhDestroyTexture( tex );
 }
 
-UTEST( Texture, CreateHelpers )
+UTEST_F( Texture, CreateHelpers )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -107,13 +123,9 @@ UTEST( Texture, CreateHelpers )
 }
 
 
-UTEST( Texture, CreateDestroy )
+UTEST_F( Texture, CreateDestroy )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -134,13 +146,9 @@ UTEST( Texture, CreateDestroy )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-UTEST( Texture, CreateDestroyStressTest )
+UTEST_F( Texture, CreateDestroyStressTest )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -181,13 +189,9 @@ UTEST( Texture, CreateDestroyStressTest )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-UTEST( Texture, Update )
+UTEST_F( Texture, Update )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -237,13 +241,9 @@ UTEST( Texture, Update )
     vhFinish();
 }
 
-UTEST( Texture, Readback )
+UTEST_F( Texture, Readback )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -298,13 +298,9 @@ UTEST( Texture, Readback )
 }
 
 
-UTEST( Texture, Allocation )
+UTEST_F( Texture, Allocation )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhTexture t1 = vhAllocTexture();
     vhTexture t2 = vhAllocTexture();
@@ -325,13 +321,9 @@ UTEST( Texture, Allocation )
 }
 
 
-UTEST( Texture, BlitConnectivity )
+UTEST_F( Texture, BlitConnectivity )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int width = 64;
     const int height = 64;
@@ -373,13 +365,9 @@ UTEST( Texture, BlitConnectivity )
     vhFlush();
 }
 
-UTEST( Texture, BlitMipToMip )
+UTEST_F( Texture, BlitMipToMip )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhTexture src = vhAllocTexture();
     vhTexture dst = vhAllocTexture();
@@ -417,13 +405,9 @@ UTEST( Texture, BlitMipToMip )
     vhFlush();
 }
 
-UTEST( Texture, BlitPartialRegion )
+UTEST_F( Texture, BlitPartialRegion )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int width = 64;
     const int height = 64;
@@ -832,13 +816,9 @@ UTEST( Sampler, CombinedFlagExtraction )
 }
 
 
-UTEST( Texture, BlitFunctional )
+UTEST_F( Texture, BlitFunctional )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int width = 32;
     const int height = 32;
@@ -892,13 +872,9 @@ UTEST( Texture, BlitFunctional )
     vhFlush();
 }
 
-UTEST( Texture, BlitStress )
+UTEST_F( Texture, BlitStress )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     struct FormatInfo {
         nvrhi::Format format;
@@ -992,42 +968,42 @@ UTEST( Texture, BlitStress )
     }
 }
 
-UTEST( Texture, RegionDataSize_SimpleRGBA8 )
+UTEST_F( Texture, RegionDataSize_SimpleRGBA8 )
 {
     auto info = vhGetFormat( nvrhi::Format::RGBA8_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( 32, 32, 1 ), 0 );
     EXPECT_EQ( size, 4096 );
 }
 
-UTEST( Texture, RegionDataSize_ZeroExtent )
+UTEST_F( Texture, RegionDataSize_ZeroExtent )
 {
     auto info = vhGetFormat( nvrhi::Format::RGBA8_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( 0, 0, 0 ), 0 );
     EXPECT_EQ( size, 0 );
 }
 
-UTEST( Texture, RegionDataSize_NegativeExtent )
+UTEST_F( Texture, RegionDataSize_NegativeExtent )
 {
     auto info = vhGetFormat( nvrhi::Format::RGBA8_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( -1, -1, -1 ), 0 );
     EXPECT_EQ( size, 0 );
 }
 
-UTEST( Texture, RegionDataSize_3DExtent )
+UTEST_F( Texture, RegionDataSize_3DExtent )
 {
     auto info = vhGetFormat( nvrhi::Format::RGBA8_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( 16, 16, 4 ), 0 );
     EXPECT_EQ( size, 4096 );
 }
 
-UTEST( Texture, RegionDataSize_CompressedBC1 )
+UTEST_F( Texture, RegionDataSize_CompressedBC1 )
 {
     auto info = vhGetFormat( nvrhi::Format::BC1_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( 64, 64, 1 ), 0 );
     EXPECT_EQ( size, 2048 );
 }
 
-UTEST( Texture, RegionDataSize_CompressedNonAligned )
+UTEST_F( Texture, RegionDataSize_CompressedNonAligned )
 {
     auto info = vhGetFormat( nvrhi::Format::BC1_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( 17, 17, 1 ), 0 );
@@ -1035,7 +1011,7 @@ UTEST( Texture, RegionDataSize_CompressedNonAligned )
     EXPECT_EQ( size, 200 );
 }
 
-UTEST( Texture, RegionDataSize_R8 )
+UTEST_F( Texture, RegionDataSize_R8 )
 {
     auto info = vhGetFormat( nvrhi::Format::R8_UNORM );
     int64_t size = vhGetRegionDataSize( info, glm::ivec3( 100, 100, 1 ), 0 );
@@ -1043,13 +1019,9 @@ UTEST( Texture, RegionDataSize_R8 )
 }
 
 
-UTEST( Texture, Type_2DArray )
+UTEST_F( Texture, Type_2DArray )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int width = 32;
     const int height = 32;
@@ -1107,13 +1079,9 @@ UTEST( Texture, Type_2DArray )
     vhFlush();
 }
 
-UTEST( Texture, Type_Cube )
+UTEST_F( Texture, Type_Cube )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int dim = 32;
     const int faces = 6;
@@ -1170,13 +1138,9 @@ UTEST( Texture, Type_Cube )
     vhFlush();
 }
 
-UTEST( Texture, Type_3D )
+UTEST_F( Texture, Type_3D )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int w = 32, h = 32, d = 4;
     const size_t totalSize = w * h * d; // R8_UINT
@@ -1207,13 +1171,9 @@ UTEST( Texture, Type_3D )
     vhFlush();
 }
 
-UTEST( Texture, MipChain )
+UTEST_F( Texture, MipChain )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int dim = 32;
     const int mips = 4; // 32, 16, 8, 4
@@ -1282,13 +1242,9 @@ UTEST( Texture, MipChain )
     vhFlush();
 }
 
-UTEST( Texture, Type_1D )
+UTEST_F( Texture, Type_1D )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const int width = 256;
     vhTexture tex = vhAllocTexture();
@@ -1381,11 +1337,7 @@ UTEST( Sampler, GetSamplerDesc )
 
 UTEST( ResourceQueries, Texture )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhTexture tex = vhAllocTexture();
     glm::ivec2 dims( 128, 64 );

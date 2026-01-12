@@ -34,14 +34,29 @@ extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
 
-UTEST( Buffer, Transient )
+struct Buffer {};
+UTEST_F_SETUP( Buffer )
 {
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    if ( !g_captureActive )
+    {
+        vhCaptureStart();
+        g_captureActive = true;
+    }
+    vhBeginMarker( utest_test_name );
+}
 
+UTEST_F_TEARDOWN( Buffer )
+{
+    vhEndMarker();
+}
+
+UTEST_F( Buffer, Transient )
+{
     vhTransientBuffer tb;
     nvrhi::BufferDesc desc;
     desc.byteSize = 1024;
@@ -98,14 +113,8 @@ UTEST( Buffer, Transient )
     }
 }
 
-UTEST( Buffer, TransientWrite )
+UTEST_F( Buffer, TransientWrite )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-
     vhTransientBuffer tb;
     nvrhi::BufferDesc desc;
     desc.byteSize = 1024;
@@ -133,7 +142,7 @@ UTEST( Buffer, TransientWrite )
 }
 
 
-UTEST( Buffer, ValidateLayout )
+UTEST_F( Buffer, ValidateLayout )
 {
     // Valid cases
     EXPECT_TRUE( vhValidateVertexLayout( "float3" ) ); // Implicit 0
@@ -161,7 +170,7 @@ UTEST( Buffer, ValidateLayout )
     EXPECT_FALSE( vhValidateVertexLayout( "float3 ATTR5 float2 ATTR5" ) ); // Duplicate 5
 }
 
-UTEST( Buffer, VertexLayoutInternals )
+UTEST_F( Buffer, VertexLayoutInternals )
 {
     // Test 1: Simple Logic
     {
@@ -208,14 +217,8 @@ UTEST( Buffer, VertexLayoutInternals )
     }
 }
 
-UTEST( Buffer, Allocation )
+UTEST_F( Buffer, Allocation )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-
     vhBuffer b1 = vhAllocBuffer();
     vhBuffer b2 = vhAllocBuffer();
     vhBuffer b3 = vhAllocBuffer();
@@ -234,13 +237,9 @@ UTEST( Buffer, Allocation )
     vhFlush();
 }
 
-UTEST( Buffer, UpdateSafety )
+UTEST_F( Buffer, UpdateSafety )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
     vhFlush(); // Ensure clean state from previous tests
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -270,13 +269,8 @@ UTEST( Buffer, UpdateSafety )
     EXPECT_GT( g_vhErrorCounter.load(), startErrors );
 }
 
-UTEST( Buffer, DoubleCreation )
+UTEST_F( Buffer, DoubleCreation )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -290,13 +284,8 @@ UTEST( Buffer, DoubleCreation )
     vhFlush();
 }
 
-UTEST( Buffer, UpdateFunctionality )
+UTEST_F( Buffer, UpdateFunctionality )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -316,13 +305,8 @@ UTEST( Buffer, UpdateFunctionality )
     vhFlush();
 }
 
-UTEST( Buffer, Flags_Compute )
+UTEST_F( Buffer, Flags_Compute )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     int32_t startErrors = g_vhErrorCounter.load();
 
     vhBuffer bRead = vhAllocBuffer();
@@ -344,13 +328,8 @@ UTEST( Buffer, Flags_Compute )
     vhFlush();
 }
 
-UTEST( Buffer, Flags_DrawIndirect )
+UTEST_F( Buffer, Flags_DrawIndirect )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     int32_t startErrors = g_vhErrorCounter.load();
     vhBuffer bIndirect = vhAllocBuffer();
     vhCreateVertexBuffer( bIndirect, "DrawIndirect", vhAllocMem( 1024 ), "float3", 0, VRHI_BUFFER_DRAW_INDIRECT );
@@ -360,13 +339,8 @@ UTEST( Buffer, Flags_DrawIndirect )
     vhFlush();
 }
 
-UTEST( Buffer, Flags_Resize )
+UTEST_F( Buffer, Flags_Resize )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -393,13 +367,8 @@ UTEST( Buffer, Flags_Resize )
     vhFlush();
 }
 
-UTEST( Buffer, NumVerts_CreateResize )
+UTEST_F( Buffer, NumVerts_CreateResize )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -418,13 +387,8 @@ UTEST( Buffer, NumVerts_CreateResize )
     vhFlush();
 }
 
-UTEST( IndexBuffer, Basic16 )
+UTEST_F( Buffer, IndexBuffer_Basic16 )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -447,13 +411,8 @@ UTEST( IndexBuffer, Basic16 )
     vhFlush();
 }
 
-UTEST( IndexBuffer, Basic32 )
+UTEST_F( Buffer, IndexBuffer_Basic32 )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -476,13 +435,8 @@ UTEST( IndexBuffer, Basic32 )
     vhFlush();
 }
 
-UTEST( IndexBuffer, Flags_Coverage )
+UTEST_F( Buffer, IndexBuffer_Flags_Coverage )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -508,13 +462,8 @@ UTEST( IndexBuffer, Flags_Coverage )
     vhFlush();
 }
 
-UTEST( IndexBuffer, Resize_And_Uninit )
+UTEST_F( Buffer, IndexBuffer_Resize_And_Uninit )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -546,13 +495,8 @@ UTEST( IndexBuffer, Resize_And_Uninit )
     vhFlush();
 }
 
-UTEST( Buffer, UniformAlignment )
+UTEST_F( Buffer, UniformAlignment )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
     vhFlush();
     int32_t baseline = g_vhErrorCounter.load();
 
@@ -576,13 +520,9 @@ UTEST( Buffer, UniformAlignment )
     vhFlush();
 }
 
-UTEST( Buffer, StorageAlignment )
+UTEST_F( Buffer, StorageAlignment )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
     vhFlush();
     int32_t baseline = g_vhErrorCounter.load();
 
@@ -606,13 +546,9 @@ UTEST( Buffer, StorageAlignment )
     vhFlush();
 }
 
-UTEST( ResourceQueries, Buffer )
+UTEST_F( Buffer, ResourceQueries )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     vhBuffer buf = vhAllocBuffer();
     uint64_t size = 1024;
@@ -639,13 +575,9 @@ UTEST( ResourceQueries, Buffer )
     EXPECT_EQ( vhGetBufferNvrhiHandle( buf ), nullptr );
 }
 
-UTEST( Buffer, StorageBufferCreation )
+UTEST_F( Buffer, StorageBufferCreation )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
 
@@ -690,7 +622,7 @@ UTEST( Buffer, StorageBufferCreation )
     vhFlush();
 }
 
-UTEST( Buffer, TransientRingAllocator )
+UTEST_F( Buffer, TransientRingAllocator )
 {
     // --------------------------------------------------------------------------
     // Ring Allocator Logic
@@ -727,7 +659,7 @@ UTEST( Buffer, TransientRingAllocator )
     EXPECT_EQ( ringAlloc.GetBuffer(), (vhBuffer)1 );
 }
 
-UTEST( Buffer, SubAllocator )
+UTEST_F( Buffer, SubAllocator )
 {
     // --------------------------------------------------------------------------
     // Sub-Allocator with Deferred Freeing

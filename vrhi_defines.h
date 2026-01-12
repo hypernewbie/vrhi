@@ -295,6 +295,8 @@
 #define VRHI_STATE_FRONT_CCW                      UINT64_C(0x0000008000000000) //!< Front counter-clockwise ( default is clockwise ).
 #define VRHI_STATE_BLEND_INDEPENDENT              UINT64_C(0x0000000400000000) //!< Enable blend independent.
 #define VRHI_STATE_BLEND_ALPHA_TO_COVERAGE        UINT64_C(0x0000000800000000) //!< Enable alpha to coverage.
+#define VRHI_STATE_DEPTH_CLIP                     UINT64_C(0x0001000000000000) //!< Enable depth clipping.
+#define VRHI_STATE_DEPTH_TEST_ENABLE              UINT64_C(0x0002000000000000) //!< Explicit depth test enable.
 /// Default state is write to RGB, alpha, and depth with depth test less enabled, with clockwise
 /// culling and MSAA (when writing into MSAA frame buffer, otherwise this flag is ignored).
 #define VRHI_STATE_DEFAULT (0 \
@@ -347,6 +349,7 @@
 
 #define VRHI_DIRTY_VRS             ( 1ULL << 12 )
 #define VRHI_DIRTY_INDIRECT        ( 1ULL << 13 )
+#define VRHI_DIRTY_DEPTH_BIAS      ( 1ULL << 14 )
 
 // Draw flags for vhDrawCommonInternal
 #define VRHI_DRAW_INDEXED          ( 1u << 0 )

@@ -32,6 +32,7 @@
 #include <windows.h>
 #endif // _WIN32
 #include "utest.h"
+#include "test.h"
 #include <vrhi.h>
 
 UTEST( Vrhi, Dummy )
@@ -41,6 +42,22 @@ UTEST( Vrhi, Dummy )
 
 bool g_testInit = false;
 bool g_testInitQuiet = true;
+bool g_captureActive = false;
+
+void TestEnsureShutdown()
+{
+    if ( g_captureActive )
+    {
+        vhCaptureEnd();
+        g_captureActive = false;
+    }
+    
+    if ( g_testInit )
+    {
+        vhShutdown( g_testInitQuiet );
+        g_testInit = false;
+    }
+}
 
 UTEST_STATE();
 
@@ -64,12 +81,6 @@ int main( int argc, const char* const argv[] )
 #endif
 
     int result = utest_main( argc, argv );
-
-    if ( g_testInit )
-    {
-        vhShutdown( g_testInitQuiet );
-        g_testInit = false;
-    }
-
+    TestEnsureShutdown();
     return result;
 }

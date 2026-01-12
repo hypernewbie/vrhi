@@ -333,6 +333,8 @@ public:
 
     void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override;
 
+    void Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd ) override;
+
     void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) override;
 
     void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) override;

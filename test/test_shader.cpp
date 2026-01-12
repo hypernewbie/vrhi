@@ -27,12 +27,34 @@
 #include <windows.h>
 #endif // _WIN32
 #include "utest.h"
+#include "test.h"
 #include <vrhi.h>
 #include <vrhi_internal.h>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
+
+struct Shader {};
+UTEST_F_SETUP( Shader )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    if ( !g_captureActive )
+    {
+        vhCaptureStart();
+        g_captureActive = true;
+    }
+    vhBeginMarker( utest_test_name );
+}
+UTEST_F_TEARDOWN( Shader )
+{
+    vhEndMarker();
+}
 extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
 extern bool vhRunExe( const std::string& command, std::string& outOutput );
 
@@ -111,7 +133,7 @@ UTEST( ShaderInternal, StateToDesc )
     }
 }
 
-UTEST( Shader, ValidateBinding )
+UTEST_F( Shader, ValidateBinding )
 {
     vhShaderReflectionResource res;
     res.name = "TestRes";
@@ -154,13 +176,9 @@ UTEST( Shader, ValidateBinding )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors + 3 ); // Should not increment
 }
 
-UTEST( Shader, Lifecycle )
+UTEST_F( Shader, Lifecycle )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
     vhFlush();
     int32_t baseline = g_vhErrorCounter.load();
 
@@ -193,7 +211,7 @@ UTEST( Shader, Lifecycle )
     EXPECT_EQ( g_vhErrorCounter.load(), baseline );
 }
 
-UTEST( Shader, BuildFlags )
+UTEST_F( Shader, BuildFlags )
 {
     // Test 1: Default/Release
     {
@@ -222,7 +240,7 @@ UTEST( Shader, BuildFlags )
     }
 }
 
-UTEST( Shader, RunExe )
+UTEST_F( Shader, RunExe )
 {
     std::string output;
     bool success = vhRunExe( "echo HelloVRHI", output );
@@ -230,13 +248,9 @@ UTEST( Shader, RunExe )
     EXPECT_TRUE( output.find( "HelloVRHI" ) != std::string::npos );
 }
 
-UTEST( Shader, Compile )
+UTEST_F( Shader, Compile )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     const char* shaderSource = R"(
         struct VSInput { float3 pos : POSITION; };
@@ -293,13 +307,9 @@ UTEST( Shader, Compile )
     }
 }
 
-UTEST( Shader, CompileFail )
+UTEST_F( Shader, CompileFail )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     // Shader with syntax error (missing semicolon)
     const char* shaderSource = R"(
@@ -331,13 +341,9 @@ UTEST( Shader, CompileFail )
     EXPECT_TRUE( error.find( "error" ) != std::string::npos || error.find( "Error" ) != std::string::npos );
 }
 
-UTEST( Shader, Reflection )
+UTEST_F( Shader, Reflection )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
+
 
     // Note ByteAddressBuffer and RWByteAddressBuffer MUST have "Raw" in their name in order to spirv_reflect correctly.
 

@@ -75,6 +75,11 @@ void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back )
     vhCmdEnqueue( new VIDL_vhCmdSetStateStencil( id, front, back ) );
 }
 
+void vhCmdSetStateDepthBias( vhStateId id, int bias, float clamp, float slopeScaled )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateDepthBias( id, bias, clamp, slopeScaled ) );
+}
+
 void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num )
 {
     vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, offset, start, num ) );
@@ -152,6 +157,11 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
         vhCmdSetStateFlags( id, state.stateFlags );
         vhCmdSetStateDebugFlags( id, state.debugFlags );
         vhCmdSetStateStencil( id, state.frontStencil, state.backStencil );
+    }
+
+    if ( dirty & VRHI_DIRTY_DEPTH_BIAS )
+    {
+        vhCmdSetStateDepthBias( id, state.depthBias, state.depthBiasClamp, state.slopeScaledDepthBias );
     }
 
     if ( dirty & VRHI_DIRTY_VERTEX_INDEX )
@@ -351,6 +361,11 @@ nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint
         dsState.depthTestEnable = true;
         dsState.depthFunc = fnConvertComparisonFunc( depthFunc );
     }
+    else if ( stateFlags & VRHI_STATE_DEPTH_TEST_ENABLE )
+    {
+        dsState.depthTestEnable = true;
+        dsState.depthFunc = nvrhi::ComparisonFunc::Less; // Default comparison when only enable flag is set
+    }
     else
     {
         dsState.depthTestEnable = false;
@@ -431,6 +446,7 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags )
     rasterState.multisampleEnable = ( stateFlags & VRHI_STATE_MSAA ) != 0;
     rasterState.antialiasedLineEnable = ( stateFlags & VRHI_STATE_LINEAA ) != 0;
     rasterState.conservativeRasterEnable = ( stateFlags & VRHI_STATE_CONSERVATIVE_RASTER ) != 0;
+    rasterState.depthClipEnable = ( stateFlags & VRHI_STATE_DEPTH_CLIP ) != 0;
 
     return rasterState;
 }

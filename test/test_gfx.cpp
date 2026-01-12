@@ -272,20 +272,21 @@ static bool VerifyPixel( vhTexture rt, int32_t x, int32_t y, uint32_t expectedRG
 struct Graphics{};
 UTEST_F_SETUP( Graphics )
 {
-    // g_vhInit.logBackendCmds = true;
-    // g_vhInit.logPSOCache = true;
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
-    vhCaptureStart();
-    vhBeginMarker( "Graphics Test" );
+    if ( !g_captureActive )
+    {
+        vhCaptureStart();
+        g_captureActive = true;
+    }
+    vhBeginMarker( utest_test_name );
 }
 UTEST_F_TEARDOWN( Graphics )
 {
     vhEndMarker();
-    vhCaptureEnd();
 }
 
 UTEST_F( Graphics, DrawTriangle )

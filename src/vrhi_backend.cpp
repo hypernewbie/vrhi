@@ -420,6 +420,15 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
         graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.frontStencil, state.backStencil );
         graphicsPipelineDesc->renderState.rasterState = vhTranslateRasterState( state.stateFlags );
+        if ( state.viewScissor.z >= 0.0f && state.viewScissor.w >= 0.0f )
+        {
+            graphicsPipelineDesc->renderState.rasterState.scissorEnable = true;
+        }
+
+        // Apply depth bias values
+        graphicsPipelineDesc->renderState.rasterState.depthBias = state.depthBias;
+        graphicsPipelineDesc->renderState.rasterState.depthBiasClamp = state.depthBiasClamp;
+        graphicsPipelineDesc->renderState.rasterState.slopeScaledDepthBias = state.slopeScaledDepthBias;
 
         // [TODO] The following fields are not currently populated from vhState:
         // - patchControlPoints: tessellation is only supported if we add it.
@@ -1086,7 +1095,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         graphicsState->viewport.viewports.push_back( nvrhi::Viewport(
             state.viewRect.x, state.viewRect.x + state.viewRect.z,
             state.viewRect.y, state.viewRect.y + state.viewRect.w,
-            0.0f, 1.0f
+            state.viewDepthRange.x, state.viewDepthRange.y
         ) );
 
         graphicsState->viewport.scissorRects.resize( 0 );
@@ -2079,6 +2088,15 @@ void vhCmdBackendState::Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* 
     auto& state = backendStates[cmd->id];
     state.frontStencil = cmd->front;
     state.backStencil = cmd->back;
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto& state = backendStates[cmd->id];
+    state.depthBias = cmd->bias;
+    state.depthBiasClamp = cmd->clamp;
+    state.slopeScaledDepthBias = cmd->slopeScaled;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd )

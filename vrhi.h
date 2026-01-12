@@ -705,6 +705,14 @@ struct vhState
     // Blend constant color (for blend modes that reference constant color)
     glm::vec4 blendConstantColor = glm::vec4( 0.0f );
 
+    // Viewport depth range (minZ, maxZ) - defaults to standard 0.0 to 1.0 range
+    glm::vec2 viewDepthRange = glm::vec2( 0.0f, 1.0f );
+
+    // Depth bias for shadow mapping and depth fighting prevention
+    int depthBias = 0;
+    float depthBiasClamp = 0.0f;
+    float slopeScaledDepthBias = 0.0f;
+
     // Variable Rate Shading
     uint32_t shadingRateFlags = VRHI_VRS_1X1;
     vhTexture shadingRateImage = VRHI_INVALID_HANDLE;
@@ -858,6 +866,20 @@ struct vhState
         frontStencil = front;
         backStencil = back;
         dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    vhState& SetViewDepthRange( float minZ, float maxZ )
+    {
+        viewDepthRange = glm::vec2( minZ, maxZ );
+        dirty |= VRHI_DIRTY_VIEWPORT;
+        return *this;
+    }
+    vhState& SetDepthBias( int bias, float clamp = 0.0f, float slopeScaled = 0.0f )
+    {
+        depthBias = bias;
+        depthBiasClamp = clamp;
+        slopeScaledDepthBias = slopeScaled;
+        dirty |= VRHI_DIRTY_DEPTH_BIAS;
         return *this;
     }
     vhState& SetVertexBuffer( vhBuffer buffer, uint8_t stream, uint64_t offset = 0, uint32_t startVertex = 0, uint32_t numVertices = UINT32_MAX )
@@ -1240,6 +1262,8 @@ void vhCmdSetStateFlags( vhStateId id, uint64_t flags );
 void vhCmdSetStateDebugFlags( vhStateId id, uint64_t flags );
 // VIDL_GENERATE
 void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back );
+// VIDL_GENERATE
+void vhCmdSetStateDepthBias( vhStateId id, int bias, float clamp, float slopeScaled );
 // VIDL_GENERATE
 void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num );
 // VIDL_GENERATE

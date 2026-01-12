@@ -25,6 +25,9 @@
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
 
+extern bool g_captureActive;
+void TestEnsureShutdown();
+
 #if defined(__cplusplus) && (__cplusplus >= 201103L)
 #ifdef __clang__
 
