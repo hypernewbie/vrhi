@@ -614,12 +614,14 @@ UTEST_F( Graphics, Culling )
     vhState state;
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
-         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+         .SetStateFlags( VRHI_STATE_WRITE_MASK );
 
-    // Test 1: Cull CCW. CW should be visible (Red).
+    // Test 1: Cull Front (CCW). CW should be visible (Red).
+    vhProgram programCW = vhCreateGfxProgram( vs, ps );
     state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
-         .SetStateFlags( VRHI_STATE_WRITE_RGB | VRHI_STATE_CULL_CCW )
-         .SetVertexBuffer( vbCW, 0 );
+         .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_FRONT )
+         .SetVertexBuffer( vbCW, 0 )
+         .SetProgram( programCW );
     
     vhStateId sidCW = 600;
     vhSetState( sidCW, state );
@@ -628,10 +630,12 @@ UTEST_F( Graphics, Culling )
     vhFinish();
     EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF0000FF ) ); // Red
 
-    // Test 2: Cull CW. CCW should be visible (Green).
+    // Test 2: Cull Back (CW). CCW should be visible (Green).
+    vhProgram programCCW = vhCreateGfxProgram( vs, ps );
     state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
-         .SetStateFlags( VRHI_STATE_WRITE_RGB | VRHI_STATE_CULL_CW )
-         .SetVertexBuffer( vbCCW, 0 );
+         .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_BACK )
+         .SetVertexBuffer( vbCCW, 0 )
+         .SetProgram( programCCW );
     
     vhStateId sidCCW = 601;
     vhSetState( sidCCW, state.DirtyAll() );
@@ -643,6 +647,157 @@ UTEST_F( Graphics, Culling )
     vhDestroyTexture( rt );
     vhDestroyBuffer( vbCW );
     vhDestroyBuffer( vbCCW );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+}
+
+UTEST_F( Graphics, CullingExtensive )
+{
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    struct Vertex { glm::vec3 pos; glm::vec4 colour; };
+    
+    // CCW-wound quad (left half of screen, red)
+    Vertex vertsCCW[6] = 
+    {
+        { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  0.0f,  1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+    };
+
+    // CW-wound quad (right half of screen, green)
+    Vertex vertsCW[6] = 
+    {
+        { { 0.0f, -1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { 0.0f,  1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { 1.0f, -1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { 0.0f,  1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { 1.0f,  1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { 1.0f, -1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } }
+    };
+
+    vhBuffer vbCCW = CreateTestVB( "float3 float4", vertsCCW, sizeof( vertsCCW ) );
+    vhBuffer vbCW = CreateTestVB( "float3 float4", vertsCW, sizeof( vertsCW ) );
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK );
+
+    // Test 1: No Culling - Both triangles visible
+    {
+        vhProgram program1 = vhCreateGfxProgram( vs, ps );
+        state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_NONE )
+             .SetProgram( program1 );
+        
+        vhStateId sid = 610;
+        state.SetVertexBuffer( vbCCW, 0 );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 6 );
+        state.SetVertexBuffer( vbCW, 0 );
+        vhSetState( sid, state.DirtyAll() );
+        vhDraw( sid, 6 );
+        vhFinish();
+        
+        EXPECT_TRUE( VerifyPixel( rt, 16, 32, 0xFF0000FF ) ); // Left pixel (CCW) = red
+        EXPECT_TRUE( VerifyPixel( rt, 48, 32, 0xFF00FF00 ) ); // Right pixel (CW) = green
+    }
+
+    // Test 2: Cull Back (Default CCW=Front) - CCW visible, CW culled
+    {
+        vhProgram program2 = vhCreateGfxProgram( vs, ps );
+        state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_BACK )
+             .SetProgram( program2 );
+        
+        vhStateId sid = 611;
+        state.SetVertexBuffer( vbCCW, 0 );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 6 );
+        state.SetVertexBuffer( vbCW, 0 );
+        vhSetState( sid, state.DirtyAll() );
+        vhDraw( sid, 6 );
+        vhFinish();
+        
+        EXPECT_TRUE( VerifyPixel( rt, 16, 32, 0xFF0000FF ) ); // Left pixel (CCW) = red
+        EXPECT_TRUE( VerifyPixel( rt, 48, 32, 0xFF000000 ) ); // Right pixel (CW) = black (culled)
+    }
+
+    // Test 3: Cull Front (Default CCW=Front) - CW visible, CCW culled
+    {
+        vhProgram program3 = vhCreateGfxProgram( vs, ps );
+        state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_FRONT )
+             .SetProgram( program3 );
+        
+        vhStateId sid = 612;
+        state.SetVertexBuffer( vbCCW, 0 );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 6 );
+        state.SetVertexBuffer( vbCW, 0 );
+        vhSetState( sid, state.DirtyAll() );
+        vhDraw( sid, 6 );
+        vhFinish();
+        
+        EXPECT_TRUE( VerifyPixel( rt, 16, 32, 0xFF000000 ) ); // Left pixel (CCW) = black (culled)
+        EXPECT_TRUE( VerifyPixel( rt, 48, 32, 0xFF00FF00 ) ); // Right pixel (CW) = green
+    }
+
+    // Test 4: Cull Back + CW Override - CW=front, so back=CCW, CW visible, CCW culled
+    {
+        vhProgram program4 = vhCreateGfxProgram( vs, ps );
+        state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_BACK | VRHI_STATE_FRONT_CW )
+             .SetProgram( program4 );
+        
+        vhStateId sid = 613;
+        state.SetVertexBuffer( vbCCW, 0 );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 6 );
+        state.SetVertexBuffer( vbCW, 0 );
+        vhSetState( sid, state.DirtyAll() );
+        vhDraw( sid, 6 );
+        vhFinish();
+        
+        EXPECT_TRUE( VerifyPixel( rt, 16, 32, 0xFF000000 ) ); // Left pixel (CCW) = black (culled)
+        EXPECT_TRUE( VerifyPixel( rt, 48, 32, 0xFF00FF00 ) ); // Right pixel (CW) = green
+    }
+
+    // Test 5: Cull Front + CW Override - CW=front, cull front faces, CCW visible, CW culled
+    {
+        vhProgram program5 = vhCreateGfxProgram( vs, ps );
+        state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_FRONT | VRHI_STATE_FRONT_CW )
+             .SetProgram( program5 );
+        
+        vhStateId sid = 614;
+        state.SetVertexBuffer( vbCCW, 0 );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 6 );
+        state.SetVertexBuffer( vbCW, 0 );
+        vhSetState( sid, state.DirtyAll() );
+        vhDraw( sid, 6 );
+        vhFinish();
+        
+        EXPECT_TRUE( VerifyPixel( rt, 16, 32, 0xFF0000FF ) ); // Left pixel (CCW) = red
+        EXPECT_TRUE( VerifyPixel( rt, 48, 32, 0xFF000000 ) ); // Right pixel (CW) = black (culled)
+    }
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vbCCW );
+    vhDestroyBuffer( vbCW );
     vhDestroyShader( vs );
     vhDestroyShader( ps );
     vhFinish();

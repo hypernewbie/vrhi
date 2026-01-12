@@ -268,12 +268,29 @@
 
 /**
 * Cull state. When `VRHI_STATE_CULL_*` is not specified culling will be disabled.
+* 
+* Culling Convention
+* ------------------
+* Default: Counter-clockwise (CCW) wound triangles are front faces (OpenGL/DX9-11 standard)
+* - VRHI_STATE_CULL_NONE:  No culling
+* - VRHI_STATE_CULL_BACK:  Cull back faces (CW triangles when using default CCW=front)
+* - VRHI_STATE_CULL_FRONT: Cull front faces (CCW triangles when using default CCW=front)
+* - VRHI_STATE_FRONT_CW:   Override to make CW triangles = front faces (rare)
 *
+* Example: VRHI_STATE_CULL_BACK culls clockwise-wound triangles (standard backface culling)
 */
-#define VRHI_STATE_CULL_CW                        UINT64_C(0x0000001000000000) //!< Cull clockwise triangles.
-#define VRHI_STATE_CULL_CCW                       UINT64_C(0x0000002000000000) //!< Cull counter-clockwise triangles.
-#define VRHI_STATE_CULL_SHIFT                     36                           //!< Culling mode bit shift
-#define VRHI_STATE_CULL_MASK                      UINT64_C(0x0000003000000000) //!< Culling mode bit mask
+#define VRHI_STATE_CULL_NONE                      UINT64_C(0x0000000000000000)  //!< No culling
+#define VRHI_STATE_CULL_BACK                      UINT64_C(0x0000000000000100)  //!< Cull back faces (default CW triangles)
+#define VRHI_STATE_CULL_FRONT                     UINT64_C(0x0000000000000200)  //!< Cull front faces (default CCW triangles)
+#define VRHI_STATE_CULL_SHIFT                     8                             //!< Culling mode bit shift
+#define VRHI_STATE_CULL_MASK                      UINT64_C(0x0000000000000300)  //!< Culling mode bit mask
+
+// Front Face Winding Override (bit 10) - rare, only when you need CW = front
+#define VRHI_STATE_FRONT_CW                       UINT64_C(0x0000000000000400)  //!< Override: CW triangles = front faces
+
+// Deprecated: Use VRHI_STATE_CULL_BACK/FRONT instead
+#define VRHI_STATE_CULL_CW                        VRHI_STATE_CULL_BACK          //!< Old: cull CW (back) faces - deprecated, use VRHI_STATE_CULL_BACK
+#define VRHI_STATE_CULL_CCW                       VRHI_STATE_CULL_FRONT         //!< Old: cull CCW (front) faces - deprecated, use VRHI_STATE_CULL_FRONT
 
 #define VRHI_STATE_PT_TRIANGLES                   UINT64_C(0x0000000000000000) //!< Triangles. ( Not needed, just for completeness )
 #define VRHI_STATE_PT_TRISTRIP                    UINT64_C(0x0001000000000000) //!< Tristrip.
@@ -292,19 +309,19 @@
 #define VRHI_STATE_LINEAA                         UINT64_C(0x0200000000000000) //!< Enable line AA rasterization.
 #define VRHI_STATE_CONSERVATIVE_RASTER            UINT64_C(0x0400000000000000) //!< Enable conservative rasterization.
 #define VRHI_STATE_NONE                           UINT64_C(0x0000000000000000) //!< No state.
-#define VRHI_STATE_FRONT_CCW                      UINT64_C(0x0000008000000000) //!< Front counter-clockwise ( default is clockwise ).
 #define VRHI_STATE_BLEND_INDEPENDENT              UINT64_C(0x0000000400000000) //!< Enable blend independent.
 #define VRHI_STATE_BLEND_ALPHA_TO_COVERAGE        UINT64_C(0x0000000800000000) //!< Enable alpha to coverage.
 #define VRHI_STATE_DEPTH_CLIP                     UINT64_C(0x0001000000000000) //!< Enable depth clipping.
 #define VRHI_STATE_DEPTH_TEST_ENABLE              UINT64_C(0x0002000000000000) //!< Explicit depth test enable.
-/// Default state is write to RGB, alpha, and depth with depth test less enabled, with clockwise
-/// culling and MSAA (when writing into MSAA frame buffer, otherwise this flag is ignored).
+/// Default state is write to RGB, alpha, and depth with depth test less enabled, with backface
+/// culling (culls clockwise-wound triangles using standard CCW=front convention) and MSAA 
+/// (when writing into MSAA frame buffer, otherwise this flag is ignored).
 #define VRHI_STATE_DEFAULT (0 \
 	| VRHI_STATE_WRITE_RGB \
 	| VRHI_STATE_WRITE_A \
 	| VRHI_STATE_WRITE_Z \
 	| VRHI_STATE_DEPTH_TEST_LESS \
-	| VRHI_STATE_CULL_CW \
+	| VRHI_STATE_CULL_BACK \
 	| VRHI_STATE_MSAA \
 	)
 

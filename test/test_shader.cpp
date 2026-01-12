@@ -65,10 +65,11 @@ UTEST( ShaderInternal, StateToDesc )
     EXPECT_EQ( vhTranslatePrimitiveType( VRHI_STATE_PT_TRIANGLES ), nvrhi::PrimitiveType::TriangleList );
     EXPECT_EQ( vhTranslatePrimitiveType( VRHI_STATE_PT_TRISTRIP ), nvrhi::PrimitiveType::TriangleStrip );
 
-    // Test Default (Depth Test Less, Write All, Cull CW)
+    // Test Default (Depth Test Less, Write All, Cull Back with CCW=front)
     {
         nvrhi::RasterState rs = vhTranslateRasterState( VRHI_STATE_DEFAULT );
         EXPECT_EQ( rs.cullMode, nvrhi::RasterCullMode::Back );
+        EXPECT_TRUE( rs.frontCounterClockwise ); // Default: CCW = front
 
         nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, VRHI_STENCIL_NONE );
         EXPECT_TRUE( ds.depthTestEnable );
@@ -81,6 +82,41 @@ UTEST( ShaderInternal, StateToDesc )
         nvrhi::BlendState bs = vhTranslateBlendState( VRHI_STATE_BLEND_ADD );
         EXPECT_EQ( bs.targets[0].srcBlend, nvrhi::BlendFactor::One );
         EXPECT_EQ( bs.targets[0].destBlend, nvrhi::BlendFactor::One );
+    }
+
+    // Test Cull Back (Default CCW=front)
+    {
+        nvrhi::RasterState rs = vhTranslateRasterState( VRHI_STATE_CULL_BACK | VRHI_STATE_WRITE_RGB );
+        EXPECT_EQ( rs.cullMode, nvrhi::RasterCullMode::Back );
+        EXPECT_TRUE( rs.frontCounterClockwise ); // CCW = front
+    }
+
+    // Test Cull Front (Default CCW=front)
+    {
+        nvrhi::RasterState rs = vhTranslateRasterState( VRHI_STATE_CULL_FRONT | VRHI_STATE_WRITE_RGB );
+        EXPECT_EQ( rs.cullMode, nvrhi::RasterCullMode::Front );
+        EXPECT_TRUE( rs.frontCounterClockwise ); // CCW = front
+    }
+
+    // Test Cull None
+    {
+        nvrhi::RasterState rs = vhTranslateRasterState( VRHI_STATE_CULL_NONE | VRHI_STATE_WRITE_RGB );
+        EXPECT_EQ( rs.cullMode, nvrhi::RasterCullMode::None );
+        EXPECT_TRUE( rs.frontCounterClockwise ); // CCW = front (default)
+    }
+
+    // Test Cull Back + CW Override (CW=front)
+    {
+        nvrhi::RasterState rs = vhTranslateRasterState( VRHI_STATE_CULL_BACK | VRHI_STATE_FRONT_CW | VRHI_STATE_WRITE_RGB );
+        EXPECT_EQ( rs.cullMode, nvrhi::RasterCullMode::Back );
+        EXPECT_FALSE( rs.frontCounterClockwise ); // CW = front
+    }
+
+    // Test Cull Front + CW Override (CW=front)
+    {
+        nvrhi::RasterState rs = vhTranslateRasterState( VRHI_STATE_CULL_FRONT | VRHI_STATE_FRONT_CW | VRHI_STATE_WRITE_RGB );
+        EXPECT_EQ( rs.cullMode, nvrhi::RasterCullMode::Front );
+        EXPECT_FALSE( rs.frontCounterClockwise ); // CW = front
     }
 
     // Test Depth Always

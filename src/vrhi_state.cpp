@@ -467,21 +467,17 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags )
 {
     nvrhi::RasterState rasterState;
 
+    // Extract cull mode
     uint32_t cullMode = ( uint32_t ) ( ( stateFlags & VRHI_STATE_CULL_MASK ) >> VRHI_STATE_CULL_SHIFT );
-    if ( cullMode == ( VRHI_STATE_CULL_CW >> VRHI_STATE_CULL_SHIFT ) )
-    {
-        rasterState.cullMode = nvrhi::RasterCullMode::Back;
-    }
-    else if ( cullMode == ( VRHI_STATE_CULL_CCW >> VRHI_STATE_CULL_SHIFT ) )
-    {
-        rasterState.cullMode = nvrhi::RasterCullMode::Front;
-    }
-    else
-    {
-        rasterState.cullMode = nvrhi::RasterCullMode::None;
-    }
+    
+    // Map to NVRHI: 0 = None, 1 = Back, 2 = Front
+    rasterState.cullMode = (cullMode == 1) ? nvrhi::RasterCullMode::Back :
+                           (cullMode == 2) ? nvrhi::RasterCullMode::Front :
+                           nvrhi::RasterCullMode::None;
 
-    rasterState.frontCounterClockwise = ( stateFlags & VRHI_STATE_FRONT_CCW ) != 0;
+    // Front face winding (default CCW = front, override to CW if flag set)
+    rasterState.frontCounterClockwise = !( stateFlags & VRHI_STATE_FRONT_CW );
+    
     rasterState.multisampleEnable = ( stateFlags & VRHI_STATE_MSAA ) != 0;
     rasterState.antialiasedLineEnable = ( stateFlags & VRHI_STATE_LINEAA ) != 0;
     rasterState.conservativeRasterEnable = ( stateFlags & VRHI_STATE_CONSERVATIVE_RASTER ) != 0;
