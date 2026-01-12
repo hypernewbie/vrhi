@@ -315,6 +315,7 @@ UTEST_F( Graphics, DrawTriangle )
 
     vhStateId sid = 200;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 3 );
     vhFinish();
 
@@ -356,6 +357,7 @@ UTEST_F( Graphics, DrawIndexedTriangle )
 
     vhStateId sid = 300;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDrawIndexed( sid, 3 );
     vhFinish();
 
@@ -395,6 +397,7 @@ UTEST_F( Graphics, DrawTriangleStrip )
 
     vhStateId sid = 350;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 4 );
     vhFinish();
 
@@ -451,6 +454,7 @@ UTEST_F( Graphics, DepthTest )
     
     vhStateId sidFar = 400;
     vhSetState( sidFar, state );
+    vhClear( sidFar, VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH );
     vhDraw( sidFar, 6 );
 
     state.SetVertexBuffer( vbNear, 0 );
@@ -505,6 +509,7 @@ UTEST_F( Graphics, StencilTest )
     
     vhStateId sid1 = 501;
     vhSetState( sid1, state );
+    vhClear( sid1, VRHI_CLEAR_COLOR | VRHI_CLEAR_STENCIL );
     vhDraw( sid1, 6 );
     vhFinish();
 
@@ -514,6 +519,7 @@ UTEST_F( Graphics, StencilTest )
     
     vhStateId sid2 = 502;
     vhSetState( sid2, state );
+    vhClear( sid2, VRHI_CLEAR_COLOR );
     vhDraw( sid2, 6 );
     vhFinish();
     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF000000 ) ); // Black
@@ -523,6 +529,7 @@ UTEST_F( Graphics, StencilTest )
     
     vhStateId sid3 = 503;
     vhSetState( sid3, state );
+    vhClear( sid3, VRHI_CLEAR_COLOR );
     vhDraw( sid3, 6 );
     vhFinish();
     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFFFFFFFF ) ); // White
@@ -564,6 +571,7 @@ UTEST_F( Graphics, AlphaBlending )
 
     vhStateId sid = 550;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -615,6 +623,7 @@ UTEST_F( Graphics, Culling )
     
     vhStateId sidCW = 600;
     vhSetState( sidCW, state );
+    vhClear( sidCW, VRHI_CLEAR_COLOR );
     vhDraw( sidCW, 3 );
     vhFinish();
     EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF0000FF ) ); // Red
@@ -626,6 +635,7 @@ UTEST_F( Graphics, Culling )
     
     vhStateId sidCCW = 601;
     vhSetState( sidCCW, state );
+    vhClear( sidCCW, VRHI_CLEAR_COLOR );
     vhDraw( sidCCW, 3 );
     vhFinish();
     EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF00FF00 ) ); // Green
@@ -668,6 +678,7 @@ UTEST_F( Graphics, ScissorTest )
 
     vhStateId sid = 620;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -729,6 +740,7 @@ UTEST_F( Graphics, MultipleTextures )
 
     vhStateId sid = 770;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -775,6 +787,7 @@ UTEST_F( Graphics, TextureFormats )
 
     vhStateId sid = 820;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -842,6 +855,7 @@ UTEST_F( Graphics, UniformBuffers )
 
     vhStateId sid = 830;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -884,6 +898,7 @@ UTEST_F( Graphics, PushConstants )
 
     vhStateId sid = 650;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -927,6 +942,7 @@ UTEST_F( Graphics, MultipleRenderTargets )
 
     vhStateId sid = 700;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -966,6 +982,7 @@ UTEST_F( Graphics, InstancedRendering )
 
     vhStateId sid = 800;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 3, 10 ); // 10 instances
     vhFinish();
 
@@ -1030,6 +1047,7 @@ UTEST_F( Graphics, SamplerModes )
     
     vhStateId sidWrap = 900;
     vhSetState( sidWrap, state );
+    vhClear( sidWrap, VRHI_CLEAR_COLOR );
     vhDraw( sidWrap, 6 );
     vhFinish();
 
@@ -1045,6 +1063,7 @@ UTEST_F( Graphics, SamplerModes )
     
     vhStateId sidClamp = 901;
     vhSetState( sidClamp, state );
+    vhClear( sidClamp, VRHI_CLEAR_COLOR );
     vhDraw( sidClamp, 6 );
     vhFinish();
 
@@ -1113,6 +1132,7 @@ UTEST_F( Graphics, MipmapRendering )
 
     vhStateId sid = 1000;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 6 );
     vhFinish();
 
@@ -1174,6 +1194,7 @@ UTEST_F( Graphics, MultipleVertexStreams )
 
     vhStateId sid = 1100;
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 3 );
     vhFinish();
 
@@ -1224,6 +1245,7 @@ UTEST_F( Graphics, VertexBufferOffset )
 
     vhStateId sid = 1200; // Unique ID
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
 
     vhDraw( sid, 3 );
     vhFinish();
@@ -1283,6 +1305,7 @@ UTEST_F( Graphics, IndirectDraw )
 
     vhStateId sid = 1201; // Unique ID
     vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
 
     vhDrawIndirect( sid, 1 ); // 1 call
     vhFinish();
