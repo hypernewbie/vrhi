@@ -697,8 +697,7 @@ struct vhState
     float clearDepth = 1.0f;
     uint8_t clearStencil = 0;
 
-    uint64_t frontStencil = 0;
-    uint64_t backStencil = 0;
+    uint64_t stencilState = 0;
 
     glm::vec4 pushConstants = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
     
@@ -861,10 +860,18 @@ struct vhState
     }
     vhState& SetStateFlags( uint64_t flags ) { stateFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
     vhState& SetDebugFlags( uint64_t flags ) { debugFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
-    vhState& SetStencil( uint64_t front, uint64_t back = 0 )
+    vhState& SetStencil( uint64_t state )
     {
-        frontStencil = front;
-        backStencil = back;
+        stencilState = state;
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    vhState& SetStencil( uint8_t ref, uint8_t readMask, uint8_t writeMask, uint64_t frontTest, uint64_t frontFailOp, uint64_t frontDepthFailOp, uint64_t frontDepthPassOp )
+    {
+        stencilState = VRHI_STENCIL_FUNC_REF( ref ) |
+                       VRHI_STENCIL_FUNC_RMASK( readMask ) |
+                       VRHI_STENCIL_FUNC_WMASK( writeMask ) |
+                       frontTest | frontFailOp | frontDepthFailOp | frontDepthPassOp;
         dirty |= VRHI_DIRTY_PIPELINE;
         return *this;
     }
@@ -1261,7 +1268,7 @@ void vhCmdSetStateFlags( vhStateId id, uint64_t flags );
 // VIDL_GENERATE
 void vhCmdSetStateDebugFlags( vhStateId id, uint64_t flags );
 // VIDL_GENERATE
-void vhCmdSetStateStencil( vhStateId id, uint32_t front, uint32_t back );
+void vhCmdSetStateStencil( vhStateId id, uint64_t stencilState );
 // VIDL_GENERATE
 void vhCmdSetStateDepthBias( vhStateId id, int bias, float clamp, float slopeScaled );
 // VIDL_GENERATE

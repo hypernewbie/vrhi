@@ -467,59 +467,59 @@
 #define VRHI_STENCIL_MASK                         UINT64_C(0xffffffffffffffff)
 #define VRHI_STENCIL_DEFAULT                      UINT64_C(0x0000000000000000)
 
-#define VRHI_STENCIL_TEST_LESS                    UINT64_C(0x0100000000000000) //!< Enable stencil test, less.
-#define VRHI_STENCIL_TEST_LEQUAL                  UINT64_C(0x0200000000000000) //!< Enable stencil test, less or equal.
-#define VRHI_STENCIL_TEST_EQUAL                   UINT64_C(0x0300000000000000) //!< Enable stencil test, equal.
-#define VRHI_STENCIL_TEST_GEQUAL                  UINT64_C(0x0400000000000000) //!< Enable stencil test, greater or equal.
-#define VRHI_STENCIL_TEST_GREATER                 UINT64_C(0x0500000000000000) //!< Enable stencil test, greater.
-#define VRHI_STENCIL_TEST_NOTEQUAL                UINT64_C(0x0600000000000000) //!< Enable stencil test, not equal.
-#define VRHI_STENCIL_TEST_NEVER                   UINT64_C(0x0700000000000000) //!< Enable stencil test, never.
-#define VRHI_STENCIL_TEST_ALWAYS                  UINT64_C(0x0800000000000000) //!< Enable stencil test, always.
+#define VRHI_STENCIL_TEST_LESS                    UINT64_C(0x0000000001000000) //!< Enable stencil test, less.
+#define VRHI_STENCIL_TEST_LEQUAL                  UINT64_C(0x0000000002000000) //!< Enable stencil test, less or equal.
+#define VRHI_STENCIL_TEST_EQUAL                   UINT64_C(0x0000000003000000) //!< Enable stencil test, equal.
+#define VRHI_STENCIL_TEST_GEQUAL                  UINT64_C(0x0000000004000000) //!< Enable stencil test, greater or equal.
+#define VRHI_STENCIL_TEST_GREATER                 UINT64_C(0x0000000005000000) //!< Enable stencil test, greater.
+#define VRHI_STENCIL_TEST_NOTEQUAL                UINT64_C(0x0000000006000000) //!< Enable stencil test, not equal.
+#define VRHI_STENCIL_TEST_NEVER                   UINT64_C(0x0000000007000000) //!< Enable stencil test, never.
+#define VRHI_STENCIL_TEST_ALWAYS                  UINT64_C(0x0000000008000000) //!< Enable stencil test, always.
 #define VRHI_STENCIL_TEST_SHIFT                   24                           //!< Stencil test bit shift
-#define VRHI_STENCIL_TEST_MASK                    UINT64_C(0x0f00000000000000) //!< Stencil test bit mask
+#define VRHI_STENCIL_TEST_MASK                    UINT64_C(0x000000000f000000) //!< Stencil test bit mask
 
 #define VRHI_STENCIL_OP_FAIL_S_ZERO               UINT64_C(0x0000000000000000) //!< Zero.
-#define VRHI_STENCIL_OP_FAIL_S_KEEP               UINT64_C(0x1000000000000000) //!< Keep.
-#define VRHI_STENCIL_OP_FAIL_S_REPLACE            UINT64_C(0x2000000000000000) //!< Replace.
-#define VRHI_STENCIL_OP_FAIL_S_INCR               UINT64_C(0x3000000000000000) //!< Increment and wrap.
-#define VRHI_STENCIL_OP_FAIL_S_INCRSAT            UINT64_C(0x4000000000000000) //!< Increment and clamp.
-#define VRHI_STENCIL_OP_FAIL_S_DECR               UINT64_C(0x5000000000000000) //!< Decrement and wrap.
-#define VRHI_STENCIL_OP_FAIL_S_DECRSAT            UINT64_C(0x6000000000000000) //!< Decrement and clamp.
-#define VRHI_STENCIL_OP_FAIL_S_INVERT             UINT64_C(0x7000000000000000) //!< Invert.
+#define VRHI_STENCIL_OP_FAIL_S_KEEP               UINT64_C(0x0000000010000000) //!< Keep.
+#define VRHI_STENCIL_OP_FAIL_S_REPLACE            UINT64_C(0x0000000020000000) //!< Replace.
+#define VRHI_STENCIL_OP_FAIL_S_INCR               UINT64_C(0x0000000030000000) //!< Increment and wrap.
+#define VRHI_STENCIL_OP_FAIL_S_INCRSAT            UINT64_C(0x0000000040000000) //!< Increment and clamp.
+#define VRHI_STENCIL_OP_FAIL_S_DECR               UINT64_C(0x0000000050000000) //!< Decrement and wrap.
+#define VRHI_STENCIL_OP_FAIL_S_DECRSAT            UINT64_C(0x0000000060000000) //!< Decrement and clamp.
+#define VRHI_STENCIL_OP_FAIL_S_INVERT             UINT64_C(0x0000000070000000) //!< Invert.
 #define VRHI_STENCIL_OP_FAIL_S_SHIFT              28                           //!< Stencil operation fail bit shift
-#define VRHI_STENCIL_OP_FAIL_S_MASK               UINT64_C(0xf000000000000000) //!< Stencil operation fail bit mask
+#define VRHI_STENCIL_OP_FAIL_S_MASK               UINT64_C(0x00000000f0000000) //!< Stencil operation fail bit mask
 
 #define VRHI_STENCIL_OP_FAIL_Z_ZERO               UINT64_C(0x0000000000000000) //!< Zero.
-#define VRHI_STENCIL_OP_FAIL_Z_KEEP               UINT64_C(0x0001000000000000) //!< Keep.
-#define VRHI_STENCIL_OP_FAIL_Z_REPLACE            UINT64_C(0x0002000000000000) //!< Replace.
-#define VRHI_STENCIL_OP_FAIL_Z_INCR               UINT64_C(0x0003000000000000) //!< Increment and wrap.
-#define VRHI_STENCIL_OP_FAIL_Z_INCRSAT            UINT64_C(0x0004000000000000) //!< Increment and clamp.
-#define VRHI_STENCIL_OP_FAIL_Z_DECR               UINT64_C(0x0005000000000000) //!< Decrement and wrap.
-#define VRHI_STENCIL_OP_FAIL_Z_DECRSAT            UINT64_C(0x0006000000000000) //!< Decrement and clamp.
-#define VRHI_STENCIL_OP_FAIL_Z_INVERT             UINT64_C(0x0007000000000000) //!< Invert.
+#define VRHI_STENCIL_OP_FAIL_Z_KEEP               UINT64_C(0x0000000100000000) //!< Keep.
+#define VRHI_STENCIL_OP_FAIL_Z_REPLACE            UINT64_C(0x0000000200000000) //!< Replace.
+#define VRHI_STENCIL_OP_FAIL_Z_INCR               UINT64_C(0x0000000300000000) //!< Increment and wrap.
+#define VRHI_STENCIL_OP_FAIL_Z_INCRSAT            UINT64_C(0x0000000400000000) //!< Increment and clamp.
+#define VRHI_STENCIL_OP_FAIL_Z_DECR               UINT64_C(0x0000000500000000) //!< Decrement and wrap.
+#define VRHI_STENCIL_OP_FAIL_Z_DECRSAT            UINT64_C(0x0000000600000000) //!< Decrement and clamp.
+#define VRHI_STENCIL_OP_FAIL_Z_INVERT             UINT64_C(0x0000000700000000) //!< Invert.
 #define VRHI_STENCIL_OP_FAIL_Z_SHIFT              32                           //!< Stencil operation depth fail bit shift
-#define VRHI_STENCIL_OP_FAIL_Z_MASK               UINT64_C(0x000f000000000000) //!< Stencil operation depth fail bit mask
+#define VRHI_STENCIL_OP_FAIL_Z_MASK               UINT64_C(0x0000000f00000000) //!< Stencil operation depth fail bit mask
 
 #define VRHI_STENCIL_OP_PASS_Z_ZERO               UINT64_C(0x0000000000000000) //!< Zero.
-#define VRHI_STENCIL_OP_PASS_Z_KEEP               UINT64_C(0x0000010000000000) //!< Keep.
-#define VRHI_STENCIL_OP_PASS_Z_REPLACE            UINT64_C(0x0000020000000000) //!< Replace.
-#define VRHI_STENCIL_OP_PASS_Z_INCR               UINT64_C(0x0000030000000000) //!< Increment and wrap.
-#define VRHI_STENCIL_OP_PASS_Z_INCRSAT            UINT64_C(0x0000040000000000) //!< Increment and clamp.
-#define VRHI_STENCIL_OP_PASS_Z_DECR               UINT64_C(0x0000050000000000) //!< Decrement and wrap.
-#define VRHI_STENCIL_OP_PASS_Z_DECRSAT            UINT64_C(0x0000060000000000) //!< Decrement and clamp.
-#define VRHI_STENCIL_OP_PASS_Z_INVERT             UINT64_C(0x0000070000000000) //!< Invert.
+#define VRHI_STENCIL_OP_PASS_Z_KEEP               UINT64_C(0x0000001000000000) //!< Keep.
+#define VRHI_STENCIL_OP_PASS_Z_REPLACE            UINT64_C(0x0000002000000000) //!< Replace.
+#define VRHI_STENCIL_OP_PASS_Z_INCR               UINT64_C(0x0000003000000000) //!< Increment and wrap.
+#define VRHI_STENCIL_OP_PASS_Z_INCRSAT            UINT64_C(0x0000004000000000) //!< Increment and clamp.
+#define VRHI_STENCIL_OP_PASS_Z_DECR               UINT64_C(0x0000005000000000) //!< Decrement and wrap.
+#define VRHI_STENCIL_OP_PASS_Z_DECRSAT            UINT64_C(0x0000006000000000) //!< Decrement and clamp.
+#define VRHI_STENCIL_OP_PASS_Z_INVERT             UINT64_C(0x0000007000000000) //!< Invert.
 #define VRHI_STENCIL_OP_PASS_Z_SHIFT              36                           //!< Stencil operation depth pass bit shift
-#define VRHI_STENCIL_OP_PASS_Z_MASK               UINT64_C(0x00000f0000000000) //!< Stencil operation depth pass bit mask
+#define VRHI_STENCIL_OP_PASS_Z_MASK               UINT64_C(0x000000f000000000) //!< Stencil operation depth pass bit mask
 
 // Back Face
 #define VRHI_STENCIL_BACK_TEST_SHIFT              40
-#define VRHI_STENCIL_BACK_TEST_MASK               UINT64_C(0x0000f00000000000)
+#define VRHI_STENCIL_BACK_TEST_MASK               UINT64_C(0x00000f0000000000)
 #define VRHI_STENCIL_BACK_OP_FAIL_S_SHIFT         44
 #define VRHI_STENCIL_BACK_OP_FAIL_S_MASK          UINT64_C(0x000f000000000000)
 #define VRHI_STENCIL_BACK_OP_FAIL_Z_SHIFT         48
 #define VRHI_STENCIL_BACK_OP_FAIL_Z_MASK          UINT64_C(0x00f0000000000000)
 #define VRHI_STENCIL_BACK_OP_PASS_Z_SHIFT         52
-#define VRHI_STENCIL_BACK_OP_PASS_Z_MASK          UINT64_C(0x0f00000000000000)
+#define VRHI_STENCIL_BACK_OP_PASS_Z_MASK          UINT64_C(0x00f0000000000000)
 
 #define VRHI_CLEAR_NONE                           UINT16_C(0x0000) //!< No clear flags.
 #define VRHI_CLEAR_COLOR                          UINT16_C(0x0001) //!< Clear color.

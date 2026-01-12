@@ -418,7 +418,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     {
         graphicsPipelineDesc->setPrimType( vhTranslatePrimitiveType( state.stateFlags ) );
         graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
-        graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.frontStencil, state.backStencil );
+        graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.stencilState );
         graphicsPipelineDesc->renderState.rasterState = vhTranslateRasterState( state.stateFlags );
         graphicsPipelineDesc->renderState.rasterState.scissorEnable = ( state.viewScissor.z >= 0.0f && state.viewScissor.w >= 0.0f );
         graphicsPipelineDesc->renderState.rasterState.depthBias = state.depthBias;
@@ -1110,7 +1110,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
 
         // nvrhi::DepthStencilState::dynamicStencilRefValue is false, but we set this any way because it's fun.
-        graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
+        graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.stencilState & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );
 
         // Bind Framebuffer
         graphicsState->framebuffer = fb ? fb : BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
@@ -2091,8 +2091,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* 
 {
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
-    state.frontStencil = cmd->front;
-    state.backStencil = cmd->back;
+    state.stencilState = cmd->stencilState;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd )

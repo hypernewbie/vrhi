@@ -503,9 +503,9 @@ UTEST_F( Graphics, StencilTest )
          .SetProgram( vhCreateGfxProgram( vs, ps ) )
          .SetVertexBuffer( vb, 0 );
 
-    // Pass 1: Write 1 to stencil
+    // Pass 1: Write 1 to stencil (using helper overload)
     state.SetStateFlags( VRHI_STATE_WRITE_MASK )
-         .SetStencil( VRHI_STENCIL_TEST_ALWAYS | VRHI_STENCIL_OP_FAIL_S_REPLACE | VRHI_STENCIL_OP_FAIL_Z_REPLACE | VRHI_STENCIL_OP_PASS_Z_REPLACE | VRHI_STENCIL_FUNC_REF( 1 ) );
+         .SetStencil( 1, 0xFF, 0xFF, VRHI_STENCIL_TEST_ALWAYS, VRHI_STENCIL_OP_FAIL_S_REPLACE, VRHI_STENCIL_OP_FAIL_Z_REPLACE, VRHI_STENCIL_OP_PASS_Z_REPLACE );
     
     vhStateId sid1 = 501;
     vhSetState( sid1, state );
@@ -513,9 +513,9 @@ UTEST_F( Graphics, StencilTest )
     vhDraw( sid1, 6 );
     vhFinish();
 
-    // Pass 2: Only draw if stencil is 0 (should draw nothing)
+    // Pass 2: Only draw if stencil is 0 (should draw nothing) - using packed format
     state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
-         .SetStencil( VRHI_STENCIL_TEST_EQUAL | VRHI_STENCIL_OP_FAIL_S_KEEP | VRHI_STENCIL_OP_FAIL_Z_KEEP | VRHI_STENCIL_OP_PASS_Z_KEEP | VRHI_STENCIL_FUNC_REF( 0 ) );
+         .SetStencil( VRHI_STENCIL_FUNC_REF( 0 ) | VRHI_STENCIL_FUNC_RMASK( 0xFF ) | VRHI_STENCIL_FUNC_WMASK( 0xFF ) | VRHI_STENCIL_TEST_EQUAL | VRHI_STENCIL_OP_FAIL_S_KEEP | VRHI_STENCIL_OP_FAIL_Z_KEEP | VRHI_STENCIL_OP_PASS_Z_KEEP );
     
     vhStateId sid2 = 502;
     vhSetState( sid2, state.DirtyAll() );
@@ -524,8 +524,8 @@ UTEST_F( Graphics, StencilTest )
     vhFinish();
     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF000000 ) ); // Black
 
-    // Pass 3: Only draw if stencil is 1 (should draw white)
-    state.SetStencil( VRHI_STENCIL_TEST_EQUAL | VRHI_STENCIL_OP_FAIL_S_KEEP | VRHI_STENCIL_OP_FAIL_Z_KEEP | VRHI_STENCIL_OP_PASS_Z_KEEP | VRHI_STENCIL_FUNC_REF( 1 ) );
+    // Pass 3: Only draw if stencil is 1 (should draw white) - using helper overload
+    state.SetStencil( 1, 0xFF, 0xFF, VRHI_STENCIL_TEST_EQUAL, VRHI_STENCIL_OP_FAIL_S_KEEP, VRHI_STENCIL_OP_FAIL_Z_KEEP, VRHI_STENCIL_OP_PASS_Z_KEEP );
     
     vhStateId sid3 = 503;
     vhSetState( sid3, state.DirtyAll() );
