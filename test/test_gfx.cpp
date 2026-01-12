@@ -201,12 +201,12 @@ static vhBuffer CreateTestVB( const char* layout, const void* data, uint32_t siz
     return buf;
 }
 
-static vhBuffer CreateTestIB( const void* data, uint32_t size )
+static vhBuffer CreateTestIB( const void* data, uint32_t size, uint16_t flags = VRHI_BUFFER_NONE )
 {
     vhBuffer buf = vhAllocBuffer();
     vhMem* mem = vhAllocMem( size );
     memcpy( mem->data(), data, size );
-    vhCreateIndexBuffer( buf, "TestIB", mem );
+    vhCreateIndexBuffer( buf, "TestIB", mem, 0, flags );
     return buf;
 }
 
@@ -309,6 +309,7 @@ UTEST_F( Graphics, DrawTriangle )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
 
@@ -340,7 +341,7 @@ UTEST_F( Graphics, DrawIndexedTriangle )
     uint32_t indices[3] = { 0, 1, 2 };
 
     vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
-    vhBuffer ib = CreateTestIB( indices, sizeof( indices ) );
+    vhBuffer ib = CreateTestIB( indices, sizeof( indices ), VRHI_BUFFER_INDEX32 );
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
 
@@ -348,6 +349,7 @@ UTEST_F( Graphics, DrawIndexedTriangle )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetIndexBuffer( ib )
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
@@ -388,7 +390,7 @@ UTEST_F( Graphics, DrawTriangleStrip )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
          .SetVertexBuffer( vb, 0 )
-         .SetStateFlags( VRHI_STATE_PT_TRISTRIP )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_PT_TRISTRIP )
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
 
     vhStateId sid = 350;
@@ -660,7 +662,7 @@ UTEST_F( Graphics, ScissorTest )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewScissor( glm::vec4( 16, 16, 32, 32 ) ) // Center 32x32
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
-         .SetStateFlags( VRHI_STATE_WRITE_RGB )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
 
@@ -685,8 +687,8 @@ UTEST_F( Graphics, MultipleTextures )
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     // Create two source textures
-    vhTexture t0 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
-    vhTexture t1 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    vhTexture t0 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    vhTexture t1 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
     
     // Fill t0 with Red, t1 with Green
     vhMem* redData = vhAllocMem( 64 * 64 * 4 ); std::fill( redData->begin(), redData->end(), 0 );
@@ -718,6 +720,7 @@ UTEST_F( Graphics, MultipleTextures )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetTexture( 0, { "t0", -1, t0 } )
          .SetTexture( 1, { "t1", -1, t1 } )
@@ -766,6 +769,7 @@ UTEST_F( Graphics, TextureFormats )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
 
@@ -776,6 +780,30 @@ UTEST_F( Graphics, TextureFormats )
 
     // 2.0 -> 255, 0.5 -> 127, 0.1 -> 25
     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF197FFF ) );
+    
+    // Manual verification for RGBA16_FLOAT
+    vhMem readData;
+    vhReadTextureSlow( rt, 0, 0, &readData );
+    vhFinish();
+    
+    uint64_t offset = ( 32 * 64 + 32 ) * 8; // 8 bytes per pixel
+    if ( readData.size() > offset + 8 )
+    {
+        uint16_t* ptr = ( uint16_t* )&readData[offset];
+        // expected: 2.0 (0x4000), 0.5 (0x3800), 0.1 (~0x2E66), 1.0 (0x3C00)
+        // Allow small tolerance for 0.1
+        bool r = ptr[0] == 0x4000;
+        bool g = ptr[1] == 0x3800;
+        bool b = abs( (int)ptr[2] - 0x2E66 ) <= 1;
+        bool a = ptr[3] == 0x3C00;
+        EXPECT_TRUE( r && g && b && a );
+        if ( !( r && g && b && a ) )
+            UTEST_PRINTF( "TextureFormats Failed: %04X %04X %04X %04X\n", ptr[0], ptr[1], ptr[2], ptr[3] );
+    }
+    else
+    {
+        EXPECT_TRUE( false ); // Readback failed
+    }
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb );
@@ -807,6 +835,7 @@ UTEST_F( Graphics, UniformBuffers )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetUniform( 0, { "u0", { glm::vec4( 0.0, 1.0, 1.0, 1.0 ) } } ) // Cyan tint
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
@@ -848,6 +877,7 @@ UTEST_F( Graphics, PushConstants )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetPushConstants( glm::vec4( 1.0, 0.0, 1.0, 1.0 ) ) // Magenta tint
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
@@ -891,6 +921,7 @@ UTEST_F( Graphics, MultipleRenderTargets )
          .SetColourAttachment( 1, rt1 )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
 
@@ -929,6 +960,7 @@ UTEST_F( Graphics, InstancedRendering )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
 
@@ -959,7 +991,7 @@ UTEST_F( Graphics, SamplerModes )
         0xFFFF0000, 0xFFFFFFFF  // Blue, White
     };
     
-    vhTexture tex = CreateTestTexture( 2, 2, nvrhi::Format::RGBA8_UNORM );
+    vhTexture tex = CreateTestTexture( 2, 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
     vhMem* data = vhAllocMem( sizeof( pixels ) );
     memcpy( data->data(), pixels, sizeof( pixels ) );
     vhUpdateTexture( tex, 0, 0, 1, 1, data );
@@ -987,6 +1019,7 @@ UTEST_F( Graphics, SamplerModes )
     vhState state;
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetTexture( 0, { "t0", -1, tex } )
          .SetProgram( program );
@@ -1034,7 +1067,7 @@ UTEST_F( Graphics, MipmapRendering )
 
     // Create a texture with 2 mip levels (2x2 and 1x1)
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2D( tex, glm::ivec2( 2, 2 ), 2, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTexture2D( tex, glm::ivec2( 2, 2 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
 
     // Level 0: Red
     uint32_t pixels0[4] = { 0xFF0000FF, 0xFF0000FF, 0xFF0000FF, 0xFF0000FF };
@@ -1072,6 +1105,7 @@ UTEST_F( Graphics, MipmapRendering )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetTexture( 0, { "t0", -1, tex } )
          .SetSampler( 0, { "s0", -1, VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP } )
@@ -1133,6 +1167,7 @@ UTEST_F( Graphics, MultipleVertexStreams )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb0, 0 )
          .SetVertexBuffer( vb1, 1 )
          .SetProgram( program );
@@ -1183,6 +1218,7 @@ UTEST_F( Graphics, VertexBufferOffset )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0, 3 * sizeof( Vertex ) ) // Offset to green triangle
          .SetProgram( program );
 
@@ -1240,6 +1276,7 @@ UTEST_F( Graphics, IndirectDraw )
     state.SetColourAttachment( 0, rt )
          .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetIndirectParams( argBuffer )
          .SetProgram( program );

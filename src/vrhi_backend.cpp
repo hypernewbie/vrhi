@@ -420,12 +420,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
         graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.frontStencil, state.backStencil );
         graphicsPipelineDesc->renderState.rasterState = vhTranslateRasterState( state.stateFlags );
-        if ( state.viewScissor.z >= 0.0f && state.viewScissor.w >= 0.0f )
-        {
-            graphicsPipelineDesc->renderState.rasterState.scissorEnable = true;
-        }
-
-        // Apply depth bias values
+        graphicsPipelineDesc->renderState.rasterState.scissorEnable = ( state.viewScissor.z >= 0.0f && state.viewScissor.w >= 0.0f );
         graphicsPipelineDesc->renderState.rasterState.depthBias = state.depthBias;
         graphicsPipelineDesc->renderState.rasterState.depthBiasClamp = state.depthBiasClamp;
         graphicsPipelineDesc->renderState.rasterState.slopeScaledDepthBias = state.slopeScaledDepthBias;
@@ -1099,10 +1094,20 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         ) );
 
         graphicsState->viewport.scissorRects.resize( 0 );
-        graphicsState->viewport.scissorRects.push_back( nvrhi::Rect(
-            ( int ) state.viewScissor.x, ( int ) ( state.viewScissor.x + state.viewScissor.z ),
-            ( int ) state.viewScissor.y, ( int ) ( state.viewScissor.y + state.viewScissor.w )
-        ) );
+        if ( state.viewScissor.z >= 0.0f && state.viewScissor.w >= 0.0f )
+        {
+            graphicsState->viewport.scissorRects.push_back( nvrhi::Rect(
+                ( int ) state.viewScissor.x, ( int ) ( state.viewScissor.x + state.viewScissor.z ),
+                ( int ) state.viewScissor.y, ( int ) ( state.viewScissor.y + state.viewScissor.w )
+            ) );
+        }
+        else
+        {
+            graphicsState->viewport.scissorRects.push_back( nvrhi::Rect(
+                ( int ) state.viewRect.x, ( int ) ( state.viewRect.x + state.viewRect.z ),
+                ( int ) state.viewRect.y, ( int ) ( state.viewRect.y + state.viewRect.w )
+            ) );
+        }
 
         // nvrhi::DepthStencilState::dynamicStencilRefValue is false, but we set this any way because it's fun.
         graphicsState->dynamicStencilRefValue = ( uint8_t ) ( ( state.frontStencil & VRHI_STENCIL_FUNC_REF_MASK ) >> VRHI_STENCIL_FUNC_REF_SHIFT );

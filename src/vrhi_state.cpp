@@ -307,7 +307,12 @@ nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
     };
 
     // Write Masks
-    blendState.targets[0].colorWriteMask = ( nvrhi::ColorMask ) ( stateFlags & 0xF );
+    nvrhi::ColorMask mask = ( nvrhi::ColorMask ) 0;
+    if ( stateFlags & VRHI_STATE_WRITE_R ) mask = mask | nvrhi::ColorMask::Red;
+    if ( stateFlags & VRHI_STATE_WRITE_G ) mask = mask | nvrhi::ColorMask::Green;
+    if ( stateFlags & VRHI_STATE_WRITE_B ) mask = mask | nvrhi::ColorMask::Blue;
+    if ( stateFlags & VRHI_STATE_WRITE_A ) mask = mask | nvrhi::ColorMask::Alpha;
+    blendState.targets[0].colorWriteMask = mask;
 
     // Blend Factors
     uint32_t blendBits = ( uint32_t ) ( ( stateFlags & VRHI_STATE_BLEND_MASK ) >> VRHI_STATE_BLEND_SHIFT );
@@ -326,6 +331,12 @@ nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
     {
         blendState.targets[0].blendOp = fnConvertBlendOp( blendEq & 0x7 );
         blendState.targets[0].blendOpAlpha = fnConvertBlendOp( ( blendEq >> 3 ) & 0x7 );
+    }
+
+    // Propagate duplicate settings to all other targets
+    for ( int i = 1; i < nvrhi::c_MaxRenderTargets; ++i )
+    {
+        blendState.targets[i] = blendState.targets[0];
     }
 
     blendState.alphaToCoverageEnable = ( stateFlags & VRHI_STATE_BLEND_ALPHA_TO_COVERAGE ) != 0;

@@ -522,7 +522,7 @@ void vhDrawIndexed( vhStateId state, uint32_t indexCount, uint32_t instanceCount
     vhDrawCommonInternal(
         state,
         VRHI_DRAW_INDEXED,
-        0, // vertexCount (unused for indexed)
+        indexCount, // vertexCount acts as indexCount for indexed draws
         instanceCount,
         ( uint32_t ) baseVertexLocation, // startVertexLocation acts as baseVertexLocation for indexed
         startIndexLocation,
