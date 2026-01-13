@@ -26,6 +26,8 @@
 
 // -------------------------------------------------------- Utils --------------------------------------------------------
 
+#define VRHI_ROUND_UP( x, alignment ) ( ( ( x ) + ( alignment ) - 1 ) & ~( ( alignment ) - 1 ) )
+
 // Allocator for list of object IDs.
 // Works be using a free list.
 class vhAllocatorObjectFreeList
@@ -112,3 +114,5 @@ inline uint32_t vhNextPow2( uint32_t v )
     v--; v |= v >> 1; v |= v >> 2; v |= v >> 4; v |= v >> 8; v |= v >> 16; v++;
     return v;
 }
+
+

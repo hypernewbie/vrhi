@@ -78,6 +78,7 @@ struct vhInitData
     // Default configuration for global and world uniform buffers.
     uint32_t maxViewGlobals = 4 * 1024;
     uint32_t maxWorldMatrices = 16 * 1024;
+    uint32_t maxUserGlobals = 16 * 1024 * 1024;
 };
 
 typedef uint32_t vhTexture;
@@ -556,20 +557,38 @@ void* vhGetBufferNvrhiHandle( vhBuffer buffer );
 
 vhShader vhAllocShader();
 
+struct vhReflectionMember
+{
+    std::string name;
+    uint32_t offset = 0;
+    uint32_t size = 0; 
+};
+
 struct vhShaderReflectionResource
 {
     std::string name;
-    uint32_t slot;
-    uint32_t set;
-    nvrhi::ResourceType type;
-    nvrhi::Format format;
-    nvrhi::TextureDimension dim;
-    uint32_t arraySize;
-    uint32_t sizeInBytes; // Validation
+    uint32_t slot = 0;
+    uint32_t set = 0;
+    nvrhi::ResourceType type = nvrhi::ResourceType::None;
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    nvrhi::TextureDimension dim = nvrhi::TextureDimension::Unknown;
+    uint32_t arraySize = 0;
+    uint32_t sizeInBytes = 0; // Validation
+    std::vector< vhReflectionMember > members;
 };
 
-struct vhPushConstantRange { uint32_t offset; uint32_t size; std::string name; };
-struct vhSpecConstant { uint32_t id; std::string name; };
+struct vhPushConstantRange
+{
+    uint32_t offset = 0;
+    uint32_t size = 0;
+    std::string name;
+};
+
+struct vhSpecConstant
+{
+    uint32_t id = 0;
+    std::string name;
+};
 
 // Returns thread group size (for Compute/Mesh/Amp) via out pointer.
 // Optional out pointers to populate full reflection data.

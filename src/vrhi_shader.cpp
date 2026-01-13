@@ -213,6 +213,15 @@ bool vhReflectSpirv(
             res.arraySize = binding->count;
             res.sizeInBytes = binding->block.size;
 
+            if ( res.type == nvrhi::ResourceType::ConstantBuffer && ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" ) )
+            {
+                for ( uint32_t j = 0; j < binding->block.member_count; ++j )
+                {
+                    const auto& m = binding->block.members[j];
+                    res.members.push_back( { m.name ? m.name : "", m.offset, m.size } );
+                }
+            }
+
             outResources.push_back( res );
         }
     }
@@ -577,4 +586,46 @@ bool vhShaderValidateBinding( const vhShaderReflectionResource& reflection, cons
     }
 
     return true;
+}
+
+void vhPackUserGlobals(
+    const std::vector< vhState::UniformBufferValue >& uniforms,
+    const std::vector< vhReflectionMember >& members,
+    uint8_t* outData,
+    uint64_t dataSize
+)
+{
+    if ( !outData || dataSize == 0 )
+        return;
+
+    memset( outData, 0, dataSize );
+
+    for ( const auto& member : members )
+    {
+        const vhState::UniformBufferValue* match = nullptr;
+        for ( const auto& u : uniforms )
+        {
+            if ( u.name == member.name )
+            {
+                match = &u;
+                break;
+            }
+        }
+
+        if ( match )
+        {
+            if ( member.offset >= dataSize )
+                continue;
+
+            uint64_t copySize = member.size;
+            if ( member.offset + copySize > dataSize )
+            {
+                copySize = dataSize - member.offset;
+            }
+
+            uint64_t srcSizeBytes = match->data.size() * sizeof( glm::vec4 );
+            uint64_t actualCopy = std::min( copySize, srcSizeBytes );
+            memcpy( outData + member.offset, match->data.data(), actualCopy );
+        }
+    }
 }

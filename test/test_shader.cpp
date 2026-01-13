@@ -706,3 +706,113 @@ UTEST( Hashing, ShaderDebugName )
     EXPECT_NE( h1, h3 );
 }
 
+
+// --------------------------------------------------------------------------
+// Shader Globals Tests
+// --------------------------------------------------------------------------
+
+static const char* g_globalsTestShader = R"(
+float3 u_float3;
+float4 u_float4;
+
+[shader("vertex")]
+float4 main() : SV_Position
+{
+    return float4( u_float3, 1.0 ) + u_float4;
+}
+)";
+
+UTEST_F( Shader, BareGlobalsReflection )
+{
+    if ( !g_testInit ) return;
+
+    vhShader shader = vhAllocShader();
+    
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool compiled = vhCompileShader( "GlobalsTest", g_globalsTestShader, VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if (!compiled) printf("Compile Error: %s\n", error.c_str());
+    ASSERT_TRUE( compiled );
+
+    // Create shader and assume it compiles successfully
+    vhCreateShader( shader, "GlobalsTest", VRHI_SHADER_STAGE_VERTEX, spirv, "main" );
+    
+    // Flush to ensure backend processes the creation command
+    vhFlush();
+    
+    std::vector< vhShaderReflectionResource > resources;
+    vhGetShaderInfo( shader, nullptr, &resources );
+    
+    bool foundGlobals = false;
+    bool foundFloat3 = false;
+    bool foundFloat4 = false;
+    
+    printf( "Reflected Resources: %zu\n", resources.size() );
+    for ( const auto& r : resources )
+    {
+        printf( "Resource: '%s' Type: %d Slot: %u Set: %u Size: %llu\n", r.name.c_str(), (int)r.type, r.slot, r.set, r.sizeInBytes );
+        for( const auto& m : r.members )
+        {
+             printf( "  Member: '%s' Offset: %u Size: %u\n", m.name.c_str(), m.offset, m.size );
+        }
+    }
+    
+    for ( const auto& r : resources )
+    {
+        if ( r.type == nvrhi::ResourceType::ConstantBuffer && ( r.name == "$Globals" || r.name == "_Globals" || r.name == "globalParams" ) )
+        {
+            foundGlobals = true;
+            for ( const auto& m : r.members )
+            {
+                if ( m.name == "u_float3" ) {
+                     EXPECT_GE( m.size, 12u ); // float3 is 12 bytes
+                     foundFloat3 = true;
+                }
+                if ( m.name == "u_float4" ) {
+                     EXPECT_EQ( m.size, 16u );
+                     foundFloat4 = true;
+                }
+            }
+        }
+    }
+    
+    EXPECT_TRUE( foundGlobals );
+    EXPECT_TRUE( foundFloat3 );
+    EXPECT_TRUE( foundFloat4 );
+    
+    vhDestroyShader( shader );
+}
+
+UTEST_F( Shader, GlobalsPacking )
+{
+    std::vector< vhState::UniformBufferValue > uniforms;
+    std::vector< vhReflectionMember > members;
+    
+    // Setup Uniforms
+    vhState::UniformBufferValue u1;
+    u1.name = "MyVec3";
+    u1.data.push_back( glm::vec4( 1.0f, 2.0f, 3.0f, 4.0f ) );
+    uniforms.push_back( u1 );
+    
+    vhState::UniformBufferValue u2;
+    u2.name = "MyFloat";
+    u2.data.push_back( glm::vec4( 42.0f, 0.0f, 0.0f, 0.0f ) );
+    uniforms.push_back( u2 );
+    
+    // Setup Reflection Members
+    members.push_back( { "MyVec3", 0, 12 } );
+    members.push_back( { "MyFloat", 16, 4 } );
+    
+    uint8_t buffer[32];
+    vhPackUserGlobals( uniforms, members, buffer, sizeof(buffer) );
+    
+    // Verify MyVec3 (1.0, 2.0, 3.0)
+    float* fBuf = (float*)buffer;
+    EXPECT_EQ( fBuf[0], 1.0f );
+    EXPECT_EQ( fBuf[1], 2.0f );
+    EXPECT_EQ( fBuf[2], 3.0f );
+    EXPECT_EQ( fBuf[3], 0.0f ); // Zeroed out
+                                
+    // Verify MyFloat (42.0) at offset 16 (index 4 in float array)
+    EXPECT_EQ( fBuf[4], 42.0f );
+}

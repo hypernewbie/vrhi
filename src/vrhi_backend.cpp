@@ -735,6 +735,49 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 return true;
             }
 
+            // Check for User Globals ($Globals)
+            // These aren't explicitly bound in vhState::buffers, so we must find them via reflection.
+            // TODO: Move this to the cache, to avoid O(N^3) loop here.
+            for ( const auto* shader : scache.bshaders )
+            {
+                for ( const auto& res : shader->reflection )
+                {
+                    if ( res.slot == item.slot && res.type == nvrhi::ResourceType::ConstantBuffer && ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" ) )
+                    {
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                        {
+                             VRHI_LOG( "FindResource: Found User Globals '%s' at slot %u. Size: %u\n", res.name.c_str(), res.slot, res.sizeInBytes );
+                             for( auto& m : res.members ) VRHI_LOG( "  Member: %s ( Offset: %u )\n", m.name.c_str(), m.offset );
+                        }
+                        if ( res.sizeInBytes == 0 ) continue;
+
+                        static std::vector< uint8_t > s_globalPackBuffer;
+                        uint32_t packSize = res.sizeInBytes;
+                        if ( ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) && packSize > 65536 )
+                        {
+                             VRHI_LOG( "FindResource: Large Globals CB size %u\n", packSize );
+                        }
+                        
+                        uint32_t alignedSize = ( uint32_t ) VRHI_ROUND_UP( packSize, VRHI_CBUF_ALIGN );
+                        if ( s_globalPackBuffer.size() < alignedSize ) s_globalPackBuffer.resize( alignedSize, 0 );
+                        vhPackUserGlobals( state.uniforms, res.members, s_globalPackBuffer.data(), packSize );
+                        
+                        int64_t offset = m_userUniformBuffer.Write( s_globalPackBuffer.data(), alignedSize );
+                        if ( offset < 0 )
+                        {
+                             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Failed to write UserGlobals ($Globals)\n" );
+                             return false;
+                        }
+                        
+                        nvrhi::BufferRange range( offset, alignedSize );
+                        outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_userUniformBuffer.handle[ m_userUniformBuffer.frameIdx ], range );
+                        outItem.type = item.type;
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: UserGlobals bound to slot %d\n", item.slot );
+                        return true;
+                    }
+                }
+            }
+
             auto it = stageTable.bufferTable.find( item.slot );
             if ( it == stageTable.bufferTable.end() )
             {
@@ -1363,6 +1406,14 @@ void vhCmdBackendState::init()
         descWorld.setCpuAccess( nvrhi::CpuAccessMode::Write );
         descWorld.setDebugName( "WorldUniforms" );
         m_worldUniformBuffer.Init_DeviceStateLocked( descWorld );
+        
+        nvrhi::BufferDesc descUser;
+        descUser.setByteSize( g_vhInit.maxUserGlobals ); 
+        descUser.setIsConstantBuffer( true );
+        descUser.setCpuAccess( nvrhi::CpuAccessMode::Write );
+        descUser.setDebugName( "UserUniforms" );
+        m_userUniformBuffer.Init_DeviceStateLocked( descUser );
+        assert( g_vhInit.maxUserGlobals % VRHI_CBUF_ALIGN == 0 );
     }
 }
 
@@ -1373,6 +1424,7 @@ void vhCmdBackendState::shutdown()
 
     m_globalUniformBuffer.Shutdown_DeviceStateLocked();
     m_worldUniformBuffer.Shutdown_DeviceStateLocked();
+    m_userUniformBuffer.Shutdown_DeviceStateLocked();
 
     backendTextures.clear();
     backendBuffers.clear();
@@ -2169,6 +2221,7 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 
     // Flush and step transient buffer maps here.
     // This needs to be done *before* we flush the command lists to GPU!!
+
     m_globalUniformBuffer.Unmap_DeviceStateLocked();
     m_globalUniformBuffer.Step();
     m_globalUniformBufferLastHash = 0;
@@ -2176,6 +2229,9 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
     m_worldUniformBuffer.Unmap_DeviceStateLocked();
     m_worldUniformBuffer.Step();
     m_worldUniformBufferLastHash = 0;
+
+    m_userUniformBuffer.Unmap_DeviceStateLocked();
+    m_userUniformBuffer.Step();
 
     // Send it!!
     vhCmdListFlushAll_DeviceStateLocked();

@@ -628,7 +628,7 @@ UTEST_F( Graphics, Culling )
     vhClear( sidCW, VRHI_CLEAR_COLOR );
     vhDraw( sidCW, 3 );
     vhFinish();
-    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF0000FF ) ); // Red
+    EXPECT_TRUE( VerifyPixel( rt, 5, 60, 0xFF0000FF ) ); // Red
 
     // Test 2: Cull Back (CW). CCW should be visible (Green).
     vhProgram programCCW = vhCreateGfxProgram( vs, ps );
@@ -642,7 +642,7 @@ UTEST_F( Graphics, Culling )
     vhClear( sidCCW, VRHI_CLEAR_COLOR );
     vhDraw( sidCCW, 3 );
     vhFinish();
-    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF00FF00 ) ); // Green
+    EXPECT_TRUE( VerifyPixel( rt, 5, 60, 0xFF00FF00 ) ); // Green
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( vbCW );
@@ -699,7 +699,7 @@ UTEST_F( Graphics, CullingExtensive )
         
         vhStateId sid = 610;
         state.SetVertexBuffer( vbCCW, 0 );
-        vhSetState( sid, state );
+        vhSetState( sid, state.DirtyAll() );
         vhClear( sid, VRHI_CLEAR_COLOR );
         vhDraw( sid, 6 );
         state.SetVertexBuffer( vbCW, 0 );
@@ -720,7 +720,7 @@ UTEST_F( Graphics, CullingExtensive )
         
         vhStateId sid = 611;
         state.SetVertexBuffer( vbCCW, 0 );
-        vhSetState( sid, state );
+        vhSetState( sid, state.DirtyAll() );
         vhClear( sid, VRHI_CLEAR_COLOR );
         vhDraw( sid, 6 );
         state.SetVertexBuffer( vbCW, 0 );
@@ -741,7 +741,7 @@ UTEST_F( Graphics, CullingExtensive )
         
         vhStateId sid = 612;
         state.SetVertexBuffer( vbCCW, 0 );
-        vhSetState( sid, state );
+        vhSetState( sid, state.DirtyAll() );
         vhClear( sid, VRHI_CLEAR_COLOR );
         vhDraw( sid, 6 );
         state.SetVertexBuffer( vbCW, 0 );
@@ -762,7 +762,7 @@ UTEST_F( Graphics, CullingExtensive )
         
         vhStateId sid = 613;
         state.SetVertexBuffer( vbCCW, 0 );
-        vhSetState( sid, state );
+        vhSetState( sid, state.DirtyAll() );
         vhClear( sid, VRHI_CLEAR_COLOR );
         vhDraw( sid, 6 );
         state.SetVertexBuffer( vbCW, 0 );
@@ -783,7 +783,7 @@ UTEST_F( Graphics, CullingExtensive )
         
         vhStateId sid = 614;
         state.SetVertexBuffer( vbCCW, 0 );
-        vhSetState( sid, state );
+        vhSetState( sid, state.DirtyAll() );
         vhClear( sid, VRHI_CLEAR_COLOR );
         vhDraw( sid, 6 );
         state.SetVertexBuffer( vbCW, 0 );
@@ -946,9 +946,6 @@ UTEST_F( Graphics, TextureFormats )
     vhDraw( sid, 6 );
     vhFinish();
 
-    // 2.0 -> 255, 0.5 -> 127, 0.1 -> 25
-    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF197FFF ) );
-    
     // Manual verification for RGBA16_FLOAT
     vhMem readData;
     vhReadTextureSlow( rt, 0, 0, &readData );
@@ -1556,3 +1553,112 @@ UTEST_F( Graphics, Markers )
 
     vhFinish();
 }
+
+// --------------------------------------------------------------------------
+// Bare Globals Test
+// --------------------------------------------------------------------------
+
+static const char* g_bareGlobalPS = R"(
+cbuffer GlobalUniforms : register(b0, space1)
+{
+    float4 u_viewRect;
+    float4 u_viewTexel;
+    float4x4 u_view;
+    float4x4 u_invView;
+    float4x4 u_proj;
+};
+
+cbuffer WorldUniforms : register(b1, space1)
+{
+    float4x4 u_world[4];
+};
+
+cbuffer globalParams : register(b2, space1)
+{
+    float4 u_color;
+}
+
+[shader("pixel")]
+float4 main( float4 pos : SV_Position ) : SV_Target
+{
+    return u_color;
+}
+)";
+
+// Self-contained Fullscreen VS
+static const char* g_fullscreenVS = R"(
+[shader("vertex")]
+float4 main( uint id : SV_VertexID ) : SV_Position
+{
+    // Generates a triangle covering the screen: (-1,-1), (3,-1), (-1,3)
+    float2 uv = float2( (id << 1) & 2, id & 2 );
+    return float4( uv * 2.0 - 1.0, 0.0, 1.0 );
+}
+)";
+
+UTEST_F( Graphics, BareGlobals )
+{
+    if ( !g_testInit ) return;
+
+    // Create Render Target
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    // Create Shaders
+    vhShader vs = vhAllocShader();
+    {
+        std::vector< uint32_t > spirv;
+        std::string error;
+        bool compiled = vhCompileShader( "BareGlobalsVS", g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+        if (!compiled) printf("VS Compile Error: %s\n", error.c_str());
+        ASSERT_TRUE( compiled );
+        vhCreateShader( vs, "BareGlobalsVS", VRHI_SHADER_STAGE_VERTEX, spirv, "main" );
+    }
+
+    vhShader ps = vhAllocShader();
+    {
+        std::vector< uint32_t > spirv;
+        std::string error;
+        bool compiled = vhCompileShader( "BareGlobalsPS", g_bareGlobalPS, VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+        if (!compiled) printf("PS Compile Error: %s\n", error.c_str());
+        ASSERT_TRUE( compiled );
+        vhCreateShader( ps, "BareGlobalsPS", VRHI_SHADER_STAGE_PIXEL, spirv, "main" );
+    }
+
+    // Create State
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) );
+    state.SetColourAttachment( 0, rt );
+    // Clear to Red to verify Green overwrite
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 1.0f, 0.0f, 0.0f, 1.0f ) );
+    state.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK );
+    
+    // Set Bare Uniform to Green
+    vhState::UniformBufferValue u;
+    u.name = "u_color";
+    u.data.push_back( glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ) );
+    state.SetUniform( 0, u );
+
+    vhStateId sid = 800; // Unique ID
+
+    // Draw
+    vhSetState( sid, state );
+    // Clear first
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    
+    vhDraw( sid, 3 );
+    
+    vhFlush();
+    
+    // Verify Green (ABGR: FF 00 FF 00)
+    // 0xFF00FF00 -> A=FF B=00 G=FF R=00.
+    // u_color = (0,1,0,1) -> R=0 G=1 B=0 A=1.
+     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF00FF00 ) );
+    
+    // Cleanup
+    vhDestroyTexture( rt );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+}
+

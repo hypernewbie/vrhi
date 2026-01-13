@@ -75,21 +75,21 @@ void vhEnableRenderDoc()
 
     if ( !mod )
     {
-        VRHI_LOG( "Failed to load renderdoc.dll module.\n" );
+        VRHI_LOG( "    No renderdoc.dll module. This is OK.\n" );
         return;
     }
 
     pRENDERDOC_GetAPI RENDERDOC_GetAPI = ( pRENDERDOC_GetAPI ) GetProcAddress( mod, "RENDERDOC_GetAPI" );
     if ( !RENDERDOC_GetAPI )
     {
-        VRHI_LOG( "Failed to get RENDERDOC_GetAPI address.\n" );
+        VRHI_LOG( "    Failed to get RENDERDOC_GetAPI address.\n" );
         return;
     }
 
     int ret = RENDERDOC_GetAPI( eRENDERDOC_API_Version_1_1_2, ( void** ) &g_vhRenderDoc );
     if ( ret != 1 )
     {
-        VRHI_LOG( "Failed to initialise RenderDoc API.\n" );
+        VRHI_LOG( "    Failed to initialise RenderDoc API.\n" );
         return;
     }
     VRHI_LOG( "    RenderDoc API loaded successfully.\n" );

@@ -260,6 +260,13 @@ bool vhReflectSpirv(
     std::vector< vhVertexLayoutDef >* outInputLayout = nullptr
 );
 
+void vhPackUserGlobals(
+    const std::vector< vhState::UniformBufferValue >& uniforms,
+    const std::vector< vhReflectionMember >& members,
+    uint8_t* outData,
+    uint64_t dataSize
+);
+
 bool vhShaderValidateBinding( const vhShaderReflectionResource& reflection, const nvrhi::BindingLayoutItem& binding, bool logError );
 bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nvrhi::BindingSetVector& bindings );
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
