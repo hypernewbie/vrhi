@@ -154,8 +154,6 @@ void vhInit( bool quiet )
     vkb::PhysicalDeviceSelector selector( vkbInst );
 
     VkPhysicalDeviceVulkan11Features v11Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
-    v11Features.shaderDrawParameters = VK_TRUE;
-
     VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12Features.timelineSemaphore = VK_TRUE;
     v12Features.bufferDeviceAddress = VK_TRUE;
