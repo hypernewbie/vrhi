@@ -54,7 +54,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vhVKDebugCallback(
 {
     if ( s >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT )
     {
-        VRHI_ERR( "[VULKAN] %s\n", pData->pMessage );
+        bool isLoaderNoise = strstr( pData->pMessage, "loader_icd_scan" ) != nullptr || strstr( pData->pMessage, "dlopen" ) != nullptr;
+        if ( isLoaderNoise )
+            VRHI_LOG( "[VULKAN] %s\n", pData->pMessage );
+        else
+            VRHI_ERR( "[VULKAN] %s\n", pData->pMessage );
     }
     else
     {
