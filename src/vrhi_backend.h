@@ -105,8 +105,17 @@ struct vhStateResolveCache
         std::unordered_map< uint32_t, ResolvedTexture > textureTable; // slot -> texture
         std::unordered_map< uint32_t, ResolvedBuffer > bufferTable; // slot -> buffer
         std::unordered_map< uint32_t, std::pair< ResolvedTexture, ResolvedBuffer > > uavTable; // slot -> UAV. Either texture or buffer, but not both.
+        uint32_t userGlobalsSlot = UINT32_MAX;  // UINT32_MAX = no User Globals
+        uint64_t userGlobalsHash = 0;           // Hash of reflection members
     };
     std::unordered_map< uint32_t, std::unique_ptr< ShaderStageBindingSlotState > > stageBinding; // stage flag -> binding slot state
+
+    struct UserGlobalUniformsBufferInfo
+    {
+        nvrhi::BufferHandle buffer;
+        nvrhi::BufferRange range;
+    };
+    std::unordered_map< uint64_t, UserGlobalUniformsBufferInfo > userGlobalUniformsBufferCache; // hash -> buffer
 
     inline void Clear()
     {
@@ -114,6 +123,7 @@ struct vhStateResolveCache
         btex.clear();
         bbuf.clear();
         stageBinding.clear();
+        userGlobalUniformsBufferCache.clear();
     }
 };
 

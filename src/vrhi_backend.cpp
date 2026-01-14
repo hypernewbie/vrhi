@@ -679,6 +679,98 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         }
     }
 
+    // Resolve User Global Uniforms
+
+    for ( int j = 0; j < shaderCount; j++ )
+    {
+        const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+        assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
+        auto& stageTable = *scache.stageBinding[stage];
+
+        if ( stageTable.userGlobalsSlot != UINT32_MAX )
+        {
+            VRHI_ERR( "ResolveCache: Duplicate shader stage %u detected in pipeline!\n", stage );
+            assert( !"Duplicate shader stage detected in pipeline" );
+            continue;
+        }
+
+        for ( const auto& res : shaders[j].reflection )
+        {
+            if ( res.type == nvrhi::ResourceType::ConstantBuffer && ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" ) )
+            {
+                uint64_t hash = vhHashReflectionMembers( res.members );
+                stageTable.userGlobalsSlot = res.slot;
+                stageTable.userGlobalsHash = hash;
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                {
+                    VRHI_LOG( "ResolveCache: Found User Globals '%s' at slot %u for stage %u. Hash: 0x%llx\n",
+                        res.name.c_str(), res.slot, stage, hash );
+                }
+                break;
+            }
+        }
+    }
+
+    static std::vector< uint8_t > s_userGlobalsPackBuffer;
+
+    for ( const auto& stagePair : scache.stageBinding )
+    {
+        const auto& stageTable = *stagePair.second;
+
+        if ( stageTable.userGlobalsSlot == UINT32_MAX )
+            continue;
+
+        uint64_t hash = stageTable.userGlobalsHash;
+
+        if ( scache.userGlobalUniformsBufferCache.find( hash ) != scache.userGlobalUniformsBufferCache.end() )
+            continue;
+
+        // Find reflection data for this stage
+        const vhShaderReflectionResource* res = nullptr;
+        for ( int j = 0; j < shaderCount; j++ )
+        {
+            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            if ( stagePair.first == stage )
+            {
+                for ( const auto& r : shaders[j].reflection )
+                {
+                    if ( r.type == nvrhi::ResourceType::ConstantBuffer &&
+                         ( r.name == "$Globals" || r.name == "_Globals" || r.name == "globalParams" ) )
+                    {
+                        res = &r;
+                        break;
+                    }
+                }
+                if ( res ) break;
+            }
+        }
+
+        if ( !res || res->sizeInBytes == 0 )
+            continue;
+
+        uint32_t packSize = res->sizeInBytes;
+        uint32_t alignedSize = ( uint32_t ) VRHI_ROUND_UP( packSize, VRHI_CBUF_ALIGN );
+        if ( s_userGlobalsPackBuffer.size() < alignedSize )
+            s_userGlobalsPackBuffer.resize( alignedSize, 0 );
+        vhPackUserGlobals( state.uniforms, res->members, s_userGlobalsPackBuffer.data(), packSize );
+
+        int64_t offset = m_userUniformBuffer.Write( s_userGlobalsPackBuffer.data(), alignedSize );
+        if ( offset >= 0 )
+        {
+            vhStateResolveCache::UserGlobalUniformsBufferInfo info;
+            info.buffer = m_userUniformBuffer.handle[m_userUniformBuffer.frameIdx];
+            info.range = nvrhi::BufferRange( offset, alignedSize );
+            scache.userGlobalUniformsBufferCache[hash] = info;
+
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                VRHI_LOG( "ResolveCache: Eagerly allocated User Globals buffer for hash 0x%llx\n", hash );
+        }
+        else
+        {
+            VRHI_ERR( "ResolveCache: Failed to write User Global Uniforms to transient buffer (Out of space)\n" );
+        }
+    }
+
     scache.init = true;
 }
 
@@ -736,46 +828,29 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             }
 
             // Check for User Globals ($Globals)
-            // These aren't explicitly bound in vhState::buffers, so we must find them via reflection.
-            // TODO: Move this to the cache, to avoid O(N^3) loop here.
-            for ( const auto* shader : scache.bshaders )
+            if ( stageTable.userGlobalsSlot != UINT32_MAX && stageTable.userGlobalsSlot == item.slot )
             {
-                for ( const auto& res : shader->reflection )
-                {
-                    if ( res.slot == item.slot && res.type == nvrhi::ResourceType::ConstantBuffer && ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" ) )
-                    {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
-                        {
-                             VRHI_LOG( "FindResource: Found User Globals '%s' at slot %u. Size: %u\n", res.name.c_str(), res.slot, res.sizeInBytes );
-                             for( auto& m : res.members ) VRHI_LOG( "  Member: %s ( Offset: %u )\n", m.name.c_str(), m.offset );
-                        }
-                        if ( res.sizeInBytes == 0 ) continue;
+                uint64_t hash = stageTable.userGlobalsHash;
 
-                        static std::vector< uint8_t > s_globalPackBuffer;
-                        uint32_t packSize = res.sizeInBytes;
-                        if ( ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) && packSize > 65536 )
-                        {
-                             VRHI_LOG( "FindResource: Large Globals CB size %u\n", packSize );
-                        }
-                        
-                        uint32_t alignedSize = ( uint32_t ) VRHI_ROUND_UP( packSize, VRHI_CBUF_ALIGN );
-                        if ( s_globalPackBuffer.size() < alignedSize ) s_globalPackBuffer.resize( alignedSize, 0 );
-                        vhPackUserGlobals( state.uniforms, res.members, s_globalPackBuffer.data(), packSize );
-                        
-                        int64_t offset = m_userUniformBuffer.Write( s_globalPackBuffer.data(), alignedSize );
-                        if ( offset < 0 )
-                        {
-                             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Failed to write UserGlobals ($Globals)\n" );
-                             return false;
-                        }
-                        
-                        nvrhi::BufferRange range( offset, alignedSize );
-                        outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_userUniformBuffer.handle[ m_userUniformBuffer.frameIdx ], range );
-                        outItem.type = item.type;
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: UserGlobals bound to slot %d\n", item.slot );
-                        return true;
-                    }
+                // Lookup in eagerly-allocated cache
+                auto cacheIt = scache.userGlobalUniformsBufferCache.find( hash );
+                if ( cacheIt == scache.userGlobalUniformsBufferCache.end() )
+                {
+                    // Should never happen - buffer should have been eagerly allocated
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH )
+                        VRHI_ERR( "FindResource: User Globals hash 0x%llx not found in cache (should be pre-allocated)\n", hash );
+                    return false;
                 }
+
+                // Use pre-allocated buffer
+                const auto& info = cacheIt->second;
+                outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, info.buffer, info.range );
+                outItem.type = item.type;
+
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                    VRHI_LOG( "FindResource: Bound User Globals from cache (hash 0x%llx)\n", hash );
+
+                return true;
             }
 
             auto it = stageTable.bufferTable.find( item.slot );
