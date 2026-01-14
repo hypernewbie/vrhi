@@ -1176,12 +1176,12 @@ UTEST_F( Graphics, SamplerModes )
     struct Vertex { glm::vec3 pos; glm::vec2 uv; };
     Vertex quad[6] = 
     {
-        { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
-        { {  1.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } },
-        { { -1.0f,  1.0f, 0.0f }, { 0.0f, 2.0f } },
-        { { -1.0f,  1.0f, 0.0f }, { 0.0f, 2.0f } },
-        { {  1.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } },
-        { {  1.0f,  1.0f, 0.0f }, { 2.0f, 2.0f } }
+        { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
+        { {  1.0f,  1.0f, 0.0f }, { 2.0f, 0.0f } },
+        { { -1.0f, -1.0f, 0.0f }, { 0.0f, 2.0f } },
+        { { -1.0f, -1.0f, 0.0f }, { 0.0f, 2.0f } },
+        { {  1.0f,  1.0f, 0.0f }, { 2.0f, 0.0f } },
+        { {  1.0f, -1.0f, 0.0f }, { 2.0f, 2.0f } }
     };
     vhBuffer vb = CreateTestVB( "float3 float2", quad, sizeof( quad ) );
 
@@ -1198,7 +1198,7 @@ UTEST_F( Graphics, SamplerModes )
          .SetSampler( 0, { "s0", -1, VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_WRAP } );
     
     vhStateId sidWrap = 900;
-    vhSetState( sidWrap, state );
+    vhSetState( sidWrap, state.DirtyAll() );
     vhClear( sidWrap, VRHI_CLEAR_COLOR );
     vhDraw( sidWrap, 6 );
     vhFinish();
@@ -1214,7 +1214,7 @@ UTEST_F( Graphics, SamplerModes )
          .SetSampler( 0, { "s0", -1, VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP } );
     
     vhStateId sidClamp = 901;
-    vhSetState( sidClamp, state );
+    vhSetState( sidClamp, state.DirtyAll() );
     vhClear( sidClamp, VRHI_CLEAR_COLOR );
     vhDraw( sidClamp, 6 );
     vhFinish();
