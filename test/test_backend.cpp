@@ -1028,6 +1028,13 @@ UTEST( Backend, TimerQueryBasic )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    {
+        nvrhi::TimerQueryHandle timer = g_vhDevice->createTimerQuery();
+        if ( !timer )
+        {
+            UTEST_SKIP( "Timestamp queries not supported on this device/backend" );
+        }
+    }
 
     vhTimerID timerID = 0x12345;
 
@@ -1067,6 +1074,13 @@ UTEST( Backend, TimerQueryMultiple )
     {
         vhInit( g_testInitQuiet );
         g_testInit = true;
+    }
+    {
+        nvrhi::TimerQueryHandle timer = g_vhDevice->createTimerQuery();
+        if ( !timer )
+        {
+            UTEST_SKIP( "Timestamp queries not supported on this device/backend" );
+        }
     }
 
     vhTimerID timer1 = 0x111;

@@ -475,7 +475,7 @@ UTEST_F( Graphics, DepthTest )
 UTEST_F( Graphics, StencilTest )
 {
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
-    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D24S8 );
+    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32S8 );
 
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
     Vertex verts[6] = 
@@ -1506,7 +1506,7 @@ UTEST_F( Graphics, ClearTexture )
     vhDestroyTexture( rt );
     
     // Create depth/stencil target
-    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D24S8 );
+    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32S8 );
     
     // Create state and bind depth target
     vhState depthState;
