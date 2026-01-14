@@ -95,6 +95,10 @@ UTEST_F( State, MultipleSlots )
 
     EXPECT_EQ( r1.viewRect, state1.viewRect );
     EXPECT_EQ( r2.viewRect, state2.viewRect );
+
+    vhState s;
+    vhGetState( id1, s.DirtyAll() );
+    vhGetState( id2, s.DirtyAll() );
 }
 
 UTEST_F( State, InvalidId )
@@ -129,6 +133,9 @@ UTEST_F( State, BasicSetGet )
     EXPECT_EQ( retrieved.projMatrix, state.projMatrix );
     ASSERT_GT( retrieved.worldMatrix.size(), 0 );
     EXPECT_EQ( retrieved.worldMatrix[0], state.worldMatrix[0] );
+
+    vhState s;
+    vhSetState( id, s.DirtyAll() );
 }
 
 UTEST_F( State, Attachments )
@@ -155,6 +162,9 @@ UTEST_F( State, Attachments )
     EXPECT_EQ( retrieved.colourAttachment[0].texture, 101u );
     EXPECT_EQ( retrieved.colourAttachment[0].mipLevel, 1u );
     EXPECT_EQ( retrieved.depthAttachment.texture, 201u );
+
+    vhState s;
+    vhSetState( id, s.DirtyAll() );
 }
 
 UTEST_F( State, Extensions )
@@ -251,6 +261,9 @@ UTEST_F( State, BackendPropagation )
     // Verify it doesn't bleed to other states
     vhState otherState;
     EXPECT_FALSE( vhGetState( 999, otherState ) );
+
+    vhState s;
+    vhSetState( id, s.DirtyAll() );
 }
 
 UTEST_F( State, IndividualAccessors )
@@ -353,6 +366,9 @@ UTEST_F( State, DebugFlags )
     vhState retrieved = {};
     ASSERT_TRUE( vhGetState( id, retrieved ) );
     EXPECT_EQ( retrieved.debugFlags, VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS );
+
+    vhState s;
+    vhSetState( id, s.DirtyAll() );
 }
 
 UTEST_F( State, Hashing_GraphicsPipeline )
@@ -859,4 +875,7 @@ UTEST_F( State, MissingFieldsCheck )
     // Indirect Params
     EXPECT_EQ( ret.indirectParams.buffer, dummyBuf );
     EXPECT_EQ( ret.indirectParams.byteOffset, 128u );
+
+    vhState s;
+    vhSetState( id, s.DirtyAll() );
 }

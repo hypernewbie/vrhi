@@ -730,7 +730,6 @@ struct vhState
     glm::u8vec4 clearColorUInt = glm::u8vec4( 0 );
     float clearDepth = 1.0f;
     uint8_t clearStencil = 0;
-
     uint64_t stencilState = 0;
 
     glm::vec4 pushConstants = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -760,7 +759,7 @@ struct vhState
 
     struct VertexBinding
     {
-        vhBuffer buffer;
+        vhBuffer buffer = VRHI_INVALID_HANDLE;
         uint8_t stream = 0;
         uint32_t startVertex = 0;
         uint32_t numVertices = UINT32_MAX;
@@ -770,7 +769,7 @@ struct vhState
 
     struct IndexBinding
     {
-        vhBuffer buffer;
+        vhBuffer buffer = VRHI_INVALID_HANDLE;
         uint32_t firstIndex = 0;
         uint32_t numIndices = UINT32_MAX;
         uint64_t byteOffset = 0;
@@ -781,7 +780,7 @@ struct vhState
     {
         const char* name = nullptr; // Setting this will autofill slot and computeUAV.
         int32_t slot = -1;
-        vhTexture texture;
+        vhTexture texture = VRHI_INVALID_HANDLE;
         nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN;
         nvrhi::TextureSubresourceSet subresources = nvrhi::TextureSubresourceSet( 0, 1, 0, nvrhi::TextureSubresourceSet::AllArraySlices );
         nvrhi::TextureDimension dimensionOverride = nvrhi::TextureDimension::Unknown;
@@ -793,7 +792,7 @@ struct vhState
     {
         const char* name = nullptr; // Setting this will autofill slot and computeUAV.
         int32_t slot = -1;
-        vhBuffer buffer;
+        vhBuffer buffer = VRHI_INVALID_HANDLE;
         uint64_t byteOffset = 0;
         uint64_t byteSize = 0;
         bool computeUAV = false;
