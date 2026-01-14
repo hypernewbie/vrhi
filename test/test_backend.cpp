@@ -1064,6 +1064,8 @@ UTEST( Backend, TimerQueryBasic )
 
     // Now we should have a result
     float time = vhGetTimerQueryTime( timerID );
+    if ( time == 0.0f ) { UTEST_SKIP( "Timestamp queries not producing results on this device/backend" ); }
+#endif // __APPLE__
     EXPECT_GT( time, 0.0f );
     vhFinish();
 }
@@ -1098,8 +1100,13 @@ UTEST( Backend, TimerQueryMultiple )
         g_vhDevice->waitForIdle();
     }
 
-    EXPECT_GT( vhGetTimerQueryTime( timer1 ), 0.0f );
-    EXPECT_GT( vhGetTimerQueryTime( timer2 ), 0.0f );
+    float t1 = vhGetTimerQueryTime( timer1 );
+    float t2 = vhGetTimerQueryTime( timer2 );
+#ifdef __APPLE__ // MoltenVK headless seems to create queries that don't work. timestampValidBits returns 0.
+    if ( t1 == 0.0f || t2 == 0.0f ) { UTEST_SKIP( "Timestamp queries not producing results on this device/backend" ); }
+#endif // __APPLE__
+    EXPECT_GT( t1, 0.0f );
+    EXPECT_GT( t2, 0.0f );
     vhFinish();
 }
 
