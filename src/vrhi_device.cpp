@@ -624,6 +624,29 @@ void vhCaptureEnd()
     vhCmdEnqueue( cmd );
 }
 
+void vhResizeCleanup()
+{
+    VIDL_vhResizeCleanup* cmd = vhCmdAlloc<VIDL_vhResizeCleanup>();
+    vhCmdEnqueue( cmd );
+}
+
+void vhBeginTimerQuery( vhTimerID timerID )
+{
+    VIDL_vhBeginTimerQuery* cmd = vhCmdAlloc<VIDL_vhBeginTimerQuery>( timerID );
+    vhCmdEnqueue( cmd );
+}
+
+void vhEndTimerQuery( vhTimerID timerID )
+{
+    VIDL_vhEndTimerQuery* cmd = vhCmdAlloc<VIDL_vhEndTimerQuery>( timerID );
+    vhCmdEnqueue( cmd );
+}
+
+float vhGetTimerQueryTime( vhTimerID timerID )
+{
+    return vhBackendQueryTimer( timerID );
+}
+
 // -------------------------------------------------------- Dummy Resources --------------------------------------------------------
 
 static nvrhi::BufferHandle s_vhDummyOmniBuffer = nullptr;

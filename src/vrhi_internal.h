@@ -155,6 +155,7 @@ void* vhBackendQueryBufferHandle( vhBuffer buffer );
 void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::vector< vhShaderReflectionResource >* outResources, std::vector< vhPushConstantRange >* outPushConstants, std::vector< vhSpecConstant >* outSpecConstants );
 void* vhBackendQueryShaderHandle( vhShader shader );
 bool vhBackendQueryState( vhStateId id, vhState& outState );
+float vhBackendQueryTimer( vhTimerID timerID );
 
 // Dummy Resources
 void vhInitDummyResources();

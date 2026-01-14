@@ -1004,3 +1004,86 @@ UTEST( Backend, PushConstantsDirtyBit )
         vhSetPushConstant_DeviceStateLocked( cmdlist, state );
     }
 }
+
+UTEST( Backend, TimerQueryBasic )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTimerID timerID = 0x12345;
+
+    // Initially should be 0.0f
+    EXPECT_EQ( vhGetTimerQueryTime( timerID ), 0.0f );
+
+    // Begin Timer
+    vhBeginTimerQuery( timerID );
+
+    // End Timer
+    vhEndTimerQuery( timerID );
+
+    vhFlush();
+    g_vhDevice->waitForIdle();
+
+    // Still should be 0.0f because ring buffer delay (3 frames)
+    EXPECT_EQ( vhGetTimerQueryTime( timerID ), 0.0f );
+
+    // Simulate frames to advance ring buffer
+    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT + 1; ++i )
+    {
+        vhBeginTimerQuery( timerID );
+        vhEndTimerQuery( timerID );
+        vhFlush();
+        g_vhDevice->waitForIdle();
+    }
+
+    // Now we should have a result
+    float time = vhGetTimerQueryTime( timerID );
+    EXPECT_GT( time, 0.0f );
+}
+
+UTEST( Backend, TimerQueryMultiple )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTimerID timer1 = 0x111;
+    vhTimerID timer2 = 0x222;
+
+    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT + 2; ++i )
+    {
+        vhBeginTimerQuery( timer1 );
+        // Simulate some work
+        vhBeginTimerQuery( timer2 );
+        vhEndTimerQuery( timer2 );
+        vhEndTimerQuery( timer1 );
+        
+        vhFlush();
+        g_vhDevice->waitForIdle();
+    }
+
+    EXPECT_GT( vhGetTimerQueryTime( timer1 ), 0.0f );
+    EXPECT_GT( vhGetTimerQueryTime( timer2 ), 0.0f );
+}
+
+UTEST( Backend, TimerQueryErrors )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // End without Begin (Should log error and not crash)
+    vhEndTimerQuery( 0x999 ); 
+    vhFlush(); 
+    g_vhDevice->waitForIdle();
+    
+    // Check invalid ID returns 0
+    EXPECT_EQ( vhGetTimerQueryTime( 0x999 ), 0.0f );
+}

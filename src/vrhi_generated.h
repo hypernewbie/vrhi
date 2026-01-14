@@ -9,6 +9,30 @@ struct VIDL_vhResizeCleanup
     VIDL_vhResizeCleanup() = default;
 };
 
+struct VIDL_vhBeginTimerQuery
+{
+    static constexpr uint64_t kMagic = 0x178A2421;
+    uint64_t MAGIC = kMagic;
+    vhTimerID timerID;
+
+    VIDL_vhBeginTimerQuery() = default;
+
+    VIDL_vhBeginTimerQuery(vhTimerID _timerID)
+        : timerID(_timerID) {}
+};
+
+struct VIDL_vhEndTimerQuery
+{
+    static constexpr uint64_t kMagic = 0x130A84AE;
+    uint64_t MAGIC = kMagic;
+    vhTimerID timerID;
+
+    VIDL_vhEndTimerQuery() = default;
+
+    VIDL_vhEndTimerQuery(vhTimerID _timerID)
+        : timerID(_timerID) {}
+};
+
 struct VIDL_vhBeginMarker
 {
     static constexpr uint64_t kMagic = 0x2631B4CA;
@@ -672,6 +696,8 @@ struct VIDL_vhDrawCommonInternal
 struct VIDLHandler
 {
     virtual void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) { (void) cmd; };
+    virtual void Handle_vhBeginTimerQuery( VIDL_vhBeginTimerQuery* cmd ) { (void) cmd; };
+    virtual void Handle_vhEndTimerQuery( VIDL_vhEndTimerQuery* cmd ) { (void) cmd; };
     virtual void Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd ) { (void) cmd; };
     virtual void Handle_vhEndMarker( VIDL_vhEndMarker* cmd ) { (void) cmd; };
     virtual void Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd ) { (void) cmd; };
@@ -730,6 +756,14 @@ struct VIDLHandler
         case 0xF3F4A7CF:
             HandleLogFunction("Handle_vhResizeCleanup");
             Handle_vhResizeCleanup( (VIDL_vhResizeCleanup*) cmd );
+            break;
+        case 0x178A2421:
+            HandleLogFunction("Handle_vhBeginTimerQuery");
+            Handle_vhBeginTimerQuery( (VIDL_vhBeginTimerQuery*) cmd );
+            break;
+        case 0x130A84AE:
+            HandleLogFunction("Handle_vhEndTimerQuery");
+            Handle_vhEndTimerQuery( (VIDL_vhEndTimerQuery*) cmd );
             break;
         case 0x2631B4CA:
             HandleLogFunction("Handle_vhBeginMarker");

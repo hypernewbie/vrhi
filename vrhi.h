@@ -85,6 +85,7 @@ typedef uint32_t vhTexture;
 typedef uint32_t vhBuffer;
 typedef uint32_t vhShader;
 typedef uint32_t vhUniform;
+typedef uint64_t vhTimerID;
 typedef std::vector< uint8_t > vhMem;
 typedef std::vector< vhShader > vhProgram;
 
@@ -129,6 +130,20 @@ void vhFinish();
 // Clears backend caches (e.g. framebuffers). Call this after a window resize.
 // VIDL_GENERATE
 void vhResizeCleanup();
+
+// Begin GPU timing measurement for the given timer ID.
+// If the timer ID has not been seen before, it will be automatically created.
+// VIDL_GENERATE
+void vhBeginTimerQuery( vhTimerID timerID );
+
+// End GPU timing measurement for the given timer ID.
+// VIDL_GENERATE
+void vhEndTimerQuery( vhTimerID timerID );
+
+// Get the GPU time in seconds for the given timer ID.
+// Returns 0.0f if the query results are not yet available or if the timer ID is invalid.
+// Note: Due to GPU/CPU latency, you should read results from N frames ago (ring buffer of VRHI_MAX_FRAMES_INFLIGHT).
+float vhGetTimerQueryTime( vhTimerID timerID );
 
 // Places a debug marker denoting the beginning of a range of commands.
 // Use vhEndMarker( ) to close the range. Ranges may be nested.

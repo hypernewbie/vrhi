@@ -127,6 +127,14 @@ struct vhStateResolveCache
     }
 };
 
+struct vhBackendTimerQuery
+{
+    nvrhi::TimerQueryHandle handles[VRHI_MAX_FRAMES_INFLIGHT];
+    int currentFrameIndex = 0;
+    float lastQueryTime = 0.0f; // Cached result in seconds
+    bool initialised = false;
+};
+
 // --------------------------------------------------------------------------
 // Main Backend State
 // --------------------------------------------------------------------------
@@ -140,6 +148,7 @@ class vhCmdBackendState : public VIDLHandler
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
     std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
     std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
+    std::map< vhTimerID, std::unique_ptr< vhBackendTimerQuery > > backendTimerQueries;
     std::map< vhStateId, vhState > backendStates;
     vhTransientBuffer m_globalUniformBuffer;
     uint64_t m_globalUniformBufferLastHash = 0;
@@ -282,6 +291,10 @@ public:
 
     void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) override;
 
+    void Handle_vhBeginTimerQuery( VIDL_vhBeginTimerQuery* cmd ) override;
+
+    void Handle_vhEndTimerQuery( VIDL_vhEndTimerQuery* cmd ) override;
+
     void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override;
 
     void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override;
@@ -411,4 +424,6 @@ public:
     void* QueryShaderHandle( vhShader handle );
 
     bool QueryState( vhStateId id, vhState& outState );
+
+    float QueryTimer( vhTimerID timerID );
 };

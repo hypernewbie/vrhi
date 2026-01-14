@@ -1566,6 +1566,98 @@ void vhCmdBackendState::Handle_vhEndMarker( VIDL_vhEndMarker* cmd )
     }
 }
 
+void vhCmdBackendState::Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( g_vhRenderDoc ) g_vhRenderDoc->StartFrameCapture( NULL, NULL );
+}
+
+void vhCmdBackendState::Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    // Flush commands to GPU so they are submitted within the capture window.
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhCmdListFlushAll_DeviceStateLocked();
+    }
+
+    if ( g_vhRenderDoc ) g_vhRenderDoc->EndFrameCapture( NULL, NULL );
+}
+
+void vhCmdBackendState::Handle_vhBeginTimerQuery( VIDL_vhBeginTimerQuery* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    // Auto-create timer query if it doesn't exist
+    auto it = backendTimerQueries.find( cmd->timerID );
+    if ( it == backendTimerQueries.end() )
+    {
+        std::unique_ptr< vhBackendTimerQuery > timerQuery = std::make_unique< vhBackendTimerQuery >();
+        timerQuery->initialised = true;
+
+        // Create ring buffer of NVRHI timer query handles
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
+        {
+            timerQuery->handles[i] = g_vhDevice->createTimerQuery();
+            if ( !timerQuery->handles[i] )
+            {
+                VRHI_ERR( "vhBeginTimerQuery(): Failed to create timer query handle for ID %llu\n", cmd->timerID );
+                return;
+            }
+        }
+
+        it = backendTimerQueries.emplace( cmd->timerID, std::move( timerQuery ) ).first;
+    }
+
+    auto& timerQuery = *it->second;
+    int currentIdx = timerQuery.currentFrameIndex;
+
+    // Begin timing on current frame's query handle
+    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdList->beginTimerQuery( timerQuery.handles[currentIdx] );
+    }
+}
+
+void vhCmdBackendState::Handle_vhEndTimerQuery( VIDL_vhEndTimerQuery* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendTimerQueries.find( cmd->timerID );
+    if ( it == backendTimerQueries.end() )
+    {
+        VRHI_ERR( "vhEndTimerQuery(): Timer ID %llu not found. Must call vhBeginTimerQuery first.\n", cmd->timerID );
+        return;
+    }
+
+    auto& timerQuery = *it->second;
+    int currentIdx = timerQuery.currentFrameIndex;
+
+    // End timing on current frame's query handle
+    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdList->endTimerQuery( timerQuery.handles[currentIdx] );
+    }
+
+    // Read result from PREVIOUS frame (ring buffer offset)
+    int readIdx = ( currentIdx + VRHI_MAX_FRAMES_INFLIGHT - 1 ) % VRHI_MAX_FRAMES_INFLIGHT;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        float timeSeconds = g_vhDevice->getTimerQueryTime( timerQuery.handles[readIdx] );
+        if ( timeSeconds > 0.0f )
+        {
+            timerQuery.lastQueryTime = timeSeconds;
+        }
+    }
+
+    // Advance ring buffer index for next frame
+    timerQuery.currentFrameIndex = ( currentIdx + 1 ) % VRHI_MAX_FRAMES_INFLIGHT;
+}
+
 void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
@@ -2716,6 +2808,19 @@ bool vhCmdBackendState::QueryState( vhStateId id, vhState& outState )
     return true;
 }
 
+float vhCmdBackendState::QueryTimer( vhTimerID timerID )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+
+    auto it = backendTimerQueries.find( timerID );
+    if ( it == backendTimerQueries.end() || !it->second->initialised )
+    {
+        return 0.0f;
+    }
+
+    return it->second->lastQueryTime;
+}
+
 // --------------------------------------------------------------------------
 // Backend Bridge
 // --------------------------------------------------------------------------
@@ -2775,21 +2880,10 @@ bool vhBackendQueryState( vhStateId id, vhState& outState )
     return g_vhCmdBackendState.QueryState( id, outState );
 }
 
-void vhCmdBackendState::Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd )
+float vhBackendQueryTimer( vhTimerID timerID )
 {
-    BE_CmdRAII cmdRAII( cmd );
-    if ( g_vhRenderDoc ) g_vhRenderDoc->StartFrameCapture( NULL, NULL );
+    return g_vhCmdBackendState.QueryTimer( timerID );
 }
 
-void vhCmdBackendState::Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd )
-{
-    BE_CmdRAII cmdRAII( cmd );
 
-    // Flush commands to GPU so they are submitted within the capture window.
-    {
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        vhCmdListFlushAll_DeviceStateLocked();
-    }
 
-    if ( g_vhRenderDoc ) g_vhRenderDoc->EndFrameCapture( NULL, NULL );
-}
