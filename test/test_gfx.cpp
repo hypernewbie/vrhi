@@ -1325,11 +1325,11 @@ UTEST_F( Graphics, MultipleVertexStreams )
 
     // Stream 0: Positions
     float positions[] = { -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f };
-    vhBuffer vb0 = CreateTestVB( "float2", positions, sizeof( positions ) );
+    vhBuffer vb0 = CreateTestVB( "float2 ATTR0", positions, sizeof( positions ) );
 
     // Stream 1: Colours (Blue)
     float colours[] = { 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f };
-    vhBuffer vb1 = CreateTestVB( "float4", colours, sizeof( colours ) );
+    vhBuffer vb1 = CreateTestVB( "float4 ATTR1", colours, sizeof( colours ) );
 
     vhShader vs = CreateTestShader( g_multiStreamVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
@@ -1342,6 +1342,7 @@ UTEST_F( Graphics, MultipleVertexStreams )
          .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb0, 0 )
          .SetVertexBuffer( vb1, 1 )
+         .SetDebugFlags( VRHI_STATE_DEBUG_ALL )
          .SetProgram( program );
 
     vhStateId sid = 1100;
@@ -1351,7 +1352,7 @@ UTEST_F( Graphics, MultipleVertexStreams )
     vhFinish();
 
     // Triangle should be Blue
-    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFFFF0000 ) ); // Blue (0xFFRRGGBB)
+    EXPECT_TRUE( VerifyPixel( rt, 4, 16, 0xFFFF0000 ) ); // Blue (0xFFRRGGBB)
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb0 );
