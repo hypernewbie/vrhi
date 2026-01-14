@@ -279,6 +279,7 @@ uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );
 uint64_t vhHashGlobalUniform( const vhGlobalUniform& u );
 uint64_t vhHashWorldUniform( const vhWorldUniform& u );
+uint64_t vhHashReflectionMembers( const std::vector< vhReflectionMember >& members );
 uint64_t vhHashFrameBuffer( const nvrhi::FramebufferDesc& desc );
 void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out );
 void vhWriteStateToWorldUniform( const vhState& state, vhWorldUniform& out );

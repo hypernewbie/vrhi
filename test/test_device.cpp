@@ -227,3 +227,64 @@ UTEST( Device, DummyResources )
     EXPECT_EQ( samp.type, nvrhi::ResourceType::Sampler );
     EXPECT_NE( samp.resourceHandle, nullptr );
 }
+
+UTEST( Device, HashingReflectionMembers )
+{
+    // Test empty vector
+    std::vector< vhReflectionMember > empty;
+    uint64_t hash1 = vhHashReflectionMembers( empty );
+    EXPECT_NE( hash1, 0u );
+
+    // Test single member
+    std::vector< vhReflectionMember > single;
+    vhReflectionMember m1;
+    m1.name = "test_member";
+    m1.offset = 0;
+    m1.size = 16;
+    single.push_back( m1 );
+    uint64_t hash2 = vhHashReflectionMembers( single );
+    EXPECT_NE( hash2, 0u );
+    EXPECT_NE( hash1, hash2 );
+
+    // Test multiple members
+    std::vector< vhReflectionMember > multiple;
+    multiple.push_back( m1 );
+    vhReflectionMember m2;
+    m2.name = "another_member";
+    m2.offset = 16;
+    m2.size = 32;
+    multiple.push_back( m2 );
+    uint64_t hash3 = vhHashReflectionMembers( multiple );
+    EXPECT_NE( hash3, 0u );
+    EXPECT_NE( hash2, hash3 );
+
+    // Test determinism
+    uint64_t hash4 = vhHashReflectionMembers( multiple );
+    EXPECT_EQ( hash3, hash4 );
+
+    // Test sensitivity to order
+    std::vector< vhReflectionMember > reversed;
+    reversed.push_back( m2 );
+    reversed.push_back( m1 );
+    uint64_t hash5 = vhHashReflectionMembers( reversed );
+    EXPECT_NE( hash3, hash5 );
+
+    // Test sensitivity to member properties
+    std::vector< vhReflectionMember > modified;
+    vhReflectionMember m3 = m1;
+    m3.offset = 100;
+    modified.push_back( m3 );
+    modified.push_back( m2 );
+    uint64_t hash6 = vhHashReflectionMembers( modified );
+    EXPECT_NE( hash3, hash6 );
+
+    // Test with empty name
+    std::vector< vhReflectionMember > emptyName;
+    vhReflectionMember m4;
+    m4.name = "";
+    m4.offset = 0;
+    m4.size = 4;
+    emptyName.push_back( m4 );
+    uint64_t hash7 = vhHashReflectionMembers( emptyName );
+    EXPECT_NE( hash7, 0u );
+}

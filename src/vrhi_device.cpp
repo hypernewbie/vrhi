@@ -1152,6 +1152,32 @@ uint64_t vhHashWorldUniform( const vhWorldUniform& u )
     return komihash( &u, sizeof( u ), 0 );
 }
 
+uint64_t vhHashReflectionMembers( const std::vector< vhReflectionMember >& members )
+{
+    static_assert( sizeof( vhReflectionMember ) == 48, "vhReflectionMember size mismatch" );
+    uint64_t h = 0;
+
+    size_t count = members.size();
+    h = komihash( &count, sizeof( count ), h );
+
+    for ( const auto& member : members )
+    {
+        if ( !member.name.empty() )
+        {
+            h = komihash( member.name.data(), member.name.size(), h );
+        }
+        else
+        {
+            uint32_t marker = 0xdeadbeef;
+            h = komihash( &marker, sizeof( marker ), h );
+        }
+        h = komihash( &member.offset, sizeof( member.offset ), h );
+        h = komihash( &member.size, sizeof( member.size ), h );
+    }
+
+    return h;
+}
+
 uint64_t vhHashFrameBuffer( const nvrhi::FramebufferDesc& desc )
 {
     uint64_t h = 0;
