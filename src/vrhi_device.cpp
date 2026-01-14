@@ -153,7 +153,6 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
     vkb::PhysicalDeviceSelector selector( vkbInst );
 
-    VkPhysicalDeviceVulkan11Features v11Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
     VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12Features.timelineSemaphore = VK_TRUE;
     v12Features.bufferDeviceAddress = VK_TRUE;
@@ -168,7 +167,6 @@ void vhInit( bool quiet )
     features.depthClamp = VK_TRUE;
 
     selector.set_minimum_version( 1, 3 )
-        .set_required_features_11( v11Features )
         .set_required_features_12( v12Features )
         .set_required_features_13( v13Features )
         .set_required_features( features );
@@ -222,6 +220,8 @@ void vhInit( bool quiet )
     {
         robustness2Enabled = vkbPhys.enable_extension_if_present( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
     }
+    bool shaderDrawParametersEnabled = vkbPhys.enable_extension_if_present( "VK_KHR_shader_draw_parameters" );
+    if ( shaderDrawParametersEnabled && !quiet ) VRHI_LOG( "    Enabled VK_KHR_shader_draw_parameters extension.\n" );
 
     if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
     vkb::DeviceBuilder devBuilder( vkbPhys );
@@ -261,6 +261,13 @@ void vhInit( bool quiet )
     else
     {
         if ( !quiet && g_vhInit.robust ) VRHI_LOG( "    Robustness2 extension missing or disabled.\n" );
+    }
+
+    VkPhysicalDeviceVulkan11Features v11Feat = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+    if ( shaderDrawParametersEnabled )
+    {
+        v11Feat.shaderDrawParameters = VK_TRUE;
+        devBuilder.add_pNext( &v11Feat );
     }
 
     auto devRet = devBuilder.build();
@@ -330,6 +337,10 @@ void vhInit( bool quiet )
     if ( robustness2Enabled )
     {
         s_enabledExtensions.push_back( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
+    }
+    if ( shaderDrawParametersEnabled )
+    {
+        s_enabledExtensions.push_back( VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME );
     }
 
     g_vulkanEnabledExtensionCount = ( uint32_t ) s_enabledExtensions.size();
@@ -406,7 +417,6 @@ void vhShutdown( bool quiet )
     g_vhCmdThread.join();
     g_vhCmdThreadReady = false;
     vhBackendShutdown();
-    g_vhDevice->runGarbageCollection();
     vhCmdListFlushAll();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
@@ -420,7 +430,8 @@ void vhShutdown( bool quiet )
     vhFBOCacheReset();
 
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
-    g_vhDevice = nullptr; // RefCountPtr handles the release()
+    for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ ) g_vhDevice->runGarbageCollection();
+    g_vhDevice = nullptr;
 
     // Clear resources
     if ( !quiet ) VRHI_LOG( "    Clearing resources...\n" );

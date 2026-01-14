@@ -159,7 +159,6 @@ struct VSInput
 {
     float3 pos : POSITION;
     float4 colour : COLOUR;
-    uint instanceID : SV_InstanceID;
 };
 
 struct VSOutput
@@ -169,10 +168,10 @@ struct VSOutput
 };
 
 [shader("vertex")]
-VSOutput main( VSInput input )
+VSOutput main( VSInput input, uint instanceID : SV_VulkanInstanceID )
 {
     VSOutput output;
-    float offset = float( input.instanceID ) * 0.1;
+    float offset = float( instanceID ) * 0.1;
     output.pos = float4( input.pos.x + offset, input.pos.yz, 1.0 );
     output.colour = input.colour;
     return output;
@@ -411,7 +410,7 @@ UTEST_F( Graphics, DrawTriangleStrip )
 UTEST_F( Graphics, DepthTest )
 {
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
-    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D24S8 );
+    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32 );
 
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
     
@@ -1588,7 +1587,8 @@ float4 main( float4 pos : SV_Position ) : SV_Target
 // Self-contained Fullscreen VS
 static const char* g_fullscreenVS = R"(
 [shader("vertex")]
-float4 main( uint id : SV_VertexID ) : SV_Position
+// Use SV_VulkanVertexID to avoid DrawParameters (gl_BaseVertex) dependency
+float4 main( uint id : SV_VulkanVertexID ) : SV_Position
 {
     // Generates a triangle covering the screen: (-1,-1), (3,-1), (-1,3)
     float2 uv = float2( (id << 1) & 2, id & 2 );

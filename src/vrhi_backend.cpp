@@ -375,7 +375,6 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     assert( shaders && shaderCount > 0 );
     const vhBackendShader* vertexShader = nullptr;
 
-    std::map< uint32_t, nvrhi::BindingLayoutDesc > mergedLayouts;
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
         auto& shader = shaders[shaderIdx];
@@ -1504,6 +1503,7 @@ void vhCmdBackendState::shutdown()
     backendTextures.clear();
     backendBuffers.clear();
     backendShaders.clear();
+    backendTimerQueries.clear();
 
     // Clear static caches
     s_layoutToShader.clear();

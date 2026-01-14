@@ -245,6 +245,7 @@ UTEST( BackendInternal, PipelineValidation )
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         shader.layout = nullptr;
     }
+    vhFinish();
 }
 
 UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
@@ -298,6 +299,7 @@ UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
         shaders[0].layout = nullptr;
         shaders[1].layout = nullptr;
     }
+    vhFinish();
 }
 
 class MockComputePipeline : public nvrhi::RefCounter<nvrhi::IComputePipeline>
@@ -384,6 +386,7 @@ UTEST( BackendInternal, PreSubmitCommon_State_Compute )
         layoutFail = nullptr;
         shader.layout = nullptr;
     }
+    vhFinish();
 }
 
 UTEST( Backend, FramebufferCaching )
@@ -742,6 +745,7 @@ UTEST( Backend, Util_WriteGlobalUniform )
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         tb.Shutdown_DeviceStateLocked();
     }
+    vhFinish();
 }
 
 UTEST( Backend, VertexIndexBufferBinding )
@@ -822,7 +826,8 @@ UTEST( Backend, VertexIndexBufferBinding )
         const nvrhi::FramebufferInfo& getFramebufferInfo() const override { static nvrhi::FramebufferInfo i; return i; }
     };
 
-    gstate.pipeline = new MockGraphicsPipeline( layouts );
+    auto mgp = std::make_unique< MockGraphicsPipeline >( layouts );
+    gstate.pipeline = mgp.get();
     
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
     
@@ -891,7 +896,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     {
         auto bbuf = new vhBackendBuffer();
         nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsIndexBuffer( true );
-        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        {std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );bbuf->handle = g_vhDevice->createBuffer( desc ); }
         bbuf->flags = 0;
         bbuf->stride = 2;
         vhCmdBackendStateTest::InsertDummyBuffer( ib16, bbuf );
@@ -905,7 +910,6 @@ UTEST( Backend, VertexIndexBufferBinding )
     EXPECT_EQ( gstate.indexBuffer.format, nvrhi::Format::R16_UINT );
 
     // Cleanup
-    vhCmdBackendStateTest::Shutdown();
     vhDestroyBuffer( vb );
     vhDestroyBuffer( vb2 );
     vhDestroyBuffer( vb3 );
@@ -913,10 +917,19 @@ UTEST( Backend, VertexIndexBufferBinding )
     vhDestroyBuffer( ib16 );
     vhDestroyTexture( rtTex );
     
+    gstate.bindings.fill( nullptr );
+    gstate.pipeline = nullptr;
+    gdesc.bindingLayouts.fill( nullptr );
+    layouts.fill( nullptr );
+    mgp.reset( nullptr );
+    
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         shader.layout = nullptr;
     }
+    vhBindingSetCacheClear();
+    vhCmdBackendStateTest::Shutdown();
+    vhFinish();
 }
 
 UTEST( Backend, Util_WriteWorldUniform )
@@ -963,6 +976,7 @@ UTEST( Backend, Util_WriteWorldUniform )
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         tb.Shutdown_DeviceStateLocked();
     }
+    vhFinish();
 }
 
 UTEST( Backend, PushConstantsDirtyBit )
@@ -1003,7 +1017,9 @@ UTEST( Backend, PushConstantsDirtyBit )
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         vhSetPushConstant_DeviceStateLocked( cmdlist, state );
     }
+    vhFinish();
 }
+
 
 UTEST( Backend, TimerQueryBasic )
 {
@@ -1042,6 +1058,7 @@ UTEST( Backend, TimerQueryBasic )
     // Now we should have a result
     float time = vhGetTimerQueryTime( timerID );
     EXPECT_GT( time, 0.0f );
+    vhFinish();
 }
 
 UTEST( Backend, TimerQueryMultiple )
@@ -1069,6 +1086,7 @@ UTEST( Backend, TimerQueryMultiple )
 
     EXPECT_GT( vhGetTimerQueryTime( timer1 ), 0.0f );
     EXPECT_GT( vhGetTimerQueryTime( timer2 ), 0.0f );
+    vhFinish();
 }
 
 UTEST( Backend, TimerQueryErrors )
@@ -1086,4 +1104,5 @@ UTEST( Backend, TimerQueryErrors )
     
     // Check invalid ID returns 0
     EXPECT_EQ( vhGetTimerQueryTime( 0x999 ), 0.0f );
+    vhFinish();
 }
