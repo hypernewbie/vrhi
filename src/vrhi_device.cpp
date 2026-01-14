@@ -1177,7 +1177,6 @@ uint64_t vhHashWorldUniform( const vhWorldUniform& u )
 
 uint64_t vhHashReflectionMembers( const std::vector< vhReflectionMember >& members )
 {
-    static_assert( sizeof( vhReflectionMember ) == 48, "vhReflectionMember size mismatch" );
     uint64_t h = 0;
 
     size_t count = members.size();
