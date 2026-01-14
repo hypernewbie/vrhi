@@ -1064,6 +1064,7 @@ UTEST( Backend, TimerQueryBasic )
 
     // Now we should have a result
     float time = vhGetTimerQueryTime( timerID );
+#ifdef __APPLE__ // MoltenVK headless seems to create queries that don't work. timestampValidBits returns 0.
     if ( time == 0.0f ) { UTEST_SKIP( "Timestamp queries not producing results on this device/backend" ); }
 #endif // __APPLE__
     EXPECT_GT( time, 0.0f );
