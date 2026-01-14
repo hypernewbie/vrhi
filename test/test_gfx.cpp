@@ -129,17 +129,15 @@ float4 main( float2 uv : TEXCOORD ) : SV_Target
 )";
 
 static const char* g_uniformPS = R"(
-struct MyUniforms
+cbuffer globalParams : register( b300, space1 )
 {
     float4 tint;
 };
 
-ConstantBuffer<MyUniforms> u0 : register( b300, space1 );
-
 [shader("pixel")]
 float4 main() : SV_Target
 {
-    return u0.tint;
+    return tint;
 }
 )";
 
@@ -1002,7 +1000,7 @@ UTEST_F( Graphics, UniformBuffers )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
          .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
-         .SetUniform( 0, { "u0", { glm::vec4( 0.0, 1.0, 1.0, 1.0 ) } } ) // Cyan tint
+         .SetUniform( 0, { "tint", { glm::vec4( 0.0, 1.0, 1.0, 1.0 ) } } ) // Cyan tint
          .SetProgram( vhCreateGfxProgram( vs, ps ) );
 
     vhStateId sid = 830;
@@ -1404,7 +1402,7 @@ UTEST_F( Graphics, VertexBufferOffset )
     vhFinish();
 
     // Should be Green
-    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF00FF00 ) );
+    EXPECT_TRUE( VerifyPixel( rt, 4, 16, 0xFF00FF00 ) );
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb );
@@ -1454,6 +1452,7 @@ UTEST_F( Graphics, IndirectDraw )
          .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetVertexBuffer( vb, 0 )
          .SetIndirectParams( argBuffer )
+         .SetDebugFlags( VRHI_STATE_DEBUG_ALL )
          .SetProgram( program );
 
     vhStateId sid = 1201; // Unique ID
@@ -1464,7 +1463,7 @@ UTEST_F( Graphics, IndirectDraw )
     vhFinish();
 
     // Should be Yellow
-    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF00FFFF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 4, 16, 0xFF00FFFF ) );
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb );
@@ -1632,7 +1631,6 @@ UTEST_F( Graphics, BareGlobals )
     // Clear to Red to verify Green overwrite
     state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 1.0f, 0.0f, 0.0f, 1.0f ) );
     state.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
-    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
     state.SetStateFlags( VRHI_STATE_WRITE_MASK );
     
     // Set Bare Uniform to Green

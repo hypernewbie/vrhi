@@ -2381,6 +2381,49 @@ void vhCmdBackendState::Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttac
     state.depthAttachment = cmd->depth;
 }
 
+
+void vhCmdBackendState::Handle_vhCmdSetStateBlendConstants( VIDL_vhCmdSetStateBlendConstants* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto it = backendStates.find( cmd->id );
+    if ( it != backendStates.end() )
+    {
+        it->second.blendConstantColor = cmd->blendConst;
+    }
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto it = backendStates.find( cmd->id );
+    if ( it != backendStates.end() )
+    {
+        it->second.viewDepthRange = glm::vec2( cmd->minZ, cmd->maxZ );
+    }
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto it = backendStates.find( cmd->id );
+    if ( it != backendStates.end() )
+    {
+        it->second.shadingRateFlags = cmd->flags;
+        it->second.shadingRateImage = cmd->image;
+    }
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto it = backendStates.find( cmd->id );
+    if ( it != backendStates.end() )
+    {
+        it->second.indirectParams.buffer = cmd->buffer;
+        it->second.indirectParams.byteOffset = cmd->offset;
+    }
+}
+
 void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );

@@ -125,6 +125,26 @@ void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderT
     vhCmdEnqueue( new VIDL_vhCmdSetStateAttachments( id, colors, depth ) );
 }
 
+void vhCmdSetStateBlendConstants( vhStateId id, glm::vec4 blendConst )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateBlendConstants( id, blendConst ) );
+}
+
+void vhCmdSetStateViewDepthRange( vhStateId id, float minZ, float maxZ )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateViewDepthRange( id, minZ, maxZ ) );
+}
+
+void vhCmdSetStateShadingRate( vhStateId id, uint32_t flags, vhTexture image )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateShadingRate( id, flags, image ) );
+}
+
+void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateIndirectParams( id, buffer, offset ) );
+}
+
 bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
 {
     uint64_t dirty = state.dirty | dirtyForceMask;
@@ -202,7 +222,27 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
 
     if ( dirty & VRHI_DIRTY_UNIFORMS )
     {
-        vhCmdSetStateUniforms( id, state.uniforms );
+    vhCmdSetStateUniforms( id, state.uniforms );
+    }
+
+    if ( dirty & VRHI_DIRTY_PIPELINE )
+    {
+        vhCmdSetStateBlendConstants( id, state.blendConstantColor );
+    }
+
+    if ( dirty & VRHI_DIRTY_VIEWPORT )
+    {
+        vhCmdSetStateViewDepthRange( id, state.viewDepthRange.x, state.viewDepthRange.y );
+    }
+
+    if ( dirty & VRHI_DIRTY_VRS )
+    {
+        vhCmdSetStateShadingRate( id, state.shadingRateFlags, state.shadingRateImage );
+    }
+
+    if ( dirty & VRHI_DIRTY_INDIRECT )
+    {
+        vhCmdSetStateIndirectParams( id, state.indirectParams.buffer, state.indirectParams.byteOffset );
     }
 
     state.dirty = 0x0ull;

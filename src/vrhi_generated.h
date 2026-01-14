@@ -674,6 +674,61 @@ struct VIDL_vhCmdSetStateAttachments
         : id(_id), colours(_colours), depth(_depth) {}
 };
 
+struct VIDL_vhCmdSetStateBlendConstants
+{
+    static constexpr uint64_t kMagic = 0xFEEBA1AD;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    glm::vec4 blendConst;
+
+    VIDL_vhCmdSetStateBlendConstants() = default;
+
+    VIDL_vhCmdSetStateBlendConstants(vhStateId _id, glm::vec4 _blendConst)
+        : id(_id), blendConst(_blendConst) {}
+};
+
+struct VIDL_vhCmdSetStateViewDepthRange
+{
+    static constexpr uint64_t kMagic = 0x251DEFAB;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    float minZ;
+    float maxZ;
+
+    VIDL_vhCmdSetStateViewDepthRange() = default;
+
+    VIDL_vhCmdSetStateViewDepthRange(vhStateId _id, float _minZ, float _maxZ)
+        : id(_id), minZ(_minZ), maxZ(_maxZ) {}
+};
+
+struct VIDL_vhCmdSetStateShadingRate
+{
+    static constexpr uint64_t kMagic = 0xD7406BFA;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    uint32_t flags;
+    vhTexture image;
+
+    VIDL_vhCmdSetStateShadingRate() = default;
+
+    VIDL_vhCmdSetStateShadingRate(vhStateId _id, uint32_t _flags, vhTexture _image)
+        : id(_id), flags(_flags), image(_image) {}
+};
+
+struct VIDL_vhCmdSetStateIndirectParams
+{
+    static constexpr uint64_t kMagic = 0xE435C0DD;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    vhBuffer buffer;
+    uint64_t offset;
+
+    VIDL_vhCmdSetStateIndirectParams() = default;
+
+    VIDL_vhCmdSetStateIndirectParams(vhStateId _id, vhBuffer _buffer, uint64_t _offset)
+        : id(_id), buffer(_buffer), offset(_offset) {}
+};
+
 struct VIDL_vhDrawCommonInternal
 {
     static constexpr uint64_t kMagic = 0x8827DC81;
@@ -744,6 +799,10 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateBlendConstants( VIDL_vhCmdSetStateBlendConstants* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) { (void) cmd; };
     virtual void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) { (void) cmd; };
 
     virtual void HandleLogFunction( const char* str ) {};
@@ -948,6 +1007,22 @@ struct VIDLHandler
         case 0xD3B53061:
             HandleLogFunction("Handle_vhCmdSetStateAttachments");
             Handle_vhCmdSetStateAttachments( (VIDL_vhCmdSetStateAttachments*) cmd );
+            break;
+        case 0xFEEBA1AD:
+            HandleLogFunction("Handle_vhCmdSetStateBlendConstants");
+            Handle_vhCmdSetStateBlendConstants( (VIDL_vhCmdSetStateBlendConstants*) cmd );
+            break;
+        case 0x251DEFAB:
+            HandleLogFunction("Handle_vhCmdSetStateViewDepthRange");
+            Handle_vhCmdSetStateViewDepthRange( (VIDL_vhCmdSetStateViewDepthRange*) cmd );
+            break;
+        case 0xD7406BFA:
+            HandleLogFunction("Handle_vhCmdSetStateShadingRate");
+            Handle_vhCmdSetStateShadingRate( (VIDL_vhCmdSetStateShadingRate*) cmd );
+            break;
+        case 0xE435C0DD:
+            HandleLogFunction("Handle_vhCmdSetStateIndirectParams");
+            Handle_vhCmdSetStateIndirectParams( (VIDL_vhCmdSetStateIndirectParams*) cmd );
             break;
         case 0x8827DC81:
             HandleLogFunction("Handle_vhDrawCommonInternal");

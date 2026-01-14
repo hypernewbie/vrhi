@@ -1323,6 +1323,14 @@ void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data );
 void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms );
 // VIDL_GENERATE
 void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colours, vhState::RenderTarget depth );
+// VIDL_GENERATE
+void vhCmdSetStateBlendConstants( vhStateId id, glm::vec4 blendConst );
+// VIDL_GENERATE
+void vhCmdSetStateViewDepthRange( vhStateId id, float minZ, float maxZ );
+// VIDL_GENERATE
+void vhCmdSetStateShadingRate( vhStateId id, uint32_t flags, vhTexture image );
+// VIDL_GENERATE
+void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset );
 
 // Internal omni-draw command. Do not call directly.
 // VIDL_GENERATE

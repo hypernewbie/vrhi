@@ -377,6 +377,14 @@ public:
 
     void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) override;
 
+    void Handle_vhCmdSetStateBlendConstants( VIDL_vhCmdSetStateBlendConstants* cmd ) override;
+
+    void Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd ) override;
+
+    void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) override;
+
+    void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) override;
+
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override;
 
     void Handle_vhDispatch( VIDL_vhDispatch* cmd ) override;

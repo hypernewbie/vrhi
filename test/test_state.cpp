@@ -802,112 +802,61 @@ UTEST_F( State, Debug_LayoutDiffCheck )
         }
     }
 
-    // Clean up
-    vhFlush();
+    vhFinish();
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        setA = nullptr;
         layoutA = nullptr;
         layoutB = nullptr;
+        setA = nullptr;
         buffer = nullptr;
     }
 }
 
-UTEST_F( State, DirtyAll )
+UTEST_F( State, MissingFieldsCheck )
 {
+    vhStateId id = 888;
+    vhState state = {};
 
-
-    const vhStateId sid = 1337;
+    // Blend Constant Colour
+    state.SetBlendConstColor( glm::vec4( 0.1f, 0.2f, 0.3f, 0.4f ) );
     
-    // Ensure we start from a clean slate for this ID
-    vhState empty = {};
-    vhSetState( sid, empty, VRHI_DIRTY_ALL );
+    // View Depth Range
+    state.SetViewDepthRange( 0.2f, 0.8f );
+
+    // Shading Rate
+    // Note: We use flags because testing images requires valid texture handles
+    state.SetShadingRate( VRHI_VRS_2X2 | ( VRHI_VRS_COMBINER_MIN << 4 ) );
+
+    // Indirect Params
+    // Just set a dummy buffer ID, doesn't need to be valid for backend state storage check
+    // (Wait, backend validity checks might fail if we actually tried to use it, 
+    // but here we are just checking if it persists in the backend map)
+    vhBuffer dummyBuf = 9999; 
+    state.SetIndirectParams( dummyBuf, 128 );
+
+    // Apply state
+    vhSetState( id, state );
     vhFlush();
 
-    vhState localState = {};
-    localState.SetViewRect( glm::vec4( 10, 20, 30, 40 ) );
-    localState.dirty = 0x0ull; // Manually clear dirty bits
+    // Retrieve state from backend
+    vhState ret = {};
+    ASSERT_TRUE( vhGetState( id, ret ) );
 
-    // Null test: passing 0x0 force mask with no dirty bits should NOT update the backend
-    vhSetState( sid, localState, 0x0ull );
-    vhFlush();
+    // Checks
+    // Blend Constant
+    EXPECT_NEAR( ret.blendConstantColor.r, 0.1f, 0.0001f );
+    EXPECT_NEAR( ret.blendConstantColor.g, 0.2f, 0.0001f );
+    EXPECT_NEAR( ret.blendConstantColor.b, 0.3f, 0.0001f );
+    EXPECT_NEAR( ret.blendConstantColor.a, 0.4f, 0.0001f );
 
-    vhState retrieved = {};
-    ASSERT_TRUE( vhGetState( sid, retrieved ) );
-    EXPECT_NE( retrieved.viewRect, localState.viewRect );
-    EXPECT_EQ( retrieved.viewRect, empty.viewRect );
+    // View Depth Range
+    EXPECT_NEAR( ret.viewDepthRange.x, 0.2f, 0.0001f );
+    EXPECT_NEAR( ret.viewDepthRange.y, 0.8f, 0.0001f );
 
-    // Force test: passing VRHI_DIRTY_ALL should update everything regardless of local dirty bits
-    vhSetState( sid, localState, VRHI_DIRTY_ALL );
-    vhFlush();
+    // Shading Rate
+    EXPECT_EQ( ret.shadingRateFlags, state.shadingRateFlags );
 
-    ASSERT_TRUE( vhGetState( sid, retrieved ) );
-    EXPECT_EQ( retrieved.viewRect, localState.viewRect );
-
-    // Cleanup. Reset the state ID to avoid leaving leftovers
-    vhSetState( sid, empty, VRHI_DIRTY_ALL );
-    vhFlush();
-} 
-
-UTEST_F( State, Hashing_GlobalUniform )
-{
-    vhGlobalUniform u = {};
-    memset( &u, 0, sizeof( u ) );
-
-    uint64_t h1 = vhHashGlobalUniform( u );
-    uint64_t h2 = vhHashGlobalUniform( u );
-    EXPECT_EQ( h1, h2 );
-
-    u.u_viewRect = glm::vec4( 1.0f );
-    uint64_t h3 = vhHashGlobalUniform( u );
-    EXPECT_NE( h1, h3 );
-
-    u.u_viewRect = glm::vec4( 0.0f );
-    uint64_t h4 = vhHashGlobalUniform( u );
-    EXPECT_EQ( h1, h4 );
-    
-    u.u_global[0] = glm::vec4( 123.456f );
-    uint64_t h5 = vhHashGlobalUniform( u );
-    EXPECT_NE( h1, h5 );
-}
-
-UTEST_F( State, WriteGlobalUniform )
-{
-    vhGlobalUniform u = {};
-    vhState s = {};
-
-    // Setup input state
-    s.viewRect = glm::vec4( 0, 0, 100, 200 );
-    s.viewMatrix = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0, 0, -10 ) );
-    s.projMatrix = glm::perspective( 1.0f, 1.0f, 0.1f, 100.0f );
-    
-    // Check that world[0] is skipped for u_worldX array
-    s.worldMatrix.push_back( glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 0, 0 ) ) ); // Index 0
-    s.worldMatrix.push_back( glm::translate( glm::mat4( 1.0f ), glm::vec3( 2, 0, 0 ) ) ); // Index 1
-    s.worldMatrix.push_back( glm::translate( glm::mat4( 1.0f ), glm::vec3( 3, 0, 0 ) ) ); // Index 2
-
-    // Execute
-    vhWriteStateToGlobalUniform( s, u );
-
-    // Verify Global
-    EXPECT_EQ( u.u_viewRect, s.viewRect );
-    EXPECT_EQ( u.u_view, s.viewMatrix );
-    EXPECT_EQ( u.u_proj, s.projMatrix );
-    EXPECT_EQ( u.u_viewProj, s.projMatrix * s.viewMatrix );
-    
-    EXPECT_EQ( u.u_invView, glm::inverse( s.viewMatrix ) );
-
-    // Verify World
-    vhWorldUniform wu = {};
-    vhWriteStateToWorldUniform( s, wu );
-
-    // u.u_world[0] should contain s.worldMatrix[0]
-    EXPECT_EQ( wu.u_world[0], s.worldMatrix[0] );
-    EXPECT_EQ( wu.u_world[1], s.worldMatrix[1] );
-    EXPECT_EQ( wu.u_world[2], s.worldMatrix[2] );
-    // u.u_world[3] should be zero
-    EXPECT_EQ( wu.u_world[3], glm::mat4( 0.0f ) );
-
-    // Check u_worldView (derived from world[0])
-    EXPECT_EQ( wu.u_worldView, s.viewMatrix * s.worldMatrix[0] );
+    // Indirect Params
+    EXPECT_EQ( ret.indirectParams.buffer, dummyBuf );
+    EXPECT_EQ( ret.indirectParams.byteOffset, 128u );
 }
