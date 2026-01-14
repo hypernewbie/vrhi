@@ -212,7 +212,7 @@ static vhShader CreateTestShader( const char* source, uint64_t stage )
     vhShader shader = vhAllocShader();
     std::vector< uint32_t > spirv;
     std::string error;
-    bool ok = vhCompileShader( "TestShader", source, stage, spirv, "main", {}, {}, &error );
+    bool ok = vhCompileShader( "TestShader", source, stage | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
     if ( !ok )
     {
         UTEST_PRINTF( "Shader Compilation Error: %s\n", error.c_str() );
