@@ -56,7 +56,7 @@ struct vhInitData
     std::string shaderMakePath = "./tools/linux_release";
     std::string shaderMakeSlangPath = "./tools/linux_release";
     bool forceShaderRecompile = false;
-    bool robust = true;
+    bool robust = false;
     bool markers = true;
     bool renderdoc = false;
 
