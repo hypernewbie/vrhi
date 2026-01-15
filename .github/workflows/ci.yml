@@ -44,19 +44,20 @@ jobs:
           lfs: false
           submodules: recursive
 
-      - name: Create LFS file list
-        run: git lfs ls-files -l | cut -d' ' -f1 | sort > .lfs-assets-id
+      # Temporarily disabled LFS due to budget exhaustion
+      # - name: Create LFS file list
+      #   run: git lfs ls-files -l | cut -d' ' -f1 | sort > .lfs-assets-id
 
-      - name: Restore LFS cache
-        uses: actions/cache@v4
-        id: lfs-cache
-        with:
-          path: .git/lfs
-          key: ${{ runner.os }}-lfs-${{ hashFiles('.lfs-assets-id') }}
+      # - name: Restore LFS cache
+      #   uses: actions/cache@v4
+      #   id: lfs-cache
+      #   with:
+      #     path: .git/lfs
+      #     key: ${{ runner.os }}-lfs-${{ hashFiles('.lfs-assets-id') }}
 
-      - name: Git LFS Pull
-        if: steps.lfs-cache.outputs.cache-hit != 'true'
-        run: git lfs pull
+      # - name: Git LFS Pull
+      #   if: steps.lfs-cache.outputs.cache-hit != 'true'
+      #   run: git lfs pull
 
       - name: Setup Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1
