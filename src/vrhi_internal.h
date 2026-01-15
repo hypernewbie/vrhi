@@ -101,6 +101,7 @@
 extern VkInstance g_vulkanInstance;
 extern VkPhysicalDevice g_vulkanPhysicalDevice;
 extern VkDevice g_vulkanDevice;
+extern nvrhi::vulkan::IDevice* g_vhVulkanDevice;
 extern VkDebugUtilsMessengerEXT g_vulkanDebugMessenger;
 extern uint32_t g_vulkanEnabledExtensionCount;
 extern std::mutex g_nvRHIStateMutex;
@@ -114,6 +115,25 @@ extern VkQueue g_vulkanTransferQueue;
 extern uint32_t g_QueueFamilyGraphics;
 extern uint32_t g_QueueFamilyCompute;
 extern uint32_t g_QueueFamilyTransfer;
+
+// Swapchain State
+extern VkSurfaceKHR g_vhSurface;
+extern VkSwapchainKHR g_vhSwapchain;
+extern std::vector< VkImage > g_vhSwapchainImages;
+extern std::vector< VkImageView > g_vhSwapchainImageViews;
+extern std::vector< vhTexture > g_vhSwapchainTextures;
+extern uint32_t g_vhCurrentSwapchainIndex;
+
+// Semaphores for frame synchronisation
+extern std::vector< VkSemaphore > g_vhAcquireSemaphores;
+extern std::vector< VkSemaphore > g_vhPresentSemaphores;
+extern std::vector< uint64_t > g_vhFrameInstances;
+extern uint32_t g_vhFrameIndex;
+extern int g_vhFramesInFlight;
+
+// Pending Queue Sync (Protected by g_nvRHIStateMutex)
+extern std::vector< VkSemaphore > g_vhPendingWaitSemaphores[3]; // Indexed by nvrhi::CommandQueue
+extern std::vector< VkSemaphore > g_vhPendingSignalSemaphores[3];
 
 // Resource State
 extern vhAllocatorObjectFreeList g_vhTextureIDList;
@@ -182,7 +202,7 @@ void vhCmdListFlushTransferIfNeeded();
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count];
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
-void vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
+uint64_t vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
 
 struct vhVertexLayoutDef
 {

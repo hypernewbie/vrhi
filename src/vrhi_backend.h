@@ -142,7 +142,7 @@ struct vhBackendTimerQuery
 class vhCmdBackendState : public VIDLHandler
 {
     friend class vhCmdBackendStateTest;
-
+    
     std::mutex backendMutex;
     char temps[1024];
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
@@ -278,6 +278,8 @@ public:
     void shutdown();
 
     void HandleLogFunction( const char* str ) override;
+
+    void RegisterInternalTexture( vhTexture id, const nvrhi::TextureHandle& handle, const nvrhi::TextureDesc& desc );
 
     // --------------------------------------------------------------------------
     // Backend :: VIDL Command Handlers

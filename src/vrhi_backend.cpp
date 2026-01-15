@@ -1519,6 +1519,18 @@ void vhCmdBackendState::HandleLogFunction( const char* str )
     if ( g_vhInit.logBackendCmds ) VRHI_LOG( "BackendCmd: %s\n", str );
 }
 
+void vhCmdBackendState::RegisterInternalTexture( vhTexture id, const nvrhi::TextureHandle& handle, const nvrhi::TextureDesc& desc )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto btex = std::make_unique< vhBackendTexture >();
+    btex->handle = handle;
+    btex->name = desc.debugName;
+    btex->info.format = desc.format;
+    btex->info.dimensions = { desc.width, desc.height, 1 };
+    btex->flags = VRHI_TEXTURE_NONE;
+    backendTextures[id] = std::move( btex );
+}
+
 // --------------------------------------------------------------------------
 // Backend :: VIDL Command Handlers
 // --------------------------------------------------------------------------

@@ -750,7 +750,7 @@ UTEST_F( Shader, BareGlobalsReflection )
     printf( "Reflected Resources: %zu\n", resources.size() );
     for ( const auto& r : resources )
     {
-        printf( "Resource: '%s' Type: %d Slot: %u Set: %u Size: %llu\n", r.name.c_str(), (int)r.type, r.slot, r.set, r.sizeInBytes );
+        printf( "Resource: '%s' Type: %d Slot: %u Set: %u Size: %u\n", r.name.c_str(), (int)r.type, r.slot, r.set, r.sizeInBytes );
         for( const auto& m : r.members )
         {
              printf( "  Member: '%s' Offset: %u Size: %u\n", m.name.c_str(), m.offset, m.size );

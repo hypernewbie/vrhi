@@ -37,6 +37,7 @@ std::atomic<int32_t> g_vhPSOCompileCounter = 0;
 VkInstance g_vulkanInstance = VK_NULL_HANDLE;
 VkPhysicalDevice g_vulkanPhysicalDevice = VK_NULL_HANDLE;
 VkDevice g_vulkanDevice = VK_NULL_HANDLE;
+nvrhi::vulkan::IDevice* g_vhVulkanDevice = nullptr;
 VkDebugUtilsMessengerEXT g_vulkanDebugMessenger = VK_NULL_HANDLE;
 uint32_t g_vulkanEnabledExtensionCount = 0;
 
@@ -126,7 +127,12 @@ nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
 // - Copy feeds Compute and Graphics
 // - Compute feeds Graphics
 //
-void vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue type )
+// Returns the instance ID of the executed command list.
+// Automatically inserts semaphore waits for downstream queues:
+// - Copy feeds Compute and Graphics
+// - Compute feeds Graphics
+//
+uint64_t vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue type )
 {
     // WARNING: Lock g_nvRHIStateMutex before calling this.
     auto typeIdx = ( uint64_t ) type;
@@ -156,9 +162,22 @@ void vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue t
             }
         }
     }
+
+    return instance;
 }
 
-void vhCmdListFlush( nvrhi::CommandQueue type )
+// Semaphores for frame synchronisation
+std::vector< VkSemaphore > g_vhAcquireSemaphores;
+std::vector< VkSemaphore > g_vhPresentSemaphores;
+std::vector< uint64_t > g_vhFrameInstances;
+uint32_t g_vhFrameIndex = 0;
+int g_vhFramesInFlight = 2;
+
+// Pending Queue Sync (Protected by g_nvRHIStateMutex)
+std::vector< VkSemaphore > g_vhPendingWaitSemaphores[3]; // Indexed by nvrhi::CommandQueue
+std::vector< VkSemaphore > g_vhPendingSignalSemaphores[3];
+
+uint64_t vhCmdListFlush( nvrhi::CommandQueue type )
 {
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
@@ -175,7 +194,7 @@ void vhCmdListFlush( nvrhi::CommandQueue type )
     }
 
     // Flush the requested queue
-    vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( type );
+    return vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( type );
 }
 
 void vhCmdListFlushTransferIfNeeded()

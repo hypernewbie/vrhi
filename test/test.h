@@ -26,6 +26,7 @@
 #include <nvrhi/nvrhi.h>
 
 extern bool g_captureActive;
+extern bool g_testInit;
 void TestEnsureShutdown();
 
 #if defined(__cplusplus) && (__cplusplus >= 201103L)

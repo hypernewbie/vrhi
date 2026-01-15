@@ -52,6 +52,14 @@ struct vhInitData
     bool logBackendCmds = false;
     bool logPSOCache = false;
 
+    // Platform Window Handles
+    // On Windows, set windowHandle to (void*)HWND.
+    // On Linux (X11), set windowHandle to (void*)Window and displayHandle to (void*)Display.
+    void* windowHandle = nullptr;
+    void* displayHandle = nullptr;
+    bool headless = true;
+    bool vsync = true;
+
     std::string shaderCompileTempDir = "./tmp/shader_cache/";
     std::string shaderMakePath = "./tools/linux_release";
     std::string shaderMakeSlangPath = "./tools/linux_release";
@@ -106,12 +114,25 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 // Initialises the Vulkan RHI and starts the backend command thread.
 //
 // Must be called before any other RHI functions. Uses |g_vhInit| for configuration.
+// If windowHandle is provided in g_vhInit, a swapchain will be created.
 void vhInit( bool quiet = false );
 
 // Shuts down the Vulkan RHI and stops the backend command thread.
 //
 // Cleans up all resources and waits for the GPU to finish.
 void vhShutdown( bool quiet = false );
+
+// Presents the current frame and advances the swapchain.
+// Returns false if the swapchain is invalid or window is resized.
+// If running in headless mode, this simply flushes commands and waits if vsync-like behavior is desired, always returning true.
+bool vhFrame();
+
+// Returns the texture handle for the current backbuffer of the swapchain.
+// Returns VRHI_INVALID_HANDLE if in headless mode.
+vhTexture vhGetBackbuffer();
+
+// Returns the size of the swapchain backbuffer.
+glm::uvec2 vhGetBackbufferSize();
 
 // Returns a string containing information about the selected physical device and queues.
 std::string vhGetDeviceInfo();

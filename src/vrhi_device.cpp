@@ -21,14 +21,32 @@
 
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
+#include "vrhi_backend.h"
+#include "vrhi_internal.h"
+#include "vrhi_utils.h"
+#include "vrhi_backend.h"
 #include "renderdoc_app.h"
 
 #include <nvrhi/validation.h>
+#include <nvrhi/vulkan.h>
 #include <vk-bootstrap/VkBootstrap.h>
 #include <komihash/komihash.h>
 
+#ifdef __APPLE__
+#include <vulkan/vulkan_metal.h>
+#include <vulkan/vulkan_macos.h>
+#endif
+
 std::unique_ptr< vkb::Device > g_vulkanBDevice;
 void vhPSOCacheShutdown();
+
+// Swapchain Globals
+VkSurfaceKHR g_vhSurface = VK_NULL_HANDLE;
+VkSwapchainKHR g_vhSwapchain = VK_NULL_HANDLE;
+std::vector< VkImage > g_vhSwapchainImages;
+std::vector< VkImageView > g_vhSwapchainImageViews;
+std::vector< vhTexture > g_vhSwapchainTextures;
+uint32_t g_vhCurrentSwapchainIndex = 0;
 
 class vhVK_MessageCallback : public nvrhi::IMessageCallback
 {
@@ -111,6 +129,7 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
     g_vhErrorCounter = 0;
     g_vhPSOCompileCounter = 0;
+    g_vhFramesInFlight = 2;
 
     if ( g_vhInit.renderdoc )
     {
@@ -132,10 +151,16 @@ void vhInit( bool quiet )
     instBuilder.set_app_name( g_vhInit.appName.c_str() )
         .set_engine_name( g_vhInit.engineName.c_str() )
         .require_api_version( 1, 3, 0 )
-        .set_headless( true )
+        .set_headless( g_vhInit.headless )
         .request_validation_layers( g_vhInit.debug )
         .set_debug_callback( vhVKDebugCallback );
     if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
+
+#ifdef __APPLE__
+    instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
+    instBuilder.enable_extension( VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME );
+    instBuilder.set_portability_enumeration();
+#endif
 
     auto instRet = instBuilder.build();
     if ( !instRet )
@@ -152,10 +177,60 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "    Initialising vulkan.hpp dynamic dispatcher with instance functions\n" );
     VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr );
 
+    // Surface Creation
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if ( !g_vhInit.headless && g_vhInit.windowHandle )
+    {
+        if ( !quiet ) VRHI_LOG( "    Creating Surface from Window Handle...\n" );
+#if defined(_WIN32)
+        VkWin32SurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
+        sci.hinstance = GetModuleHandle( NULL );
+        sci.hwnd = ( HWND ) g_vhInit.windowHandle;
+        auto res = vkCreateWin32SurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
+        if ( res != VK_SUCCESS )
+        {
+            VRHI_LOG( "Failed to create Win32 surface: %d\n", res );
+            exit( 1 );
+        }
+#elif defined(VK_USE_PLATFORM_XLIB_KHR)
+        VkXlibSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
+        sci.dpy = ( Display* ) g_vhInit.displayHandle;
+        sci.window = ( Window ) g_vhInit.windowHandle;
+        auto res = vkCreateXlibSurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
+        if ( res != VK_SUCCESS )
+        {
+            VRHI_LOG( "Failed to create Xlib surface: %d\n", res );
+            exit( 1 );
+        }
+#elif defined(__APPLE__)
+        VkMetalSurfaceCreateInfoEXT sci = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
+        sci.pLayer = ( const CAMetalLayer* ) g_vhInit.windowHandle;
+        auto res = vkCreateMetalSurfaceEXT( g_vulkanInstance, &sci, nullptr, &surface );
+        if ( res != VK_SUCCESS )
+        {
+            VRHI_LOG( "Failed to create Metal surface: %d. Falling back to MVK...\n", res );
+            VkMacOSSurfaceCreateInfoMVK sciMvk = { VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK };
+            sciMvk.pView = g_vhInit.windowHandle;
+            res = vkCreateMacOSSurfaceMVK( g_vulkanInstance, &sciMvk, nullptr, &surface );
+            if ( res != VK_SUCCESS )
+            {
+                VRHI_LOG( "Failed to create MacOS surface: %d\n", res );
+                exit( 1 );
+            }
+        }
+#endif
+    }
+    g_vhSurface = surface;
+
     // Physical Device Selection (via vk-bootstrap)
 
     if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
     vkb::PhysicalDeviceSelector selector( vkbInst );
+
+    if ( g_vhSurface )
+    {
+        selector.set_surface( g_vhSurface );
+    }
 
     VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12Features.timelineSemaphore = VK_TRUE;
@@ -390,11 +465,91 @@ void vhInit( bool quiet )
         VRHI_LOG( "Failed to create NVRHI device!\n" );
         exit( 1 );
     }
+    g_vhVulkanDevice = ( nvrhi::vulkan::IDevice* ) g_vhDevice.Get();
+
     if ( g_vhInit.debug )
     {
         // Wrap with validation layer in debug builds - catches state tracking errors
         if ( !quiet ) VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
         g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
+    }
+
+    // Swapchain Creation
+    if ( g_vhSurface != VK_NULL_HANDLE )
+    {
+        if ( !quiet ) VRHI_LOG( "    Creating Swapchain...\n" );
+ 
+        // Use vkb::Device wrapper
+        vkb::SwapchainBuilder builder( *g_vulkanBDevice, g_vhSurface );
+        builder
+            .set_desired_extent( g_vhInit.resolution.x, g_vhInit.resolution.y )
+            .set_desired_format( { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR } ) // NVRHI likes UNORM and handles sRGB view? Or SBGRA8? Let's assume UNORM safe.
+            .set_desired_present_mode( g_vhInit.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR )
+            .add_image_usage_flags( VK_IMAGE_USAGE_TRANSFER_DST_BIT );
+
+        auto swapRet = builder.build();
+        if ( !swapRet )
+        {
+            VRHI_LOG( "Failed to create swapchain: %s\n", swapRet.error().message().c_str() );
+            exit( 1 );
+        }
+        vkb::Swapchain vkbSwapchain = swapRet.value();
+        g_vhSwapchain = vkbSwapchain.swapchain;
+        g_vhSwapchainImages = vkbSwapchain.get_images().value();
+        g_vhSwapchainImageViews = vkbSwapchain.get_image_views().value();
+
+        // Wrap Images
+        g_vhSwapchainTextures.clear();
+        for ( size_t i = 0; i < g_vhSwapchainImages.size(); ++i )
+        {
+            vhTexture texID = vhAllocTexture();
+            g_vhSwapchainTextures.push_back( texID );
+
+            nvrhi::TextureDesc tDesc;
+            tDesc.width = vkbSwapchain.extent.width;
+            tDesc.height = vkbSwapchain.extent.height;
+            tDesc.format = nvrhi::Format::SBGRA8_UNORM; 
+            tDesc.initialState = nvrhi::ResourceStates::Present;
+            tDesc.keepInitialState = true;
+            tDesc.setIsRenderTarget( true );
+            nvrhi::TextureHandle nvrhiHandle = g_vhDevice->createHandleForNativeTexture(
+                nvrhi::ObjectTypes::VK_Image,
+                nvrhi::Object( g_vhSwapchainImages[i] ),
+                tDesc
+            );
+
+            g_vhCmdBackendState.RegisterInternalTexture( texID, nvrhiHandle, tDesc );
+        }
+
+        if ( !g_vhInit.vsync )
+        {
+            g_vhFramesInFlight = ( int ) g_vhSwapchainImages.size();
+            if ( g_vhFramesInFlight > VRHI_MAX_FRAMES_INFLIGHT ) g_vhFramesInFlight = VRHI_MAX_FRAMES_INFLIGHT;
+        }
+    }
+
+    // Sync Object Creation
+    if ( !g_vhInit.headless )
+    {
+        g_vhAcquireSemaphores.resize( g_vhFramesInFlight );
+        g_vhPresentSemaphores.resize( g_vhFramesInFlight );
+        g_vhFrameInstances.resize( g_vhFramesInFlight, 0 );
+
+        VkSemaphoreCreateInfo sci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        // Fences removed - using NVRHI instance tracking
+
+        for ( int i = 0; i < g_vhFramesInFlight; ++i )
+        {
+            vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhAcquireSemaphores[i] );
+            vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhPresentSemaphores[i] );
+        }
+        
+        // Initial acquire for Frame 0
+        if ( g_vhSwapchain != VK_NULL_HANDLE )
+        {
+            vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, g_vhAcquireSemaphores[0], VK_NULL_HANDLE, &g_vhCurrentSwapchainIndex );
+        }
+        g_vhFrameIndex = 0;
     }
 
     vhInitDummyResources();
@@ -436,6 +591,7 @@ void vhShutdown( bool quiet )
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ ) g_vhDevice->runGarbageCollection();
     g_vhDevice = nullptr;
+    g_vhVulkanDevice = nullptr;
 
     // Clear resources
     if ( !quiet ) VRHI_LOG( "    Clearing resources...\n" );
@@ -444,8 +600,20 @@ void vhShutdown( bool quiet )
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
         if ( !quiet ) VRHI_LOG( "    Destroying Vulkan Device...\n" );
+        if ( g_vhSwapchain != VK_NULL_HANDLE )
+        {
+            vkDestroySwapchainKHR( g_vulkanDevice, g_vhSwapchain, nullptr );
+            for ( auto iv : g_vhSwapchainImageViews ) vkDestroyImageView( g_vulkanDevice, iv, nullptr );
+            g_vhSwapchain = VK_NULL_HANDLE;
+        }
         vkDestroyDevice( g_vulkanDevice, nullptr );
         g_vulkanDevice = VK_NULL_HANDLE;
+    }
+
+    if ( g_vhSurface != VK_NULL_HANDLE )
+    {
+        vkDestroySurfaceKHR( g_vulkanInstance, g_vhSurface, nullptr );
+        g_vhSurface = VK_NULL_HANDLE;
     }
 
     if ( g_vulkanDebugMessenger != VK_NULL_HANDLE )
@@ -612,10 +780,13 @@ void vhFlush( bool wait )
     std::atomic<bool> fence = false;
     vhFlushInternal( wait ? &fence : nullptr, false );
 
-    // Wait for fence to be signaled
-    while ( !fence.load() )
+    if ( wait )
     {
-        std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+        // Wait for fence to be signaled
+        while ( !fence.load() )
+        {
+            std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
+        }
     }
 }
 
@@ -627,7 +798,7 @@ void vhFinish()
     // Wait for fence to be signaled
     while ( !fence.load() )
     {
-        std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+        std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
     }
 }
 
@@ -680,6 +851,98 @@ void vhEndTimerQuery( vhTimerID timerID )
 float vhGetTimerQueryTime( vhTimerID timerID )
 {
     return vhBackendQueryTimer( timerID );
+}
+
+bool vhFrame()
+{
+    if ( g_vhInit.headless )
+    {
+        vhFlush();
+        if ( g_vhInit.vsync )
+        {
+            std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+        }
+        return true;
+    }
+
+    if ( g_vhSurface == VK_NULL_HANDLE )
+        return false;
+
+    vhFlush( false );
+    nvrhi::vulkan::IDevice* nvrhiDevice = g_vhVulkanDevice;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        nvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, g_vhAcquireSemaphores[g_vhFrameIndex], 0 );
+        nvrhiDevice->queueSignalSemaphore( nvrhi::CommandQueue::Graphics, g_vhPresentSemaphores[g_vhFrameIndex], 0 );
+    }
+    g_vhFrameInstances[g_vhFrameIndex] = vhCmdListFlush( nvrhi::CommandQueue::Graphics );
+
+    VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &g_vhPresentSemaphores[g_vhFrameIndex];
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &g_vhSwapchain;
+    presentInfo.pImageIndices = &g_vhCurrentSwapchainIndex;
+
+    VkResult res;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        res = vkQueuePresentKHR( g_vulkanGraphicsQueue, &presentInfo );
+    }
+
+    if ( res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR )
+    {
+        // Handle resize if needed
+    }
+    else if ( res != VK_SUCCESS )
+    {
+        return false;
+    }
+
+    // Advance Frame
+    g_vhFrameIndex = ( uint32_t ) ( ( g_vhFrameIndex + 1 ) % g_vhFramesInFlight );
+
+    // Wait for Next Frame's previous work to complete
+    if ( g_vhInit.vsync )
+    {
+        uint64_t nextFrameInstance = g_vhFrameInstances[g_vhFrameIndex];
+        while ( true )
+        {
+            uint64_t completed;
+            {
+                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                completed = nvrhiDevice->queueGetCompletedInstance( nvrhi::CommandQueue::Graphics );
+            }
+            if ( completed >= nextFrameInstance )
+                break;
+            std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
+        }
+    }
+
+    // Acquire Next Image
+    uint32_t idx = 0;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        res = vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, g_vhAcquireSemaphores[g_vhFrameIndex], VK_NULL_HANDLE, &idx );
+    }
+    if ( res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR )
+    {
+        return false;
+    }
+
+    g_vhCurrentSwapchainIndex = idx;
+    return true;
+}
+
+vhTexture vhGetBackbuffer()
+{
+    if ( g_vhSwapchainTextures.empty() ) return VRHI_INVALID_HANDLE;
+    return g_vhSwapchainTextures[g_vhCurrentSwapchainIndex];
+}
+
+glm::uvec2 vhGetBackbufferSize()
+{
+    return g_vhInit.resolution;
 }
 
 // -------------------------------------------------------- Dummy Resources --------------------------------------------------------
