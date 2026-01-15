@@ -77,6 +77,7 @@ set(VRHI_SOURCES
     src/vrhi_state.cpp
     vdeps/OffsetAllocator/offsetAllocator.cpp
     vdeps/OffsetAllocator/offsetAllocator.hpp
+    vdeps/RGFW/RGFW.h
 )
 
 # Test Sources
@@ -118,6 +119,7 @@ target_include_directories(vrhi PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW"
 )
 
 # Add Vulkan SDK Source/SPIRV-Reflect to include paths so we can directly inline inc the .c file
