@@ -499,6 +499,28 @@ std::string vhGetDeviceInfo()
     return std::string( buffer );
 }
 
+bool vhQueryFeatureSupport( nvrhi::Feature feature, void* pInfo, size_t infoSize )
+{
+    if ( !g_vhDevice )
+    {
+        VRHI_ERR( "vhQueryFeatureSupport(): Device not initialised.\n" );
+        return false;
+    }
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+    return g_vhDevice->queryFeatureSupport( feature, pInfo, infoSize );
+}
+
+nvrhi::FormatSupport vhQueryFormatSupport( nvrhi::Format format )
+{
+    if ( !g_vhDevice )
+    {
+        VRHI_ERR( "vhQueryFormatSupport(): Device not initialised.\n" );
+        return nvrhi::FormatSupport::None;
+    }
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+    return g_vhDevice->queryFormatSupport( format );
+}
+
 void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount )
 {
     VIDL_vhDispatch* cmd = vhCmdAlloc<VIDL_vhDispatch>( stateID, workGroupCount );

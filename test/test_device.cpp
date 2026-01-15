@@ -288,3 +288,48 @@ UTEST( Device, HashingReflectionMembers )
     uint64_t hash7 = vhHashReflectionMembers( emptyName );
     EXPECT_NE( hash7, 0u );
 }
+
+UTEST( Device, QueryFeatureSupport )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Test basic feature queries that should return deterministic values
+    EXPECT_TRUE( vhQueryFeatureSupport( nvrhi::Feature::ComputeQueue ) ); // Vulkan always has this
+    // Test any bool is valid for this feature
+    bool deferredSupport = vhQueryFeatureSupport( nvrhi::Feature::DeferredCommandLists );
+    // Just verify it returns a valid bool - don't assume specific support
+
+    // Test feature with info struct
+    nvrhi::VariableRateShadingFeatureInfo vrsInfo = {};
+    bool vrsSupported = vhQueryFeatureSupport( nvrhi::Feature::VariableRateShading, &vrsInfo, sizeof(vrsInfo) );
+    if ( vrsSupported )
+    {
+        EXPECT_GT( vrsInfo.shadingRateImageTileSize, 0 ); // Should have valid tile size if supported
+    }
+}
+
+UTEST( Device, QueryFormatSupport )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Test common format queries
+    nvrhi::FormatSupport rgba8Support = vhQueryFormatSupport( nvrhi::Format::RGBA8_UNORM );
+    EXPECT_NE( rgba8Support, nvrhi::FormatSupport::None ); // Common format should be supported
+    EXPECT_TRUE( ( rgba8Support & nvrhi::FormatSupport::Texture ) != nvrhi::FormatSupport::None );
+    EXPECT_TRUE( ( rgba8Support & nvrhi::FormatSupport::ShaderSample ) != nvrhi::FormatSupport::None );
+
+    // Test format support flags
+    nvrhi::FormatSupport depthSupport = vhQueryFormatSupport( nvrhi::Format::D24S8 );
+    EXPECT_TRUE( ( depthSupport & nvrhi::FormatSupport::DepthStencil ) != nvrhi::FormatSupport::None );
+
+    nvrhi::FormatSupport floatSupport = vhQueryFormatSupport( nvrhi::Format::R32_FLOAT );
+    EXPECT_TRUE( ( floatSupport & nvrhi::FormatSupport::ShaderLoad ) != nvrhi::FormatSupport::None );
+}

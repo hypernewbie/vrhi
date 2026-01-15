@@ -116,6 +116,18 @@ void vhShutdown( bool quiet = false );
 // Returns a string containing information about the selected physical device and queues.
 std::string vhGetDeviceInfo();
 
+// Queries whether a specific device feature is supported.
+// Returns true if the feature is supported on the current device.
+//
+// For features that require additional information (e.g. VRS tile size), pass an optional
+// output struct via |pInfo| with size |infoSize|. See nvrhi::Feature for available features.
+bool vhQueryFeatureSupport( nvrhi::Feature feature, void* pInfo = nullptr, size_t infoSize = 0 );
+
+// Queries the supported operations for a specific texture/buffer format.
+// Returns a bitmask of nvrhi::FormatSupport flags indicating what operations
+// the format can be used for (e.g. RenderTarget, ShaderSample, UAV, etc).
+nvrhi::FormatSupport vhQueryFormatSupport( nvrhi::Format format );
+
 // Flushes the command queue to the backend.
 //
 // If |wait| is true, blocks until the backend has processed all queued commands.
