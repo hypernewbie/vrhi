@@ -327,7 +327,7 @@ UTEST( Device, QueryFormatSupport )
     EXPECT_TRUE( ( rgba8Support & nvrhi::FormatSupport::ShaderSample ) != nvrhi::FormatSupport::None );
 
     // Test format support flags
-    nvrhi::FormatSupport depthSupport = vhQueryFormatSupport( nvrhi::Format::D24S8 );
+    nvrhi::FormatSupport depthSupport = vhQueryFormatSupport( nvrhi::Format::D32S8 );
     EXPECT_TRUE( ( depthSupport & nvrhi::FormatSupport::DepthStencil ) != nvrhi::FormatSupport::None );
 
     nvrhi::FormatSupport floatSupport = vhQueryFormatSupport( nvrhi::Format::R32_FLOAT );
