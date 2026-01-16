@@ -46,6 +46,7 @@ VkSwapchainKHR g_vhSwapchain = VK_NULL_HANDLE;
 std::vector< VkImage > g_vhSwapchainImages;
 std::vector< VkImageView > g_vhSwapchainImageViews;
 std::vector< vhTexture > g_vhSwapchainTextures;
+std::vector< nvrhi::TextureHandle > g_vhSwapchainNVRHIHandles;
 uint32_t g_vhCurrentSwapchainIndex = 0;
 
 class vhVK_MessageCallback : public nvrhi::IMessageCallback
@@ -151,7 +152,7 @@ void vhInit( bool quiet )
     instBuilder.set_app_name( g_vhInit.appName.c_str() )
         .set_engine_name( g_vhInit.engineName.c_str() )
         .require_api_version( 1, 3, 0 )
-        .set_headless( g_vhInit.headless )
+        // .set_headless( g_vhInit.headless )
         .request_validation_layers( g_vhInit.debug )
         .set_debug_callback( vhVKDebugCallback );
     if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
@@ -500,6 +501,7 @@ void vhInit( bool quiet )
 
         // Wrap Images
         g_vhSwapchainTextures.clear();
+        g_vhSwapchainNVRHIHandles.clear();
         for ( size_t i = 0; i < g_vhSwapchainImages.size(); ++i )
         {
             vhTexture texID = vhAllocTexture();
@@ -508,7 +510,7 @@ void vhInit( bool quiet )
             nvrhi::TextureDesc tDesc;
             tDesc.width = vkbSwapchain.extent.width;
             tDesc.height = vkbSwapchain.extent.height;
-            tDesc.format = nvrhi::Format::SBGRA8_UNORM; 
+            tDesc.format = nvrhi::Format::SBGRA8_UNORM;
             tDesc.initialState = nvrhi::ResourceStates::Present;
             tDesc.keepInitialState = true;
             tDesc.setIsRenderTarget( true );
@@ -518,6 +520,7 @@ void vhInit( bool quiet )
                 tDesc
             );
 
+            g_vhSwapchainNVRHIHandles.push_back( nvrhiHandle );
             g_vhCmdBackendState.RegisterInternalTexture( texID, nvrhiHandle, tDesc );
         }
 
@@ -531,14 +534,15 @@ void vhInit( bool quiet )
     // Sync Object Creation
     if ( !g_vhInit.headless )
     {
-        g_vhAcquireSemaphores.resize( g_vhFramesInFlight );
-        g_vhPresentSemaphores.resize( g_vhFramesInFlight );
+        int swapchainImageCount = ( int ) g_vhSwapchainImages.size();
+        g_vhAcquireSemaphores.resize( swapchainImageCount );
+        g_vhPresentSemaphores.resize( swapchainImageCount );
         g_vhFrameInstances.resize( g_vhFramesInFlight, 0 );
 
         VkSemaphoreCreateInfo sci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         // Fences removed - using NVRHI instance tracking
 
-        for ( int i = 0; i < g_vhFramesInFlight; ++i )
+        for ( int i = 0; i < swapchainImageCount; ++i )
         {
             vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhAcquireSemaphores[i] );
             vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhPresentSemaphores[i] );
@@ -583,6 +587,21 @@ void vhShutdown( bool quiet )
         if ( !quiet ) VRHI_LOG( "    Allowing Vulkan Device to finish...\n" );
         vkDeviceWaitIdle( g_vulkanDevice );
     }
+
+    // Destroy frame synchronisation semaphores
+    for ( auto sem : g_vhAcquireSemaphores )
+    {
+        if ( sem != VK_NULL_HANDLE )
+            vkDestroySemaphore( g_vulkanDevice, sem, nullptr );
+    }
+    for ( auto sem : g_vhPresentSemaphores )
+    {
+        if ( sem != VK_NULL_HANDLE )
+            vkDestroySemaphore( g_vulkanDevice, sem, nullptr );
+    }
+    g_vhAcquireSemaphores.clear();
+    g_vhPresentSemaphores.clear();
+
     vhPSOCacheShutdown();
     vhSamplerCacheShutdown();
     vhBindingSetCacheClear();
@@ -605,6 +624,7 @@ void vhShutdown( bool quiet )
             vkDestroySwapchainKHR( g_vulkanDevice, g_vhSwapchain, nullptr );
             for ( auto iv : g_vhSwapchainImageViews ) vkDestroyImageView( g_vulkanDevice, iv, nullptr );
             g_vhSwapchain = VK_NULL_HANDLE;
+            g_vhSwapchainNVRHIHandles.clear();
         }
         vkDestroyDevice( g_vulkanDevice, nullptr );
         g_vulkanDevice = VK_NULL_HANDLE;
@@ -868,18 +888,34 @@ bool vhFrame()
     if ( g_vhSurface == VK_NULL_HANDLE )
         return false;
 
-    vhFlush( false );
+    // Ensure we have an active command list for semaphore operations.
+    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        // Transition swapchain image to Present layout if it hasn't been touched.
+        // This handles the "empty frame" case where nothing was rendered.
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        if ( !g_vhSwapchainNVRHIHandles.empty() && g_vhCurrentSwapchainIndex < g_vhSwapchainNVRHIHandles.size() )
+        {
+            nvrhi::TextureHandle backbufferHandle = g_vhSwapchainNVRHIHandles[g_vhCurrentSwapchainIndex];
+            cmdList->setTextureState( backbufferHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::Present );
+            cmdList->commitBarriers();
+        }
+    }
+
     nvrhi::vulkan::IDevice* nvrhiDevice = g_vhVulkanDevice;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        // Acquire semaphore: indexed by frame (matches what acquire used at end of previous vhFrame)
+        // Present semaphore: indexed by swapchain image (we know the image now)
         nvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, g_vhAcquireSemaphores[g_vhFrameIndex], 0 );
-        nvrhiDevice->queueSignalSemaphore( nvrhi::CommandQueue::Graphics, g_vhPresentSemaphores[g_vhFrameIndex], 0 );
+        nvrhiDevice->queueSignalSemaphore( nvrhi::CommandQueue::Graphics, g_vhPresentSemaphores[g_vhCurrentSwapchainIndex], 0 );
     }
+    vhFlush( false );
     g_vhFrameInstances[g_vhFrameIndex] = vhCmdListFlush( nvrhi::CommandQueue::Graphics );
 
     VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &g_vhPresentSemaphores[g_vhFrameIndex];
+    presentInfo.pWaitSemaphores = &g_vhPresentSemaphores[g_vhCurrentSwapchainIndex];
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &g_vhSwapchain;
     presentInfo.pImageIndices = &g_vhCurrentSwapchainIndex;
@@ -920,10 +956,13 @@ bool vhFrame()
     }
 
     // Acquire Next Image
+    // We use a frame-indexed acquire semaphore because we don't know the image index yet.
+    // The present semaphore is indexed by image because we know that after rendering.
     uint32_t idx = 0;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        res = vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, g_vhAcquireSemaphores[g_vhFrameIndex], VK_NULL_HANDLE, &idx );
+        res = vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, 
+            g_vhAcquireSemaphores[g_vhFrameIndex], VK_NULL_HANDLE, &idx );
     }
     if ( res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR )
     {

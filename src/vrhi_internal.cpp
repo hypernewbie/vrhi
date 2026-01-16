@@ -111,10 +111,10 @@ uint64_t g_vhCmdListTransferSizeHeuristic = 0;
 
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
 {
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
     auto typeIdx = ( uint64_t ) type;
     if ( !g_vhCmdLists[typeIdx] )
     {
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         nvrhi::CommandListParameters params = { .queueType = ( nvrhi::CommandQueue ) type };
         g_vhCmdLists[typeIdx] = g_vhDevice->createCommandList( params );
         g_vhCmdLists[typeIdx]->open();
