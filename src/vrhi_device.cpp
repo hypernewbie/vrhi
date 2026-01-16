@@ -227,7 +227,7 @@ void vhInit( bool quiet )
 
     if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
     vkb::PhysicalDeviceSelector selector( vkbInst );
-
+    selector.require_present( !g_vhInit.headless );
     if ( g_vhSurface )
     {
         selector.set_surface( g_vhSurface );
@@ -905,8 +905,6 @@ bool vhFrame()
     nvrhi::vulkan::IDevice* nvrhiDevice = g_vhVulkanDevice;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        // Acquire semaphore: indexed by frame (matches what acquire used at end of previous vhFrame)
-        // Present semaphore: indexed by swapchain image (we know the image now)
         nvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, g_vhAcquireSemaphores[g_vhFrameIndex], 0 );
         nvrhiDevice->queueSignalSemaphore( nvrhi::CommandQueue::Graphics, g_vhPresentSemaphores[g_vhCurrentSwapchainIndex], 0 );
     }
