@@ -49,6 +49,11 @@ std::vector< vhTexture > g_vhSwapchainTextures;
 std::vector< nvrhi::TextureHandle > g_vhSwapchainNVRHIHandles;
 uint32_t g_vhCurrentSwapchainIndex = 0;
 
+bool g_vhMemoryBudgetEnabled = false;
+std::atomic<uint64_t> g_vhDrawCallsAccumulator = 0;
+std::atomic<uint64_t> g_vhDispatchCallsAccumulator = 0;
+vhRenderStats g_vhLastFrameStats = {};
+
 class vhVK_MessageCallback : public nvrhi::IMessageCallback
 {
 public:
@@ -303,6 +308,10 @@ void vhInit( bool quiet )
     bool shaderDrawParametersEnabled = vkbPhys.enable_extension_if_present( "VK_KHR_shader_draw_parameters" );
     if ( shaderDrawParametersEnabled && !quiet ) VRHI_LOG( "    Enabled VK_KHR_shader_draw_parameters extension.\n" );
 
+    bool memoryBudgetEnabled = vkbPhys.enable_extension_if_present( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
+    if ( memoryBudgetEnabled && !quiet ) VRHI_LOG( "    Enabled VK_EXT_memory_budget extension.\n" );
+    g_vhMemoryBudgetEnabled = memoryBudgetEnabled;
+
     if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
     vkb::DeviceBuilder devBuilder( vkbPhys );
 
@@ -421,6 +430,10 @@ void vhInit( bool quiet )
     if ( shaderDrawParametersEnabled )
     {
         s_enabledExtensions.push_back( VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME );
+    }
+    if ( memoryBudgetEnabled )
+    {
+        s_enabledExtensions.push_back( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
     }
 
     g_vulkanEnabledExtensionCount = ( uint32_t ) s_enabledExtensions.size();
@@ -687,6 +700,55 @@ std::string vhGetDeviceInfo()
     return std::string( buffer );
 }
 
+vhMemoryStats vhStatsMemory()
+{
+    vhMemoryStats stats = {};
+    
+    if ( !g_vhDevice )
+    {
+        VRHI_ERR( "vhStatsMemory(): Device not initialised.\n" );
+        return stats;
+    }
+    
+    // Basic memory properties are always available
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties( g_vulkanPhysicalDevice, &memProps );
+    stats.heapCount = memProps.memoryHeapCount;
+    
+    for ( uint32_t i = 0; i < memProps.memoryHeapCount; ++i )
+    {
+        stats.heapSize[i] = memProps.memoryHeaps[i].size;
+    }
+    
+    // If VK_EXT_memory_budget is enabled, query budget information
+    if ( g_vhMemoryBudgetEnabled )
+    {
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budgetProps = { 
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT 
+        };
+        VkPhysicalDeviceMemoryProperties2 memProps2 = { 
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2 
+        };
+        memProps2.pNext = &budgetProps;
+        
+        vkGetPhysicalDeviceMemoryProperties2( g_vulkanPhysicalDevice, &memProps2 );
+        
+        for ( uint32_t i = 0; i < stats.heapCount; ++i )
+        {
+            stats.heapBudget[i] = budgetProps.heapBudget[i];
+            stats.heapUsage[i] = budgetProps.heapUsage[i];
+        }
+        stats.supported = true;
+    }
+    
+    return stats;
+}
+
+vhRenderStats vhGetStats()
+{
+    return g_vhLastFrameStats;
+}
+
 bool vhQueryFeatureSupport( nvrhi::Feature feature, void* pInfo, size_t infoSize )
 {
     if ( !g_vhDevice )
@@ -711,6 +773,7 @@ nvrhi::FormatSupport vhQueryFormatSupport( nvrhi::Format format )
 
 void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount )
 {
+    g_vhDispatchCallsAccumulator.fetch_add( 1, std::memory_order_relaxed );
     VIDL_vhDispatch* cmd = vhCmdAlloc<VIDL_vhDispatch>( stateID, workGroupCount );
     vhCmdEnqueue( cmd );
 }
@@ -722,12 +785,14 @@ void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t by
         VRHI_ERR( "vhDispatchIndirect() : byteOffset %llu must be 4-byte aligned!\n", byteOffset );
         return;
     }
+    g_vhDispatchCallsAccumulator.fetch_add( 1, std::memory_order_relaxed );
     VIDL_vhDispatchIndirect* cmd = vhCmdAlloc<VIDL_vhDispatchIndirect>( stateID, indirectBuffer, byteOffset );
     vhCmdEnqueue( cmd );
 }
 
 void vhDraw( vhStateId state, uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation )
 {
+    g_vhDrawCallsAccumulator.fetch_add( instanceCount, std::memory_order_relaxed );
     vhDrawCommonInternal(
         state,
         0, // flags
@@ -742,6 +807,7 @@ void vhDraw( vhStateId state, uint32_t vertexCount, uint32_t instanceCount, uint
 
 void vhDrawIndexed( vhStateId state, uint32_t indexCount, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation )
 {
+    g_vhDrawCallsAccumulator.fetch_add( instanceCount, std::memory_order_relaxed );
     vhDrawCommonInternal(
         state,
         VRHI_DRAW_INDEXED,
@@ -757,6 +823,7 @@ void vhDrawIndexed( vhStateId state, uint32_t indexCount, uint32_t instanceCount
 
 void vhDrawIndirect( vhStateId state, uint32_t drawCount )
 {
+    g_vhDrawCallsAccumulator.fetch_add( 1, std::memory_order_relaxed );
     vhDrawCommonInternal(
         state,
         VRHI_DRAW_INDIRECT,
@@ -767,6 +834,7 @@ void vhDrawIndirect( vhStateId state, uint32_t drawCount )
 
 void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount )
 {
+    g_vhDrawCallsAccumulator.fetch_add( 1, std::memory_order_relaxed );
     vhDrawCommonInternal(
         state,
         VRHI_DRAW_INDEXED | VRHI_DRAW_INDIRECT,
@@ -875,6 +943,10 @@ float vhGetTimerQueryTime( vhTimerID timerID )
 
 bool vhFrame()
 {
+    // Reset per‑frame statistics
+    g_vhLastFrameStats.drawCalls = g_vhDrawCallsAccumulator.exchange( 0 );
+    g_vhLastFrameStats.dispatchCalls = g_vhDispatchCallsAccumulator.exchange( 0 );
+
     if ( g_vhInit.headless )
     {
         vhFlush();

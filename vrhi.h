@@ -137,6 +137,30 @@ glm::uvec2 vhGetBackbufferSize();
 // Returns a string containing information about the selected physical device and queues.
 std::string vhGetDeviceInfo();
 
+struct vhMemoryStats
+{
+    uint64_t heapBudget[16] = {};    // Available budget per heap (bytes)
+    uint64_t heapUsage[16] = {};     // Current usage per heap (bytes)
+    uint64_t heapSize[16] = {};      // Total heap size per heap (bytes)
+    uint32_t heapCount = 0;          // Number of valid heaps
+    bool supported = false;          // True if VK_EXT_memory_budget is available
+};
+
+struct vhRenderStats
+{
+    uint64_t drawCalls = 0;      // Accumulated draw calls (direct draws count instances, indirect draws count as 1)
+    uint64_t dispatchCalls = 0;  // Accumulated dispatch calls (both direct and indirect)
+};
+
+// Queries GPU memory statistics using VK_EXT_memory_budget extension.
+// Returns memory budget and usage per heap. If the extension is unavailable,
+// only heapSize/heapCount are populated (from basic Vulkan properties).
+vhMemoryStats vhStatsMemory();
+
+// Returns current frame or previous frame completed statistics.
+// Counters are reset at the start of vhFrame().
+vhRenderStats vhGetStats();
+
 // Queries whether a specific device feature is supported.
 // Returns true if the feature is supported on the current device.
 //

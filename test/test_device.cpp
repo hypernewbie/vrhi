@@ -333,3 +333,63 @@ UTEST( Device, QueryFormatSupport )
     nvrhi::FormatSupport floatSupport = vhQueryFormatSupport( nvrhi::Format::R32_FLOAT );
     EXPECT_TRUE( ( floatSupport & nvrhi::FormatSupport::ShaderLoad ) != nvrhi::FormatSupport::None );
 }
+
+UTEST( Device, StatsCounting )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    // Call vhFrame() to synchronise/reset.
+    vhFrame();
+    // Call vhDraw with instance count 5.
+    vhDraw( 0, 3, 5, 0, 0 );
+    // Call vhDispatch.
+    vhDispatch( 0, glm::uvec3( 1 ) );
+    // Call vhFrame() again to complete current frame and update snapshot.
+    vhFrame();
+    vhRenderStats stats = vhGetStats();
+    EXPECT_EQ( stats.drawCalls, 5u );
+    EXPECT_EQ( stats.dispatchCalls, 1u );
+}
+
+UTEST( Device, StatsMemory )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhMemoryStats stats = vhStatsMemory();
+
+    // Basic properties should always be available
+    EXPECT_GT( stats.heapCount, 0u );
+    EXPECT_LE( stats.heapCount, 16u );
+
+    // At least one heap should have size > 0
+    bool hasValidHeap = false;
+    for ( uint32_t i = 0; i < stats.heapCount; ++i )
+    {
+        if ( stats.heapSize[i] > 0 ) hasValidHeap = true;
+    }
+    EXPECT_TRUE( hasValidHeap );
+
+    // If supported, budget should be populated
+    if ( stats.supported )
+    {
+        VRHI_LOG( "VK_EXT_memory_budget: SUPPORTED\n" );
+        for ( uint32_t i = 0; i < stats.heapCount; ++i )
+        {
+            VRHI_LOG( "  Heap %u: Size=%.2f MB, Budget=%.2f MB, Usage=%.2f MB\n",
+                i,
+                stats.heapSize[i] / ( 1024.0 * 1024.0 ),
+                stats.heapBudget[i] / ( 1024.0 * 1024.0 ),
+                stats.heapUsage[i] / ( 1024.0 * 1024.0 ) );
+        }
+    }
+    else
+    {
+        VRHI_LOG( "VK_EXT_memory_budget: NOT SUPPORTED (fallback to basic info)\n" );
+    }
+}

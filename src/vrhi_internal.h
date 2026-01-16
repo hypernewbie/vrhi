@@ -150,6 +150,7 @@ extern std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 extern std::mutex g_vhShaderIDListMutex;
 
 extern bool g_vhRayTracingEnabled;
+extern bool g_vhMemoryBudgetEnabled;
 
 #include <renderdoc_app.h>
 extern RENDERDOC_API_1_1_2* g_vhRenderDoc;

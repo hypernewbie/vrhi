@@ -2548,7 +2548,7 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
     auto itState = backendStates.find( cmd->state );
     if ( itState == backendStates.end() )
     {
-        VRHI_ERR( "Draw with invalid state ID %llu", cmd->state );
+        VRHI_ERR( "Draw with invalid state ID %llu\n", cmd->state );
         return;
     }
     vhState& state = itState->second;
