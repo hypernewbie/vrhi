@@ -27,22 +27,31 @@ cmake --build build -j --config Debug
 cmake --build build -j --config Release
 ```
 
-On Mac / Linux, it is the same but using Ninja:
-```powershell
-cmake -S . -B build -G Ninja
-cmake --build build -j --config Debug
-cmake --build build -j --config Release
+On Mac / Linux with Ninja (single-config generator), specify the build type at configure time:
+```bash
+# Debug build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+
+# Release build (configure separately or reconfigure)
+cmake -S . -B build_release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build_release -j
 ```
 
-After building, you can run the tests using `ctest` or by executing the test binary directly:
+> **Note**: If you don't specify `-DCMAKE_BUILD_TYPE`, it defaults to Debug.
 
+After building, run tests using `ctest` or the binary directly:
+
+**Windows:**
 ```powershell
-# Run tests via CTest
 ctest --test-dir build -C Debug --verbose
-ctest --test-dir build -C Release --output-on-failure
-
-# Or execute the binary directly
 .\build\Debug\vrhi_test.exe
+```
+
+**Mac / Linux:**
+```bash
+ctest --test-dir build --verbose
+./build/vrhi_test
 ```
 
 ## Packages

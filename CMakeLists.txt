@@ -34,6 +34,12 @@ project(vrhi_test C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Default to Debug for single-config generators (Ninja, Make) if not specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
+    message(STATUS "Build type not specified, defaulting to Debug")
+endif()
+
 # -----------------------------------------------------------------------------
 # Platform Detection
 # -----------------------------------------------------------------------------
