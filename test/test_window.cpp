@@ -19,13 +19,22 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+#include <cstdlib>
+
 #define RGFW_IMPLEMENTATION
+
+#if defined(__linux__)
+    #include <X11/Xlib.h>
+    #include <X11/Xresource.h>
+#endif
+
 #include "RGFW.h"
 
 #if defined(__linux__)
     // Undefine X11 macros that conflict with nvrhi enums
     #undef None
     #undef Always
+    #undef TileShape
 #endif
 
 #include "test.h"
@@ -33,6 +42,14 @@
 
 UTEST( Window, SwapchainClear )
 {
+#if defined(__linux__)
+    if ( std::getenv( "DISPLAY" ) == nullptr )
+    {
+        printf( "[   INFO   ] No DISPLAY detected, skipping window test.\n" );
+        return;
+    }
+#endif
+
     // Create RGFW Window
     RGFW_window* win = RGFW_createWindow( "VRHI Test", 128, 128, 128, 128, RGFW_windowNoResize );
     ASSERT_TRUE( win != nullptr );
@@ -108,6 +125,14 @@ UTEST( Window, SwapchainClear )
 
 UTEST( Window, ResizeSwapchain )
 {
+#if defined(__linux__)
+    if ( std::getenv( "DISPLAY" ) == nullptr )
+    {
+        printf( "[   INFO   ] No DISPLAY detected, skipping window test.\n" );
+        return;
+    }
+#endif
+
     // Create RGFW Window with allow resize flag
     RGFW_window* win = RGFW_createWindow( "VRHI Test Resize", 128, 128, 128, 128, 0 );
     ASSERT_TRUE( win != nullptr );

@@ -13,7 +13,7 @@ It is currently in development and is not yet feature complete.
 - **CMake**: CMake 3.22 or newer.
 - **Python 3**: Python 3.12 or newer.
 - **Windows**: Visual Studio 2022 or newer (MSVC C++23).
-- **Linux**: Clang 21 (`libc++-21-dev`, `libc++abi-21-dev`), Ninja, X11 libraries (`libx11-dev`, `libxrandr-dev`, `libxi-dev`, `libxcursor-dev`, `libxinerama-dev`), `mesa-vulkan-drivers`.
+- **Linux**: Clang 21 (`libc++-21-dev`, `libc++abi-21-dev`), Ninja, X11 libraries (`libx11-dev`, `libxrandr-dev`, `libxi-dev`, `libxcursor-dev`, `libxinerama-dev`, `libxext-dev`), `mesa-vulkan-drivers`.
 - **macOS**: Clang 17 (`brew install llvm@17`), Ninja.
 
 ## Build

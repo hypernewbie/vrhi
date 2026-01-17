@@ -107,6 +107,11 @@ else()
     set_source_files_properties(vdeps/OffsetAllocator/offsetAllocator.cpp PROPERTIES COMPILE_OPTIONS "-Wno-missing-field-initializers")
 endif()
 
+target_compile_definitions(vrhi PUBLIC 
+    RGFW_NO_X11_CURSOR
+    RGFW_NO_DPI
+)
+
 target_compile_definitions(vrhi PRIVATE 
     VRHI_UNIT_TEST
 )
@@ -166,6 +171,10 @@ set(VRHI_LIBS
 target_link_libraries(vrhi PUBLIC ${VRHI_LIBS})
 
 target_link_libraries(vrhi PUBLIC Vulkan::Vulkan)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(vrhi PUBLIC X11 Xi Xext)
+endif()
 
 # System libraries required by NVRHI backends on Windows
 if(WIN32)
