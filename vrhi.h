@@ -206,6 +206,14 @@ void vhFinish();
 // VIDL_GENERATE
 void vhResizeCleanup();
 
+// Resizes the window swapchain to the specified dimensions.
+// This performs a full GPU flush for safety. Performance is not critical during resize operations.
+void vhResize( int width, int height );
+
+// Returns the current window size.
+// This is distinct from the initial resolution and reflects the actual swapchain dimensions.
+glm::uvec2 vhGetWindowSize();
+
 // Begin GPU timing measurement for the given timer ID.
 // If the timer ID has not been seen before, it will be automatically created.
 // VIDL_GENERATE

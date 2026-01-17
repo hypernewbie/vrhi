@@ -99,3 +99,116 @@ UTEST( Window, SwapchainClear )
 
     RGFW_window_close( win );
 }
+
+UTEST( Window, ResizeSwapchain )
+{
+    // Create RGFW Window
+    RGFW_window* win = RGFW_createWindow( "VRHI Test Resize", 128, 128, 128, 128, RGFW_windowNoResize );
+    ASSERT_TRUE( win != nullptr );
+
+    // Get Native Handles
+    void* nativeWindow = nullptr;
+    void* nativeDisplay = nullptr;
+
+#if defined(_WIN32)
+    nativeWindow = RGFW_window_getHWND( win );
+#elif defined(__linux__)
+    nativeWindow = ( void* ) RGFW_window_getWindow_X11( win );
+    nativeDisplay = RGFW_getDisplay_X11();
+#elif defined(__APPLE__)
+    nativeWindow = RGFW_window_getView_OSX( win );
+    RGFW_window_setLayer_OSX( win, RGFW_getLayer_OSX() );
+#endif
+
+    // Re-init VRHI with window
+    TestEnsureShutdown();
+    g_vhInit.resolution = { 128, 128 };
+    g_vhInit.headless = false;
+    g_vhInit.windowHandle = nativeWindow;
+    g_vhInit.displayHandle = nativeDisplay;
+    g_vhInit.vsync = true;
+
+    vhInit( false );
+    g_testInit = true;
+
+    // Render a few frames
+    for ( int i = 0; i < 3; ++i )
+    {
+        RGFW_event event;
+        RGFW_window_checkEvent( win, &event );
+        if ( RGFW_window_shouldClose( win ) )
+            break;
+
+        vhTexture backBuffer = vhGetBackbuffer();
+        vhState state;
+        state.SetColourAttachment( 0, backBuffer, 0, 0, nvrhi::Format::UNKNOWN, false )
+            .SetViewRect( glm::vec4( 0, 0, 128, 128 ) )
+            .SetViewScissor( glm::vec4( 0, 0, 128, 128 ) )
+            .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ) );
+
+        vhSetState( 0, state );
+        vhClear( 0, VRHI_CLEAR_COLOR );
+
+        if ( !vhFrame() ) break;
+    }
+
+    // Resize to 256x256
+    vhResize( 256, 256 );
+
+    // Verify size changed
+    glm::uvec2 newSize = vhGetBackbufferSize();
+    ASSERT_EQ( newSize.x, 256 );
+    ASSERT_EQ( newSize.y, 256 );
+
+    // Verify vhGetWindowSize returns same
+    glm::uvec2 windowSize = vhGetWindowSize();
+    ASSERT_EQ( windowSize.x, 256 );
+    ASSERT_EQ( windowSize.y, 256 );
+
+    // Render a few more frames with new size
+    for ( int i = 0; i < 3; ++i )
+    {
+        RGFW_event event;
+        RGFW_window_checkEvent( win, &event );
+        if ( RGFW_window_shouldClose( win ) )
+            break;
+
+        vhTexture backBuffer = vhGetBackbuffer();
+        vhState state;
+        state.SetColourAttachment( 0, backBuffer, 0, 0, nvrhi::Format::UNKNOWN, false )
+            .SetViewRect( glm::vec4( 0, 0, 256, 256 ) )
+            .SetViewScissor( glm::vec4( 0, 0, 256, 256 ) )
+            .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) );
+
+        vhSetState( 0, state );
+        vhClear( 0, VRHI_CLEAR_COLOR );
+
+        if ( !vhFrame() ) break;
+    }
+
+    // Resize back to original
+    vhResize( 128, 128 );
+
+    // Verify size restored
+    newSize = vhGetBackbufferSize();
+    ASSERT_EQ( newSize.x, 128 );
+    ASSERT_EQ( newSize.y, 128 );
+
+    // Render a final frame
+    vhTexture backBuffer = vhGetBackbuffer();
+    vhState state;
+    state.SetColourAttachment( 0, backBuffer, 0, 0, nvrhi::Format::UNKNOWN, false )
+        .SetViewRect( glm::vec4( 0, 0, 128, 128 ) )
+        .SetViewScissor( glm::vec4( 0, 0, 128, 128 ) )
+        .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 1.0f, 1.0f, 0.0f, 1.0f ) );
+
+    vhSetState( 0, state );
+    vhClear( 0, VRHI_CLEAR_COLOR );
+    vhFrame();
+
+    // Reset state ID 0 to avoid polluting other tests
+    vhState s;
+    vhSetState( 0, s.DirtyAll() );
+
+    RGFW_window_close( win );
+}

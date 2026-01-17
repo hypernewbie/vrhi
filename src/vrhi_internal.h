@@ -124,6 +124,7 @@ extern std::vector< VkImageView > g_vhSwapchainImageViews;
 extern std::vector< vhTexture > g_vhSwapchainTextures;
 extern std::vector< nvrhi::TextureHandle > g_vhSwapchainNVRHIHandles;
 extern uint32_t g_vhCurrentSwapchainIndex;
+extern glm::uvec2 g_vhWindowSize;
 
 // Semaphores for frame synchronisation
 extern std::vector< VkSemaphore > g_vhAcquireSemaphores;
