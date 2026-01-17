@@ -53,6 +53,7 @@ bool g_vhMemoryBudgetEnabled = false;
 std::atomic<uint64_t> g_vhDrawCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhDispatchCallsAccumulator = 0;
 vhRenderStats g_vhLastFrameStats = {};
+vhDeviceInfo g_vhDeviceInfo = {};
 
 class vhVK_MessageCallback : public nvrhi::IMessageCallback
 {
@@ -290,6 +291,36 @@ void vhInit( bool quiet )
     vkGetPhysicalDeviceProperties2( g_vulkanPhysicalDevice, &props2 );
     VRHI_LOG( "    Vulkan Driver: %s (%s)\n", driverProps.driverName, driverProps.driverInfo );
 
+    // Populate device info struct
+    const char* deviceTypeStr = "Unknown";
+    switch ( props2.properties.deviceType )
+    {
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   deviceTypeStr = "Discrete GPU"; break;
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: deviceTypeStr = "Integrated GPU"; break;
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:     deviceTypeStr = "Virtual GPU"; break;
+        case VK_PHYSICAL_DEVICE_TYPE_CPU:             deviceTypeStr = "CPU"; break;
+        default:                                      deviceTypeStr = "Other"; break;
+    }
+
+    g_vhDeviceInfo.name = std::string( props2.properties.deviceName ) + " - " + deviceTypeStr;
+    g_vhDeviceInfo.driver = std::string( driverProps.driverName ) + " " + std::string( driverProps.driverInfo );
+    g_vhDeviceInfo.apiVersion = std::to_string( VK_API_VERSION_MAJOR( props2.properties.apiVersion ) ) + "." +
+                                std::to_string( VK_API_VERSION_MINOR( props2.properties.apiVersion ) ) + "." +
+                                std::to_string( VK_API_VERSION_PATCH( props2.properties.apiVersion ) );
+    g_vhDeviceInfo.maxTextureSize = props2.properties.limits.maxImageDimension2D;
+    g_vhDeviceInfo.maxColorAttachments = props2.properties.limits.maxColorAttachments;
+
+    // Get memory heap info
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties( g_vulkanPhysicalDevice, &memProps );
+    for ( uint32_t i = 0; i < memProps.memoryHeapCount; ++i )
+    {
+        if ( memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT )
+        {
+            g_vhDeviceInfo.totalVRAM += memProps.memoryHeaps[i].size;
+        }
+    }
+
     // Device Creation & Queues (via vk-bootstrap)
 
     bool rtExtEnabled = false;
@@ -443,6 +474,16 @@ void vhInit( bool quiet )
     for ( const auto& ext : s_enabledExtensions ) s_enabledExtensionPointers.push_back( ext.c_str() );
 
     if ( !quiet ) VRHI_LOG( "    Selected VK Queues: Graphics %d, Compute %d, Transfer %d\n", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
+
+    // Populate queues string for device info
+    char queuesBuffer[256];
+    snprintf( queuesBuffer, sizeof( queuesBuffer ), "Graphics:%d Compute:%d Transfer:%d", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
+    g_vhDeviceInfo.queues = std::string( queuesBuffer );
+
+    // Store features we know from extension checking
+    g_vhDeviceInfo.raytracing = g_vhRayTracingEnabled;
+    g_vhDeviceInfo.memoryBudget = memoryBudgetEnabled;
+
     if ( !quiet ) VRHI_LOG( "    Created VK Logical Device.\n" );
 
     // NVRHI Handover
@@ -487,6 +528,23 @@ void vhInit( bool quiet )
         if ( !quiet ) VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
         g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
     }
+
+    // Auto-detect remaining features
+    g_vhDeviceInfo.bindless = vhQueryFeatureSupport_Internal( nvrhi::Feature::HlslExtensionUAV );
+    g_vhDeviceInfo.vrs = vhQueryFeatureSupport_Internal( nvrhi::Feature::VariableRateShading );
+    g_vhDeviceInfo.asyncCompute = vhQueryFeatureSupport_Internal( nvrhi::Feature::CopyQueue );
+
+    // Generate summary string for legacy compatibility
+    char summaryBuffer[1024];
+    snprintf( summaryBuffer, sizeof( summaryBuffer ),
+        "Device: %s Vulkan: %s Type: %s Queues: %s NVRHI: Active Extensions: %u",
+        props2.properties.deviceName,
+        g_vhDeviceInfo.apiVersion.c_str(),
+        g_vhDeviceInfo.name.c_str(),
+        g_vhDeviceInfo.queues.c_str(),
+        g_vulkanEnabledExtensionCount
+    );
+    g_vhDeviceInfo.summary = std::string( summaryBuffer );
 
     // Swapchain Creation
     if ( g_vhSurface != VK_NULL_HANDLE )
@@ -665,41 +723,6 @@ void vhShutdown( bool quiet )
     }
 }
 
-std::string vhGetDeviceInfo()
-{
-    if ( !g_vhDevice )
-    {
-        return "RHI not initialised";
-    }
-
-    VkPhysicalDeviceProperties props;
-    vkGetPhysicalDeviceProperties( g_vulkanPhysicalDevice, &props );
-
-    const char* typeStr = "Unknown";
-    switch ( props.deviceType )
-    {
-        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: typeStr = "Discrete GPU"; break;
-        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: typeStr = "Integrated GPU"; break;
-        case VK_PHYSICAL_DEVICE_TYPE_CPU: typeStr = "CPU"; break;
-        default: typeStr = "Other"; break;
-    }
-
-    char buffer[1024];
-    snprintf( buffer, sizeof( buffer ),
-        "Device: %s Vulkan: %d.%d.%d Type: %s Queues: Gfx=%d Comp=%d Trans=%d NVRHI: Active Extensions: %d",
-        props.deviceName,
-        VK_API_VERSION_MAJOR( props.apiVersion ),
-        VK_API_VERSION_MINOR( props.apiVersion ),
-        VK_API_VERSION_PATCH( props.apiVersion ),
-        typeStr,
-        g_QueueFamilyGraphics,
-        g_QueueFamilyCompute,
-        g_QueueFamilyTransfer,
-        g_vulkanEnabledExtensionCount
-    );
-    return std::string( buffer );
-}
-
 vhMemoryStats vhStatsMemory()
 {
     vhMemoryStats stats = {};
@@ -747,6 +770,28 @@ vhMemoryStats vhStatsMemory()
 vhRenderStats vhGetStats()
 {
     return g_vhLastFrameStats;
+}
+
+bool vhQueryFeatureSupport_Internal( nvrhi::Feature feature, void* pInfo, size_t infoSize )
+{
+    // WARNING: g_nvRHIStateMutex must be held before calling this
+    if ( !g_vhDevice )
+    {
+        VRHI_ERR( "vhQueryFeatureSupport_Internal(): Device not initialised.\n" );
+        return false;
+    }
+    return g_vhDevice->queryFeatureSupport( feature, pInfo, infoSize );
+}
+
+nvrhi::FormatSupport vhQueryFormatSupport_Internal( nvrhi::Format format )
+{
+    // WARNING: g_nvRHIStateMutex must be held before calling this
+    if ( !g_vhDevice )
+    {
+        VRHI_ERR( "vhQueryFormatSupport_Internal(): Device not initialised.\n" );
+        return nvrhi::FormatSupport::None;
+    }
+    return g_vhDevice->queryFormatSupport( format );
 }
 
 bool vhQueryFeatureSupport( nvrhi::Feature feature, void* pInfo, size_t infoSize )

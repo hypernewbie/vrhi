@@ -33,7 +33,6 @@
 extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
-extern std::string vhGetDeviceInfo();
 extern bool vhRunExe( const std::string& command, std::string& outOutput );
 
 UTEST( RHI, Init )
@@ -47,18 +46,15 @@ UTEST( RHI, Init )
     // Verify globals
     EXPECT_NE( g_vhDevice.Get(), nullptr );
 
-    // Test GetInfo returns something
-    std::string info = vhGetDeviceInfo();
-    EXPECT_FALSE( info.empty() );
-    EXPECT_TRUE( info.find( "Device:" ) != std::string::npos );
+    // Verify device info is populated
+    EXPECT_FALSE( g_vhDeviceInfo.name.empty() );
+    EXPECT_FALSE( g_vhDeviceInfo.driver.empty() );
+    EXPECT_FALSE( g_vhDeviceInfo.apiVersion.empty() );
+    EXPECT_GT( g_vhDeviceInfo.totalVRAM, 0u );
 
     // Test shutdown
     vhShutdown( g_testInitQuiet );
     EXPECT_EQ( g_vhDevice.Get(), nullptr );
-
-    // Test GetInfo after shutdown
-    info = vhGetDeviceInfo();
-    EXPECT_TRUE( info.find( "not initialised" ) != std::string::npos );
 }
 
 UTEST( RHI, LogCallback )
@@ -392,4 +388,20 @@ UTEST( Device, StatsMemory )
     {
         VRHI_LOG( "VK_EXT_memory_budget: NOT SUPPORTED (fallback to basic info)\n" );
     }
+}
+
+UTEST( Device, BasicDeviceInfo )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Verify global device info exists and is populated
+    EXPECT_FALSE( g_vhDeviceInfo.name.empty() );
+    EXPECT_FALSE( g_vhDeviceInfo.driver.empty() );
+    EXPECT_FALSE( g_vhDeviceInfo.apiVersion.empty() );
+    EXPECT_FALSE( g_vhDeviceInfo.queues.empty() );
+    EXPECT_GT( g_vhDeviceInfo.totalVRAM, 0u );
 }

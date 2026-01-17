@@ -95,7 +95,7 @@ typedef uint32_t vhShader;
 typedef uint32_t vhUniform;
 typedef uint64_t vhTimerID;
 typedef std::vector< uint8_t > vhMem;
-typedef std::vector< vhShader > vhProgram;
+typedef std::vector< vhShader > vhProgram; 
 
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
@@ -134,9 +134,6 @@ vhTexture vhGetBackbuffer();
 // Returns the size of the swapchain backbuffer.
 glm::uvec2 vhGetBackbufferSize();
 
-// Returns a string containing information about the selected physical device and queues.
-std::string vhGetDeviceInfo();
-
 struct vhMemoryStats
 {
     uint64_t heapBudget[16] = {};    // Available budget per heap (bytes)
@@ -151,6 +148,27 @@ struct vhRenderStats
     uint64_t drawCalls = 0;      // Accumulated draw calls (direct draws count instances, indirect draws count as 1)
     uint64_t dispatchCalls = 0;  // Accumulated dispatch calls (both direct and indirect)
 };
+
+struct vhDeviceInfo
+{
+    std::string name;           // "NVIDIA GeForce RTX 4090 - Discrete GPU"
+    std::string driver;         // "NVIDIA 546.33"
+    std::string apiVersion;     // "1.3.295"
+    std::string queues;         // "Graphics:0 Compute:1 Transfer:2"
+    std::string summary;        // Full device information string
+
+    bool raytracing = false;
+    bool bindless = false;
+    bool vrs = false;
+    bool asyncCompute = false;
+    bool memoryBudget = false;
+
+    uint32_t maxTextureSize = 0;
+    uint32_t maxColorAttachments = 0;
+    uint64_t totalVRAM = 0;
+};
+
+extern vhDeviceInfo g_vhDeviceInfo;
 
 // Queries GPU memory statistics using VK_EXT_memory_budget extension.
 // Returns memory budget and usage per heap. If the extension is unavailable,

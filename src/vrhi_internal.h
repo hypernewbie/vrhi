@@ -184,6 +184,10 @@ void vhInitDummyResources();
 void vhShutdownDummyResources();
 nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& layoutItem, nvrhi::Format expectedFormat = nvrhi::Format::UNKNOWN, nvrhi::TextureDimension expectedDim = nvrhi::TextureDimension::Texture2D );
 
+// Internal query functions that assume g_nvRHIStateMutex is already held
+bool vhQueryFeatureSupport_Internal( nvrhi::Feature feature, void* pInfo = nullptr, size_t infoSize = 0 );
+nvrhi::FormatSupport vhQueryFormatSupport_Internal( nvrhi::Format format );
+
 
 // Logging helper
 void vhLog( bool error, const char* fmt, ... );
