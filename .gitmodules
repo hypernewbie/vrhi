@@ -15,4 +15,4 @@
 	url = https://github.com/sebbbi/OffsetAllocator
 [submodule "vdeps/RGFW"]
 	path = vdeps/RGFW
-	url = https://github.com/ColleagueRiley/RGFW
+	url = https://github.com/hypernewbie/RGFW
