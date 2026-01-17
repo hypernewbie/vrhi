@@ -123,6 +123,85 @@ find_package(vrhi REQUIRED)
 target_link_libraries(your_app vrhi::vrhi)
 ```
 
+## Quick Start
+
+### Initialisation
+
+```cpp
+#include <vrhi.h>
+
+g_vhInit.appName = "MyApp";
+g_vhInit.resolution = glm::ivec2( 1280, 720 );
+g_vhInit.headless = true;  // No window, compute-only
+vhInit();
+```
+
+### Draw a Triangle
+
+```cpp
+// Create resources
+vhTexture rt = vhAllocTexture();
+vhCreateTexture2D( rt, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+
+vhBuffer vb = vhAllocBuffer();
+vhMem* vertData = vhAllocMem( sizeof( verts ) );
+memcpy( vertData->data(), verts, sizeof( verts ) );
+vhCreateVertexBuffer( vb, "VB", vertData, "float3 float4" );  // pos + colour
+
+vhShader vs = vhAllocShader(), ps = vhAllocShader();
+// ... compile shaders with vhCompileShader, then vhCreateShader
+
+// Set state and draw
+vhState state;
+state.SetColourAttachment( 0, rt )
+     .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+     .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
+     .SetStateFlags( VRHI_STATE_WRITE_MASK )
+     .SetVertexBuffer( vb, 0 )
+     .SetProgram( vhCreateGfxProgram( vs, ps ) );
+
+vhStateId sid = 1;
+vhSetState( sid, state );
+vhClear( sid, VRHI_CLEAR_COLOR );
+vhDraw( sid, 3 );
+vhFinish();
+
+// Reusing state for another draw? Call DirtyAll():
+state.SetVertexBuffer( otherVB, 0 );
+vhSetState( sid, state.DirtyAll() );
+vhDraw( sid, 3 );
+```
+
+### Compute Dispatch
+
+```cpp
+vhShader cs = vhAllocShader();
+// ... compile with VRHI_SHADER_STAGE_COMPUTE
+
+vhBuffer output = vhAllocBuffer();
+vhCreateStorageBuffer( output, "Out", nullptr, 1024, VRHI_BUFFER_COMPUTE_READ_WRITE );
+
+vhState state;
+state.SetProgram( vhCreateComputeProgram( cs ) )
+     .SetBuffer( 0, { .slot = 0, .buffer = output, .computeUAV = true } );
+
+vhStateId sid = 100;
+vhSetState( sid, state );
+vhDispatch( sid, glm::uvec3( 16, 1, 1 ) );
+vhFinish();
+```
+
+### Cleanup
+
+```cpp
+vhDestroyBuffer( vb );
+vhDestroyTexture( rt );
+vhDestroyShader( vs );
+vhDestroyShader( ps );
+vhFlush();
+vhShutdown();
+```
+
 ## FAQ
 
 ### Is Vrhi written by AI?

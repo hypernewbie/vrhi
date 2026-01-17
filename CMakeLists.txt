@@ -137,7 +137,6 @@ endif()
 # -----------------------------------------------------------------------------
 set(VRHI_SOURCES
     vrhi.h
-    vrhi_defines.h
     ${GENERATED_HEADER}
     src/vrhi_internal.h
     src/vrhi_utils.h
@@ -251,12 +250,8 @@ add_custom_target(package_vrhi
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib"
     
-    # Copy main VRHI headers
     COMMAND ${CMAKE_COMMAND} -E copy_if_different 
         "${CMAKE_SOURCE_DIR}/vrhi.h" 
-        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
-        "${CMAKE_SOURCE_DIR}/vrhi_defines.h" 
         "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different 
         "${CMAKE_SOURCE_DIR}/src/vrhi_generated.h" 

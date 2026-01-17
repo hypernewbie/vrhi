@@ -33,20 +33,25 @@
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
 #include <nvrhi/nvrhi.h>
-#include "vrhi_defines.h"
 
-#define VRHI_INVALID_HANDLE 0xFFFFFFFF
-#define VRHI_MIPMAP_COMPLETE -1
+// --------------------------------------------------------------------------
+// Init
+// --------------------------------------------------------------------------
 
 struct vhInitData
 {
+    // Application identity for Vulkan instance creation.
     std::string appName = "VRHI_APP";
     std::string engineName = "VRHI_ENGINE";
-    int deviceIndex = -1; // -1 for auto-selection (Discrete > Integrated > CPU)
+    // Device selection. -1 for automatic (Discrete > Integrated > CPU).
+    int deviceIndex = -1;
+    // Initial window resolution for swapchain creation.
     glm::ivec2 resolution = glm::ivec2( 1280, 720 );
+    // Logging and thread initialisation callbacks.
     std::function<void( bool error, const std::string& )> fnLogCallback = nullptr;
     std::function<void() > fnThreadInitCallback = nullptr;
 
+    // Debug and feature toggles.
     bool debug = false;
     bool raytracing = true;
     bool logBackendCmds = false;
@@ -61,6 +66,7 @@ struct vhInitData
     bool headless = true;
     bool vsync = true;
 
+    // Shader compilation configuration.
     std::string shaderCompileTempDir = "./tmp/shader_cache/";
     std::string shaderMakePath = "./tools/linux_release";
     std::string shaderMakeSlangPath = "./tools/linux_release";
@@ -104,6 +110,474 @@ extern std::atomic<int32_t> g_vhErrorCounter;
 extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 // --------------------------------------------------------------------------
+// Defines
+// --------------------------------------------------------------------------
+
+#define VRHI_INVALID_HANDLE 0xFFFFFFFF
+#define VRHI_MIPMAP_COMPLETE -1
+
+// --------------------------------------------------------------------------
+// Shader Stages
+// --------------------------------------------------------------------------
+
+constexpr uint64_t VRHI_SHADER_STAGE_VERTEX        = 1;
+constexpr uint64_t VRHI_SHADER_STAGE_PIXEL         = 2;
+constexpr uint64_t VRHI_SHADER_STAGE_COMPUTE       = 3;
+constexpr uint64_t VRHI_SHADER_STAGE_HULL          = 4;
+constexpr uint64_t VRHI_SHADER_STAGE_DOMAIN        = 5;
+constexpr uint64_t VRHI_SHADER_STAGE_GEOMETRY      = 6;
+constexpr uint64_t VRHI_SHADER_STAGE_RAYGEN        = 7;
+constexpr uint64_t VRHI_SHADER_STAGE_MISS          = 8;
+constexpr uint64_t VRHI_SHADER_STAGE_CLOSEST_HIT   = 9;
+constexpr uint64_t VRHI_SHADER_STAGE_MESH          = 10;
+constexpr uint64_t VRHI_SHADER_STAGE_AMPLIFICATION = 11;
+constexpr uint64_t VRHI_SHADER_STAGE_MAX           = 11;
+constexpr uint64_t VRHI_SHADER_STAGE_MASK          = 0xF;
+
+constexpr uint64_t VRHI_SHADER_SM_5_0              = ( 1 << 4 );
+constexpr uint64_t VRHI_SHADER_SM_6_0              = ( 2 << 4 );
+constexpr uint64_t VRHI_SHADER_SM_6_5              = ( 3 << 4 ); // Default behaviour if 0
+constexpr uint64_t VRHI_SHADER_SM_6_6              = ( 4 << 4 );
+constexpr uint64_t VRHI_SHADER_SM_MASK             = 0xF0;
+
+constexpr uint64_t VRHI_SHADER_DEBUG               = ( 1ULL << 8 );   // -O0 -g -embedPDB
+constexpr uint64_t VRHI_SHADER_ROW_MAJOR           = ( 1ULL << 9 );   // -matrix-layout-row-major
+constexpr uint64_t VRHI_SHADER_WARNINGS_AS_ERRORS  = ( 1ULL << 10 );  // -warnings-as-errors
+constexpr uint64_t VRHI_SHADER_STRIP_REFLECTION    = ( 1ULL << 11 );  // --stripReflection. Good for release builds to reduce binary size.
+constexpr uint64_t VRHI_SHADER_ALL_RESOURCES_BOUND = ( 1ULL << 12 );  // --allResourcesBound. Optimisation hint for the compiler.
+
+// --------------------------------------------------------------------------
+// Buffers
+// --------------------------------------------------------------------------
+
+constexpr uint64_t VRHI_BUFFER_NONE           = 0x0000;
+constexpr uint64_t VRHI_BUFFER_COMPUTE_READ   = 0x0100;
+constexpr uint64_t VRHI_BUFFER_COMPUTE_WRITE  = 0x0200;
+constexpr uint64_t VRHI_BUFFER_DRAW_INDIRECT  = 0x0400;
+constexpr uint64_t VRHI_BUFFER_ALLOW_RESIZE   = 0x0800;
+constexpr uint64_t VRHI_BUFFER_INDEX32        = 0x1000;
+constexpr uint64_t VRHI_BUFFER_COMPUTE_READ_WRITE = ( VRHI_BUFFER_COMPUTE_READ | VRHI_BUFFER_COMPUTE_WRITE );
+
+// --------------------------------------------------------------------------
+// Textures
+// --------------------------------------------------------------------------
+
+constexpr uint64_t VRHI_TEXTURE_NONE         = 0x0000000000000000;
+constexpr uint64_t VRHI_TEXTURE_RT           = 0x0000001000000000;
+constexpr uint64_t VRHI_TEXTURE_COMPUTE_WRITE = 0x0000100000000000;
+constexpr uint64_t VRHI_TEXTURE_SRGB         = 0x0000200000000000;
+constexpr uint64_t VRHI_TEXTURE_BLIT_DST     = 0x0000400000000000;
+
+// --------------------------------------------------------------------------
+// Samplers
+// --------------------------------------------------------------------------
+
+constexpr uint32_t VRHI_SAMPLER_U_WRAP    = 0x00000000;
+constexpr uint32_t VRHI_SAMPLER_U_MIRROR  = 0x00000001;
+constexpr uint32_t VRHI_SAMPLER_U_CLAMP   = 0x00000002;
+constexpr uint32_t VRHI_SAMPLER_U_BORDER  = 0x00000003;
+constexpr uint32_t VRHI_SAMPLER_U_SHIFT   = 0;
+constexpr uint32_t VRHI_SAMPLER_U_MASK    = 0x00000003;
+constexpr uint32_t VRHI_SAMPLER_V_WRAP    = 0x00000000;
+constexpr uint32_t VRHI_SAMPLER_V_MIRROR  = 0x00000004;
+constexpr uint32_t VRHI_SAMPLER_V_CLAMP   = 0x00000008;
+constexpr uint32_t VRHI_SAMPLER_V_BORDER  = 0x0000000c;
+constexpr uint32_t VRHI_SAMPLER_V_SHIFT   = 2;
+constexpr uint32_t VRHI_SAMPLER_V_MASK    = 0x0000000c;
+constexpr uint32_t VRHI_SAMPLER_W_WRAP    = 0x00000000;
+constexpr uint32_t VRHI_SAMPLER_W_MIRROR  = 0x00000010;
+constexpr uint32_t VRHI_SAMPLER_W_CLAMP   = 0x00000020;
+constexpr uint32_t VRHI_SAMPLER_W_BORDER  = 0x00000030;
+constexpr uint32_t VRHI_SAMPLER_W_SHIFT   = 4;
+constexpr uint32_t VRHI_SAMPLER_W_MASK    = 0x00000030;
+constexpr uint32_t VRHI_SAMPLER_MIN_LINEAR      = 0x00000000;
+constexpr uint32_t VRHI_SAMPLER_MIN_POINT       = 0x00000040;
+constexpr uint32_t VRHI_SAMPLER_MIN_ANISOTROPIC = 0x00000080;
+constexpr uint32_t VRHI_SAMPLER_MIN_SHIFT       = 6;
+constexpr uint32_t VRHI_SAMPLER_MIN_MASK        = 0x000000c0;
+constexpr uint32_t VRHI_SAMPLER_MAG_LINEAR      = 0x00000000;
+constexpr uint32_t VRHI_SAMPLER_MAG_POINT       = 0x00000100;
+constexpr uint32_t VRHI_SAMPLER_MAG_ANISOTROPIC = 0x00000200;
+constexpr uint32_t VRHI_SAMPLER_MAG_SHIFT       = 8;
+constexpr uint32_t VRHI_SAMPLER_MAG_MASK        = 0x00000300;
+constexpr uint32_t VRHI_SAMPLER_MIP_LINEAR      = 0x00000000;
+constexpr uint32_t VRHI_SAMPLER_MIP_POINT       = 0x00000400;
+constexpr uint32_t VRHI_SAMPLER_MIP_NONE        = 0x00000800;
+constexpr uint32_t VRHI_SAMPLER_MIP_SHIFT       = 10;
+constexpr uint32_t VRHI_SAMPLER_MIP_MASK        = 0x00000c00;
+
+constexpr uint32_t VRHI_SAMPLER_COMPARE_LESS      = 0x00001000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_LEQUAL    = 0x00002000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_EQUAL     = 0x00003000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_GEQUAL    = 0x00004000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_GREATER   = 0x00005000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_NOTEQUAL  = 0x00006000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_NEVER     = 0x00007000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_ALWAYS    = 0x00008000;
+constexpr uint32_t VRHI_SAMPLER_COMPARE_SHIFT     = 12;
+
+constexpr uint32_t VRHI_SAMPLER_COMPARE_MASK      = 0x0000f000;
+
+#define VRHI_SAMPLER_MIPBIAS_SHIFT                16
+#define VRHI_SAMPLER_MIPBIAS_MASK                 0x00ff0000
+#define VRHI_SAMPLER_MIPBIAS( v )                 ( ( ( uint32_t )( int32_t )( ( v ) * 16.0f ) << VRHI_SAMPLER_MIPBIAS_SHIFT ) & VRHI_SAMPLER_MIPBIAS_MASK )
+
+#define VRHI_SAMPLER_BORDER_COLOUR_SHIFT          24
+#define VRHI_SAMPLER_BORDER_COLOUR_MASK           0x0f000000
+#define VRHI_SAMPLER_BORDER_COLOUR( v )           ( ( ( uint32_t )( v ) << VRHI_SAMPLER_BORDER_COLOUR_SHIFT ) & VRHI_SAMPLER_BORDER_COLOUR_MASK )
+
+constexpr uint32_t VRHI_SAMPLER_SAMPLE_STENCIL    = 0x10000000;
+#define VRHI_SAMPLER_MAX_ANISOTROPY_SHIFT         29
+#define VRHI_SAMPLER_MAX_ANISOTROPY_MASK          0xe0000000
+#define VRHI_SAMPLER_MAX_ANISOTROPY( v )          ( ( ( uint32_t )( v ) << VRHI_SAMPLER_MAX_ANISOTROPY_SHIFT ) & VRHI_SAMPLER_MAX_ANISOTROPY_MASK )
+constexpr uint32_t VRHI_SAMPLER_ANISOTROPY_1      = VRHI_SAMPLER_MAX_ANISOTROPY( 0 );
+constexpr uint32_t VRHI_SAMPLER_ANISOTROPY_2      = VRHI_SAMPLER_MAX_ANISOTROPY( 1 );
+constexpr uint32_t VRHI_SAMPLER_ANISOTROPY_4      = VRHI_SAMPLER_MAX_ANISOTROPY( 2 );
+constexpr uint32_t VRHI_SAMPLER_ANISOTROPY_8      = VRHI_SAMPLER_MAX_ANISOTROPY( 3 );
+constexpr uint32_t VRHI_SAMPLER_ANISOTROPY_16     = VRHI_SAMPLER_MAX_ANISOTROPY( 4 );
+constexpr uint32_t VRHI_SAMPLER_NONE              = 0x00000000;
+
+constexpr uint32_t VRHI_SAMPLER_POINT = (
+    VRHI_SAMPLER_MIN_POINT |
+    VRHI_SAMPLER_MAG_POINT |
+    VRHI_SAMPLER_MIP_POINT );
+constexpr uint32_t VRHI_SAMPLER_UVW_MIRROR = (
+    VRHI_SAMPLER_U_MIRROR |
+    VRHI_SAMPLER_V_MIRROR |
+    VRHI_SAMPLER_W_MIRROR );
+
+constexpr uint32_t VRHI_SAMPLER_UVW_CLAMP = (
+    VRHI_SAMPLER_U_CLAMP |
+    VRHI_SAMPLER_V_CLAMP |
+    VRHI_SAMPLER_W_CLAMP );
+
+constexpr uint32_t VRHI_SAMPLER_UVW_BORDER = (
+    VRHI_SAMPLER_U_BORDER |
+    VRHI_SAMPLER_V_BORDER |
+    VRHI_SAMPLER_W_BORDER );
+
+constexpr uint32_t VRHI_SAMPLER_UVW_WRAP = (
+    VRHI_SAMPLER_U_WRAP |
+    VRHI_SAMPLER_V_WRAP |
+    VRHI_SAMPLER_W_WRAP );
+
+constexpr uint32_t VRHI_SAMPLER_BITS_MASK = (
+    VRHI_SAMPLER_U_MASK |
+    VRHI_SAMPLER_V_MASK |
+    VRHI_SAMPLER_W_MASK |
+    VRHI_SAMPLER_MIN_MASK |
+    VRHI_SAMPLER_MAG_MASK |
+    VRHI_SAMPLER_MIP_MASK |
+    VRHI_SAMPLER_COMPARE_MASK |
+    VRHI_SAMPLER_MIPBIAS_MASK |
+    VRHI_SAMPLER_BORDER_COLOUR_MASK |
+    VRHI_SAMPLER_SAMPLE_STENCIL |
+    VRHI_SAMPLER_MAX_ANISOTROPY_MASK );
+
+// --------------------------------------------------------------------------
+// State
+// --------------------------------------------------------------------------
+
+constexpr uint64_t VRHI_STATE_WRITE_R      = 0x0000000000000001;
+constexpr uint64_t VRHI_STATE_WRITE_G      = 0x0000000000000002;
+constexpr uint64_t VRHI_STATE_WRITE_B      = 0x0000000000000004;
+constexpr uint64_t VRHI_STATE_WRITE_A      = 0x0000000000000008;
+constexpr uint64_t VRHI_STATE_WRITE_Z      = 0x0000004000000000;
+
+constexpr uint64_t VRHI_STATE_WRITE_RGB = (
+    VRHI_STATE_WRITE_R |
+    VRHI_STATE_WRITE_G |
+    VRHI_STATE_WRITE_B );
+
+constexpr uint64_t VRHI_STATE_WRITE_MASK = (
+    VRHI_STATE_WRITE_RGB |
+    VRHI_STATE_WRITE_A |
+    VRHI_STATE_WRITE_Z );
+
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_LESS     = 0x0000000000000010;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_LEQUAL   = 0x0000000000000020;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_EQUAL    = 0x0000000000000030;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_GEQUAL   = 0x0000000000000040;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_GREATER  = 0x0000000000000050;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_NOTEQUAL = 0x0000000000000060;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_NEVER    = 0x0000000000000070;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_ALWAYS   = 0x0000000000000080;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_SHIFT    = 4;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_MASK     = 0x00000000000000f0;
+
+constexpr uint64_t VRHI_STATE_BLEND_ZERO           = 0x0000000000001000;
+constexpr uint64_t VRHI_STATE_BLEND_ONE            = 0x0000000000002000;
+constexpr uint64_t VRHI_STATE_BLEND_SRC_COLOUR     = 0x0000000000003000;
+constexpr uint64_t VRHI_STATE_BLEND_INV_SRC_COLOUR = 0x0000000000004000;
+constexpr uint64_t VRHI_STATE_BLEND_SRC_ALPHA      = 0x0000000000005000;
+constexpr uint64_t VRHI_STATE_BLEND_INV_SRC_ALPHA  = 0x0000000000006000;
+constexpr uint64_t VRHI_STATE_BLEND_DST_ALPHA      = 0x0000000000007000;
+constexpr uint64_t VRHI_STATE_BLEND_INV_DST_ALPHA  = 0x0000000000008000;
+constexpr uint64_t VRHI_STATE_BLEND_DST_COLOUR     = 0x0000000000009000;
+constexpr uint64_t VRHI_STATE_BLEND_INV_DST_COLOUR = 0x000000000000a000;
+constexpr uint64_t VRHI_STATE_BLEND_SRC_ALPHA_SAT  = 0x000000000000b000;
+constexpr uint64_t VRHI_STATE_BLEND_FACTOR         = 0x000000000000c000;
+constexpr uint64_t VRHI_STATE_BLEND_INV_FACTOR     = 0x000000000000d000;
+constexpr uint64_t VRHI_STATE_BLEND_SHIFT          = 12;
+constexpr uint64_t VRHI_STATE_BLEND_MASK           = 0x000000000ffff000;
+
+constexpr uint64_t VRHI_STATE_BLEND_EQUATION_ADD    = 0x0000000000000000;
+constexpr uint64_t VRHI_STATE_BLEND_EQUATION_SUB    = 0x0000000010000000;
+constexpr uint64_t VRHI_STATE_BLEND_EQUATION_REVSUB = 0x0000000020000000;
+constexpr uint64_t VRHI_STATE_BLEND_EQUATION_MIN    = 0x0000000030000000;
+constexpr uint64_t VRHI_STATE_BLEND_EQUATION_MAX    = 0x0000000040000000;
+constexpr uint64_t VRHI_STATE_BLEND_EQUATION_SHIFT  = 28;
+constexpr uint64_t VRHI_STATE_BLEND_EQUATION_MASK   = 0x00000003f0000000;
+
+constexpr uint64_t VRHI_STATE_CULL_NONE   = 0x0000000000000000;
+constexpr uint64_t VRHI_STATE_CULL_BACK   = 0x0000000000000100;
+constexpr uint64_t VRHI_STATE_CULL_FRONT  = 0x0000000000000200;
+constexpr uint64_t VRHI_STATE_CULL_SHIFT  = 8;
+constexpr uint64_t VRHI_STATE_CULL_MASK   = 0x0000000000000300;
+
+constexpr uint64_t VRHI_STATE_FRONT_CW    = 0x0000000000000400;
+
+constexpr uint64_t VRHI_STATE_PT_TRIANGLES  = 0x0000000000000000;
+constexpr uint64_t VRHI_STATE_PT_TRISTRIP   = 0x0001000000000000;
+constexpr uint64_t VRHI_STATE_PT_LINES      = 0x0002000000000000;
+constexpr uint64_t VRHI_STATE_PT_LINESTRIP  = 0x0003000000000000;
+constexpr uint64_t VRHI_STATE_PT_POINTS     = 0x0004000000000000;
+constexpr uint64_t VRHI_STATE_PT_SHIFT      = 48;
+constexpr uint64_t VRHI_STATE_PT_MASK       = 0x0007000000000000;
+
+constexpr uint64_t VRHI_STATE_MSAA                    = 0x0100000000000000;
+constexpr uint64_t VRHI_STATE_LINEAA                  = 0x0200000000000000;
+constexpr uint64_t VRHI_STATE_CONSERVATIVE_RASTER     = 0x0400000000000000;
+constexpr uint64_t VRHI_STATE_NONE                    = 0x0000000000000000;
+constexpr uint64_t VRHI_STATE_BLEND_INDEPENDENT       = 0x0000000400000000;
+constexpr uint64_t VRHI_STATE_BLEND_ALPHA_TO_COVERAGE = 0x0000000800000000;
+constexpr uint64_t VRHI_STATE_DEPTH_CLIP              = 0x0001000000000000;
+constexpr uint64_t VRHI_STATE_DEPTH_TEST_ENABLE       = 0x0002000000000000;
+
+constexpr uint64_t VRHI_STATE_DEFAULT = (
+    VRHI_STATE_WRITE_RGB |
+    VRHI_STATE_WRITE_A |
+    VRHI_STATE_WRITE_Z |
+    VRHI_STATE_DEPTH_TEST_LESS |
+    VRHI_STATE_CULL_BACK |
+    VRHI_STATE_MSAA );
+
+constexpr uint64_t VRHI_STATE_MASK            = 0xffffffffffffffff;
+constexpr uint64_t VRHI_STATE_DEBUG_NONE      = 0x0000000000000000;
+constexpr uint64_t VRHI_STATE_DEBUG_LOG_MISSING_BINDINGS = 0x0000000000000001;
+constexpr uint64_t VRHI_STATE_DEBUG_LOG_ALL_BINDINGS     = 0x0000000000000002;
+constexpr uint64_t VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH = 0x0000000000000004;
+constexpr uint64_t VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH = 0x0000000000000008;
+constexpr uint64_t VRHI_STATE_DEBUG_ALL = 0xffffffffffffffff;
+
+// Blend helper macros
+#define VRHI_STATE_BLEND_FUNC_SEPARATE(_srcRGB, _dstRGB, _srcA, _dstA) ( UINT64_C( 0 ) \
+    | ( ( ( uint64_t )( _srcRGB ) | ( ( uint64_t )( _dstRGB ) << 4 ) ) ) \
+    | ( ( ( uint64_t )( _srcA ) | ( ( uint64_t )( _dstA ) << 4 ) ) << 8 ) )
+
+#define VRHI_STATE_BLEND_EQUATION_SEPARATE(_equationRGB, _equationA) ( ( uint64_t )( _equationRGB ) | ( ( uint64_t )( _equationA ) << 3 ) )
+
+#define VRHI_STATE_BLEND_FUNC(_src, _dst)    VRHI_STATE_BLEND_FUNC_SEPARATE( _src, _dst, _src, _dst )
+#define VRHI_STATE_BLEND_EQUATION(_equation) VRHI_STATE_BLEND_EQUATION_SEPARATE( _equation, _equation )
+
+// Predefined blend modes
+constexpr uint64_t VRHI_STATE_BLEND_ADD = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE ) );
+
+constexpr uint64_t VRHI_STATE_BLEND_ALPHA = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_SRC_ALPHA, VRHI_STATE_BLEND_INV_SRC_ALPHA ) );
+
+constexpr uint64_t VRHI_STATE_BLEND_DARKEN = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE ) |
+    VRHI_STATE_BLEND_EQUATION( VRHI_STATE_BLEND_EQUATION_MIN ) );
+
+constexpr uint64_t VRHI_STATE_BLEND_LIGHTEN = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE ) |
+    VRHI_STATE_BLEND_EQUATION( VRHI_STATE_BLEND_EQUATION_MAX ) );
+
+constexpr uint64_t VRHI_STATE_BLEND_MULTIPLY = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO ) );
+
+constexpr uint64_t VRHI_STATE_BLEND_NORMAL = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_INV_SRC_ALPHA ) );
+
+constexpr uint64_t VRHI_STATE_BLEND_SCREEN = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_INV_SRC_COLOUR ) );
+
+constexpr uint64_t VRHI_STATE_BLEND_LINEAR_BURN = (
+    VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_INV_DST_COLOUR ) |
+    VRHI_STATE_BLEND_EQUATION( VRHI_STATE_BLEND_EQUATION_SUB ) );
+
+// --------------------------------------------------------------------------
+// Stencil
+// --------------------------------------------------------------------------
+
+constexpr uint64_t VRHI_STENCIL_NONE   = 0x0000000000000000;
+constexpr uint64_t VRHI_STENCIL_MASK   = 0xffffffffffffffff;
+constexpr uint64_t VRHI_STENCIL_DEFAULT = 0x0000000000000000;
+
+constexpr uint64_t VRHI_STENCIL_FUNC_REF_SHIFT = 0;
+constexpr uint64_t VRHI_STENCIL_FUNC_REF_MASK  = 0x00000000000000ff;
+#define VRHI_STENCIL_FUNC_REF(v) ( ( ( uint64_t )( v ) << VRHI_STENCIL_FUNC_REF_SHIFT ) & VRHI_STENCIL_FUNC_REF_MASK )
+
+constexpr uint64_t VRHI_STENCIL_FUNC_RMASK_SHIFT = 8;
+constexpr uint64_t VRHI_STENCIL_FUNC_RMASK_MASK  = 0x000000000000ff00;
+#define VRHI_STENCIL_FUNC_RMASK(v) ( ( ( uint64_t )( v ) << VRHI_STENCIL_FUNC_RMASK_SHIFT ) & VRHI_STENCIL_FUNC_RMASK_MASK )
+
+constexpr uint64_t VRHI_STENCIL_FUNC_WMASK_SHIFT = 16;
+constexpr uint64_t VRHI_STENCIL_FUNC_WMASK_MASK  = 0x0000000000ff0000;
+#define VRHI_STENCIL_FUNC_WMASK(v) ( ( ( uint64_t )( v ) << VRHI_STENCIL_FUNC_WMASK_SHIFT ) & VRHI_STENCIL_FUNC_WMASK_MASK )
+
+constexpr uint64_t VRHI_STENCIL_TEST_LESS     = 0x0000000001000000;
+constexpr uint64_t VRHI_STENCIL_TEST_LEQUAL   = 0x0000000002000000;
+constexpr uint64_t VRHI_STENCIL_TEST_EQUAL    = 0x0000000003000000;
+constexpr uint64_t VRHI_STENCIL_TEST_GEQUAL   = 0x0000000004000000;
+constexpr uint64_t VRHI_STENCIL_TEST_GREATER  = 0x0000000005000000;
+constexpr uint64_t VRHI_STENCIL_TEST_NOTEQUAL = 0x0000000006000000;
+constexpr uint64_t VRHI_STENCIL_TEST_NEVER    = 0x0000000007000000;
+constexpr uint64_t VRHI_STENCIL_TEST_ALWAYS   = 0x0000000008000000;
+constexpr uint64_t VRHI_STENCIL_TEST_SHIFT    = 24;
+constexpr uint64_t VRHI_STENCIL_TEST_MASK     = 0x000000000f000000;
+
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_ZERO     = 0x0000000000000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_KEEP     = 0x0000000010000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_REPLACE  = 0x0000000020000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_INCR     = 0x0000000030000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_INCRSAT  = 0x0000000040000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_DECR     = 0x0000000050000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_DECRSAT  = 0x0000000060000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_INVERT   = 0x0000000070000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_SHIFT    = 28;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_S_MASK     = 0x00000000f0000000;
+
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_ZERO     = 0x0000000000000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_KEEP     = 0x0000000100000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_REPLACE  = 0x0000000200000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_INCR     = 0x0000000300000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_INCRSAT  = 0x0000000400000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_DECR     = 0x0000000500000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_DECRSAT  = 0x0000000600000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_INVERT   = 0x0000000700000000;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_SHIFT    = 32;
+constexpr uint64_t VRHI_STENCIL_OP_FAIL_Z_MASK     = 0x0000000f00000000;
+
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_ZERO     = 0x0000000000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_KEEP     = 0x0000001000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_REPLACE  = 0x0000002000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_INCR     = 0x0000003000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_INCRSAT  = 0x0000004000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_DECR     = 0x0000005000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_DECRSAT  = 0x0000006000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_INVERT   = 0x0000007000000000;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_SHIFT    = 36;
+constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_MASK     = 0x000000f000000000;
+
+constexpr uint64_t VRHI_STENCIL_BACK_TEST_SHIFT    = 40;
+constexpr uint64_t VRHI_STENCIL_BACK_TEST_MASK     = 0x00000f0000000000;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_S_SHIFT = 44;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_S_MASK  = 0x000f000000000000;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_Z_SHIFT = 48;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_Z_MASK  = 0x00f0000000000000;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_PASS_Z_SHIFT = 52;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_PASS_Z_MASK  = 0x00f0000000000000;
+
+// --------------------------------------------------------------------------
+// Clear
+// --------------------------------------------------------------------------
+
+constexpr uint16_t VRHI_CLEAR_NONE            = 0x0000;
+constexpr uint16_t VRHI_CLEAR_COLOR           = 0x0001;
+constexpr uint16_t VRHI_CLEAR_DEPTH           = 0x0002;
+constexpr uint16_t VRHI_CLEAR_STENCIL         = 0x0004;
+constexpr uint16_t VRHI_CLEAR_UINT            = 0x2000;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_0 = 0x0008;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_1 = 0x0010;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_2 = 0x0020;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_3 = 0x0040;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_4 = 0x0080;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_5 = 0x0100;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_6 = 0x0200;
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_7 = 0x0400;
+constexpr uint16_t VRHI_CLEAR_DISCARD_DEPTH   = 0x0800;
+constexpr uint16_t VRHI_CLEAR_DISCARD_STENCIL = 0x1000;
+
+constexpr uint16_t VRHI_CLEAR_DISCARD_COLOR_MASK = (
+    VRHI_CLEAR_DISCARD_COLOR_0 |
+    VRHI_CLEAR_DISCARD_COLOR_1 |
+    VRHI_CLEAR_DISCARD_COLOR_2 |
+    VRHI_CLEAR_DISCARD_COLOR_3 |
+    VRHI_CLEAR_DISCARD_COLOR_4 |
+    VRHI_CLEAR_DISCARD_COLOR_5 |
+    VRHI_CLEAR_DISCARD_COLOR_6 |
+    VRHI_CLEAR_DISCARD_COLOR_7 );
+
+constexpr uint16_t VRHI_CLEAR_DISCARD_MASK = (
+    VRHI_CLEAR_DISCARD_COLOR_MASK |
+    VRHI_CLEAR_DISCARD_DEPTH |
+    VRHI_CLEAR_DISCARD_STENCIL );
+
+// --------------------------------------------------------------------------
+// Variable Rate Shading
+// --------------------------------------------------------------------------
+
+constexpr uint64_t VRHI_VRS_1X1 = 0x0; // Full resolution (default)
+constexpr uint64_t VRHI_VRS_1X2 = 0x1;
+constexpr uint64_t VRHI_VRS_2X1 = 0x2;
+constexpr uint64_t VRHI_VRS_2X2 = 0x3;
+constexpr uint64_t VRHI_VRS_2X4 = 0x4;
+constexpr uint64_t VRHI_VRS_4X2 = 0x5;
+constexpr uint64_t VRHI_VRS_4X4 = 0x6;
+
+constexpr uint64_t VRHI_VRS_COMBINER_PASSTHROUGH = 0x00;
+constexpr uint64_t VRHI_VRS_COMBINER_OVERRIDE    = 0x10;
+constexpr uint64_t VRHI_VRS_COMBINER_MIN         = 0x20;
+constexpr uint64_t VRHI_VRS_COMBINER_MAX         = 0x30;
+constexpr uint64_t VRHI_VRS_COMBINER_SUM         = 0x40;
+
+// --------------------------------------------------------------------------
+// Dirty Flags & Draw Flags
+// --------------------------------------------------------------------------
+
+constexpr uint64_t VRHI_DIRTY_WORLD            = ( 1ULL << 0 );
+constexpr uint64_t VRHI_DIRTY_VERTEX_INDEX     = ( 1ULL << 1 );
+constexpr uint64_t VRHI_DIRTY_CAMERA           = ( 1ULL << 2 );
+constexpr uint64_t VRHI_DIRTY_PIPELINE         = ( 1ULL << 3 );
+constexpr uint64_t VRHI_DIRTY_VIEWPORT         = ( 1ULL << 4 );
+constexpr uint64_t VRHI_DIRTY_ATTACHMENTS      = ( 1ULL << 5 );
+constexpr uint64_t VRHI_DIRTY_TEXTURE_SAMPLERS = ( 1ULL << 6 );
+constexpr uint64_t VRHI_DIRTY_BUFFERS          = ( 1ULL << 7 );
+constexpr uint64_t VRHI_DIRTY_CONSTANTS        = ( 1ULL << 8 );
+constexpr uint64_t VRHI_DIRTY_PUSH_CONSTANTS   = ( 1ULL << 9 );
+constexpr uint64_t VRHI_DIRTY_PROGRAM          = ( 1ULL << 10 );
+constexpr uint64_t VRHI_DIRTY_UNIFORMS         = ( 1ULL << 11 );
+constexpr uint64_t VRHI_DIRTY_VRS              = ( 1ULL << 12 );
+constexpr uint64_t VRHI_DIRTY_INDIRECT         = ( 1ULL << 13 );
+constexpr uint64_t VRHI_DIRTY_DEPTH_BIAS       = ( 1ULL << 14 );
+constexpr uint64_t VRHI_DIRTY_ALL              = 0xFFFFFFFFFFFFFFFF;
+
+constexpr uint32_t VRHI_DRAW_INDEXED  = ( 1u << 0 );
+constexpr uint32_t VRHI_DRAW_INDIRECT = ( 1u << 1 );
+
+// Render target blend helper macros (cannot be constexpr)
+#define VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst) (0         \
+    | ( (uint32_t)( (_src)>>VRHI_STATE_BLEND_SHIFT)       \
+    | ( (uint32_t)( (_dst)>>VRHI_STATE_BLEND_SHIFT)<<4) ) \
+    )
+
+#define VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation) (0         \
+    | VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)                          \
+    | ( (uint32_t)( (_equation)>>VRHI_STATE_BLEND_EQUATION_SHIFT)<<8) \
+    )
+
+#define VRHI_STATE_BLEND_FUNC_RT_1(_src, _dst)  (VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)<< 0)
+#define VRHI_STATE_BLEND_FUNC_RT_2(_src, _dst)  (VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)<<11)
+#define VRHI_STATE_BLEND_FUNC_RT_3(_src, _dst)  (VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst)<<22)
+
+#define VRHI_STATE_BLEND_FUNC_RT_1E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<< 0)
+#define VRHI_STATE_BLEND_FUNC_RT_2E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<<11)
+#define VRHI_STATE_BLEND_FUNC_RT_3E(_src, _dst, _equation) (VRHI_STATE_BLEND_FUNC_RT_xE(_src, _dst, _equation)<<22)
+
+// --------------------------------------------------------------------------
 // Interface
 // --------------------------------------------------------------------------
 
@@ -114,7 +588,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 // Initialises the Vulkan RHI and starts the backend command thread.
 //
-// Must be called before any other RHI functions. Uses |g_vhInit| for configuration.
+// Must be called before any other RHI functions. Uses `g_vhInit` for configuration.
 // If windowHandle is provided in g_vhInit, a swapchain will be created.
 void vhInit( bool quiet = false );
 
@@ -125,7 +599,7 @@ void vhShutdown( bool quiet = false );
 
 // Presents the current frame and advances the swapchain.
 // Returns false if the swapchain is invalid or window is resized.
-// If running in headless mode, this simply flushes commands and waits if vsync-like behavior is desired, always returning true.
+// If running in headless mode, this simply flushes commands and waits if vsync-like behaviour is desired, always returning true.
 bool vhFrame();
 
 // Returns the texture handle for the current backbuffer of the swapchain.
@@ -185,7 +659,7 @@ uint64_t vhGetFrameNumber();
 // Returns true if the feature is supported on the current device.
 //
 // For features that require additional information (e.g. VRS tile size), pass an optional
-// output struct via |pInfo| with size |infoSize|. See nvrhi::Feature for available features.
+// output struct via `pInfo` with size `infoSize`. See nvrhi::Feature for available features.
 bool vhQueryFeatureSupport( nvrhi::Feature feature, void* pInfo = nullptr, size_t infoSize = 0 );
 
 // Queries the supported operations for a specific texture/buffer format.
@@ -195,13 +669,14 @@ nvrhi::FormatSupport vhQueryFormatSupport( nvrhi::Format format );
 
 // Flushes the command queue to the backend.
 //
-// If |wait| is true, blocks until the backend has processed all queued commands.
-// If |wait| is false, returns immediately after submitting the flush.
+// If `wait` is true, blocks until the backend has processed all queued commands.
+// If `wait` is false, returns immediately after submitting the flush.
 //
 // This does not wait for the GPU to finish executing the work; use `vhFinish()` for that.
 void vhFlush( bool wait = true );
 
-// Blocks until all commands have been processed and the GPU has reached an idle state.
+// Flushes all commands and blocks until the GPU has completed all queued work.
+// Use this for synchronisation points, readbacks, or before accessing GPU results.
 void vhFinish();
 
 // Clears backend caches (e.g. framebuffers). Call this after a window resize.
@@ -230,22 +705,24 @@ void vhEndTimerQuery( vhTimerID timerID );
 // Note: Due to GPU/CPU latency, you should read results from N frames ago (ring buffer of VRHI_MAX_FRAMES_INFLIGHT).
 float vhGetTimerQueryTime( vhTimerID timerID );
 
-// Places a debug marker denoting the beginning of a range of commands.
-// Use vhEndMarker( ) to close the range. Ranges may be nested.
+// Begins a debug marker region for GPU capture tools (RenderDoc, etc).
+// `name` is the marker name to display in profiling tools.
 // If g_vhInit.markers is false, this call is ignored.
 // VIDL_GENERATE
 void vhBeginMarker( const std::string& name );
 
-// Places a debug marker denoting the end of a range of commands.
+// Ends a debug marker region.
 // If g_vhInit.markers is false, this call is ignored.
 // VIDL_GENERATE
 void vhEndMarker();
 
-// Starts a RenderDoc frame capture if RenderDoc integration is enabled.
+// Begins a frame capture for GPU debugging tools.
+// If g_vhInit.markers is false, this call is ignored.
 // VIDL_GENERATE
 void vhCaptureStart();
 
-// Ends a RenderDoc frame capture if RenderDoc integration is enabled.
+// Ends the frame capture.
+// If g_vhInit.markers is false, this call is ignored.
 // VIDL_GENERATE
 void vhCaptureEnd();
 
@@ -288,35 +765,37 @@ struct vhTexInfo
 
 // Allocates a unique texture handle.
 //
-// Returns a valid |vhTexture| handle, or |VRHI_INVALID_HANDLE| on failure.
+// Returns a valid `vhTexture` handle, or `VRHI_INVALID_HANDLE` on failure.
 vhTexture vhAllocTexture();
 
+// Resets internal texture state without destroying the handle.
 // VIDL_GENERATE
 void vhResetTexture( vhTexture texture );
 
 // Allocates a unique buffer handle.
 //
-// Returns a valid |vhBuffer| handle, or |VRHI_INVALID_HANDLE| on failure.
+// Returns a valid `vhBuffer` handle, or `VRHI_INVALID_HANDLE` on failure.
 vhBuffer vhAllocBuffer();
 
+// Resets internal buffer state without destroying the handle.
 // VIDL_GENERATE
 void vhResetBuffer( vhBuffer buffer );
 
-// Enqueues a command to destroy the texture associated with |texture|.
+// Enqueues a command to destroy the texture associated with `texture`.
 //
-// |texture| is the handle to the texture to be destroyed.
+// `texture` is the handle to the texture to be destroyed.
 // VIDL_GENERATE
 void vhDestroyTexture( vhTexture texture );
 
 // Enqueues a command to create a texture with the specified parameters.
 //
-// |texture| must be a handle allocated via |vhAllocTexture|.
-// |target| specifies the texture dimensionality.
-// |dimensions| specifies width, height, and depth.
-// |numMips| and |numLayers| specify mip count and array size.
-// |format| is the pixel format.
-// |flag| specifies usage and sampling options.
-// |data| is optional initial pixel data. Takes ownership of the memory.
+// `texture` must be a handle allocated via `vhAllocTexture`.
+// `target` specifies the texture dimensionality.
+// `dimensions` specifies width, height, and depth.
+// `numMips` and `numLayers` specify mip count and array size.
+// `format` is the pixel format.
+// `flag` specifies usage and sampling options.
+// `data` is optional initial pixel data. Takes ownership of the memory.
 // VIDL_GENERATE
 void vhCreateTexture(
     vhTexture texture,
@@ -397,10 +876,10 @@ inline void vhCreateTextureCubeArray(
 
 // Enqueues a command to update a subresource range of a texture.
 //
-// |texture| is the handle to the texture to update.
-// |startMips| and |startLayers| define the beginning of the range.
-// |numMips| and |numLayers| define the size of the range.
-// |data| contains the pixel data for the entire texture. Takes ownership of the memory.
+// `texture` is the handle to the texture to update.
+// `startMips` and `startLayers` define the beginning of the range.
+// `numMips` and `numLayers` define the size of the range.
+// `data` contains the pixel data for the entire texture. Takes ownership of the memory.
 // VIDL_GENERATE
 void vhUpdateTexture(
     vhTexture texture,
@@ -412,9 +891,9 @@ void vhUpdateTexture(
 // Enqueues a command to read a subresource range of a texture.
 // WARNING: This is a slow path operation, generally for debugging or screenshot purposes.
 //
-// |texture| is the handle to the texture to read.
-// |mip| and |layer| define the subresource to read.
-// |outData| is the destination for the pixel data. DOES NOT take ownership of the memory.
+// `texture` is the handle to the texture to read.
+// `mip` and `layer` define the subresource to read.
+// `outData` is the destination for the pixel data. DOES NOT take ownership of the memory.
 // VIDL_GENERATE
 void vhReadTextureSlow(
     vhTexture texture,
@@ -424,12 +903,12 @@ void vhReadTextureSlow(
 
 // Enqueues a command to blit (copy/resize/convert) a region from one texture to another.
 //
-// |dst| and |src| are the destination and source texture handles.
-// |dstMip| and |srcMip| specify the mip levels to use.
-// |dstLayer| and |srcLayer| specify the array layers to use.
-// |dstOffset| and |srcOffset| are the starting coordinates in the respective textures.
-// |extent| is the size of the region to blit. If width or height are <= 0, the full source mip size is used.
-// Note: Destination texture must have been created with the |VRHI_TEXTURE_BLIT_DST| flag.
+// `dst` and `src` are the destination and source texture handles.
+// `dstMip` and `srcMip` specify the mip levels to use.
+// `dstLayer` and `srcLayer` specify the array layers to use.
+// `dstOffset` and `srcOffset` are the starting coordinates in the respective textures.
+// `extent` is the size of the region to blit. If width or height are <= 0, the full source mip size is used.
+// Note: Destination texture must have been created with the `VRHI_TEXTURE_BLIT_DST` flag.
 // VIDL_GENERATE
 void vhBlitTexture(
     vhTexture dst, vhTexture src,
@@ -449,7 +928,7 @@ struct vhFormatInfo
     int32_t compressionBlockHeight = 0;
 };
 
-// Returns metadata for the specified |format|.
+// Returns metadata for the specified `format`.
 inline vhFormatInfo vhGetFormat( nvrhi::Format format )
 {
     const nvrhi::FormatInfo& info = nvrhi::getFormatInfo( format );
@@ -488,10 +967,10 @@ bool vhValidateVertexLayout( const vhVertexLayout& layout );
 
 // Allocates a unique buffer handle.
 //
-// Returns a valid |vhBuffer| handle, or |VRHI_INVALID_HANDLE| on failure.
+// Returns a valid `vhBuffer` handle, or `VRHI_INVALID_HANDLE` on failure.
 vhBuffer vhAllocBuffer();
 
-// |numVerts| is the number of vertices in the buffer. It is ignored if |data| is not null.
+// `numVerts` is the number of vertices in the buffer. It is ignored if `data` is not null.
 // VIDL_GENERATE
 void vhCreateVertexBuffer(
     vhBuffer buffer,
@@ -504,10 +983,12 @@ void vhCreateVertexBuffer(
 
 // Enqueues a command to update a buffer with the specified data.
 //
-// |buffer| is the handle to the buffer to update.
-// |data| is the source data. Takes ownership of the memory.
-// |offsetVerts| is the vertex offset within the buffer to start writing (in vertices, not bytes).
-// |numVerts| is the number of vertices in the buffer. It is ignored if |data| is not null.
+// `buffer` is the handle to the buffer to update.
+// `data` is the source data. Takes ownership of the memory.
+// `offsetVerts` is the vertex offset within the buffer to start writing (in vertices, not bytes).
+// `numVerts` is the number of vertices in the buffer. It is ignored if `data` is not null.
+// NOTE: If updating with data larger than current buffer size, VRHI_BUFFER_ALLOW_RESIZE
+// must have been set during buffer creation. Without it, oversized updates will error.
 // VIDL_GENERATE
 void vhUpdateVertexBuffer(
     vhBuffer buffer,
@@ -516,6 +997,13 @@ void vhUpdateVertexBuffer(
     uint64_t numVerts = 0
 );
 
+// Enqueues a command to create an index buffer with the specified parameters.
+//
+// `buffer` must be a handle allocated via `vhAllocBuffer`.
+// `name` is an optional debug name for the buffer.
+// `data` is optional initial data. Takes ownership of the memory.
+// `numIndices` is the number of indices. It is ignored if `data` is not null.
+// `flags` specifies usage options.
 // VIDL_GENERATE
 void vhCreateIndexBuffer(
     vhBuffer buffer,
@@ -527,10 +1015,12 @@ void vhCreateIndexBuffer(
 
 // Enqueues a command to update an index buffer with the specified data.
 //
-// |buffer| is the handle to the buffer to update.
-// |data| is the source data. Takes ownership of the memory.
-// |offsetIndices| is the index offset within the buffer to start writing (in indices, not bytes).
-// |numIndices| is the number of indices in the buffer. It is ignored if |data| is not null.
+// `buffer` is the handle to the buffer to update.
+// `data` is the source data. Takes ownership of the memory.
+// `offsetIndices` is the index offset within the buffer to start writing (in indices, not bytes).
+// `numIndices` is the number of indices in the buffer. It is ignored if `data` is not null.
+// NOTE: If updating with data larger than current buffer size, VRHI_BUFFER_ALLOW_RESIZE
+// must have been set during buffer creation. Without it, oversized updates will error.
 // VIDL_GENERATE
 void vhUpdateIndexBuffer(
     vhBuffer buffer,
@@ -541,11 +1031,11 @@ void vhUpdateIndexBuffer(
 
 // Enqueues a command to create a uniform buffer with the specified parameters.
 //
-// |buffer| must be a handle allocated via |vhAllocBuffer|.
-// |name| is an optional debug name for the buffer.
-// |data| is optional initial data. Takes ownership of the memory.
-// |size| is the size in bytes. It is ignored if |data| is not null.
-// |flags| specifies usage options.
+// `buffer` must be a handle allocated via `vhAllocBuffer`.
+// `name` is an optional debug name for the buffer.
+// `data` is optional initial data. Takes ownership of the memory.
+// `size` is the size in bytes. It is ignored if `data` is not null.
+// `flags` specifies usage options.
 // VIDL_GENERATE
 void vhCreateUniformBuffer(
     vhBuffer buffer,
@@ -560,10 +1050,10 @@ void vhCreateUniformBuffer(
 // NOTE: Do not use this for per-drawcall CPU updated data. While it would work, it will stall the GPU pipeline hard and you will get bad performance.
 //       Either implement a ring buffer system, or use vhState's uniform mechanism which does exactly that. GPU -> GPU transfers are OK.
 //
-// |buffer| is the handle to the buffer to update.
-// |data| is the source data. Takes ownership of the memory.
-// |offset| is the byte offset within the buffer to start writing.
-// |size| is the size in bytes. It is ignored if |data| is not null.
+// `buffer` is the handle to the buffer to update.
+// `data` is the source data. Takes ownership of the memory.
+// `offset` is the byte offset within the buffer to start writing.
+// `size` is the size in bytes. It is ignored if `data` is not null.
 // Note: While byte-level access is supported, using 4-byte aligned offsets/sizes is recommended for performance (hits the fast-path).
 // VIDL_GENERATE
 void vhUpdateUniformBuffer(
@@ -575,13 +1065,13 @@ void vhUpdateUniformBuffer(
 
 // Enqueues a command to create a storage buffer with the specified parameters.
 //
-// |buffer| must be a handle allocated via |vhAllocBuffer|.
-// |name| is an optional debug name for the buffer.
-// |data| is optional initial data. Takes ownership of the memory.
-// |size| is the size in bytes. It is ignored if |data| is not null.
-// |flags| specifies usage options.
-// |stride| is the structure stride for Structured Buffers (default 0 for Raw/ByteAddress).
-// |format| is the format for Typed Buffers (default UNKNOWN).
+// `buffer` must be a handle allocated via `vhAllocBuffer`.
+// `name` is an optional debug name for the buffer.
+// `data` is optional initial data. Takes ownership of the memory.
+// `size` is the size in bytes. It is ignored if `data` is not null.
+// `flags` specifies usage options.
+// `stride` is the structure stride for Structured Buffers (default 0 for Raw/ByteAddress).
+// `format` is the format for Typed Buffers (default UNKNOWN).
 // VIDL_GENERATE
 void vhCreateStorageBuffer(
     vhBuffer buffer,
@@ -593,6 +1083,8 @@ void vhCreateStorageBuffer(
     nvrhi::Format format = nvrhi::Format::UNKNOWN
 );
 
+// Convenience wrapper for creating a structured storage buffer.
+// Calls vhCreateStorageBuffer with format = UNKNOWN.
 inline void vhCreateStorageStructuredBuffer(
     vhBuffer buffer,
     const char* name,
@@ -605,6 +1097,8 @@ inline void vhCreateStorageStructuredBuffer(
     vhCreateStorageBuffer( buffer, name, data, size, flags, stride, nvrhi::Format::UNKNOWN );
 }
 
+// Convenience wrapper for creating a typed storage buffer.
+// Calls vhCreateStorageBuffer with stride = 0.
 inline void vhCreateStorageTypedBuffer(
     vhBuffer buffer,
     const char* name,
@@ -619,10 +1113,10 @@ inline void vhCreateStorageTypedBuffer(
 
 // Enqueues a command to update a storage buffer with the specified data.
 //
-// |buffer| is the handle to the buffer to update.
-// |data| is the source data. Takes ownership of the memory.
-// |offset| is the byte offset within the buffer to start writing.
-// |size| is the size in bytes. It is ignored if |data| is not null.
+// `buffer` is the handle to the buffer to update.
+// `data` is the source data. Takes ownership of the memory.
+// `offset` is the byte offset within the buffer to start writing.
+// `size` is the size in bytes. It is ignored if `data` is not null.
 // Note: While byte-level access is supported, using 4-byte aligned offsets/sizes is recommended for performance (hits the fast-path).
 // VIDL_GENERATE
 void vhUpdateStorageBuffer(
@@ -632,6 +1126,12 @@ void vhUpdateStorageBuffer(
     uint64_t size = 0
 );
 
+// Enqueues a command to blit (copy) a region from one buffer to another.
+//
+// `dst` and `src` are the destination and source buffer handles.
+// `dstOffset` is the byte offset in the destination buffer to start writing.
+// `srcOffset` is the byte offset in the source buffer to start reading.
+// `size` is the size in bytes to copy. If 0, copies the entire source buffer.
 // VIDL_GENERATE
 void vhBlitBuffer(
     vhBuffer dst, vhBuffer src,
@@ -640,9 +1140,9 @@ void vhBlitBuffer(
     uint64_t size = 0
 );
 
-// Enqueues a command to destroy the buffer associated with |buffer|.
+// Enqueues a command to destroy the buffer associated with `buffer`.
 //
-// |buffer| is the handle to the buffer to be destroyed.
+// `buffer` is the handle to the buffer to be destroyed.
 // VIDL_GENERATE
 void vhDestroyBuffer( vhBuffer buffer );
 
@@ -655,6 +1155,9 @@ void* vhGetBufferNvrhiHandle( vhBuffer buffer );
 
 // ------------ Shaders ------------
 
+// Allocates a unique shader handle.
+//
+// Returns a valid `vhShader` handle, or `VRHI_INVALID_HANDLE` on failure.
 vhShader vhAllocShader();
 
 struct vhReflectionMember
@@ -703,6 +1206,17 @@ void vhGetShaderInfo(
 // Returns the raw NVRHI handle (nvrhi::IShader*).
 void* vhGetShaderNvrhiHandle( vhShader shader );
 
+// Compiles shader source code to SPIR-V bytecode using ShaderMake.
+//
+// `name` is an optional debug name for the shader.
+// `source` is the HLSL/GLSL source code to compile.
+// `flags` specifies shader stage and compile options (VRHI_SHADER_STAGE_*, VRHI_SHADER_DEBUG, etc.).
+// `outSpirv` receives the compiled SPIR-V bytecode.
+// `entry` is the entry point function name (default: "main").
+// `defines` are preprocessor definitions to pass to the compiler.
+// `includes` are additional include directories for shader compilation.
+// `outError` receives error messages if compilation fails.
+// Returns true on success, false on failure.
 bool vhCompileShader(
     const char* name,
     const char* source,
@@ -716,7 +1230,7 @@ bool vhCompileShader(
 
 // Enqueues a command to create a shader from SPIR-V bytecode.
 //
-// |flags| is one of VRHI_SHADER_STAGE_*.
+// `flags` is one of VRHI_SHADER_STAGE_*.
 // VIDL_GENERATE
 void vhCreateShader(
     vhShader shader,
@@ -796,7 +1310,7 @@ typedef uint64_t vhStateId;
 typedef uint64_t vhFramebuffer;
 
 // This represents the entire draw state.
-// You can submit multiple multiple draw calls or compute dispatches with the same state.
+// You can submit multiple draw calls or compute dispatches with the same state.
 // This is intended to be created globally and stored for the duration of the application.
 //
 struct vhState
@@ -819,7 +1333,7 @@ struct vhState
 
     glm::vec4 pushConstants = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
     
-    // Blend constant color (for blend modes that reference constant color)
+    // Blend constant colour (for blend modes that reference constant colour)
     glm::vec4 blendConstantColor = glm::vec4( 0.0f );
 
     // Viewport depth range (minZ, maxZ) - defaults to standard 0.0 to 1.0 range
@@ -1174,6 +1688,8 @@ struct vhState
         dirty |= VRHI_DIRTY_ATTACHMENTS;
         return *this;
     }
+    // Marks all state as dirty, forcing full re-upload on next vhSetState.
+    // Required when reusing a vhState across multiple state IDs or consecutive draws.
     vhState& DirtyAll()
     {
         dirty = VRHI_DIRTY_ALL;
@@ -1186,38 +1702,75 @@ extern vhState g_state0;
 extern vhState g_state1;
 
 // Query state from backend.
+//
+// `id` is the state ID to query.
+// `outState` receives the current state values.
 // WARNING: This is slow and should be used mostly for debugging.
 bool vhGetState( vhStateId id, vhState& outState );
 
 // Set state on backend.
+//
+// `id` is the state ID to set.
+// `state` contains the new state values.
+// `dirtyForceMask` forces specified dirty bits to be set regardless of state's internal dirty tracking.
 // This automatically uploads via dirty flags, making it efficient to call multiple times.
+// IMPORTANT: vhSetState clears the dirty bits after upload. If you reuse the same vhState
+// for multiple draw calls, call state.DirtyAll() before subsequent vhSetState calls.
 bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask = 0 );
 
 // ------------ Submits ------------
 
+// Dispatches a compute shader workload.
+//
+// `stateID` is the state ID containing the compute program and bindings.
+// `workGroupCount` is the number of work groups to dispatch (x, y, z).
 // VIDL_GENERATE
 void vhDispatch( vhStateId stateID, glm::uvec3 workGroupCount );
 
+// Dispatches a compute shader using indirect parameters from a buffer.
+//
+// `stateID` is the state ID containing the compute program and bindings.
+// `indirectBuffer` contains the dispatch arguments (x, y, z as 3 uint32s).
+// `byteOffset` is the offset in bytes into the indirect buffer.
 // VIDL_GENERATE
 void vhDispatchIndirect( vhStateId stateID, vhBuffer indirectBuffer, uint64_t byteOffset = 0 );
 
 // Draws non-indexed primitives.
+//
+// `state` is the state ID containing render state.
+// `vertexCount` is the number of vertices to draw.
+// `instanceCount` is the number of instances to draw (default 1).
+// `startVertexLocation` is the first vertex to draw (default 0).
+// `startInstanceLocation` is the first instance to draw (default 0).
 void vhDraw( vhStateId state, uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t startVertexLocation = 0, uint32_t startInstanceLocation = 0 );
 
 // Draws indexed primitives.
+//
+// `state` is the state ID containing render state.
+// `indexCount` is the number of indices to draw.
+// `instanceCount` is the number of instances to draw (default 1).
+// `startIndexLocation` is the first index to draw (default 0).
+// `baseVertexLocation` is the value added to each index (default 0).
+// `startInstanceLocation` is the first instance to draw (default 0).
 void vhDrawIndexed( vhStateId state, uint32_t indexCount, uint32_t instanceCount = 1, uint32_t startIndexLocation = 0, int32_t baseVertexLocation = 0, uint32_t startInstanceLocation = 0 );
 
 // Draws non-indexed primitives using indirect buffer.
+//
+// `state` is the state ID containing render state.
 // Indirect buffer must be set via state.SetIndirectParams().
+// `drawCount` is the number of draw calls in the indirect buffer (default 1).
 void vhDrawIndirect( vhStateId state, uint32_t drawCount = 1 );
 
 // Draws indexed primitives using indirect buffer.
+//
+// `state` is the state ID containing render state.
 // Indirect buffer must be set via state.SetIndirectParams().
+// `drawCount` is the number of draw calls in the indirect buffer (default 1).
 void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount = 1 );
 
 // Clears the attachments bound in the state.
-// |state| is the state ID containing bound colour and depth attachments to clear.
-// |clearFlags| specifies what to clear (VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH | VRHI_CLEAR_STENCIL).
+// `state` is the state ID containing bound colour and depth attachments to clear.
+// `clearFlags` specifies what to clear (VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH | VRHI_CLEAR_STENCIL).
 // Clear values are taken from the state.
 // VIDL_GENERATE
 void vhClear( vhStateId state, uint16_t clearFlags = VRHI_CLEAR_COLOR );
@@ -1229,6 +1782,8 @@ void vhClear( vhStateId state, uint16_t clearFlags = VRHI_CLEAR_COLOR );
 // Triple-buffered ring allocator.
 // Use this to prevent CPU-GPU sync stalls by maintaining a separate buffer for each frame-in-flight.
 // Step() must be called once per frame to advance the ring.
+// Step() advances to the next frame's buffer but does NOT reset the allocation offset.
+// Call Reset() at frame start to reuse buffer space.
 //
 class vhTransientAllocator
 {
@@ -1307,6 +1862,8 @@ public:
 
 // --------------------------------------------------------------------------
 // vhSubAllocator - Non-transient sub-allocator with deferred freeing
+// Frees are deferred by 3 frames to avoid GPU sync issues.
+// The memory won't be available for reallocation until Step() has been called 3 times.
 // --------------------------------------------------------------------------
 
 class vhSubAllocator
