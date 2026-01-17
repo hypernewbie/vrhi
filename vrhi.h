@@ -131,9 +131,6 @@ bool vhFrame();
 // Returns VRHI_INVALID_HANDLE if in headless mode.
 vhTexture vhGetBackbuffer();
 
-// Returns the size of the swapchain backbuffer.
-glm::uvec2 vhGetBackbufferSize();
-
 struct vhMemoryStats
 {
     uint64_t heapBudget[16] = {};    // Available budget per heap (bytes)
@@ -178,6 +175,10 @@ vhMemoryStats vhStatsMemory();
 // Returns current frame or previous frame completed statistics.
 // Counters are reset at the start of vhFrame().
 vhRenderStats vhGetStats();
+
+// Returns the total number of frames presented (or flushed in headless mode) since initialisation.
+// This counter starts at 0 and increments at the end of every vhFrame() call.
+uint64_t vhGetFrameNumber();
 
 // Queries whether a specific device feature is supported.
 // Returns true if the feature is supported on the current device.

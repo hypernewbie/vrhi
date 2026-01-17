@@ -53,6 +53,7 @@ glm::uvec2 g_vhWindowSize = glm::uvec2( 0, 0 );
 bool g_vhMemoryBudgetEnabled = false;
 std::atomic<uint64_t> g_vhDrawCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhDispatchCallsAccumulator = 0;
+std::atomic<uint64_t> g_vhFrameCount = 0;
 vhRenderStats g_vhLastFrameStats = {};
 vhDeviceInfo g_vhDeviceInfo = {};
 
@@ -137,6 +138,7 @@ void vhInit( bool quiet )
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
     g_vhErrorCounter = 0;
     g_vhPSOCompileCounter = 0;
+    g_vhFrameCount = 0;
     g_vhFramesInFlight = 2;
 
     if ( g_vhInit.renderdoc )
@@ -551,83 +553,19 @@ void vhInit( bool quiet )
     if ( g_vhSurface != VK_NULL_HANDLE )
     {
         if ( !quiet ) VRHI_LOG( "    Creating Swapchain...\n" );
- 
-        // Use vkb::Device wrapper
-        vkb::SwapchainBuilder builder( *g_vulkanBDevice, g_vhSurface );
-        builder
-            .set_desired_extent( g_vhInit.resolution.x, g_vhInit.resolution.y )
-            .set_desired_format( { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR } ) // NVRHI likes UNORM and handles sRGB view? Or SBGRA8? Let's assume UNORM safe.
-            .set_desired_present_mode( g_vhInit.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR )
-            .add_image_usage_flags( VK_IMAGE_USAGE_TRANSFER_DST_BIT );
-
-        auto swapRet = builder.build();
-        if ( !swapRet )
-        {
-            VRHI_LOG( "Failed to create swapchain: %s\n", swapRet.error().message().c_str() );
-            exit( 1 );
-        }
-        vkb::Swapchain vkbSwapchain = swapRet.value();
-        g_vhSwapchain = vkbSwapchain.swapchain;
-        g_vhSwapchainImages = vkbSwapchain.get_images().value();
-        g_vhSwapchainImageViews = vkbSwapchain.get_image_views().value();
-        g_vhWindowSize = glm::uvec2( vkbSwapchain.extent.width, vkbSwapchain.extent.height );
-
-        // Wrap Images
-        g_vhSwapchainTextures.clear();
-        g_vhSwapchainNVRHIHandles.clear();
-        for ( size_t i = 0; i < g_vhSwapchainImages.size(); ++i )
-        {
-            vhTexture texID = vhAllocTexture();
-            g_vhSwapchainTextures.push_back( texID );
-
-            nvrhi::TextureDesc tDesc;
-            tDesc.width = vkbSwapchain.extent.width;
-            tDesc.height = vkbSwapchain.extent.height;
-            tDesc.format = nvrhi::Format::SBGRA8_UNORM;
-            tDesc.initialState = nvrhi::ResourceStates::Present;
-            tDesc.keepInitialState = true;
-            tDesc.setIsRenderTarget( true );
-            nvrhi::TextureHandle nvrhiHandle = g_vhDevice->createHandleForNativeTexture(
-                nvrhi::ObjectTypes::VK_Image,
-                nvrhi::Object( g_vhSwapchainImages[i] ),
-                tDesc
-            );
-
-            g_vhSwapchainNVRHIHandles.push_back( nvrhiHandle );
-            g_vhCmdBackendState.RegisterInternalTexture( texID, nvrhiHandle, tDesc );
-        }
-
-        if ( !g_vhInit.vsync )
-        {
-            g_vhFramesInFlight = ( int ) g_vhSwapchainImages.size();
-            if ( g_vhFramesInFlight > VRHI_MAX_FRAMES_INFLIGHT ) g_vhFramesInFlight = VRHI_MAX_FRAMES_INFLIGHT;
-        }
+        vhSwapchainCreate_Internal( g_vhInit.resolution.x, g_vhInit.resolution.y );
     }
 
-    // Sync Object Creation
+    // Initialise frame instances
+    g_vhFrameInstances.clear();
     if ( !g_vhInit.headless )
     {
-        int swapchainImageCount = ( int ) g_vhSwapchainImages.size();
-        g_vhAcquireSemaphores.resize( swapchainImageCount );
-        g_vhPresentSemaphores.resize( swapchainImageCount );
         g_vhFrameInstances.resize( g_vhFramesInFlight, 0 );
-
-        VkSemaphoreCreateInfo sci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-        // Fences removed - using NVRHI instance tracking
-
-        for ( int i = 0; i < swapchainImageCount; ++i )
-        {
-            vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhAcquireSemaphores[i] );
-            vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhPresentSemaphores[i] );
-        }
-        
-        // Initial acquire for Frame 0
-        if ( g_vhSwapchain != VK_NULL_HANDLE )
-        {
-            vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, g_vhAcquireSemaphores[0], VK_NULL_HANDLE, &g_vhCurrentSwapchainIndex );
-        }
-        g_vhFrameIndex = 0;
     }
+
+    // Set initial frame index to avoid wait hang on first frame
+    g_vhFrameIndex = 0;
+    g_vhCurrentSwapchainIndex = 0;
 
     vhInitDummyResources();
 
@@ -697,6 +635,8 @@ void vhShutdown( bool quiet )
             vkDestroySwapchainKHR( g_vulkanDevice, g_vhSwapchain, nullptr );
             for ( auto iv : g_vhSwapchainImageViews ) vkDestroyImageView( g_vulkanDevice, iv, nullptr );
             g_vhSwapchain = VK_NULL_HANDLE;
+            g_vhSwapchainImageViews.clear();
+            g_vhSwapchainTextures.clear();
             g_vhSwapchainNVRHIHandles.clear();
         }
         vkDestroyDevice( g_vulkanDevice, nullptr );
@@ -772,6 +712,11 @@ vhMemoryStats vhStatsMemory()
 vhRenderStats vhGetStats()
 {
     return g_vhLastFrameStats;
+}
+ 
+uint64_t vhGetFrameNumber()
+{
+    return g_vhFrameCount.load();
 }
 
 bool vhQueryFeatureSupport_Internal( nvrhi::Feature feature, void* pInfo, size_t infoSize )
@@ -1001,6 +946,7 @@ bool vhFrame()
         {
             std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
         }
+        g_vhFrameCount++;
         return true;
     }
 
@@ -1087,6 +1033,7 @@ bool vhFrame()
     }
 
     g_vhCurrentSwapchainIndex = idx;
+    g_vhFrameCount++;
     return true;
 }
 
@@ -1096,14 +1043,117 @@ vhTexture vhGetBackbuffer()
     return g_vhSwapchainTextures[g_vhCurrentSwapchainIndex];
 }
 
-glm::uvec2 vhGetBackbufferSize()
+glm::uvec2 vhGetWindowSize()
 {
     return g_vhWindowSize;
 }
 
-glm::uvec2 vhGetWindowSize()
+void vhSwapchainCreate_Internal( int width, int height )
 {
-    return g_vhWindowSize;
+    // Destroy old image views (if any)
+    for ( auto iv : g_vhSwapchainImageViews )
+    {
+        vkDestroyImageView( g_vulkanDevice, iv, nullptr );
+    }
+    g_vhSwapchainImageViews.clear();
+
+    // Clear old NVRHI handles
+    g_vhSwapchainNVRHIHandles.clear();
+
+    // Build swapchain via vkb::SwapchainBuilder
+    vkb::SwapchainBuilder builder( *g_vulkanBDevice, g_vhSurface );
+    builder
+        .set_desired_extent( width, height )
+        .set_desired_format( { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR } )
+        .set_desired_present_mode( g_vhInit.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR )
+        .add_image_usage_flags( VK_IMAGE_USAGE_TRANSFER_DST_BIT )
+        .set_old_swapchain( g_vhSwapchain );
+
+    auto swapRet = builder.build();
+    if ( !swapRet )
+    {
+        VRHI_LOG( "Failed to create swapchain: %s\n", swapRet.error().message().c_str() );
+        return;
+    }
+    vkb::Swapchain vkbSwapchain = swapRet.value();
+
+    // Clean up old swapchain (after creating new one)
+    if ( g_vhSwapchain != VK_NULL_HANDLE )
+    {
+        vkDestroySwapchainKHR( g_vulkanDevice, g_vhSwapchain, nullptr );
+    }
+
+    g_vhSwapchain = vkbSwapchain.swapchain;
+    g_vhSwapchainImages = vkbSwapchain.get_images().value();
+    g_vhSwapchainImageViews = vkbSwapchain.get_image_views().value();
+
+    // Wrap images into nvrhi::TextureHandles
+    g_vhSwapchainTextures.clear();
+    g_vhSwapchainNVRHIHandles.clear();
+    for ( size_t i = 0; i < g_vhSwapchainImages.size(); ++i )
+    {
+        vhTexture texID = vhAllocTexture();
+        g_vhSwapchainTextures.push_back( texID );
+
+        nvrhi::TextureDesc tDesc;
+        tDesc.width = vkbSwapchain.extent.width;
+        tDesc.height = vkbSwapchain.extent.height;
+        tDesc.format = nvrhi::Format::SBGRA8_UNORM;
+        tDesc.initialState = nvrhi::ResourceStates::Present;
+        tDesc.keepInitialState = true;
+        tDesc.setIsRenderTarget( true );
+        nvrhi::TextureHandle nvrhiHandle = g_vhDevice->createHandleForNativeTexture(
+            nvrhi::ObjectTypes::VK_Image,
+            nvrhi::Object( g_vhSwapchainImages[i] ),
+            tDesc
+        );
+
+        g_vhSwapchainNVRHIHandles.push_back( nvrhiHandle );
+        g_vhCmdBackendState.RegisterInternalTexture( texID, nvrhiHandle, tDesc );
+    }
+
+    // Update window size
+    g_vhWindowSize = glm::uvec2( vkbSwapchain.extent.width, vkbSwapchain.extent.height );
+
+    // Recreate semaphores
+    for ( auto sem : g_vhAcquireSemaphores )
+    {
+        if ( sem != VK_NULL_HANDLE )
+            vkDestroySemaphore( g_vulkanDevice, sem, nullptr );
+    }
+    for ( auto sem : g_vhPresentSemaphores )
+    {
+        if ( sem != VK_NULL_HANDLE )
+            vkDestroySemaphore( g_vulkanDevice, sem, nullptr );
+    }
+
+    int newImageCount = ( int ) g_vhSwapchainImages.size();
+    g_vhAcquireSemaphores.resize( newImageCount );
+    g_vhPresentSemaphores.resize( newImageCount );
+
+    VkSemaphoreCreateInfo sci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    for ( int i = 0; i < newImageCount; ++i )
+    {
+        vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhAcquireSemaphores[i] );
+        vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhPresentSemaphores[i] );
+    }
+
+    // Update frames in flight for non-vsync
+    if ( !g_vhInit.vsync )
+    {
+        g_vhFramesInFlight = newImageCount;
+        if ( g_vhFramesInFlight > VRHI_MAX_FRAMES_INFLIGHT ) g_vhFramesInFlight = VRHI_MAX_FRAMES_INFLIGHT;
+        g_vhFrameInstances.resize( g_vhFramesInFlight, 0 );
+    }
+
+    // Initial vkAcquireNextImageKHR
+    g_vhFrameIndex = 0;
+    g_vhCurrentSwapchainIndex = 0;
+    VkResult acqResult = vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, g_vhAcquireSemaphores[0], VK_NULL_HANDLE, &g_vhCurrentSwapchainIndex );
+    if ( acqResult != VK_SUCCESS && acqResult != VK_SUBOPTIMAL_KHR )
+    {
+        VRHI_LOG( "Warning: Initial acquire returned %d.\n", acqResult );
+    }
 }
 
 void vhResize( int width, int height )
@@ -1131,120 +1181,11 @@ void vhResize( int width, int height )
     // Flush all commands and wait for GPU idle for safety
     vhFinish();
 
-    // Destroy old image views (images will be recycled by swapchain)
-    for ( auto iv : g_vhSwapchainImageViews )
-    {
-        vkDestroyImageView( g_vulkanDevice, iv, nullptr );
-    }
-    g_vhSwapchainImageViews.clear();
-
-    // Clear old NVRHI handles and unregister textures
-    g_vhSwapchainNVRHIHandles.clear();
-
-    // Recreate swapchain with old swapchain for resource recycling
-    vkb::SwapchainBuilder builder( *g_vulkanBDevice, g_vhSurface );
-    builder
-        .set_desired_extent( width, height )
-        .set_desired_format( { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR } )
-        .set_desired_present_mode( g_vhInit.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR )
-        .add_image_usage_flags( VK_IMAGE_USAGE_TRANSFER_DST_BIT )
-        .set_old_swapchain( g_vhSwapchain );
-
-    auto swapRet = builder.build();
-    if ( !swapRet )
-    {
-        VRHI_LOG( "Failed to recreate swapchain: %s\n", swapRet.error().message().c_str() );
-        return;
-    }
-
-    vkb::Swapchain vkbSwapchain = swapRet.value();
-
-    // Clean up old swapchain (after creating new one)
-    if ( g_vhSwapchain != VK_NULL_HANDLE )
-    {
-        vkDestroySwapchainKHR( g_vulkanDevice, g_vhSwapchain, nullptr );
-    }
-
-    g_vhSwapchain = vkbSwapchain.swapchain;
-    g_vhSwapchainImages = vkbSwapchain.get_images().value();
-    g_vhSwapchainImageViews = vkbSwapchain.get_image_views().value();
-
-    // Re-wrap images into NVRHI handles, reusing existing texture IDs
-    size_t numImages = g_vhSwapchainImages.size();
-    for ( size_t i = 0; i < numImages; ++i )
-    {
-        nvrhi::TextureDesc tDesc;
-        tDesc.width = vkbSwapchain.extent.width;
-        tDesc.height = vkbSwapchain.extent.height;
-        tDesc.format = nvrhi::Format::SBGRA8_UNORM;
-        tDesc.initialState = nvrhi::ResourceStates::Present;
-        tDesc.keepInitialState = true;
-        tDesc.setIsRenderTarget( true );
-
-        nvrhi::TextureHandle nvrhiHandle = g_vhDevice->createHandleForNativeTexture(
-            nvrhi::ObjectTypes::VK_Image,
-            nvrhi::Object( g_vhSwapchainImages[i] ),
-            tDesc
-        );
-
-        g_vhSwapchainNVRHIHandles.push_back( nvrhiHandle );
-
-        // Reuse existing texture ID
-        if ( i < g_vhSwapchainTextures.size() )
-        {
-            g_vhCmdBackendState.RegisterInternalTexture( g_vhSwapchainTextures[i], nvrhiHandle, tDesc );
-        }
-    }
-
-    // Always recreate semaphores to ensure clean state after vhFinish()
-    // vkDeviceWaitIdle() does not reset semaphores, so we need to recreate them
-    for ( auto sem : g_vhAcquireSemaphores )
-    {
-        if ( sem != VK_NULL_HANDLE )
-            vkDestroySemaphore( g_vulkanDevice, sem, nullptr );
-    }
-    for ( auto sem : g_vhPresentSemaphores )
-    {
-        if ( sem != VK_NULL_HANDLE )
-            vkDestroySemaphore( g_vulkanDevice, sem, nullptr );
-    }
-
-    int newImageCount = ( int ) numImages;
-    g_vhAcquireSemaphores.resize( newImageCount );
-    g_vhPresentSemaphores.resize( newImageCount );
-
-    VkSemaphoreCreateInfo sci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    for ( int i = 0; i < newImageCount; ++i )
-    {
-        vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhAcquireSemaphores[i] );
-        vkCreateSemaphore( g_vulkanDevice, &sci, nullptr, &g_vhPresentSemaphores[i] );
-    }
-
-    // Reset frame indices
-    g_vhFrameIndex = 0;
-    g_vhCurrentSwapchainIndex = 0;
-
-    // Update window size
-    g_vhWindowSize = glm::uvec2( width, height );
+    // Recreate swapchain using shared helper
+    vhSwapchainCreate_Internal( width, height );
 
     // Clear FBO cache to force framebuffer recreation with new dimensions
     vhResizeCleanup();
-
-    // Update frames in flight if vsync changed
-    if ( !g_vhInit.vsync )
-    {
-        g_vhFramesInFlight = ( int ) numImages;
-        if ( g_vhFramesInFlight > VRHI_MAX_FRAMES_INFLIGHT ) g_vhFramesInFlight = VRHI_MAX_FRAMES_INFLIGHT;
-        g_vhFrameInstances.resize( g_vhFramesInFlight, 0 );
-    }
-
-    // Initial acquire for next frame
-    // Note: Since vhFinish() was called, the GPU is idle and semaphores should be safe to use.
-    VkResult acqResult = vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, g_vhAcquireSemaphores[0], VK_NULL_HANDLE, &g_vhCurrentSwapchainIndex );
-    if ( acqResult != VK_SUCCESS && acqResult != VK_SUBOPTIMAL_KHR )
-    {
-        VRHI_LOG( "Warning: Initial acquire after resize returned %d. First vhFrame() will retry.\n", acqResult );
-    }
 
     VRHI_LOG( "Swapchain resized successfully to %dx%d\n", width, height );
 }

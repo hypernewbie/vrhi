@@ -189,6 +189,8 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
 bool vhQueryFeatureSupport_Internal( nvrhi::Feature feature, void* pInfo = nullptr, size_t infoSize = 0 );
 nvrhi::FormatSupport vhQueryFormatSupport_Internal( nvrhi::Format format );
 
+void vhSwapchainCreate_Internal( int width, int height );
+
 
 // Logging helper
 void vhLog( bool error, const char* fmt, ... );

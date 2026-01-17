@@ -60,7 +60,7 @@ UTEST( Window, SwapchainClear )
     vhTexture backBuffer = vhGetBackbuffer();
     ASSERT_TRUE( backBuffer != VRHI_INVALID_HANDLE );
 
-    glm::uvec2 size = vhGetBackbufferSize();
+    glm::uvec2 size = vhGetWindowSize();
     ASSERT_EQ( size.x, 128 );
     ASSERT_EQ( size.y, 128 );
 
@@ -102,8 +102,8 @@ UTEST( Window, SwapchainClear )
 
 UTEST( Window, ResizeSwapchain )
 {
-    // Create RGFW Window
-    RGFW_window* win = RGFW_createWindow( "VRHI Test Resize", 128, 128, 128, 128, RGFW_windowNoResize );
+    // Create RGFW Window with allow resize flag
+    RGFW_window* win = RGFW_createWindow( "VRHI Test Resize", 128, 128, 128, 128, 0 );
     ASSERT_TRUE( win != nullptr );
 
     // Get Native Handles
@@ -152,11 +152,14 @@ UTEST( Window, ResizeSwapchain )
         if ( !vhFrame() ) break;
     }
 
+    // Resize OS window to 256x256 before resizing swapchain
+    RGFW_window_resize( win, 256, 256 );
+
     // Resize to 256x256
     vhResize( 256, 256 );
 
     // Verify size changed
-    glm::uvec2 newSize = vhGetBackbufferSize();
+    glm::uvec2 newSize = vhGetWindowSize();
     ASSERT_EQ( newSize.x, 256 );
     ASSERT_EQ( newSize.y, 256 );
 
@@ -186,11 +189,14 @@ UTEST( Window, ResizeSwapchain )
         if ( !vhFrame() ) break;
     }
 
+    // Resize OS window back to 128x128 before resizing swapchain
+    RGFW_window_resize( win, 128, 128 );
+
     // Resize back to original
     vhResize( 128, 128 );
 
     // Verify size restored
-    newSize = vhGetBackbufferSize();
+    newSize = vhGetWindowSize();
     ASSERT_EQ( newSize.x, 128 );
     ASSERT_EQ( newSize.y, 128 );
 
@@ -211,4 +217,22 @@ UTEST( Window, ResizeSwapchain )
     vhSetState( 0, s.DirtyAll() );
 
     RGFW_window_close( win );
+}
+ 
+UTEST( Window, FrameNumber )
+{
+    // Ensure clean state
+    TestEnsureShutdown();
+    g_vhInit.headless = true;
+    vhInit( false );
+    g_testInit = true;
+ 
+    ASSERT_EQ( vhGetFrameNumber(), 0u );
+ 
+    for ( uint64_t i = 0; i < 10; ++i )
+    {
+        EXPECT_EQ( vhGetFrameNumber(), i );
+        vhFrame();
+        EXPECT_EQ( vhGetFrameNumber(), i + 1 );
+    }
 }
