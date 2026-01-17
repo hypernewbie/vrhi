@@ -191,6 +191,12 @@ endif()
 
 if(WIN32)
     target_compile_definitions(vrhi_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(vrhi_test PRIVATE
+        nvrhi
+        nvrhi_vk
+        vk-bootstrap
+        rtxmu
+    )
 endif()
 
 target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW")
