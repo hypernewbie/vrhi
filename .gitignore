@@ -58,3 +58,10 @@ desktop.ini
 tags
 AGENTS.md
 tools/win_release/slang-glsl-module.bin
+
+# VRHI release packages
+/vrhi_debug/
+/vrhi_release/
+
+# VRHI package test build directories
+/test_pkg_build_*/

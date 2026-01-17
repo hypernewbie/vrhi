@@ -188,3 +188,78 @@ endif()
 # Enable CTest
 enable_testing()
 add_test(NAME vrhi_test COMMAND vrhi_test)
+
+# VRHI Release Packaging
+# Platform detection for library paths
+if(WIN32)
+    set(VRHI_LIB_PLATFORM "win")
+elseif(APPLE)
+    set(VRHI_LIB_PLATFORM "mac")
+else()  # Linux
+    set(VRHI_LIB_PLATFORM "linux")
+endif()
+
+# Library source path with configuration
+set(VRHI_LIB_SOURCE_PATH "${CMAKE_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_$<LOWER_CASE:$<CONFIG>>")
+
+# Package target - creates self-contained release package
+add_custom_target(package_vrhi
+    # Create output directories
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib"
+    
+    # Copy main VRHI headers
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/vrhi.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/vrhi_defines.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/src/vrhi_generated.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    
+    # Copy dependency headers
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/glm" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/glm"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/nvrhi" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/nvrhi"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/vk-bootstrap" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/vk-bootstrap"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/rtxmu" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/rtxmu"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/include/renderdoc_app.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    
+    # Copy compiled libraries
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${VRHI_LIB_SOURCE_PATH}/" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib/"
+    
+    # Copy VRHI library from build output
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:vrhi>" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib/"
+    
+    # Copy PDB files (only if they exist - script handles missing files)
+    COMMAND ${CMAKE_COMMAND} -DCONFIG=$<CONFIG> -DLIB_PATH=${VRHI_LIB_SOURCE_PATH} -DBINARY_DIR=${CMAKE_BINARY_DIR} -P ${CMAKE_SOURCE_DIR}/copy_pdbs.cmake
+    
+    # Copy documentation
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/README.md" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
+    
+    # Set working directory and dependencies
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    DEPENDS vrhi
+    COMMENT "Creating VRHI release package in ${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
+    VERBATIM
+)
+
+# === VRHI Package Test Target ===
+# Tests that the packaged VRHI library is complete and usable
+# - Runs AFTER package_vrhi completes (DEPENDS)
+# - FAILS the build if tests fail (FATAL_ERROR via script)
+# - MANUAL target only (not in default build)
+
+add_custom_target(test_package_vrhi
+    DEPENDS package_vrhi
+    COMMAND ${CMAKE_COMMAND}
+        -DCONFIG=$<CONFIG>
+        -DBINARY_DIR=${CMAKE_BINARY_DIR}
+        -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/test/run_test_package.cmake
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Testing packaged VRHI library..."
+    VERBATIM
+)
+
+message(STATUS "")
+message(STATUS "Added test_package_vrhi target (validates packaged VRHI)")
+message(STATUS "  Usage: cmake --build <build-dir> --config <Config> --target test_package_vrhi")
+message(STATUS "  Note: This target is MANUAL ONLY (not in default build)")
+message(STATUS "  Note: Test failures will STOP the build (FATAL_ERROR)")
