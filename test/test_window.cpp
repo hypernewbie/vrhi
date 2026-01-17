@@ -19,11 +19,11 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#define RGFW_IMPLEMENTATION
-#include "RGFW.h"
-
 #include "test.h"
 #include <vrhi.h>
+
+#define RGFW_IMPLEMENTATION
+#include "RGFW.h"
 
 UTEST( Window, SwapchainClear )
 {
