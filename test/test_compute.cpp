@@ -12,7 +12,6 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif // _WIN32
-#include "utest.h"
 #include "test.h"
 #include <vrhi.h>
 #include <vrhi_internal.h>

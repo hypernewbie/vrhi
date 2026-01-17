@@ -19,7 +19,6 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#include "utest.h"
 #include "test.h"
 #include <vrhi.h>
 #include <vector>

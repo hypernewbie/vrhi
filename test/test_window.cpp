@@ -45,8 +45,15 @@ UTEST( Window, SwapchainClear )
 #if defined(__linux__)
     if ( std::getenv( "DISPLAY" ) == nullptr )
     {
-        printf( "[   INFO   ] No DISPLAY detected, skipping window test.\n" );
-        return;
+        UTEST_SKIP( "No DISPLAY detected, skipping window test" );
+    }
+#endif
+
+#if defined(__APPLE__)
+    // On macOS in terminal/CI environments, window creation may hang or fail
+    if ( std::getenv( "CI" ) != nullptr || std::getenv( "GITHUB_ACTIONS" ) != nullptr )
+    {
+        UTEST_SKIP( "CI environment detected, skipping window test" );
     }
 #endif
 
@@ -64,8 +71,9 @@ UTEST( Window, SwapchainClear )
     nativeWindow = ( void* ) RGFW_window_getWindow_X11( win );
     nativeDisplay = RGFW_getDisplay_X11();
 #elif defined(__APPLE__)
-    nativeWindow = RGFW_window_getView_OSX( win );
-    RGFW_window_setLayer_OSX( win, RGFW_getLayer_OSX() );
+    void* layer = RGFW_getLayer_OSX();
+    RGFW_window_setLayer_OSX( win, layer );
+    nativeWindow = layer;
 #endif
 
     // Re-init VRHI with window
@@ -128,8 +136,15 @@ UTEST( Window, ResizeSwapchain )
 #if defined(__linux__)
     if ( std::getenv( "DISPLAY" ) == nullptr )
     {
-        printf( "[   INFO   ] No DISPLAY detected, skipping window test.\n" );
-        return;
+        UTEST_SKIP( "No DISPLAY detected, skipping window test" );
+    }
+#endif
+
+#if defined(__APPLE__)
+    // On macOS in terminal/CI environments, window creation may hang or fail
+    if ( std::getenv( "CI" ) != nullptr || std::getenv( "GITHUB_ACTIONS" ) != nullptr )
+    {
+        UTEST_SKIP( "CI environment detected, skipping window test" );
     }
 #endif
 
@@ -147,8 +162,9 @@ UTEST( Window, ResizeSwapchain )
     nativeWindow = ( void* ) RGFW_window_getWindow_X11( win );
     nativeDisplay = RGFW_getDisplay_X11();
 #elif defined(__APPLE__)
-    nativeWindow = RGFW_window_getView_OSX( win );
-    RGFW_window_setLayer_OSX( win, RGFW_getLayer_OSX() );
+    void* layer = RGFW_getLayer_OSX();
+    RGFW_window_setLayer_OSX( win, layer );
+    nativeWindow = layer;
 #endif
 
     // Re-init VRHI with window

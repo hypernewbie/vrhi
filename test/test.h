@@ -21,6 +21,7 @@
 
 #pragma once
 
+#undef __EXCEPTIONS
 #include "utest.h"
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
