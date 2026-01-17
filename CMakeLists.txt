@@ -77,7 +77,6 @@ set(VRHI_SOURCES
     src/vrhi_state.cpp
     vdeps/OffsetAllocator/offsetAllocator.cpp
     vdeps/OffsetAllocator/offsetAllocator.hpp
-    vdeps/RGFW/RGFW.h
 )
 
 # Test Sources
@@ -125,7 +124,6 @@ target_include_directories(vrhi PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW"
 )
 
 # Add Vulkan SDK Source/SPIRV-Reflect to include paths so we can directly inline inc the .c file
@@ -161,15 +159,7 @@ else() # Linux
 endif()
 
 # NVRHI and helper libraries
-set(VRHI_LIBS
-    vk-bootstrap
-    nvrhi_vk
-    nvrhi
-    rtxmu
-)
-
-target_link_libraries(vrhi PUBLIC ${VRHI_LIBS})
-
+target_link_libraries(vrhi PRIVATE ${VRHI_LIBS})
 target_link_libraries(vrhi PUBLIC Vulkan::Vulkan)
 
 if(UNIX AND NOT APPLE)
@@ -187,11 +177,50 @@ endif()
 # Add Executable
 add_executable(vrhi_test ${TEST_SOURCES})
 
-# Link VRHI Library
+# Link VRHI Library (without transitive dependencies for executable)
 target_link_libraries(vrhi_test PRIVATE vrhi)
+
+# Platform detection for library paths (moved before vrhi_test usage)
+if(WIN32)
+    set(VRHI_LIB_PLATFORM "win")
+elseif(APPLE)
+    set(VRHI_LIB_PLATFORM "mac")
+else()  # Linux
+    set(VRHI_LIB_PLATFORM "linux")
+endif()
 
 if(WIN32)
     target_compile_definitions(vrhi_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+
+target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW")
+
+if(APPLE)
+    target_link_libraries(vrhi_test PRIVATE
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework Foundation"
+        "-framework AppKit"
+    )
+    # Directly link NVRHI libraries with absolute paths to avoid propagation issues
+    target_link_libraries(vrhi_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libvk-bootstrap.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi_vk.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/librtxmu.a
+    )
+    # Also link Vulkan from SDK
+    target_link_libraries(vrhi_test PRIVATE Vulkan::Vulkan)
+elseif(LINUX)
+    # Directly link NVRHI libraries with absolute paths to avoid propagation issues
+    target_link_libraries(vrhi_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libvk-bootstrap.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi_vk.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/librtxmu.a
+    )
+    # Also link Vulkan from SDK
+    target_link_libraries(vrhi_test PRIVATE Vulkan::Vulkan)
 endif()
 
 # Enable CTest
