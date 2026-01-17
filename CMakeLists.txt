@@ -211,7 +211,8 @@ target_link_libraries(vrhi_test PRIVATE vrhi)
 target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW")
 
 # NVRHI and related libraries (linked by all platforms)
-set(NVRHI_LIBS nvrhi nvrhi_vk vk-bootstrap rtxmu)
+# Order matters on Linux: dependents first, then their dependencies
+set(NVRHI_LIBS nvrhi_vk nvrhi vk-bootstrap rtxmu)
 
 # Platform-specific test configuration
 if(WIN32)
