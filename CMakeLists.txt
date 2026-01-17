@@ -1,5 +1,29 @@
+# =============================================================================
+# Vrhi
+# =============================================================================
+#
+# Copyright 2026 UAA Software
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+# associated documentation files (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge, publish, distribute,
+# sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all copies or substantial
+# portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+# NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+# OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# =============================================================================
+
 cmake_minimum_required(VERSION 3.20)
 
+# Force Clang on non-Windows platforms
 if(NOT WIN32)
     set(CMAKE_C_COMPILER clang CACHE STRING "")
     set(CMAKE_CXX_COMPILER clang++ CACHE STRING "")
@@ -10,38 +34,65 @@ project(vrhi_test C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Use Static C Runtime (/MT for Release, /MTd for Debug)
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    add_compile_options(/W3 /wd4100 /MP) # W3: Standard warning level, wd4100: Ignore unused parameters, MP: Multi-processor compilation
+# -----------------------------------------------------------------------------
+# Platform Detection
+# -----------------------------------------------------------------------------
+if(WIN32)
+    set(VRHI_LIB_PLATFORM "win")
+elseif(APPLE)
+    set(VRHI_LIB_PLATFORM "mac")
 else()
-    add_compile_options(-w -stdlib=libc++) # Squish all warnings and use libc++
+    set(VRHI_LIB_PLATFORM "linux")
+endif()
+
+# Library directory with config-aware path (debug/release)
+set(VRHI_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_$<LOWER_CASE:$<CONFIG>>")
+
+# -----------------------------------------------------------------------------
+# Compiler Options
+# -----------------------------------------------------------------------------
+if(MSVC)
+    # Static C Runtime (/MT for Release, /MTd for Debug)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # W3: Standard warnings, wd4100: Ignore unused params, MP: Multi-processor
+    add_compile_options(/W3 /wd4100 /MP)
+else()
+    # Suppress warnings and use libc++
+    add_compile_options(-w -stdlib=libc++)
     add_link_options(-stdlib=libc++ -lc++abi)
 endif()
 
-# Find Python Interpreter (Optional)
-find_package(Python3 COMPONENTS Interpreter)
+# -----------------------------------------------------------------------------
+# Helper Functions
+# -----------------------------------------------------------------------------
 
-# Find Vulkan (REQUIRED) - moved up to ensure Vulkan_INCLUDE_DIR is set
+# Suppress warnings for vendored/external source files
+function(vrhi_suppress_vendor_warnings)
+    foreach(source IN LISTS ARGN)
+        if(MSVC)
+            set_source_files_properties(${source} PROPERTIES 
+                COMPILE_OPTIONS "/wd4244;/wd4267;/wd4013")
+        else()
+            set_source_files_properties(${source} PROPERTIES 
+                COMPILE_OPTIONS "-Wno-missing-field-initializers")
+        endif()
+    endforeach()
+endfunction()
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+
+# Vulkan SDK
 if(DEFINED ENV{VULKAN_SDK})
     set(Vulkan_ROOT $ENV{VULKAN_SDK})
 endif()
 find_package(Vulkan REQUIRED)
 
-set(GENERATED_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/vrhi_generated.h")
+# Python (optional - for code generation)
+find_package(Python3 COMPONENTS Interpreter)
 
-# Code Generation (only if Python is found)
-if(Python3_Interpreter_FOUND)
-    add_custom_command(
-        OUTPUT "${GENERATED_HEADER}"
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/vidl.py" "${CMAKE_CURRENT_SOURCE_DIR}/vrhi.h" "${GENERATED_HEADER}"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/vidl.py" "${CMAKE_CURRENT_SOURCE_DIR}/vrhi.h"
-        COMMENT "Generating vrhi_generated.h via vidl.py..."
-        VERBATIM
-    )
-endif()
-
-# VRHI Library Sources
+# SPIRV-Reflect (from Vulkan SDK)
 find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
     HINTS 
         "$ENV{VULKAN_SDK}/source/SPIRV-Reflect"
@@ -51,35 +102,94 @@ find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
         "${Vulkan_INCLUDE_DIR}/SPIRV-Reflect"
 )
 
-if(SPIRV_REFLECT_DIR)
-    set(SPIRV_REFLECT_SOURCE "${SPIRV_REFLECT_DIR}/spirv_reflect.c")
-    set(SPIRV_REFLECT_HEADER "${SPIRV_REFLECT_DIR}/spirv_reflect.h")
-else()
+if(NOT SPIRV_REFLECT_DIR)
     message(FATAL_ERROR "SPIRV-Reflect not found in Vulkan SDK")
 endif()
 
+set(SPIRV_REFLECT_SOURCE "${SPIRV_REFLECT_DIR}/spirv_reflect.c")
+set(SPIRV_REFLECT_HEADER "${SPIRV_REFLECT_DIR}/spirv_reflect.h")
+
+# -----------------------------------------------------------------------------
+# Code Generation
+# -----------------------------------------------------------------------------
+set(GENERATED_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/vrhi_generated.h")
+
+if(Python3_Interpreter_FOUND)
+    add_custom_command(
+        OUTPUT "${GENERATED_HEADER}"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/vidl.py" 
+                "${CMAKE_CURRENT_SOURCE_DIR}/vrhi.h" "${GENERATED_HEADER}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/vidl.py" 
+                "${CMAKE_CURRENT_SOURCE_DIR}/vrhi.h"
+        COMMENT "Generating vrhi_generated.h via vidl.py..."
+        VERBATIM
+    )
+endif()
+
+# -----------------------------------------------------------------------------
+# VRHI Library
+# -----------------------------------------------------------------------------
 set(VRHI_SOURCES
     vrhi.h
-    src/vrhi_internal.h
     vrhi_defines.h
     ${GENERATED_HEADER}
+    src/vrhi_internal.h
     src/vrhi_utils.h
     src/vrhi_backend.h
-
     src/vrhi_internal.cpp
-    ${SPIRV_REFLECT_SOURCE}
-    ${SPIRV_REFLECT_HEADER}
     src/vrhi_backend.cpp
     src/vrhi_device.cpp
     src/vrhi_texture.cpp
     src/vrhi_buffer.cpp
     src/vrhi_shader.cpp
     src/vrhi_state.cpp
+    ${SPIRV_REFLECT_SOURCE}
+    ${SPIRV_REFLECT_HEADER}
     vdeps/OffsetAllocator/offsetAllocator.cpp
     vdeps/OffsetAllocator/offsetAllocator.hpp
 )
 
-# Test Sources
+add_library(vrhi STATIC ${VRHI_SOURCES})
+
+# Suppress warnings on vendored code
+vrhi_suppress_vendor_warnings(
+    ${SPIRV_REFLECT_SOURCE}
+    vdeps/OffsetAllocator/offsetAllocator.cpp
+)
+
+# Compile definitions
+target_compile_definitions(vrhi PUBLIC RGFW_NO_X11_CURSOR RGFW_NO_DPI)
+target_compile_definitions(vrhi PRIVATE VRHI_UNIT_TEST)
+if(WIN32)
+    target_compile_definitions(vrhi PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+
+# Include directories
+target_include_directories(vrhi PUBLIC 
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
+)
+target_include_directories(vrhi PRIVATE "${SPIRV_REFLECT_DIR}")
+
+# Library search paths
+target_link_directories(vrhi PUBLIC "${VRHI_LIB_DIR}")
+
+# Link dependencies
+target_link_libraries(vrhi PUBLIC Vulkan::Vulkan)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(vrhi PUBLIC X11 Xi Xext)
+endif()
+
+if(WIN32)
+    target_link_libraries(vrhi PUBLIC dxgi shlwapi)
+endif()
+
+# -----------------------------------------------------------------------------
+# Test Executable
+# -----------------------------------------------------------------------------
 set(TEST_SOURCES
     test/test.h
     test/utest.h
@@ -95,201 +205,105 @@ set(TEST_SOURCES
     test/test_window.cpp
 )
 
-# Add VRHI Static Library
-add_library(vrhi STATIC ${VRHI_SOURCES})
-
-if(MSVC)
-    set_source_files_properties(${SPIRV_REFLECT_SOURCE} PROPERTIES COMPILE_OPTIONS "/wd4244;/wd4267;/wd4013")
-    set_source_files_properties(vdeps/OffsetAllocator/offsetAllocator.cpp PROPERTIES COMPILE_OPTIONS "/wd4244;/wd4267;/wd4013")
-else()
-    set_source_files_properties(${SPIRV_REFLECT_SOURCE} PROPERTIES COMPILE_OPTIONS "-Wno-missing-field-initializers")
-    set_source_files_properties(vdeps/OffsetAllocator/offsetAllocator.cpp PROPERTIES COMPILE_OPTIONS "-Wno-missing-field-initializers")
-endif()
-
-target_compile_definitions(vrhi PUBLIC 
-    RGFW_NO_X11_CURSOR
-    RGFW_NO_DPI
-)
-
-target_compile_definitions(vrhi PRIVATE 
-    VRHI_UNIT_TEST
-)
-
-if(WIN32)
-    target_compile_definitions(vrhi PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-endif()
-
-target_include_directories(vrhi PUBLIC 
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
-)
-
-# Add Vulkan SDK Source/SPIRV-Reflect to include paths so we can directly inline inc the .c file
-target_include_directories(vrhi PRIVATE
-    "${SPIRV_REFLECT_DIR}"
-)
-
-# Library search paths
-# Generator expressions select the correct path based on build configuration
-if(WIN32)
-    target_link_directories(vrhi PUBLIC
-        $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_debug>
-        $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
-        $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
-        $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/win_release>
-    )
-elseif(APPLE)
-    target_link_directories(vrhi PUBLIC
-        # Mac paths
-        $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_debug>
-        $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
-        $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
-        $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/mac_release>
-    )
-else() # Linux
-    target_link_directories(vrhi PUBLIC
-        # Linux paths
-        $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_debug>
-        $<$<CONFIG:Release>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
-        $<$<CONFIG:RelWithDebInfo>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
-        $<$<CONFIG:MinSizeRel>:${CMAKE_CURRENT_SOURCE_DIR}/lib/linux_release>
-    )
-endif()
-
-# NVRHI and helper libraries
-target_link_libraries(vrhi PRIVATE ${VRHI_LIBS})
-target_link_libraries(vrhi PUBLIC Vulkan::Vulkan)
-
-if(UNIX AND NOT APPLE)
-    target_link_libraries(vrhi PUBLIC X11 Xi Xext)
-endif()
-
-# System libraries required by NVRHI backends on Windows
-if(WIN32)
-    target_link_libraries(vrhi PUBLIC
-        dxgi
-        shlwapi
-    )
-endif()
-
-# Add Executable
 add_executable(vrhi_test ${TEST_SOURCES})
 
-# Link VRHI Library (without transitive dependencies for executable)
 target_link_libraries(vrhi_test PRIVATE vrhi)
-
-# Platform detection for library paths (moved before vrhi_test usage)
-if(WIN32)
-    set(VRHI_LIB_PLATFORM "win")
-elseif(APPLE)
-    set(VRHI_LIB_PLATFORM "mac")
-else()  # Linux
-    set(VRHI_LIB_PLATFORM "linux")
-endif()
-
-if(WIN32)
-    target_compile_definitions(vrhi_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_link_libraries(vrhi_test PRIVATE
-        nvrhi
-        nvrhi_vk
-        vk-bootstrap
-        rtxmu
-    )
-endif()
-
 target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW")
 
-if(APPLE)
+# NVRHI and related libraries (linked by all platforms)
+set(NVRHI_LIBS nvrhi nvrhi_vk vk-bootstrap rtxmu)
+
+# Platform-specific test configuration
+if(WIN32)
+    target_compile_definitions(vrhi_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(vrhi_test PRIVATE ${NVRHI_LIBS})
+elseif(APPLE)
     target_link_libraries(vrhi_test PRIVATE
         "-framework CoreFoundation"
         "-framework CoreGraphics"
         "-framework Foundation"
         "-framework AppKit"
+        ${NVRHI_LIBS}
+        Vulkan::Vulkan
     )
-    # Directly link NVRHI libraries with absolute paths to avoid propagation issues
-    target_link_libraries(vrhi_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libvk-bootstrap.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi_vk.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/librtxmu.a
-    )
-    # Also link Vulkan from SDK
-    target_link_libraries(vrhi_test PRIVATE Vulkan::Vulkan)
-elseif(LINUX)
-    # Directly link NVRHI libraries with absolute paths to avoid propagation issues
-    target_link_libraries(vrhi_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libvk-bootstrap.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi_vk.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/libnvrhi.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_debug/librtxmu.a
-    )
-    # Also link Vulkan from SDK
-    target_link_libraries(vrhi_test PRIVATE Vulkan::Vulkan)
+else() # Linux
+    target_link_libraries(vrhi_test PRIVATE ${NVRHI_LIBS} Vulkan::Vulkan)
 endif()
 
-# Enable CTest
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
 enable_testing()
 add_test(NAME vrhi_test COMMAND vrhi_test)
 
-# VRHI Release Packaging
-# Platform detection for library paths
-if(WIN32)
-    set(VRHI_LIB_PLATFORM "win")
-elseif(APPLE)
-    set(VRHI_LIB_PLATFORM "mac")
-else()  # Linux
-    set(VRHI_LIB_PLATFORM "linux")
-endif()
-
-# Library source path with configuration
-set(VRHI_LIB_SOURCE_PATH "${CMAKE_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_$<LOWER_CASE:$<CONFIG>>")
-
-# Package target - creates self-contained release package
+# -----------------------------------------------------------------------------
+# Packaging
+# -----------------------------------------------------------------------------
 add_custom_target(package_vrhi
     # Create output directories
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib"
     
     # Copy main VRHI headers
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/vrhi.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/vrhi_defines.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/src/vrhi_generated.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "${CMAKE_SOURCE_DIR}/vrhi.h" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "${CMAKE_SOURCE_DIR}/vrhi_defines.h" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "${CMAKE_SOURCE_DIR}/src/vrhi_generated.h" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
     
     # Copy dependency headers
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/glm" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/glm"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/nvrhi" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/nvrhi"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/vk-bootstrap" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/vk-bootstrap"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/include/rtxmu" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/rtxmu"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/include/renderdoc_app.h" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory 
+        "${CMAKE_SOURCE_DIR}/include/glm" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/glm"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory 
+        "${CMAKE_SOURCE_DIR}/include/nvrhi" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/nvrhi"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory 
+        "${CMAKE_SOURCE_DIR}/include/vk-bootstrap" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/vk-bootstrap"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory 
+        "${CMAKE_SOURCE_DIR}/include/rtxmu" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/rtxmu"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "${CMAKE_SOURCE_DIR}/include/renderdoc_app.h" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
     
     # Copy compiled libraries
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${VRHI_LIB_SOURCE_PATH}/" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib/"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory 
+        "${VRHI_LIB_DIR}/" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib/"
     
     # Copy VRHI library from build output
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:vrhi>" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "$<TARGET_FILE:vrhi>" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib/"
     
-    # Copy PDB files (only if they exist - script handles missing files)
-    COMMAND ${CMAKE_COMMAND} -DCONFIG=$<CONFIG> -DLIB_PATH=${VRHI_LIB_SOURCE_PATH} -DBINARY_DIR=${CMAKE_BINARY_DIR} -P ${CMAKE_SOURCE_DIR}/copy_pdbs.cmake
+    # Copy PDB files (Windows only, handled by script)
+    COMMAND ${CMAKE_COMMAND} 
+        -DCONFIG=$<CONFIG> 
+        -DLIB_PATH=${VRHI_LIB_DIR} 
+        -DBINARY_DIR=${CMAKE_BINARY_DIR} 
+        -P ${CMAKE_SOURCE_DIR}/copy_pdbs.cmake
     
     # Copy documentation
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/README.md" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "${CMAKE_SOURCE_DIR}/README.md" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "${CMAKE_SOURCE_DIR}/LICENSE" 
+        "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
     
-    # Set working directory and dependencies
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     DEPENDS vrhi
     COMMENT "Creating VRHI release package in ${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/"
     VERBATIM
 )
 
-# === VRHI Package Test Target ===
-# Tests that the packaged VRHI library is complete and usable
-# - Runs AFTER package_vrhi completes (DEPENDS)
-# - FAILS the build if tests fail (FATAL_ERROR via script)
-# - MANUAL target only (not in default build)
-
+# Package validation target
 add_custom_target(test_package_vrhi
     DEPENDS package_vrhi
     COMMAND ${CMAKE_COMMAND}
@@ -303,7 +317,11 @@ add_custom_target(test_package_vrhi
 )
 
 message(STATUS "")
-message(STATUS "Added test_package_vrhi target (validates packaged VRHI)")
-message(STATUS "  Usage: cmake --build <build-dir> --config <Config> --target test_package_vrhi")
-message(STATUS "  Note: This target is MANUAL ONLY (not in default build)")
-message(STATUS "  Note: Test failures will STOP the build (FATAL_ERROR)")
+message(STATUS "VRHI Build Configuration:")
+message(STATUS "  Platform: ${VRHI_LIB_PLATFORM}")
+message(STATUS "  Library path: ${VRHI_LIB_DIR}")
+message(STATUS "")
+message(STATUS "Available targets:")
+message(STATUS "  vrhi_test        - Build and run tests")
+message(STATUS "  package_vrhi     - Create release package")
+message(STATUS "  test_package_vrhi - Validate packaged library (manual)")
