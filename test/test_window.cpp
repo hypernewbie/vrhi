@@ -19,11 +19,17 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#include "test.h"
-#include <vrhi.h>
-
 #define RGFW_IMPLEMENTATION
 #include "RGFW.h"
+
+#if defined(__linux__)
+    // Undefine X11 macros that conflict with nvrhi enums
+    #undef None
+    #undef Always
+#endif
+
+#include "test.h"
+#include <vrhi.h>
 
 UTEST( Window, SwapchainClear )
 {
