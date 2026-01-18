@@ -4,11 +4,16 @@ project(test_package_exe)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Static runtime (/MT or /MTd)
+# Compiler options
 if(MSVC)
+    # Static runtime (/MT or /MTd)
     if(NOT CMAKE_MSVC_RUNTIME_LIBRARY)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
+else()
+    # Clang/GCC: use libc++
+    add_compile_options(-stdlib=libc++)
+    add_link_options(-stdlib=libc++ -lc++abi)
 endif()
 
 # Find Vulkan
@@ -48,11 +53,25 @@ target_link_libraries(test_package_exe PRIVATE
     Vulkan::Vulkan
 )
 
-# Windows system libraries
+# Platform-specific system libraries
 if(WIN32)
     target_link_libraries(test_package_exe PRIVATE
         dxgi
         shlwapi
+    )
+elseif(APPLE)
+    target_link_libraries(test_package_exe PRIVATE
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework Foundation"
+        "-framework AppKit"
+    )
+else()
+    # Linux
+    target_link_libraries(test_package_exe PRIVATE
+        X11
+        Xi
+        Xext
     )
 endif()
 

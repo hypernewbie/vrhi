@@ -35,13 +35,30 @@ else()
     set(MSVC_RUNTIME "MultiThreaded")
 endif()
 
+# Build cmake configure command with optional generator/compiler passthrough
+set(CONFIGURE_ARGS
+    -S "${SOURCE_DIR}/test"
+    -B "${TEST_BUILD_DIR}"
+    -DVRHI_PACKAGE_PATH:PATH=${PACKAGE_PATH}
+    -DCMAKE_BUILD_TYPE:STRING=${CONFIG}
+    -DCMAKE_MSVC_RUNTIME_LIBRARY:STRING=${MSVC_RUNTIME}
+)
+
+# Pass through generator if specified
+if(DEFINED CMAKE_GENERATOR)
+    list(APPEND CONFIGURE_ARGS -G "${CMAKE_GENERATOR}")
+endif()
+
+# Pass through C/C++ compilers if specified
+if(DEFINED CMAKE_C_COMPILER)
+    list(APPEND CONFIGURE_ARGS -DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER})
+endif()
+if(DEFINED CMAKE_CXX_COMPILER)
+    list(APPEND CONFIGURE_ARGS -DCMAKE_CXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER})
+endif()
+
 execute_process(
-    COMMAND ${CMAKE_COMMAND}
-        -S "${SOURCE_DIR}/test"
-        -B "${TEST_BUILD_DIR}"
-        -DVRHI_PACKAGE_PATH:PATH=${PACKAGE_PATH}
-        -DCMAKE_BUILD_TYPE:STRING=${CONFIG}
-        -DCMAKE_MSVC_RUNTIME_LIBRARY:STRING=${MSVC_RUNTIME}
+    COMMAND ${CMAKE_COMMAND} ${CONFIGURE_ARGS}
     RESULT_VARIABLE config_result
     OUTPUT_QUIET
     ERROR_VARIABLE config_error
@@ -72,14 +89,28 @@ endif()
 message(STATUS "[test_package] Running test for ${CONFIG}...")
 
 # Platform-specific executable path
+# Multi-config generators (MSVC) put exe in CONFIG subdir
+# Single-config generators (Ninja, Make) put it at top level
 if(WIN32)
     set(TEST_EXE "${TEST_BUILD_DIR}/${CONFIG}/test_package_exe.exe")
 else()
-    set(TEST_EXE "${TEST_BUILD_DIR}/${CONFIG}/test_package_exe")
+    # Try single-config first, fall back to multi-config
+    if(EXISTS "${TEST_BUILD_DIR}/test_package_exe")
+        set(TEST_EXE "${TEST_BUILD_DIR}/test_package_exe")
+    else()
+        set(TEST_EXE "${TEST_BUILD_DIR}/${CONFIG}/test_package_exe")
+    endif()
 endif()
 
 if(NOT EXISTS "${TEST_EXE}")
     message(FATAL_ERROR "[test_package] Test executable not found: ${TEST_EXE}")
+endif()
+
+# Set library path for shared libs (slang, slang-rt) on Unix
+if(APPLE)
+    set(ENV{DYLD_LIBRARY_PATH} "${PACKAGE_PATH}/lib:$ENV{DYLD_LIBRARY_PATH}")
+elseif(UNIX)
+    set(ENV{LD_LIBRARY_PATH} "${PACKAGE_PATH}/lib:$ENV{LD_LIBRARY_PATH}")
 endif()
 
 execute_process(

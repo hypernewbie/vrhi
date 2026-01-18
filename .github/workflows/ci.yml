@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [ "main", "master" ]
+    tags: [ "*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -135,3 +136,119 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C Debug --verbose
+
+  # ==========================================================================
+  # Release Job - runs on tag pushes only
+  # ==========================================================================
+  release:
+    name: Release ${{ matrix.name }}
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            cmake_gen: ""
+            cmake_extra_args: ""
+            zip_name: vrhi-windows
+            install_swiftshader: true
+
+          - name: Linux
+            os: ubuntu-latest
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21"
+            zip_name: vrhi-linux
+            install_swiftshader: false
+
+          - name: macOS
+            os: macos-14
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
+            zip_name: vrhi-macos
+            install_swiftshader: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          submodules: recursive
+
+      - name: Setup Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.4.335.0
+          cache: true
+          install_swiftshader: ${{ matrix.install_swiftshader }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev mesa-vulkan-drivers libc++-21-dev libc++abi-21-dev zip
+
+      - name: Install Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja llvm@17
+
+      - name: Configure CMake (Release)
+        run: |
+          cmake -S . -B build ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (Release)
+        run: cmake --build build --config Release
+
+      - name: Package
+        run: cmake --build build --config Release --target package_vrhi
+
+      - name: Configure Environment (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $swiftShaderDll = "C:\hostedtoolcache\windows\swiftshader\5.0.0.1\x64\vk_swiftshader.dll"
+          $targetDll = "build\Release\vulkan-1.dll"
+          if (Test-Path $swiftShaderDll) {
+            Copy-Item $swiftShaderDll $targetDll -Force
+            echo "Copied SwiftShader to $targetDll"
+          }
+
+      - name: Configure Environment (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0" >> $GITHUB_ENV
+          echo "MVK_CONFIG_USE_MTLHEAP=0" >> $GITHUB_ENV
+          echo "MVK_CONFIG_LOG_LEVEL=3" >> $GITHUB_ENV
+          echo "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=1" >> $GITHUB_ENV
+          echo "MVK_CONFIG_USE_COMMAND_POOLING=0" >> $GITHUB_ENV
+          if [ -f "$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" ]; then
+            echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          elif [ -f "$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json" ]; then
+            echo "VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          fi
+
+      - name: Test Package
+        run: cmake --build build --config Release --target test_package_vrhi
+
+      - name: Zip Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path build\vrhi_Release\* -DestinationPath ${{ matrix.zip_name }}.zip
+
+      - name: Zip Package (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cd build/vrhi_Release && zip -r ../../${{ matrix.zip_name }}.zip .
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.zip_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
