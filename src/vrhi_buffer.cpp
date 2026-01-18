@@ -409,7 +409,7 @@ uint64_t vhGetBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFla
     return vhBackendQueryBufferInfo( buffer, outStride, outFlags );
 }
 
-void* vhGetBufferNvrhiHandle( vhBuffer buffer )
+nvrhi::BufferHandle vhGetBufferNvrhiHandle( vhBuffer buffer )
 {
     return vhBackendQueryBufferHandle( buffer );
 }

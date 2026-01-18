@@ -69,6 +69,7 @@ struct vhBackendShader
     std::vector< vhSpecConstant > specConstants;
 };
 
+struct vhBackendAccelStruct;
 struct vhStateResolveCache
 {
     bool init = false;
@@ -76,6 +77,7 @@ struct vhStateResolveCache
     std::vector< vhBackendTexture* > btex;
     std::vector< vhBackendBuffer* > bbuf;
     std::vector< vhBackendShader* > bshaders;
+    std::vector< vhBackendAccelStruct* > baccel;
 
     struct ResolvedTexture
     {
@@ -87,6 +89,12 @@ struct vhStateResolveCache
     {
         nvrhi::BufferHandle handle = nullptr;
         const vhState::BufferBinding* binding = nullptr;
+    };
+
+    struct ResolvedAccelStruct
+    {
+        nvrhi::rt::AccelStructHandle handle = nullptr;
+        const vhState::AccelStructBinding* binding = nullptr;
     };
 
     // We work with ShaderMake defaults, which define bindings into 4 ranges.
@@ -122,6 +130,8 @@ struct vhStateResolveCache
         init = false;
         btex.clear();
         bbuf.clear();
+        bshaders.clear();
+        baccel.clear();
         stageBinding.clear();
         userGlobalUniformsBufferCache.clear();
     }
@@ -133,6 +143,27 @@ struct vhBackendTimerQuery
     int currentFrameIndex = 0;
     float lastQueryTime = 0.0f; // Cached result in seconds
     bool initialised = false;
+};
+
+struct vhBackendAccelStruct
+{
+    std::string name;
+    nvrhi::rt::AccelStructHandle handle;
+    nvrhi::rt::AccelStructDesc desc;
+};
+
+struct vhBackendRTPipeline
+{
+    std::string name;
+    nvrhi::rt::PipelineHandle handle;
+    nvrhi::rt::PipelineDesc desc;
+};
+
+struct vhBackendShaderTable
+{
+    std::string name;
+    nvrhi::rt::ShaderTableHandle handle;
+    vhRTPipeline pipeline;
 };
 
 // --------------------------------------------------------------------------
@@ -148,6 +179,9 @@ class vhCmdBackendState : public VIDLHandler
     std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
     std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
     std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
+    std::map< vhAccelStruct, std::unique_ptr< vhBackendAccelStruct > > backendAccelStructs;
+    std::map< vhRTPipeline, std::unique_ptr< vhBackendRTPipeline > > backendRTPipelines;
+    std::map< vhShaderTable, std::unique_ptr< vhBackendShaderTable > > backendShaderTables;
     std::map< vhTimerID, std::unique_ptr< vhBackendTimerQuery > > backendTimerQueries;
     std::map< vhStateId, vhState > backendStates;
     vhTransientBuffer m_globalUniformBuffer;
@@ -251,6 +285,8 @@ class vhCmdBackendState : public VIDLHandler
         int shaderCount,
         nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
         nvrhi::GraphicsState* graphicsState, // set to nullptr if not using graphics.
+        nvrhi::rt::State* rtState = nullptr,
+        const nvrhi::BindingLayoutVector* layoutOverride = nullptr,
         nvrhi::FramebufferHandle fb = nullptr
     );
 
@@ -261,6 +297,8 @@ class vhCmdBackendState : public VIDLHandler
     void BE_Submit( vhState& state, vhBackendShader* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount );
 
     void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size );
+
+    void BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args );
 
 protected:
     // Static caches to avoid reallocation overhead, explicitly cleared in shutdown()
@@ -340,6 +378,29 @@ public:
 
     void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override;
 
+    void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) override;
+
+    void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) override;
+
+    void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) override;
+
+    void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) override;
+
+    void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) override;
+
+    void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) override;
+
+    void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) override;
+
+    void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) override;
+
+    void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) override;
+
+    void Handle_vhShaderTableAddMiss( VIDL_vhShaderTableAddMiss* cmd ) override;
+
+    void Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHitGroup* cmd ) override;
+
+    void Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd ) override;
 
     void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) override;
 
@@ -387,6 +448,8 @@ public:
 
     void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) override;
 
+    void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) override;
+
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override;
 
     void Handle_vhDispatch( VIDL_vhDispatch* cmd ) override;
@@ -415,11 +478,11 @@ public:
 
     vhTexInfo QueryTextureInfo( vhTexture handle, std::vector< vhTextureMipInfo >* outMipInfo );
 
-    void* QueryTextureHandle( vhTexture handle );
+    nvrhi::TextureHandle QueryTextureHandle( vhTexture handle );
 
     uint64_t QueryBufferInfo( vhBuffer handle, uint32_t* outStride, uint64_t* outFlags );
 
-    void* QueryBufferHandle( vhBuffer handle );
+    nvrhi::BufferHandle QueryBufferHandle( vhBuffer handle );
 
     const std::vector< vhVertexLayoutDef >* QueryBufferLayout( vhBuffer handle );
 
@@ -431,9 +494,15 @@ public:
         std::vector< vhSpecConstant >* outSpecConstants
     );
 
-    void* QueryShaderHandle( vhShader handle );
+    nvrhi::ShaderHandle QueryShaderHandle( vhShader handle );
 
     bool QueryState( vhStateId id, vhState& outState );
 
     float QueryTimer( vhTimerID timerID );
+
+    nvrhi::rt::AccelStructHandle QueryAccelStructHandle( vhAccelStruct as );
+    
+    nvrhi::rt::PipelineHandle QueryRTPipelineHandle( vhRTPipeline pipeline );
+
+    nvrhi::rt::ShaderTableHandle QueryShaderTableHandle( vhShaderTable table );
 };

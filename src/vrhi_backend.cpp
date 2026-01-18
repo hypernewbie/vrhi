@@ -535,6 +535,18 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             scache.bbuf[i] = it->second.get();
     }
 
+    // Resolve acceleration structures.
+
+    scache.baccel.resize( state.accelStructs.size(), nullptr );
+    for ( size_t i = 0; i < state.accelStructs.size(); i++ )
+    {
+        if ( state.accelStructs[i].as == VRHI_INVALID_HANDLE )
+            continue;
+        const auto& it = backendAccelStructs.find( state.accelStructs[i].as );
+        if ( it != backendAccelStructs.end() )
+            scache.baccel[i] = it->second.get();
+    }
+
     // Build slot maps.
 
     scache.stageBinding.clear();
@@ -1030,6 +1042,20 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Sampler found in cache at slot %d\n", item.slot );
             return true;
         }
+        case nvrhi::ResourceType::RayTracingAccelStruct:
+        {
+            for ( size_t i = 0; i < scache.baccel.size(); i++ )
+            {
+                if ( !scache.baccel[i] ) continue;
+                const auto& binding = state.accelStructs[i];
+                if ( binding.slot == item.slot )
+                {
+                    outItem = nvrhi::BindingSetItem::RayTracingAccelStruct( item.slot, scache.baccel[i]->handle.Get() );
+                    return true;
+                }
+            }
+            return false;
+        }
         default:
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown or unsupported resource type %d at slot %d\n", ( int ) item.type, item.slot );
             break;
@@ -1043,14 +1069,19 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     vhState& state,
     vhBackendShader* shaders,
     int shaderCount,
-    nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
-    nvrhi::GraphicsState* graphicsState, // set to nullptr if not using graphics.
+    nvrhi::ComputeState* computeState,
+    nvrhi::GraphicsState* graphicsState,
+    nvrhi::rt::State* rtState,
+    const nvrhi::BindingLayoutVector* layoutOverride,
     nvrhi::FramebufferHandle fb
 )
 {
-    const nvrhi::BindingLayoutVector* psoLayouts = nullptr;
-    if ( computeState && computeState->pipeline ) psoLayouts = &computeState->pipeline->getDesc().bindingLayouts;
-    if ( graphicsState && graphicsState->pipeline ) psoLayouts = &graphicsState->pipeline->getDesc().bindingLayouts;
+    // Find the PSO layout to use.
+    const nvrhi::BindingLayoutVector* psoLayouts = layoutOverride;
+    if ( computeState && computeState->pipeline )
+        psoLayouts = &computeState->pipeline->getDesc().bindingLayouts;
+    if ( graphicsState && graphicsState->pipeline )
+        psoLayouts = &graphicsState->pipeline->getDesc().bindingLayouts;
     if ( !psoLayouts )
     {
         VRHI_ERR( "vhSetState(): No PSO layout. This is likely a Vrhi bug.\n" );
@@ -1101,8 +1132,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
     s_hashToPSOlayout.clear();
 
-    // Loop through the layouts and bind resources.
-
+    // Resolve state resource cache
     s_resolveCache.Clear();
     BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, s_resolveCache );
     if ( !s_resolveCache.init )
@@ -1110,6 +1140,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         VRHI_ERR( "vhSetState(): Failed to resolve state resource cache.\n" );
         return false;
     }
+
+    // Loop through the layouts and bind resources.
 
     for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
     {
@@ -1123,9 +1155,13 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         // Build a map of reflection slots --> reflection resources.
 
         s_slotToReflection.clear();
-        assert( s_layoutToShader.find( layout ) != s_layoutToShader.end() );
-        auto shader = s_layoutToShader[layout];
-        assert( shader );
+        auto layoutItr = s_layoutToShader.find( layout );
+        if ( layoutItr == s_layoutToShader.end() )
+            continue;
+        auto shader = layoutItr->second;
+        if ( !shader )
+            continue;
+
         for ( uint32_t i = 0; i < ( uint32_t ) shader->reflection.size(); i++ )
         {
             auto& reflection = shader->reflection[i];
@@ -1185,15 +1221,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
         if ( computeState )  computeState->addBindingSet( bset );
         if ( graphicsState ) graphicsState->addBindingSet( bset );
+        if ( rtState )       rtState->bindings.push_back( bset );
     }
 
     if ( graphicsState )
     {
         // Transfer some overlapping state from vhState to nvrhi::GraphicsState.
 
-
         // Set blend constant color
         graphicsState->blendConstantColor = nvrhi::Color( state.blendConstantColor.r, state.blendConstantColor.g, state.blendConstantColor.b, state.blendConstantColor.a );
+
+        // Set shading rate
         if ( state.shadingRateFlags != VRHI_VRS_1X1 || state.shadingRateImage != VRHI_INVALID_HANDLE )
         {
             auto& vrs = graphicsState->shadingRateState;
@@ -1203,6 +1241,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             // Image is bound in the framebuffer.
         }
 
+        // Set viewport
         graphicsState->viewport.viewports.resize( 0 );
         graphicsState->viewport.viewports.push_back( nvrhi::Viewport(
             state.viewRect.x, state.viewRect.x + state.viewRect.z,
@@ -1210,6 +1249,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             state.viewDepthRange.x, state.viewDepthRange.y
         ) );
 
+        // Set scissor
         graphicsState->viewport.scissorRects.resize( 0 );
         if ( state.viewScissor.z >= 0.0f && state.viewScissor.w >= 0.0f )
         {
@@ -1285,6 +1325,22 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( !vhDebugLayoutDiffCheck( *psoLayouts, *stateLayouts ) )
             return false;
     }
+
+    if ( rtState )
+    {
+        if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
+        {
+            for ( auto* shader : s_resolveCache.bshaders )
+            {
+                if ( !shader->pushConstants.empty() )
+                {
+                    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                    vhSetPushConstant_DeviceStateLocked( cmdList, state );
+                    break;
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -1309,7 +1365,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     nvrhi::ComputeState cstate;
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     cstate.setPipeline( pso.Get() );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1355,7 +1411,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
 
     nvrhi::ComputeState cstate;
     cstate.setPipeline( pso.Get() );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1399,7 +1455,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
     nvrhi::GraphicsState gstate;
     gstate.setPipeline( pso.Get() );
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &gstate, fb ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &gstate, nullptr, nullptr, fb ) )
     {
         VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
         return;
@@ -1458,6 +1514,41 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
     }
 }
 
+void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args )
+{
+    vhBackendShader rtShaders[VRHI_SHADER_STAGE_MAX];
+    int rtShaderCount = 0;
+    for ( auto h : state.program )
+    {
+        auto it = backendShaders.find( h );
+        if ( it != backendShaders.end() && it->second )
+        {
+            assert( rtShaderCount < VRHI_SHADER_STAGE_MAX );
+            rtShaders[rtShaderCount++] = *it->second;
+        }
+    }
+
+    nvrhi::rt::State rtState;
+    rtState.shaderTable = shaderTable.handle;
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+
+    if ( !BE_PreSubmitCommon_State(
+        cmdlist, state, rtShaders, rtShaderCount,
+        nullptr, nullptr,
+        &rtState, &pipeline.desc.globalBindingLayouts ) )
+    {
+        VRHI_ERR( "BE_DispatchRays(): Failed to set RT state.\n" );
+        return;
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdlist->setRayTracingState( rtState );
+        cmdlist->dispatchRays( args );
+    }
+}
+
 void vhCmdBackendState::init()
 {
     std::lock_guard< std::mutex > lock( backendMutex );
@@ -1495,6 +1586,10 @@ void vhCmdBackendState::shutdown()
 {
     std::lock_guard< std::mutex > lock( backendMutex );
     std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
+
+    backendAccelStructs.clear();
+    backendRTPipelines.clear();
+    backendShaderTables.clear();
 
     m_globalUniformBuffer.Shutdown_DeviceStateLocked();
     m_worldUniformBuffer.Shutdown_DeviceStateLocked();
@@ -2261,6 +2356,272 @@ void vhCmdBackendState::Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd )
     }
 }
 
+void vhCmdBackendState::Handle_vhCreateAS( VIDL_vhCreateAS* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( cmd->as == VRHI_INVALID_HANDLE ) return;
+
+    if ( backendAccelStructs.find( cmd->as ) == backendAccelStructs.end() )
+    {
+        backendAccelStructs[ cmd->as ] = std::make_unique< vhBackendAccelStruct >();
+    }
+
+    auto backend = backendAccelStructs[ cmd->as ].get();
+    backend->desc = cmd->desc;
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        backend->handle = g_vhDevice->createAccelStruct( backend->desc );
+        if ( !backend->handle )
+        {
+            VRHI_ERR( "vhCreateAS() : Failed to create acceleration structure!\n" );
+        }
+    }
+}
+
+void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( backendAccelStructs.find( cmd->as ) == backendAccelStructs.end() )
+    {
+        VRHI_ERR( "vhDestroyAS() : AccelStruct %d not found!\n", cmd->as );
+        return;
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        backendAccelStructs.erase( cmd->as );
+    }
+}
+
+void vhCmdBackendState::Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendAccelStructs.find( cmd->blas );
+    if ( it == backendAccelStructs.end() )
+    {
+        VRHI_ERR( "vhBuildBLAS() : BLAS %d not found!\n", cmd->blas );
+        return;
+    }
+
+    auto backend = it->second.get();
+    if ( !backend->handle )
+    {
+        VRHI_ERR( "vhBuildBLAS() : BLAS %d has no valid handle!\n", cmd->blas );
+        return;
+    }
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdlist->buildBottomLevelAccelStruct( backend->handle, cmd->geometries.data(), cmd->geometries.size(), backend->desc.buildFlags );
+    }
+}
+
+void vhCmdBackendState::Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendAccelStructs.find( cmd->tlas );
+    if ( it == backendAccelStructs.end() )
+    {
+        VRHI_ERR( "vhBuildTLAS() : TLAS %d not found!\n", cmd->tlas );
+        return;
+    }
+
+    auto backend = it->second.get();
+    if ( !backend->handle )
+    {
+        VRHI_ERR( "vhBuildTLAS() : TLAS %d has no valid handle!\n", cmd->tlas );
+        return;
+    }
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdlist->buildTopLevelAccelStruct( backend->handle, cmd->instances.data(), cmd->instances.size(), backend->desc.buildFlags );
+    }
+}
+
+
+void vhCmdBackendState::Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( cmd->pipeline == VRHI_INVALID_HANDLE ) return;
+
+    if ( backendRTPipelines.find( cmd->pipeline ) == backendRTPipelines.end() )
+    {
+        backendRTPipelines[ cmd->pipeline ] = std::make_unique< vhBackendRTPipeline >();
+    }
+
+    auto backend = backendRTPipelines[ cmd->pipeline ].get();
+    backend->desc = cmd->desc;
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        backend->handle = g_vhDevice->createRayTracingPipeline( backend->desc );
+        if ( !backend->handle )
+        {
+            VRHI_ERR( "vhCreateRTPipeline() : Failed to create raytracing pipeline!\n" );
+        }
+    }
+}
+
+void vhCmdBackendState::Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( backendRTPipelines.find( cmd->pipeline ) == backendRTPipelines.end() )
+    {
+        VRHI_ERR( "vhDestroyRTPipeline() : RTPipeline %d not found!\n", cmd->pipeline );
+        return;
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        backendRTPipelines.erase( cmd->pipeline );
+    }
+}
+
+void vhCmdBackendState::Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( cmd->pipeline == VRHI_INVALID_HANDLE ) return;
+
+    auto pipelineIt = backendRTPipelines.find( cmd->pipeline );
+    if ( pipelineIt == backendRTPipelines.end() )
+    {
+        VRHI_ERR( "vhCreateShaderTable() : Parent pipeline %d not found!\n", cmd->pipeline );
+        return;
+    }
+
+    vhShaderTable table = cmd->table;
+    if ( table == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhCreateShaderTable() : Invalid shader table handle!\n" );
+        return;
+    }
+
+    auto tableBackend = std::make_unique< vhBackendShaderTable >();
+    tableBackend->pipeline = cmd->pipeline;
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tableBackend->handle = pipelineIt->second->handle->createShaderTable();
+        if ( !tableBackend->handle )
+        {
+            VRHI_ERR( "vhCreateShaderTable() : Failed to create shader table!\n" );
+            return;
+        }
+    }
+
+    backendShaderTables[table] = std::move( tableBackend );
+}
+
+void vhCmdBackendState::Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( backendShaderTables.find( cmd->table ) == backendShaderTables.end() )
+    {
+        VRHI_ERR( "vhDestroyShaderTable() : ShaderTable %d not found!\n", cmd->table );
+        return;
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        backendShaderTables.erase( cmd->table );
+    }
+}
+
+void vhCmdBackendState::Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendShaderTables.find( cmd->table );
+    if ( it == backendShaderTables.end() )
+    {
+        VRHI_ERR( "vhShaderTableSetRayGen() : ShaderTable %d not found!\n", cmd->table );
+        return;
+    }
+    auto table = it->second.get();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        table->handle->setRayGenerationShader( cmd->exportName ? cmd->exportName : "", cmd->bindingSet );
+    }
+}
+
+void vhCmdBackendState::Handle_vhShaderTableAddMiss( VIDL_vhShaderTableAddMiss* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendShaderTables.find( cmd->table );
+    if ( it == backendShaderTables.end() )
+    {
+        VRHI_ERR( "vhShaderTableAddMiss() : ShaderTable %d not found!\n", cmd->table );
+        return;
+    }
+    auto table = it->second.get();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        table->handle->addMissShader( cmd->exportName ? cmd->exportName : "", cmd->bindingSet );
+    }
+}
+
+void vhCmdBackendState::Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHitGroup* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendShaderTables.find( cmd->table );
+    if ( it == backendShaderTables.end() )
+    {
+        VRHI_ERR( "vhShaderTableAddHitGroup() : ShaderTable %d not found!\n", cmd->table );
+        return;
+    }
+    auto table = it->second.get();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        table->handle->addHitGroup( cmd->exportName ? cmd->exportName : "", cmd->bindingSet );
+    }
+}
+
+// Refactored to use BE_DispatchRays
+void vhCmdBackendState::Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto stateIt = backendStates.find( cmd->stateID );
+    if ( stateIt == backendStates.end() )
+    {
+        VRHI_ERR( "vhDispatchRays() : State %llu not found!\n", cmd->stateID );
+        return;
+    }
+
+    auto tableIt = backendShaderTables.find( cmd->table );
+    if ( tableIt == backendShaderTables.end() )
+    {
+        VRHI_ERR( "vhDispatchRays() : ShaderTable %d not found!\n", cmd->table );
+        return;
+    }
+
+    auto& state = stateIt->second;
+    auto table = tableIt->second.get();
+    auto pipelineIt = backendRTPipelines.find( table->pipeline );
+    if ( pipelineIt == backendRTPipelines.end() )
+    {
+        VRHI_ERR( "vhDispatchRays() : Pipeline for ShaderTable %d not found!\n", cmd->table );
+        return;
+    }
+    auto pipeline = pipelineIt->second.get();
+
+    BE_DispatchRays( state, *pipeline, *table, cmd->args );
+}
+
 
 void vhCmdBackendState::Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd )
 {
@@ -2433,6 +2794,17 @@ void vhCmdBackendState::Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIn
     {
         it->second.indirectParams.buffer = cmd->buffer;
         it->second.indirectParams.byteOffset = cmd->offset;
+    }
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto it = backendStates.find( cmd->id );
+    if ( it != backendStates.end() )
+    {
+        it->second.accelStructs = cmd->accelStructs;
+        it->second.dirty |= VRHI_DIRTY_ACCEL_STRUCT;
     }
 }
 
@@ -2767,7 +3139,7 @@ vhTexInfo vhCmdBackendState::QueryTextureInfo( vhTexture handle, std::vector< vh
     return it->second->info;
 }
 
-void* vhCmdBackendState::QueryTextureHandle( vhTexture handle )
+nvrhi::TextureHandle vhCmdBackendState::QueryTextureHandle( vhTexture handle )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
     auto it = backendTextures.find( handle );
@@ -2775,7 +3147,7 @@ void* vhCmdBackendState::QueryTextureHandle( vhTexture handle )
     {
         return nullptr;
     }
-    return it->second->handle.Get();
+    return it->second->handle;
 }
 
 uint64_t vhCmdBackendState::QueryBufferInfo( vhBuffer handle, uint32_t* outStride, uint64_t* outFlags )
@@ -2792,7 +3164,7 @@ uint64_t vhCmdBackendState::QueryBufferInfo( vhBuffer handle, uint32_t* outStrid
     return it->second->desc.byteSize;
 }
 
-void* vhCmdBackendState::QueryBufferHandle( vhBuffer handle )
+nvrhi::BufferHandle vhCmdBackendState::QueryBufferHandle( vhBuffer handle )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
     auto it = backendBuffers.find( handle );
@@ -2800,7 +3172,7 @@ void* vhCmdBackendState::QueryBufferHandle( vhBuffer handle )
     {
         return nullptr;
     }
-    return it->second->handle.Get();
+    return it->second->handle;
 }
 
 const std::vector< vhVertexLayoutDef >* vhCmdBackendState::QueryBufferLayout( vhBuffer handle )
@@ -2840,7 +3212,7 @@ void vhCmdBackendState::QueryShaderInfo(
     if ( outSpecConstants ) *outSpecConstants = bshader.specConstants;
 }
 
-void* vhCmdBackendState::QueryShaderHandle( vhShader handle )
+nvrhi::ShaderHandle vhCmdBackendState::QueryShaderHandle( vhShader handle )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
     auto it = backendShaders.find( handle );
@@ -2848,7 +3220,7 @@ void* vhCmdBackendState::QueryShaderHandle( vhShader handle )
     {
         return nullptr;
     }
-    return it->second->handle.Get();
+    return it->second->handle;
 }
 
 bool vhCmdBackendState::QueryState( vhStateId id, vhState& outState )
@@ -2876,6 +3248,30 @@ float vhCmdBackendState::QueryTimer( vhTimerID timerID )
     return it->second->lastQueryTime;
 }
 
+nvrhi::rt::AccelStructHandle vhCmdBackendState::QueryAccelStructHandle( vhAccelStruct as )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto it = backendAccelStructs.find( as );
+    if ( it == backendAccelStructs.end() ) return nullptr;
+    return it->second->handle;
+}
+
+nvrhi::rt::PipelineHandle vhCmdBackendState::QueryRTPipelineHandle( vhRTPipeline pipeline )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto it = backendRTPipelines.find( pipeline );
+    if ( it == backendRTPipelines.end() ) return nullptr;
+    return it->second->handle;
+}
+
+nvrhi::rt::ShaderTableHandle vhCmdBackendState::QueryShaderTableHandle( vhShaderTable table )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto it = backendShaderTables.find( table );
+    if ( it == backendShaderTables.end() ) return nullptr;
+    return it->second->handle;
+}
+
 // --------------------------------------------------------------------------
 // Backend Bridge
 // --------------------------------------------------------------------------
@@ -2900,7 +3296,7 @@ vhTexInfo vhBackendQueryTextureInfo( vhTexture texture, std::vector< vhTextureMi
     return g_vhCmdBackendState.QueryTextureInfo( texture, outMipInfo );
 }
 
-void* vhBackendQueryTextureHandle( vhTexture texture )
+nvrhi::TextureHandle vhBackendQueryTextureHandle( vhTexture texture )
 {
     return g_vhCmdBackendState.QueryTextureHandle( texture );
 }
@@ -2910,7 +3306,7 @@ uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_
     return g_vhCmdBackendState.QueryBufferInfo( buffer, outStride, outFlags );
 }
 
-void* vhBackendQueryBufferHandle( vhBuffer buffer )
+nvrhi::BufferHandle vhBackendQueryBufferHandle( vhBuffer buffer )
 {
     return g_vhCmdBackendState.QueryBufferHandle( buffer );
 }
@@ -2925,7 +3321,7 @@ void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::v
     g_vhCmdBackendState.QueryShaderInfo( shader, outGroupSize, outResources, outPushConstants, outSpecConstants );
 }
 
-void* vhBackendQueryShaderHandle( vhShader shader )
+nvrhi::ShaderHandle vhBackendQueryShaderHandle( vhShader shader )
 {
     return g_vhCmdBackendState.QueryShaderHandle( shader );
 }
@@ -2938,6 +3334,21 @@ bool vhBackendQueryState( vhStateId id, vhState& outState )
 float vhBackendQueryTimer( vhTimerID timerID )
 {
     return g_vhCmdBackendState.QueryTimer( timerID );
+}
+
+nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as )
+{
+    return g_vhCmdBackendState.QueryAccelStructHandle( as );
+}
+
+nvrhi::rt::PipelineHandle vhBackendQueryRTPipelineHandle( vhRTPipeline pipeline )
+{
+    return g_vhCmdBackendState.QueryRTPipelineHandle( pipeline );
+}
+
+nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable table )
+{
+    return g_vhCmdBackendState.QueryShaderTableHandle( table );
 }
 
 

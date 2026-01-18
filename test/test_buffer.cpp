@@ -563,7 +563,7 @@ UTEST_F( Buffer, ResourceQueries )
     EXPECT_EQ( stride, 1 ); // Uniform buffer stride is 1
     EXPECT_EQ( qFlags, flags );
 
-    void* handle = vhGetBufferNvrhiHandle( buf );
+    nvrhi::BufferHandle handle = vhGetBufferNvrhiHandle( buf );
     EXPECT_NE( handle, nullptr );
 
     vhDestroyBuffer( buf );
@@ -589,7 +589,7 @@ UTEST_F( Buffer, StorageBufferCreation )
 
     // Verify NVRHI desc
     {
-        nvrhi::IBuffer* buf = (nvrhi::IBuffer*)vhGetBufferNvrhiHandle( bStruct );
+        nvrhi::IBuffer* buf = vhGetBufferNvrhiHandle( bStruct );
         ASSERT_TRUE( buf );
         const nvrhi::BufferDesc& desc = buf->getDesc();
         EXPECT_EQ( desc.byteSize, 640 );
@@ -606,7 +606,7 @@ UTEST_F( Buffer, StorageBufferCreation )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
     {
-        nvrhi::IBuffer* buf = (nvrhi::IBuffer*)vhGetBufferNvrhiHandle( bTyped );
+        nvrhi::IBuffer* buf = vhGetBufferNvrhiHandle( bTyped );
         ASSERT_TRUE( buf );
         const nvrhi::BufferDesc& desc = buf->getDesc();
         EXPECT_EQ( desc.byteSize, 400 );

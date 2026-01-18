@@ -534,8 +534,8 @@ UTEST( BackendInternal, FindResource )
 
     vhFinish();
 
-    nvrhi::TextureHandle hTex = ( nvrhi::ITexture* ) vhGetTextureNvrhiHandle( tex );
-    nvrhi::BufferHandle hBuf = ( nvrhi::IBuffer* ) vhGetBufferNvrhiHandle( buf );
+    nvrhi::TextureHandle hTex = vhGetTextureNvrhiHandle( tex );
+    nvrhi::BufferHandle hBuf = vhGetBufferNvrhiHandle( buf );
 
     EXPECT_TRUE( hTex != nullptr );
     EXPECT_TRUE( hBuf != nullptr );

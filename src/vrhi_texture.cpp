@@ -257,7 +257,7 @@ vhTexInfo vhGetTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* 
     return vhBackendQueryTextureInfo( texture, outMipInfo );
 }
 
-void* vhGetTextureNvrhiHandle( vhTexture texture )
+nvrhi::TextureHandle vhGetTextureNvrhiHandle( vhTexture texture )
 {
     return vhBackendQueryTextureHandle( texture );
 }

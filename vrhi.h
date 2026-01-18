@@ -102,7 +102,11 @@ typedef uint32_t vhShader;
 typedef uint32_t vhUniform;
 typedef uint64_t vhTimerID;
 typedef std::vector< uint8_t > vhMem;
-typedef std::vector< vhShader > vhProgram; 
+typedef std::vector< vhShader > vhProgram;
+typedef uint32_t vhAccelStruct;
+typedef uint32_t vhRTPipeline;
+typedef uint32_t vhShaderTable; 
+typedef uint64_t vhStateId; 
 
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
@@ -131,7 +135,11 @@ constexpr uint64_t VRHI_SHADER_STAGE_MISS          = 8;
 constexpr uint64_t VRHI_SHADER_STAGE_CLOSEST_HIT   = 9;
 constexpr uint64_t VRHI_SHADER_STAGE_MESH          = 10;
 constexpr uint64_t VRHI_SHADER_STAGE_AMPLIFICATION = 11;
-constexpr uint64_t VRHI_SHADER_STAGE_MAX           = 11;
+constexpr uint64_t VRHI_SHADER_STAGE_ANY_HIT       = 12;
+constexpr uint64_t VRHI_SHADER_STAGE_INTERSECTION  = 13;
+constexpr uint64_t VRHI_SHADER_STAGE_CALLABLE      = 14;
+
+constexpr uint64_t VRHI_SHADER_STAGE_MAX           = 14;
 constexpr uint64_t VRHI_SHADER_STAGE_MASK          = 0xF;
 
 constexpr uint64_t VRHI_SHADER_SM_5_0              = ( 1 << 4 );
@@ -553,6 +561,7 @@ constexpr uint64_t VRHI_DIRTY_UNIFORMS         = ( 1ULL << 11 );
 constexpr uint64_t VRHI_DIRTY_VRS              = ( 1ULL << 12 );
 constexpr uint64_t VRHI_DIRTY_INDIRECT         = ( 1ULL << 13 );
 constexpr uint64_t VRHI_DIRTY_DEPTH_BIAS       = ( 1ULL << 14 );
+constexpr uint64_t VRHI_DIRTY_ACCEL_STRUCT     = ( 1ULL << 15 );
 constexpr uint64_t VRHI_DIRTY_ALL              = 0xFFFFFFFFFFFFFFFF;
 
 constexpr uint32_t VRHI_DRAW_INDEXED  = ( 1u << 0 );
@@ -947,7 +956,7 @@ inline vhFormatInfo vhGetFormat( nvrhi::Format format )
 vhTexInfo vhGetTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo = nullptr );
 
 // Returns the raw NVRHI handle (nvrhi::ITexture*).
-void* vhGetTextureNvrhiHandle( vhTexture texture );
+nvrhi::TextureHandle vhGetTextureNvrhiHandle( vhTexture texture );
 
 // ------------ Buffer ------------
 
@@ -1151,7 +1160,126 @@ void vhDestroyBuffer( vhBuffer buffer );
 uint64_t vhGetBufferInfo( vhBuffer buffer, uint32_t* outStride = nullptr, uint64_t* outFlags = nullptr );
 
 // Returns the raw NVRHI handle (nvrhi::IBuffer*).
-void* vhGetBufferNvrhiHandle( vhBuffer buffer );
+nvrhi::BufferHandle vhGetBufferNvrhiHandle( vhBuffer buffer );
+
+// ------------ Raytracing ------------
+
+// Allocates a unique acceleration structure handle.
+//
+// Returns a valid `vhAccelStruct` handle, or `VRHI_INVALID_HANDLE` on failure.
+vhAccelStruct vhAllocAS();
+
+// Allocates a unique raytracing pipeline handle.
+//
+// Returns a valid `vhRTPipeline` handle, or `VRHI_INVALID_HANDLE` on failure.
+vhRTPipeline vhAllocRTPipeline();
+
+
+// Allocates a unique shader table handle.
+//
+// Returns a valid `vhShaderTable` handle, or `VRHI_INVALID_HANDLE` on failure.
+vhShaderTable vhAllocShaderTable();
+
+// Enqueues a command to create an acceleration structure from a NVRHI descriptor.
+//
+// `as` must be a handle allocated via `vhAllocAS`.
+// `desc` is the NVRHI acceleration structure descriptor (BLAS or TLAS).
+// VIDL_GENERATE
+void vhCreateAS( vhAccelStruct as, const nvrhi::rt::AccelStructDesc& desc );
+
+// Enqueues a command to destroy the acceleration structure.
+//
+// `as` is the handle to the acceleration structure to be destroyed.
+// VIDL_GENERATE
+void vhDestroyAS( vhAccelStruct as );
+
+// Enqueues a command to build or rebuild a bottom-level acceleration structure.
+//
+// `blas` is the handle to the BLAS.
+// `geometries` is an array of NVRHI geometry descriptors.
+// `geometryCount` is the number of geometries.
+// VIDL_GENERATE
+void vhBuildBLAS( vhAccelStruct blas, std::vector< nvrhi::rt::GeometryDesc > geometries );
+
+// Enqueues a command to build or rebuild a top-level acceleration structure.
+//
+// `tlas` is the handle to the TLAS.
+// `instances` is an array of NVRHI instance descriptors.
+// `instanceCount` is the number of instances.
+// VIDL_GENERATE
+void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > instances );
+
+// Enqueues a command to create a raytracing pipeline from a NVRHI descriptor.
+//
+// `pipeline` must be a handle allocated via `vhAllocRTPipeline`.
+// `desc` is the NVRHI raytracing pipeline descriptor.
+// VIDL_GENERATE
+void vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc );
+
+// Enqueues a command to destroy the raytracing pipeline.
+//
+// `pipeline` is the handle to the raytracing pipeline to be destroyed.
+// VIDL_GENERATE
+void vhDestroyRTPipeline( vhRTPipeline pipeline );
+
+// Allocates a client-side shader table handle.
+//
+// Returns a `vhShaderTable` handle.
+vhShaderTable vhAllocShaderTable();
+
+// Enqueues a command to create a shader table for a raytracing pipeline.
+//
+// `table` is the handle allocated via `vhAllocShaderTable`.
+// `pipeline` is the raytracing pipeline handle.
+// VIDL_GENERATE
+void vhCreateShaderTable( vhShaderTable table, vhRTPipeline pipeline );
+
+// Enqueues a command to destroy a shader table.
+//
+// `table` is the handle to the shader table to be destroyed.
+// VIDL_GENERATE
+void vhDestroyShaderTable( vhShaderTable table );
+
+// Enqueues a command to set the ray generation shader in a shader table.
+//
+// `table` is the shader table handle.
+// `exportName` is the raygen shader export name from the pipeline.
+// Shader resources are bound via the state's texture, buffer, and sampler bindings.
+// VIDL_GENERATE
+void vhShaderTableSetRayGen( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet = nullptr );
+
+// Enqueues a command to add a miss shader to a shader table.
+//
+// `table` is the shader table handle.
+// `exportName` is the miss shader export name from the pipeline.
+// Shader resources are bound via the state's texture, buffer, and sampler bindings.
+// VIDL_GENERATE
+void vhShaderTableAddMiss( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet = nullptr );
+
+// Enqueues a command to add a hit group to a shader table.
+//
+// `table` is the shader table handle.
+// `exportName` is the hit group export name from the pipeline.
+// Shader resources are bound via the state's texture, buffer, and sampler bindings.
+// VIDL_GENERATE
+void vhShaderTableAddHitGroup( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet = nullptr );
+
+// Enqueues a command to dispatch rays.
+//
+// `stateID` is the state to use for binding resources.
+// `table` is the shader table handle.
+// `args` is the NVRHI dispatch rays arguments (dimensions, etc).
+// VIDL_GENERATE
+void vhDispatchRays( vhStateId stateID, vhShaderTable table, const nvrhi::rt::DispatchRaysArguments& args );
+
+// Returns the raw NVRHI handle (nvrhi::rt::IAccelStruct*).
+nvrhi::rt::AccelStructHandle vhGetASNvrhiHandle( vhAccelStruct as );
+
+// Returns the raw NVRHI handle (nvrhi::rt::IPipeline*).
+nvrhi::rt::PipelineHandle vhGetRTPipelineNvrhiHandle( vhRTPipeline pipeline );
+
+// Returns the raw NVRHI handle (nvrhi::rt::IShaderTable*).
+nvrhi::rt::ShaderTableHandle vhGetShaderTableNvrhiHandle( vhShaderTable table );
 
 // ------------ Shaders ------------
 
@@ -1204,7 +1332,7 @@ void vhGetShaderInfo(
 );
 
 // Returns the raw NVRHI handle (nvrhi::IShader*).
-void* vhGetShaderNvrhiHandle( vhShader shader );
+nvrhi::ShaderHandle vhGetShaderNvrhiHandle( vhShader shader );
 
 // Compiles shader source code to SPIR-V bytecode using ShaderMake.
 //
@@ -1397,6 +1525,14 @@ struct vhState
         bool computeUAV = false;
     };
     std::vector< BufferBinding > buffers;
+
+    struct AccelStructBinding
+    {
+        vhAccelStruct as = VRHI_INVALID_HANDLE;
+        int32_t slot = -1;
+        const char* name = nullptr;
+    };
+    std::vector< AccelStructBinding > accelStructs;
 
     struct SamplerDefinition
     {
@@ -1607,6 +1743,24 @@ struct vhState
     {
         if ( idx >= buffers.size() ) buffers.resize( idx + 1 );
         return buffers[idx];
+    }
+    vhState& SetAccelStructs( const std::vector< AccelStructBinding >& accelStructs_ )
+    {
+        accelStructs = accelStructs_;
+        dirty |= VRHI_DIRTY_ACCEL_STRUCT;
+        return *this;
+    }
+    vhState& SetAccelStruct( uint32_t idx, vhAccelStruct as, int32_t slot = -1, const char* name = nullptr )
+    {
+        if ( idx >= accelStructs.size() ) accelStructs.resize( idx + 1 );
+        accelStructs[idx] = { as, slot, name };
+        dirty |= VRHI_DIRTY_ACCEL_STRUCT;
+        return *this;
+    }
+    AccelStructBinding& GetAccelStruct( uint32_t idx )
+    {
+        if ( idx >= accelStructs.size() ) accelStructs.resize( idx + 1 );
+        return accelStructs[idx];
     }
     vhState& SetConstants( const std::vector< ConstantBufferValue >& constants_ )
     {
@@ -1972,6 +2126,8 @@ void vhCmdSetStateViewDepthRange( vhStateId id, float minZ, float maxZ );
 void vhCmdSetStateShadingRate( vhStateId id, uint32_t flags, vhTexture image );
 // VIDL_GENERATE
 void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset );
+// VIDL_GENERATE
+void vhCmdSetStateAccelStructs( vhStateId id, const std::vector< vhState::AccelStructBinding >& accelStructs );
 
 // Internal omni-draw command. Do not call directly.
 // VIDL_GENERATE

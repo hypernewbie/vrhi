@@ -547,7 +547,7 @@ void vhGetShaderInfo(
     vhBackendQueryShaderInfo( shader, outGroupSize, outResources, outPushConstants, outSpecConstants );
 }
 
-void* vhGetShaderNvrhiHandle( vhShader shader )
+nvrhi::ShaderHandle vhGetShaderNvrhiHandle( vhShader shader )
 {
     return vhBackendQueryShaderHandle( shader );
 }
@@ -628,4 +628,149 @@ void vhPackUserGlobals(
             memcpy( outData + member.offset, match->data.data(), actualCopy );
         }
     }
+}
+
+// ------------ Raytracing Allocations ------------
+
+vhAccelStruct vhAllocAS()
+{
+    std::lock_guard< std::mutex > lock( g_vhAccelStructIDListMutex );
+    uint32_t id = g_vhAccelStructIDList.alloc();
+    g_vhAccelStructIDValid[id] = true;
+    return id;
+}
+
+vhRTPipeline vhAllocRTPipeline()
+{
+    std::lock_guard< std::mutex > lock( g_vhRTPipelineIDListMutex );
+    uint32_t id = g_vhRTPipelineIDList.alloc();
+    g_vhRTPipelineIDValid[id] = true;
+    return id;
+}
+
+vhShaderTable vhAllocShaderTable()
+{
+    std::lock_guard< std::mutex > lock( g_vhShaderTableIDListMutex );
+    uint32_t id = g_vhShaderTableIDList.alloc();
+    g_vhShaderTableIDValid[id] = true;
+    return id;
+}
+
+void vhCreateAS( vhAccelStruct as, const nvrhi::rt::AccelStructDesc& desc )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCreateAS >( as, desc );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhDestroyAS( vhAccelStruct as )
+{
+    std::lock_guard< std::mutex > lock( g_vhAccelStructIDListMutex );
+    if ( g_vhAccelStructIDValid.find( as ) == g_vhAccelStructIDValid.end() ) return;
+    g_vhAccelStructIDValid.erase( as );
+    g_vhAccelStructIDList.release( as );
+
+    auto cmd = vhCmdAlloc<VIDL_vhDestroyAS>( as );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhBuildBLAS( vhAccelStruct blas, std::vector< nvrhi::rt::GeometryDesc > geometries )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhBuildBLAS >( blas, std::move( geometries ) );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > instances )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhBuildTLAS >( tlas, std::move( instances ) );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+
+
+void vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCreateRTPipeline >( pipeline, desc );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhDestroyRTPipeline( vhRTPipeline pipeline )
+{
+    std::lock_guard< std::mutex > lock( g_vhRTPipelineIDListMutex );
+    if ( g_vhRTPipelineIDValid.find( pipeline ) == g_vhRTPipelineIDValid.end() ) return;
+    g_vhRTPipelineIDValid.erase( pipeline );
+    g_vhRTPipelineIDList.release( pipeline );
+
+    auto cmd = vhCmdAlloc<VIDL_vhDestroyRTPipeline>( pipeline );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhCreateShaderTable( vhShaderTable table, vhRTPipeline pipeline )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCreateShaderTable >( table, pipeline );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhDestroyShaderTable( vhShaderTable table )
+{
+    std::lock_guard< std::mutex > lock( g_vhShaderTableIDListMutex );
+    if ( g_vhShaderTableIDValid.find( table ) == g_vhShaderTableIDValid.end() ) return;
+    g_vhShaderTableIDValid.erase( table );
+    g_vhShaderTableIDList.release( table );
+
+    auto cmd = vhCmdAlloc<VIDL_vhDestroyShaderTable>( table );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhShaderTableSetRayGen( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
+{
+    if ( !exportName ) exportName = "";
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableSetRayGen >( table, exportName, bindingSet );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhShaderTableAddMiss( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
+{
+    if ( !exportName ) exportName = "";
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddMiss >( table, exportName, bindingSet );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhShaderTableAddHitGroup( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
+{
+    if ( !exportName ) exportName = "";
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddHitGroup >( table, exportName, bindingSet );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhDispatchRays( vhStateId stateID, vhShaderTable table, const nvrhi::rt::DispatchRaysArguments& args )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhDispatchRays >( stateID, table, args );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+nvrhi::rt::AccelStructHandle vhGetASNvrhiHandle( vhAccelStruct as )
+{
+    return vhBackendQueryAccelStructHandle( as );
+}
+
+nvrhi::rt::PipelineHandle vhGetRTPipelineNvrhiHandle( vhRTPipeline pipeline )
+{
+    return vhBackendQueryRTPipelineHandle( pipeline );
+}
+
+nvrhi::rt::ShaderTableHandle vhGetShaderTableNvrhiHandle( vhShaderTable table )
+{
+    return vhBackendQueryShaderTableHandle( table );
 }

@@ -150,6 +150,17 @@ extern vhAllocatorObjectFreeList g_vhShaderIDList;
 extern std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 extern std::mutex g_vhShaderIDListMutex;
 
+// Raytracing state
+extern vhAllocatorObjectFreeList g_vhAccelStructIDList;
+extern std::unordered_map< vhAccelStruct, bool > g_vhAccelStructIDValid;
+extern std::mutex g_vhAccelStructIDListMutex;
+extern vhAllocatorObjectFreeList g_vhRTPipelineIDList;
+extern std::unordered_map< vhRTPipeline, bool > g_vhRTPipelineIDValid;
+extern std::mutex g_vhRTPipelineIDListMutex;
+extern vhAllocatorObjectFreeList g_vhShaderTableIDList;
+extern std::unordered_map< vhShaderTable, bool > g_vhShaderTableIDValid;
+extern std::mutex g_vhShaderTableIDListMutex;
+
 extern bool g_vhRayTracingEnabled;
 extern bool g_vhMemoryBudgetEnabled;
 
@@ -172,13 +183,16 @@ void vhBackendInit();
 void vhBackendShutdown();
 void vhBackendThreadEntry( std::function<void()> initCallback );
 vhTexInfo vhBackendQueryTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo );
-void* vhBackendQueryTextureHandle( vhTexture texture );
+nvrhi::TextureHandle vhBackendQueryTextureHandle( vhTexture texture );
 uint64_t vhBackendQueryBufferInfo( vhBuffer buffer, uint32_t* outStride, uint64_t* outFlags );
-void* vhBackendQueryBufferHandle( vhBuffer buffer );
+nvrhi::BufferHandle vhBackendQueryBufferHandle( vhBuffer buffer );
 void vhBackendQueryShaderInfo( vhShader shader, glm::uvec3* outGroupSize, std::vector< vhShaderReflectionResource >* outResources, std::vector< vhPushConstantRange >* outPushConstants, std::vector< vhSpecConstant >* outSpecConstants );
-void* vhBackendQueryShaderHandle( vhShader shader );
+nvrhi::ShaderHandle vhBackendQueryShaderHandle( vhShader shader );
 bool vhBackendQueryState( vhStateId id, vhState& outState );
 float vhBackendQueryTimer( vhTimerID timerID );
+nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as );
+nvrhi::rt::PipelineHandle vhBackendQueryRTPipelineHandle( vhRTPipeline pipeline );
+nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable table );
 
 // Dummy Resources
 void vhInitDummyResources();

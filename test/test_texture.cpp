@@ -1352,7 +1352,7 @@ UTEST( ResourceQueries, Texture )
     EXPECT_EQ( mipInfo.size(), 1 );
     EXPECT_EQ( mipInfo[0].dimensions, glm::ivec3( dims, 1 ) );
 
-    void* handle = vhGetTextureNvrhiHandle( tex );
+    nvrhi::TextureHandle handle = vhGetTextureNvrhiHandle( tex );
     EXPECT_NE( handle, nullptr );
 
     vhDestroyTexture( tex );

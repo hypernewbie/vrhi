@@ -635,14 +635,14 @@ UTEST_F( Shader, Reflection )
     EXPECT_TRUE( foundCB );
 
     // Query Handle
-    void* handle = vhGetShaderNvrhiHandle( shader );
+    nvrhi::ShaderHandle handle = vhGetShaderNvrhiHandle( shader );
     EXPECT_NE( handle, nullptr );
 
     vhDestroyShader( shader );
     vhFlush();
 
     // Query after destruction
-    void* handleAfter = vhGetShaderNvrhiHandle( shader );
+    nvrhi::ShaderHandle handleAfter = vhGetShaderNvrhiHandle( shader );
     EXPECT_EQ( handleAfter, nullptr );
 }
 

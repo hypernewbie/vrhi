@@ -207,6 +207,7 @@ set(TEST_SOURCES
     test/test_state.cpp
     test/test_compute.cpp
     test/test_gfx.cpp
+    test/test_rt.cpp
     test/test_window.cpp
 )
 

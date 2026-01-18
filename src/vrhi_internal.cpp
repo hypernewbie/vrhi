@@ -64,6 +64,16 @@ vhAllocatorObjectFreeList g_vhShaderIDList( 16 * 1024 );
 std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 std::mutex g_vhShaderIDListMutex;
 
+// Raytracing
+vhAllocatorObjectFreeList g_vhAccelStructIDList( 4 * 1024 );
+std::unordered_map< vhAccelStruct, bool > g_vhAccelStructIDValid;
+std::mutex g_vhAccelStructIDListMutex;
+vhAllocatorObjectFreeList g_vhRTPipelineIDList( 1 * 1024 );
+std::unordered_map< vhRTPipeline, bool > g_vhRTPipelineIDValid;
+std::mutex g_vhRTPipelineIDListMutex;
+vhAllocatorObjectFreeList g_vhShaderTableIDList( 4 * 1024 );
+std::unordered_map< vhShaderTable, bool > g_vhShaderTableIDValid;
+std::mutex g_vhShaderTableIDListMutex;
 
 bool g_vhRayTracingEnabled = false;
 

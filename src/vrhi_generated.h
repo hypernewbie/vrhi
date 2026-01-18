@@ -331,6 +331,163 @@ struct VIDL_vhDestroyBuffer
         : buffer(_buffer) {}
 };
 
+struct VIDL_vhCreateAS
+{
+    static constexpr uint64_t kMagic = 0xB7F81FE0;
+    uint64_t MAGIC = kMagic;
+    vhAccelStruct as;
+    const nvrhi::rt::AccelStructDesc desc;
+
+    VIDL_vhCreateAS() = default;
+
+    VIDL_vhCreateAS(vhAccelStruct _as, const nvrhi::rt::AccelStructDesc& _desc)
+        : as(_as), desc(_desc) {}
+};
+
+struct VIDL_vhDestroyAS
+{
+    static constexpr uint64_t kMagic = 0xC034F291;
+    uint64_t MAGIC = kMagic;
+    vhAccelStruct as;
+
+    VIDL_vhDestroyAS() = default;
+
+    VIDL_vhDestroyAS(vhAccelStruct _as)
+        : as(_as) {}
+};
+
+struct VIDL_vhBuildBLAS
+{
+    static constexpr uint64_t kMagic = 0xDBB4E9AB;
+    uint64_t MAGIC = kMagic;
+    vhAccelStruct blas;
+    std::vector< nvrhi::rt::GeometryDesc > geometries;
+
+    VIDL_vhBuildBLAS() = default;
+
+    VIDL_vhBuildBLAS(vhAccelStruct _blas, std::vector< nvrhi::rt::GeometryDesc > _geometries)
+        : blas(_blas), geometries(_geometries) {}
+};
+
+struct VIDL_vhBuildTLAS
+{
+    static constexpr uint64_t kMagic = 0xBAF93377;
+    uint64_t MAGIC = kMagic;
+    vhAccelStruct tlas;
+    std::vector< nvrhi::rt::InstanceDesc > instances;
+
+    VIDL_vhBuildTLAS() = default;
+
+    VIDL_vhBuildTLAS(vhAccelStruct _tlas, std::vector< nvrhi::rt::InstanceDesc > _instances)
+        : tlas(_tlas), instances(_instances) {}
+};
+
+struct VIDL_vhCreateRTPipeline
+{
+    static constexpr uint64_t kMagic = 0xF080D7EA;
+    uint64_t MAGIC = kMagic;
+    vhRTPipeline pipeline;
+    const nvrhi::rt::PipelineDesc desc;
+
+    VIDL_vhCreateRTPipeline() = default;
+
+    VIDL_vhCreateRTPipeline(vhRTPipeline _pipeline, const nvrhi::rt::PipelineDesc& _desc)
+        : pipeline(_pipeline), desc(_desc) {}
+};
+
+struct VIDL_vhDestroyRTPipeline
+{
+    static constexpr uint64_t kMagic = 0x5AA337AF;
+    uint64_t MAGIC = kMagic;
+    vhRTPipeline pipeline;
+
+    VIDL_vhDestroyRTPipeline() = default;
+
+    VIDL_vhDestroyRTPipeline(vhRTPipeline _pipeline)
+        : pipeline(_pipeline) {}
+};
+
+struct VIDL_vhCreateShaderTable
+{
+    static constexpr uint64_t kMagic = 0x9DDDDA05;
+    uint64_t MAGIC = kMagic;
+    vhShaderTable table;
+    vhRTPipeline pipeline;
+
+    VIDL_vhCreateShaderTable() = default;
+
+    VIDL_vhCreateShaderTable(vhShaderTable _table, vhRTPipeline _pipeline)
+        : table(_table), pipeline(_pipeline) {}
+};
+
+struct VIDL_vhDestroyShaderTable
+{
+    static constexpr uint64_t kMagic = 0x6950CD93;
+    uint64_t MAGIC = kMagic;
+    vhShaderTable table;
+
+    VIDL_vhDestroyShaderTable() = default;
+
+    VIDL_vhDestroyShaderTable(vhShaderTable _table)
+        : table(_table) {}
+};
+
+struct VIDL_vhShaderTableSetRayGen
+{
+    static constexpr uint64_t kMagic = 0x2DC79CB2;
+    uint64_t MAGIC = kMagic;
+    vhShaderTable table;
+    const char* exportName;
+    nvrhi::BindingSetHandle bindingSet = nullptr;
+
+    VIDL_vhShaderTableSetRayGen() = default;
+
+    VIDL_vhShaderTableSetRayGen(vhShaderTable _table, const char* _exportName, nvrhi::BindingSetHandle _bindingSet)
+        : table(_table), exportName(_exportName), bindingSet(_bindingSet) {}
+};
+
+struct VIDL_vhShaderTableAddMiss
+{
+    static constexpr uint64_t kMagic = 0xECE6D8B1;
+    uint64_t MAGIC = kMagic;
+    vhShaderTable table;
+    const char* exportName;
+    nvrhi::BindingSetHandle bindingSet = nullptr;
+
+    VIDL_vhShaderTableAddMiss() = default;
+
+    VIDL_vhShaderTableAddMiss(vhShaderTable _table, const char* _exportName, nvrhi::BindingSetHandle _bindingSet)
+        : table(_table), exportName(_exportName), bindingSet(_bindingSet) {}
+};
+
+struct VIDL_vhShaderTableAddHitGroup
+{
+    static constexpr uint64_t kMagic = 0xBBF55BF8;
+    uint64_t MAGIC = kMagic;
+    vhShaderTable table;
+    const char* exportName;
+    nvrhi::BindingSetHandle bindingSet = nullptr;
+
+    VIDL_vhShaderTableAddHitGroup() = default;
+
+    VIDL_vhShaderTableAddHitGroup(vhShaderTable _table, const char* _exportName, nvrhi::BindingSetHandle _bindingSet)
+        : table(_table), exportName(_exportName), bindingSet(_bindingSet) {}
+};
+
+struct VIDL_vhDispatchRays
+{
+    static constexpr uint64_t kMagic = 0x2AF23D52;
+    uint64_t MAGIC = kMagic;
+    vhStateId stateID;
+    vhShaderTable table;
+    const nvrhi::rt::DispatchRaysArguments args;
+
+    VIDL_vhDispatchRays() = default;
+
+    VIDL_vhDispatchRays(vhStateId _stateID, vhShaderTable _table, const nvrhi::rt::DispatchRaysArguments& _args)
+        : stateID(_stateID), table(_table), args(_args) {}
+};
+
 struct VIDL_vhCreateShader
 {
     static constexpr uint64_t kMagic = 0x21DB7127;
@@ -729,6 +886,19 @@ struct VIDL_vhCmdSetStateIndirectParams
         : id(_id), buffer(_buffer), offset(_offset) {}
 };
 
+struct VIDL_vhCmdSetStateAccelStructs
+{
+    static constexpr uint64_t kMagic = 0x16DF2363;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    const std::vector< vhState::AccelStructBinding > accelStructs;
+
+    VIDL_vhCmdSetStateAccelStructs() = default;
+
+    VIDL_vhCmdSetStateAccelStructs(vhStateId _id, const std::vector< vhState::AccelStructBinding >& _accelStructs)
+        : id(_id), accelStructs(_accelStructs) {}
+};
+
 struct VIDL_vhDrawCommonInternal
 {
     static constexpr uint64_t kMagic = 0x8827DC81;
@@ -774,6 +944,18 @@ struct VIDLHandler
     virtual void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) { (void) cmd; };
+    virtual void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) { (void) cmd; };
+    virtual void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) { (void) cmd; };
+    virtual void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) { (void) cmd; };
+    virtual void Handle_vhShaderTableAddMiss( VIDL_vhShaderTableAddMiss* cmd ) { (void) cmd; };
+    virtual void Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHitGroup* cmd ) { (void) cmd; };
+    virtual void Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDispatch( VIDL_vhDispatch* cmd ) { (void) cmd; };
@@ -803,6 +985,7 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) { (void) cmd; };
     virtual void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) { (void) cmd; };
 
     virtual void HandleLogFunction( const char* str ) {};
@@ -907,6 +1090,54 @@ struct VIDLHandler
         case 0x3A87A73E:
             HandleLogFunction("Handle_vhDestroyBuffer");
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );
+            break;
+        case 0xB7F81FE0:
+            HandleLogFunction("Handle_vhCreateAS");
+            Handle_vhCreateAS( (VIDL_vhCreateAS*) cmd );
+            break;
+        case 0xC034F291:
+            HandleLogFunction("Handle_vhDestroyAS");
+            Handle_vhDestroyAS( (VIDL_vhDestroyAS*) cmd );
+            break;
+        case 0xDBB4E9AB:
+            HandleLogFunction("Handle_vhBuildBLAS");
+            Handle_vhBuildBLAS( (VIDL_vhBuildBLAS*) cmd );
+            break;
+        case 0xBAF93377:
+            HandleLogFunction("Handle_vhBuildTLAS");
+            Handle_vhBuildTLAS( (VIDL_vhBuildTLAS*) cmd );
+            break;
+        case 0xF080D7EA:
+            HandleLogFunction("Handle_vhCreateRTPipeline");
+            Handle_vhCreateRTPipeline( (VIDL_vhCreateRTPipeline*) cmd );
+            break;
+        case 0x5AA337AF:
+            HandleLogFunction("Handle_vhDestroyRTPipeline");
+            Handle_vhDestroyRTPipeline( (VIDL_vhDestroyRTPipeline*) cmd );
+            break;
+        case 0x9DDDDA05:
+            HandleLogFunction("Handle_vhCreateShaderTable");
+            Handle_vhCreateShaderTable( (VIDL_vhCreateShaderTable*) cmd );
+            break;
+        case 0x6950CD93:
+            HandleLogFunction("Handle_vhDestroyShaderTable");
+            Handle_vhDestroyShaderTable( (VIDL_vhDestroyShaderTable*) cmd );
+            break;
+        case 0x2DC79CB2:
+            HandleLogFunction("Handle_vhShaderTableSetRayGen");
+            Handle_vhShaderTableSetRayGen( (VIDL_vhShaderTableSetRayGen*) cmd );
+            break;
+        case 0xECE6D8B1:
+            HandleLogFunction("Handle_vhShaderTableAddMiss");
+            Handle_vhShaderTableAddMiss( (VIDL_vhShaderTableAddMiss*) cmd );
+            break;
+        case 0xBBF55BF8:
+            HandleLogFunction("Handle_vhShaderTableAddHitGroup");
+            Handle_vhShaderTableAddHitGroup( (VIDL_vhShaderTableAddHitGroup*) cmd );
+            break;
+        case 0x2AF23D52:
+            HandleLogFunction("Handle_vhDispatchRays");
+            Handle_vhDispatchRays( (VIDL_vhDispatchRays*) cmd );
             break;
         case 0x21DB7127:
             HandleLogFunction("Handle_vhCreateShader");
@@ -1023,6 +1254,10 @@ struct VIDLHandler
         case 0xE435C0DD:
             HandleLogFunction("Handle_vhCmdSetStateIndirectParams");
             Handle_vhCmdSetStateIndirectParams( (VIDL_vhCmdSetStateIndirectParams*) cmd );
+            break;
+        case 0x16DF2363:
+            HandleLogFunction("Handle_vhCmdSetStateAccelStructs");
+            Handle_vhCmdSetStateAccelStructs( (VIDL_vhCmdSetStateAccelStructs*) cmd );
             break;
         case 0x8827DC81:
             HandleLogFunction("Handle_vhDrawCommonInternal");
