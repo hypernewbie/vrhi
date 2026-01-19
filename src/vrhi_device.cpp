@@ -1001,20 +1001,17 @@ bool vhFrame()
     g_vhFrameIndex = ( uint32_t ) ( ( g_vhFrameIndex + 1 ) % g_vhFramesInFlight );
 
     // Wait for Next Frame's previous work to complete
-    if ( g_vhInit.vsync )
+    uint64_t nextFrameInstance = g_vhFrameInstances[g_vhFrameIndex];
+    while ( true )
     {
-        uint64_t nextFrameInstance = g_vhFrameInstances[g_vhFrameIndex];
-        while ( true )
+        uint64_t completed;
         {
-            uint64_t completed;
-            {
-                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-                completed = nvrhiDevice->queueGetCompletedInstance( nvrhi::CommandQueue::Graphics );
-            }
-            if ( completed >= nextFrameInstance )
-                break;
-            std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            completed = nvrhiDevice->queueGetCompletedInstance( nvrhi::CommandQueue::Graphics );
         }
+        if ( completed >= nextFrameInstance )
+            break;
+        std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
     }
 
     // Acquire Next Image
