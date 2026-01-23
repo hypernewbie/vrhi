@@ -815,3 +815,110 @@ UTEST_F( Shader, GlobalsPacking )
     // Verify MyFloat (42.0) at offset 16 (index 4 in float array)
     EXPECT_EQ( fBuf[4], 42.0f );
 }
+
+UTEST_F( Shader, CompileNonMainEntryPoints )
+{
+    // Multi-stage shader with distinct entry points
+    const char* shaderSource = R"(
+        struct VSInput { float3 pos : POSITION; };
+        struct VSOutput { float4 pos : SV_Position; float4 col : COLOUR; };
+        
+        float4 u_colour;
+        
+        [shader("vertex")]
+        VSOutput VSMain(VSInput input)
+        {
+            VSOutput output;
+            output.pos = float4(input.pos, 1.0);
+            output.col = u_colour;
+            return output;
+        }
+        
+        [shader("pixel")]
+        float4 PSMain(VSOutput input) : SV_Target
+        {
+            return input.col;
+        }
+        
+        RWStructuredBuffer<float4> g_Output;
+        
+        [shader("compute")]
+        [numthreads(8, 8, 1)]
+        void CSMain(uint3 threadID : SV_DispatchThreadID)
+        {
+            g_Output[threadID.x] = float4(1.0, 0.0, 0.0, 1.0);
+        }
+    )";
+
+    // Compile vertex shader with VSMain entry point
+    {
+        std::vector< uint32_t > spirv;
+        std::string error;
+        bool success = vhCompileShader(
+            "TestVSMain",
+            shaderSource,
+            VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_5,
+            spirv,
+            "VSMain",
+            {},
+            {},
+            &error
+        );
+        
+        if ( !success )
+        {
+            std::cout << "VSMain compilation failed: " << error << std::endl;
+        }
+        
+        EXPECT_TRUE( success );
+        EXPECT_GT( spirv.size(), 0 );
+    }
+    
+    // Compile pixel shader with PSMain entry point
+    {
+        std::vector< uint32_t > spirv;
+        std::string error;
+        bool success = vhCompileShader(
+            "TestPSMain",
+            shaderSource,
+            VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_5,
+            spirv,
+            "PSMain",
+            {},
+            {},
+            &error
+        );
+        
+        if ( !success )
+        {
+            std::cout << "PSMain compilation failed: " << error << std::endl;
+        }
+        
+        EXPECT_TRUE( success );
+        EXPECT_GT( spirv.size(), 0 );
+    }
+    
+    // Compile compute shader with CSMain entry point
+    {
+        std::vector< uint32_t > spirv;
+        std::string error;
+        bool success = vhCompileShader(
+            "TestCSMain",
+            shaderSource,
+            VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_5,
+            spirv,
+            "CSMain",
+            {},
+            {},
+            &error
+        );
+        
+        if ( !success )
+        {
+            std::cout << "CSMain compilation failed: " << error << std::endl;
+        }
+        
+        EXPECT_TRUE( success );
+        EXPECT_GT( spirv.size(), 0 );
+    }
+}

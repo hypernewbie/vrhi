@@ -430,7 +430,10 @@ bool vhCompileShader(
 
     // ShaderMake usually appends profile to output, e.g. Name_hash_ps.spirv
 
-    std::string outputFilename = prefix + ".spirv";
+    std::string outputFilename = prefix;
+    if ( entry && strcmp( entry, "main" ) != 0 )
+        outputFilename += "_" + std::string( entry );
+    outputFilename += ".spirv";
     std::filesystem::path spvPath = tempDir / outputFilename;
     // VRHI_LOG( "Looking for shader %s\n", outputFilename.c_str() );
     if ( !g_vhInit.forceShaderRecompile && std::filesystem::exists( spvPath ) )
@@ -509,7 +512,19 @@ bool vhCompileShader(
     // Load Result
     if ( !std::filesystem::exists( spvPath ) )
     {
-        std::filesystem::path fallbackPath = tempDir / ( prefix + ".spirv" );
+        // Try opposite suffix pattern for backward compatibility
+        std::filesystem::path fallbackPath;
+        if ( entry && strcmp( entry, "main" ) != 0 )
+        {
+            // Entry ≠ "main": try unsuffixed fallback (old VRHI behavior)
+            fallbackPath = tempDir / ( prefix + ".spirv" );
+        }
+        else
+        {
+            // Entry == "main": try suffixed fallback (if somehow created)
+            fallbackPath = tempDir / ( prefix + "_main.spirv" );
+        }
+        
         if ( !std::filesystem::exists( fallbackPath ) )
         {
             if ( outError ) *outError = "Compilation finished but output file not found: " + spvPath.string() + "\nOutput:\n" + output;
