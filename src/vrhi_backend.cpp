@@ -375,6 +375,8 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     assert( shaders && shaderCount > 0 );
     const vhBackendShader* vertexShader = nullptr;
 
+    // Add each shader's layout sequentially. Shaders determine their own registerSpace
+    // via reflection. NVRHI handles mapping layouts to descriptor sets.
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
         auto& shader = shaders[shaderIdx];
@@ -1152,6 +1154,15 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto layoutDesc = layout->getDesc();
         assert( layoutDesc );
 
+        // Handle empty layouts (used for fixed descriptor set gaps)
+        if ( layout == m_emptyLayout )
+        {
+            if ( computeState )  computeState->addBindingSet( m_emptySet );
+            if ( graphicsState ) graphicsState->addBindingSet( m_emptySet );
+            if ( rtState )       rtState->bindings.push_back( m_emptySet );
+            continue;
+        }
+
         // Build a map of reflection slots --> reflection resources.
 
         s_slotToReflection.clear();
@@ -1579,6 +1590,14 @@ void vhCmdBackendState::init()
         descUser.setDebugName( "UserUniforms" );
         m_userUniformBuffer.Init_DeviceStateLocked( descUser );
         assert( g_vhInit.maxUserGlobals % VRHI_CBUF_ALIGN == 0 );
+
+        // Create empty layout/set for fixed descriptor set index gaps
+        nvrhi::BindingLayoutDesc emptyDesc = {};
+        emptyDesc.visibility = nvrhi::ShaderType::All;
+        m_emptyLayout = g_vhDevice->createBindingLayout( emptyDesc );
+
+        nvrhi::BindingSetDesc emptySetDesc;
+        m_emptySet = g_vhDevice->createBindingSet( emptySetDesc, m_emptyLayout );
     }
 }
 
@@ -1594,6 +1613,9 @@ void vhCmdBackendState::shutdown()
     m_globalUniformBuffer.Shutdown_DeviceStateLocked();
     m_worldUniformBuffer.Shutdown_DeviceStateLocked();
     m_userUniformBuffer.Shutdown_DeviceStateLocked();
+
+    m_emptySet = nullptr;
+    m_emptyLayout = nullptr;
 
     backendTextures.clear();
     backendBuffers.clear();

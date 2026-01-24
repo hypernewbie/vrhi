@@ -189,6 +189,8 @@ class vhCmdBackendState : public VIDLHandler
     vhTransientBuffer m_worldUniformBuffer;
     uint64_t m_worldUniformBufferLastHash = 0;
     vhTransientBuffer m_userUniformBuffer;
+    nvrhi::BindingLayoutHandle m_emptyLayout;
+    nvrhi::BindingSetHandle m_emptySet;
 
     // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
     inline std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )

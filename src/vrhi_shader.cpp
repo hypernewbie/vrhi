@@ -417,7 +417,7 @@ bool vhCompileShader(
 
     // Hash input into cache key
 
-    std::string hashInput = std::string( name ) + "@@SRC@@" + source + "@@SRC@@" + std::to_string(flags) + "@@ENTRY@@" + entry;
+    std::string hashInput = std::string( name ) + "@@SRC@@" + source + "@@CACHESALT_V3@@" + std::to_string(flags) + "@@ENTRY@@" + entry;
     hashInput += "@@DEFINES@@";
     for ( const auto& d : defines ) hashInput += d;
     hashInput += "@@INCLUDES@@";
@@ -495,7 +495,15 @@ bool vhCompileShader(
     cmd += " -o \"" + tempDir.string() + "\"";
     cmd += " --compiler \"" + slangExe.string() + "\"";
     cmd += " --slang";
+
     cmd += argString; // Includes -m, -O, etc.
+
+    // Provide VRHI_STAGE_SPACE and VRHI_GLOBAL_SPACE defines for opt-in per-stage descriptor sets.
+    // Shaders can use: register(u0, VRHI_STAGE_SPACE) to get stage-specific binding.
+    // VRHI_GLOBAL_SPACE is always space0 for shared global uniforms.
+    uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
+    cmd += " -D VRHI_STAGE_SPACE=space" + std::to_string( stageSpace );
+    cmd += " -D VRHI_GLOBAL_SPACE=space0";
 
     for ( const auto& d : defines ) cmd += " -D " + d;
     for ( const auto& i : includes ) cmd += " -I \"" + i + "\"";

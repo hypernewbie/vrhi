@@ -142,6 +142,57 @@ constexpr uint64_t VRHI_SHADER_STAGE_CALLABLE      = 14;
 constexpr uint64_t VRHI_SHADER_STAGE_MAX           = 14;
 constexpr uint64_t VRHI_SHADER_STAGE_MASK          = 0xF;
 
+// Shader Stage -> Descriptor Set Mapping (Fixed, Non-Merging):
+// Each stage gets its own fixed set index to avoid descriptor set merging.
+// Mutually exclusive stages share indices (e.g. VS/CS, PS/Miss).
+//
+// Set 0: Global (View/Frame) - Reserved
+//
+constexpr uint32_t VRHI_DESCRIPTOR_SET_GLOBAL        = 0;
+
+constexpr uint32_t VRHI_DESCRIPTOR_SET_VERTEX        = 1;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_PIXEL         = 2;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_HULL          = 3;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_DOMAIN        = 4;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_GEOMETRY      = 5;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_MESH          = 6;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_AMPLIFICATION = 7;
+
+constexpr uint32_t VRHI_DESCRIPTOR_SET_COMPUTE       = 1;
+
+constexpr uint32_t VRHI_DESCRIPTOR_SET_RAYGEN        = 1;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_MISS          = 2;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_CLOSEST_HIT   = 3;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_ANY_HIT       = 4;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_INTERSECTION  = 5;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_CALLABLE      = 6;
+
+constexpr uint32_t VRHI_DESCRIPTOR_SET_MAX           = 8;
+
+// Returns the fixed descriptor set index for a given shader stage.
+inline uint32_t vhGetDescriptorSetForStage( uint64_t stageFlags )
+{
+    uint64_t stage = stageFlags & VRHI_SHADER_STAGE_MASK;
+    switch ( stage )
+    {
+        case VRHI_SHADER_STAGE_VERTEX:        return VRHI_DESCRIPTOR_SET_VERTEX;
+        case VRHI_SHADER_STAGE_PIXEL:         return VRHI_DESCRIPTOR_SET_PIXEL;
+        case VRHI_SHADER_STAGE_COMPUTE:       return VRHI_DESCRIPTOR_SET_COMPUTE;
+        case VRHI_SHADER_STAGE_HULL:          return VRHI_DESCRIPTOR_SET_HULL;
+        case VRHI_SHADER_STAGE_DOMAIN:        return VRHI_DESCRIPTOR_SET_DOMAIN;
+        case VRHI_SHADER_STAGE_GEOMETRY:      return VRHI_DESCRIPTOR_SET_GEOMETRY;
+        case VRHI_SHADER_STAGE_MESH:          return VRHI_DESCRIPTOR_SET_MESH;
+        case VRHI_SHADER_STAGE_AMPLIFICATION: return VRHI_DESCRIPTOR_SET_AMPLIFICATION;
+        case VRHI_SHADER_STAGE_RAYGEN:        return VRHI_DESCRIPTOR_SET_RAYGEN;
+        case VRHI_SHADER_STAGE_MISS:          return VRHI_DESCRIPTOR_SET_MISS;
+        case VRHI_SHADER_STAGE_CLOSEST_HIT:   return VRHI_DESCRIPTOR_SET_CLOSEST_HIT;
+        case VRHI_SHADER_STAGE_ANY_HIT:       return VRHI_DESCRIPTOR_SET_ANY_HIT;
+        case VRHI_SHADER_STAGE_INTERSECTION:  return VRHI_DESCRIPTOR_SET_INTERSECTION;
+        case VRHI_SHADER_STAGE_CALLABLE:      return VRHI_DESCRIPTOR_SET_CALLABLE;
+        default:                              return VRHI_DESCRIPTOR_SET_GLOBAL; // Fallback
+    }
+}
+
 constexpr uint64_t VRHI_SHADER_SM_5_0              = ( 1 << 4 );
 constexpr uint64_t VRHI_SHADER_SM_6_0              = ( 2 << 4 );
 constexpr uint64_t VRHI_SHADER_SM_6_5              = ( 3 << 4 ); // Default behaviour if 0
