@@ -1803,7 +1803,7 @@ UTEST_F( Graphics, ExtensiveSlotBinding )
     const char* vsSourceUnique = R"(
         cbuffer TestCB_VS : register(b2, VRHI_STAGE_SPACE) { float4 u_valVS; };
         struct VSOutput { float4 pos : SV_Position; float4 color : COLOR; };
-        VSOutput main( uint id : SV_VertexID )
+        VSOutput main( uint id : SV_VulkanVertexID )
         {
             VSOutput o;
             o.pos = float4( 0, 0, 0, 1 ); 
