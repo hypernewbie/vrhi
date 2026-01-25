@@ -878,3 +878,59 @@ UTEST_F( State, MissingFieldsCheck )
     vhState s;
     vhSetState( id, s.DirtyAll() );
 }
+
+UTEST_F( State, HelperExpansion )
+{
+    vhState state;
+
+    // Test SetUniform
+    glm::vec4 udata[2] = { glm::vec4( 1.0f ), glm::vec4( 2.0f ) };
+    state.SetUniform( 0, "MyUniform", udata, 2 );
+    EXPECT_EQ( state.uniforms.size(), 1u );
+    EXPECT_STREQ( state.uniforms[0].name, "MyUniform" );
+    EXPECT_EQ( state.uniforms[0].data.size(), 2u );
+    EXPECT_EQ( state.uniforms[0].data[0], udata[0] );
+    EXPECT_EQ( state.uniforms[0].data[1], udata[1] );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_UNIFORMS, VRHI_DIRTY_UNIFORMS );
+
+    // Test SetConstant
+    glm::vec4 cdata = glm::vec4( 3.0f );
+    state.dirty = 0;
+    state.SetConstant( 1, "MyConstant", &cdata, 1 );
+    EXPECT_EQ( state.constants.size(), 2u );
+    EXPECT_STREQ( state.constants[1].name, "MyConstant" );
+    EXPECT_EQ( state.constants[1].data.size(), 1u );
+    EXPECT_EQ( state.constants[1].data[0], cdata );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_CONSTANTS, VRHI_DIRTY_CONSTANTS );
+
+    // Test SetTexture
+    state.dirty = 0;
+    state.SetTexture( 0, 101, 5, "MyTexture", true );
+    EXPECT_EQ( state.textures.size(), 1u );
+    EXPECT_EQ( state.textures[0].texture, 101u );
+    EXPECT_EQ( state.textures[0].slot, 5 );
+    EXPECT_STREQ( state.textures[0].name, "MyTexture" );
+    EXPECT_TRUE( state.textures[0].computeUAV );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
+
+    // Test SetBuffer
+    state.dirty = 0;
+    state.SetBuffer( 1, 202, 3, "MyBuffer", 128, 256, false );
+    EXPECT_EQ( state.buffers.size(), 2u );
+    EXPECT_EQ( state.buffers[1].buffer, 202u );
+    EXPECT_EQ( state.buffers[1].slot, 3 );
+    EXPECT_STREQ( state.buffers[1].name, "MyBuffer" );
+    EXPECT_EQ( state.buffers[1].byteOffset, 128u );
+    EXPECT_EQ( state.buffers[1].byteSize, 256u );
+    EXPECT_FALSE( state.buffers[1].computeUAV );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_BUFFERS, VRHI_DIRTY_BUFFERS );
+
+    // Test SetSampler
+    state.dirty = 0;
+    state.SetSampler( 2, 0x1234, 7, "MySampler" );
+    EXPECT_EQ( state.samplers.size(), 3u );
+    EXPECT_EQ( state.samplers[2].flags, 0x1234u );
+    EXPECT_EQ( state.samplers[2].slot, 7 );
+    EXPECT_STREQ( state.samplers[2].name, "MySampler" );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
+}

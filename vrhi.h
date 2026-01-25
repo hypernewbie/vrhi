@@ -1494,6 +1494,11 @@ typedef uint64_t vhFramebuffer;
 // You can submit multiple draw calls or compute dispatches with the same state.
 // This is intended to be created globally and stored for the duration of the application.
 //
+// WARNING: Modifying the members of this struct directly will NOT set the appropriate 
+// dirty flags. Use the provided Set* helper functions to ensure the backend is 
+// notified of changes. Direct modification is only recommended if you manually 
+// call DirtyAll() before use.
+//
 struct vhState
 {
     glm::vec4 viewRect = glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f );
@@ -1736,6 +1741,17 @@ struct vhState
         dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
         return *this;
     }
+    vhState& SetTexture( uint32_t idx, vhTexture texture, int32_t slot = -1, const char* name = nullptr, bool computeUAV = false )
+    {
+        if ( idx >= textures.size() ) textures.resize( idx + 1 );
+        auto& t = textures[idx];
+        t.texture = texture;
+        t.slot = slot;
+        t.name = name;
+        t.computeUAV = computeUAV;
+        dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
+        return *this;
+    }
     TextureBinding& GetTexture( uint32_t idx )
     {
         if ( idx >= textures.size() ) textures.resize( idx + 1 );
@@ -1774,6 +1790,16 @@ struct vhState
         dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
         return *this;
     }
+    vhState& SetSampler( uint32_t idx, uint64_t flags, int32_t slot = -1, const char* name = nullptr )
+    {
+        if ( idx >= samplers.size() ) samplers.resize( idx + 1 );
+        auto& s = samplers[idx];
+        s.flags = flags;
+        s.slot = slot;
+        s.name = name;
+        dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
+        return *this;
+    }
     SamplerDefinition& GetSampler( uint32_t idx )
     {
         if ( idx >= samplers.size() ) samplers.resize( idx + 1 );
@@ -1789,6 +1815,19 @@ struct vhState
     {
         if ( idx >= buffers.size() ) buffers.resize( idx + 1 );
         buffers[idx] = buffer;
+        dirty |= VRHI_DIRTY_BUFFERS;
+        return *this;
+    }
+    vhState& SetBuffer( uint32_t idx, vhBuffer buffer, int32_t slot = -1, const char* name = nullptr, uint64_t offset = 0, uint64_t size = 0, bool computeUAV = false )
+    {
+        if ( idx >= buffers.size() ) buffers.resize( idx + 1 );
+        auto& b = buffers[idx];
+        b.buffer = buffer;
+        b.slot = slot;
+        b.name = name;
+        b.byteOffset = offset;
+        b.byteSize = size;
+        b.computeUAV = computeUAV;
         dirty |= VRHI_DIRTY_BUFFERS;
         return *this;
     }
@@ -1828,6 +1867,15 @@ struct vhState
         dirty |= VRHI_DIRTY_CONSTANTS;
         return *this;
     }
+    vhState& SetConstant( uint32_t idx, const char* name, const glm::vec4* data, uint32_t num = 1 )
+    {
+        if ( idx >= constants.size() ) constants.resize( idx + 1 );
+        auto& c = constants[idx];
+        c.name = name;
+        c.data.assign( data, data + num );
+        dirty |= VRHI_DIRTY_CONSTANTS;
+        return *this;
+    }
     ConstantBufferValue& GetConstant( uint32_t idx )
     {
         if ( idx >= constants.size() ) constants.resize( idx + 1 );
@@ -1849,6 +1897,15 @@ struct vhState
     {
         if ( idx >= uniforms.size() ) uniforms.resize( idx + 1 );
         uniforms[idx] = uniform;
+        dirty |= VRHI_DIRTY_UNIFORMS;
+        return *this;
+    }
+    vhState& SetUniform( uint32_t idx, const char* name, const glm::vec4* data, uint32_t num = 1 )
+    {
+        if ( idx >= uniforms.size() ) uniforms.resize( idx + 1 );
+        auto& u = uniforms[idx];
+        u.name = name;
+        u.data.assign( data, data + num );
         dirty |= VRHI_DIRTY_UNIFORMS;
         return *this;
     }
