@@ -1094,7 +1094,7 @@ void vhSwapchainCreate_Internal( int width, int height )
         nvrhi::TextureDesc tDesc;
         tDesc.width = vkbSwapchain.extent.width;
         tDesc.height = vkbSwapchain.extent.height;
-        tDesc.format = nvrhi::Format::SBGRA8_UNORM;
+        tDesc.format = nvrhi::Format::BGRA8_UNORM;
         tDesc.initialState = nvrhi::ResourceStates::Present;
         tDesc.keepInitialState = true;
         tDesc.setIsRenderTarget( true );
