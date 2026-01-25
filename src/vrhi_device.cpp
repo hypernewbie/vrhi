@@ -617,14 +617,22 @@ void vhShutdown( bool quiet )
     vhBindingSetCacheClear();
     vhFBOCacheReset();
 
+    // Clear resources
+    if ( !quiet ) VRHI_LOG( "    Clearing resources...\n" );
+    g_vhTextureIDList.purge();
+    vhShutdownDummyResources();
+
+    if ( g_vhSwapchain != VK_NULL_HANDLE )
+    {
+        // Release NVRHI handles while device is still valid
+        g_vhSwapchainNVRHIHandles.clear();
+        g_vhSwapchainTextures.clear();
+    }
+
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ ) g_vhDevice->runGarbageCollection();
     g_vhDevice = nullptr;
     g_vhVulkanDevice = nullptr;
-
-    // Clear resources
-    if ( !quiet ) VRHI_LOG( "    Clearing resources...\n" );
-    g_vhTextureIDList.purge();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
@@ -635,8 +643,6 @@ void vhShutdown( bool quiet )
             for ( auto iv : g_vhSwapchainImageViews ) vkDestroyImageView( g_vulkanDevice, iv, nullptr );
             g_vhSwapchain = VK_NULL_HANDLE;
             g_vhSwapchainImageViews.clear();
-            g_vhSwapchainTextures.clear();
-            g_vhSwapchainNVRHIHandles.clear();
         }
         vkDestroyDevice( g_vulkanDevice, nullptr );
         g_vulkanDevice = VK_NULL_HANDLE;
