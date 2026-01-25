@@ -63,8 +63,8 @@ float4 main( float4 colour : COLOUR ) : SV_Target
 )";
 
 static const char* g_texPS = R"(
-Texture2D t0 : register( t200, space1 );
-SamplerState s0 : register( s100, space1 );
+Texture2D t0 : register( t200, VRHI_STAGE_SPACE );
+SamplerState s0 : register( s100, VRHI_STAGE_SPACE );
 
 [shader("pixel")]
 float4 main( float2 uv : TEXCOORD ) : SV_Target
@@ -114,9 +114,9 @@ VSOutput main( VSInput input )
 )";
 
 static const char* g_multiTexPS = R"(
-Texture2D t0 : register( t200, space1 );
-Texture2D t1 : register( t201, space1 );
-SamplerState s0 : register( s100, space1 );
+Texture2D t0 : register( t200, VRHI_STAGE_SPACE );
+Texture2D t1 : register( t201, VRHI_STAGE_SPACE );
+SamplerState s0 : register( s100, VRHI_STAGE_SPACE );
 
 [shader("pixel")]
 float4 main( float2 uv : TEXCOORD ) : SV_Target
@@ -128,7 +128,7 @@ float4 main( float2 uv : TEXCOORD ) : SV_Target
 )";
 
 static const char* g_uniformPS = R"(
-cbuffer globalParams : register( b300, space1 )
+cbuffer globalParams : register( b300, VRHI_STAGE_SPACE )
 {
     float4 tint;
 };
@@ -1557,7 +1557,7 @@ UTEST_F( Graphics, Markers )
 // --------------------------------------------------------------------------
 
 static const char* g_bareGlobalPS = R"(
-cbuffer GlobalUniforms : register(b0, space1)
+cbuffer GlobalUniforms : register(b0, VRHI_STAGE_SPACE)
 {
     float4 u_viewRect;
     float4 u_viewTexel;
@@ -1566,12 +1566,12 @@ cbuffer GlobalUniforms : register(b0, space1)
     float4x4 u_proj;
 };
 
-cbuffer WorldUniforms : register(b1, space1)
+cbuffer WorldUniforms : register(b1, VRHI_STAGE_SPACE)
 {
     float4x4 u_world[4];
 };
 
-cbuffer globalParams : register(b2, space1)
+cbuffer globalParams : register(b2, VRHI_STAGE_SPACE)
 {
     float4 u_color;
 }
@@ -1660,3 +1660,213 @@ UTEST_F( Graphics, BareGlobals )
     vhDestroyShader( ps );
 }
 
+
+// --------------------------------------------------------------------------
+// Debug Lines Test (Multi-cbuffer + Stage Space)
+// --------------------------------------------------------------------------
+
+static const char* g_debugLinesShader = R"(
+cbuffer GlobalUniforms : register(b0, VRHI_STAGE_SPACE)
+{
+    float4 u_viewRect;
+    float4 u_viewTexel;
+    float4x4 u_view;
+    float4x4 u_invView;
+    float4x4 u_proj;
+};
+
+cbuffer WorldUniforms : register(b1, VRHI_STAGE_SPACE)
+{
+    float4x4 u_world[4];
+};
+
+cbuffer Debug : register(b2, VRHI_STAGE_SPACE)
+{
+    float4 u_lineXY[2];
+    float4 u_colour;
+};
+
+struct VSInput
+{
+    float3 pos : POSITION;
+};
+
+struct VSOutput
+{
+    float4 pos : SV_Position;
+};
+
+[shader("vertex")]
+VSOutput VSMain( VSInput input )
+{
+    float3 worldPos = ( input.pos.x > 0.5f ) ? u_lineXY[1].xyz : u_lineXY[0].xyz;
+    float4 viewPos = mul( u_view, float4( worldPos, 1.0 ) );
+    VSOutput output;
+    output.pos = mul( u_proj, viewPos );
+    return output;
+}
+
+[shader("pixel")]
+float4 PSMain() : SV_Target
+{
+    return u_colour;
+}
+)";
+
+UTEST_F( Graphics, DrawDebugLines )
+{
+    if ( !g_testInit ) return;
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    // Vertex Buffer: simple 0.0 and 1.0 x-values to select endpoints
+    struct Vertex { glm::vec3 pos; };
+    Vertex verts[2] = { { { 0.0f, 0.0f, 0.0f } }, { { 1.0f, 0.0f, 0.0f } } };
+    vhBuffer vb = CreateTestVB( "float3", verts, sizeof( verts ) );
+
+    // Compile Shaders
+    vhShader vs = vhAllocShader();
+    {
+        std::vector< uint32_t > spirv;
+        std::string error;
+        bool compiled = vhCompileShader( "DebugLineVS", g_debugLinesShader, VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_0, spirv, "VSMain", {}, {}, &error );
+        if (!compiled) printf("VS Compile Error: %s\n", error.c_str());
+        ASSERT_TRUE( compiled );
+        vhCreateShader( vs, "DebugLineVS", VRHI_SHADER_STAGE_VERTEX, spirv, "VSMain" );
+    }
+
+    vhShader ps = vhAllocShader();
+    {
+        std::vector< uint32_t > spirv;
+        std::string error;
+        bool compiled = vhCompileShader( "DebugLinePS", g_debugLinesShader, VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, spirv, "PSMain", {}, {}, &error );
+        if (!compiled) printf("PS Compile Error: %s\n", error.c_str());
+        ASSERT_TRUE( compiled );
+        vhCreateShader( ps, "DebugLinePS", VRHI_SHADER_STAGE_PIXEL, spirv, "PSMain" );
+    }
+
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) );
+    state.SetColourAttachment( 0, rt );
+    state.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_PT_LINES );
+    state.SetVertexBuffer( vb, 0 );
+    
+    // Clear to Black
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+
+    // Identity Matrices
+    glm::mat4 view = glm::mat4( 1.0f );
+    glm::mat4 proj = glm::mat4( 1.0f );
+
+    // Line from (-0.5, -0.5) to (0.5, 0.5)
+    glm::vec4 p0 = glm::vec4( -0.5f, -0.5f, 0.0f, 1.0f );
+    glm::vec4 p1 = glm::vec4( 0.5f, 0.5f, 0.0f, 1.0f );
+    glm::vec4 color = glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ); // Green
+
+    // Set Uniforms - The shader uses specific names within the cbuffers
+    // VRHI maps uniform values by member name.
+    
+    // GlobalUniforms
+    state.SetUniform( 0, { "u_view", { view[0], view[1], view[2], view[3] } } );
+    state.SetUniform( 0, { "u_proj", { proj[0], proj[1], proj[2], proj[3] } } );
+
+    // Debug - Create and bind explicit buffer
+    glm::vec4 debugData[3] = { p0, p1, color };
+    vhMem* debugMem = vhAllocMem( sizeof( debugData ) );
+    memcpy( debugMem->data(), debugData, sizeof( debugData ) );
+    vhBuffer debugCB = vhAllocBuffer();
+    vhCreateUniformBuffer( debugCB, "DebugCB", debugMem, sizeof( debugData ) );
+    
+    // Bind the buffer to the "Debug" cbuffer slot
+    state.SetBuffer( 0, { "Debug", -1, debugCB } );
+
+    vhStateId sid = 950; // Unique ID
+
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 2 );
+    vhFlush();
+
+    // Verify Center Pixel (should be green)
+    EXPECT_TRUE( VerifyPixel( rt, 16, 47, 0xFF00FF00 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( debugCB );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+}
+
+UTEST_F( Graphics, ExtensiveSlotBinding )
+{
+    const char* vsSourceUnique = R"(
+        cbuffer TestCB_VS : register(b2, VRHI_STAGE_SPACE) { float4 u_valVS; };
+        struct VSOutput { float4 pos : SV_Position; float4 color : COLOR; };
+        VSOutput main( uint id : SV_VertexID )
+        {
+            VSOutput o;
+            o.pos = float4( 0, 0, 0, 1 ); 
+            o.color = u_valVS; 
+            if (id == 0) o.pos = float4(-1, -1, 0, 1);
+            if (id == 1) o.pos = float4( 3, -1, 0, 1);
+            if (id == 2) o.pos = float4(-1,  3, 0, 1);
+            return o;
+        }
+    )";
+
+    const char* psSourceUnique = R"(
+        cbuffer TestCB_PS : register(b2, VRHI_STAGE_SPACE) { float4 u_valPS; float u_padding; };
+        float4 main( float4 color : COLOR ) : SV_Target
+        {
+            return color + u_valPS;
+        }
+    )";
+    
+    // Use Helpers
+    vhShader vs = CreateTestShader( vsSourceUnique, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( psSourceUnique, VRHI_SHADER_STAGE_PIXEL );
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) );
+    state.SetColourAttachment( 0, rt );
+    state.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_PT_TRIANGLES ); // Default depth off
+
+    // Create Buffers
+    // VS Buffer: Red (1, 0, 0, 0)
+    glm::vec4 dataVS = { 1.0f, 0.0f, 0.0f, 1.0f };
+    vhMem* memVS = vhAllocMem( sizeof(dataVS) );
+    memcpy( memVS->data(), &dataVS, sizeof(dataVS) );
+    vhBuffer bufVS = vhAllocBuffer();
+    vhCreateUniformBuffer( bufVS, "BufVS", memVS, sizeof(dataVS) );
+
+    // PS Buffer: Blue (0, 0, 1, 0) + Padding
+    glm::vec4 dataPS[2] = { { 0.0f, 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 0.0f, 0.0f } };
+    vhMem* memPS = vhAllocMem( sizeof(dataPS) );
+    memcpy( memPS->data(), &dataPS, sizeof(dataPS) );
+    vhBuffer bufPS = vhAllocBuffer();
+    vhCreateUniformBuffer( bufPS, "BufPS", memPS, sizeof(dataPS) );
+
+    // Bind Buffers
+    state.SetBuffer( 0, { "TestCB_VS", -1, bufVS } );
+    state.SetBuffer( 1, { "TestCB_PS", -1, bufPS } );
+    
+    // Render
+    vhStateId sid = 999;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR ); // Uses state clear color?
+    
+    vhDraw( sid, 3 );
+    vhFlush();
+
+    // Verify
+    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFFFF00FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( bufVS );
+    vhDestroyBuffer( bufPS );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+}

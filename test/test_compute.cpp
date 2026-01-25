@@ -69,7 +69,7 @@ UTEST_F( Compute, EndToEnd_TextureWrite )
     // Compute Shader Source
     // Writes (x+y)/255.0 to output
     const char* csSource = R"(
-        [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
         
         [numthreads(8, 8, 1)]
         void main(uint3 id : SV_DispatchThreadID)
@@ -161,8 +161,8 @@ UTEST_F( Compute, ReadFromTexture )
 
     // Shader: Copy Texture to Texture
     const char* csSource = R"(
-        Texture2D<float> g_In;
-        [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
+        Texture2D<float> g_In : register(t0, VRHI_STAGE_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
 
         [numthreads(8, 8, 1)]
         void main(uint3 id : SV_DispatchThreadID)
@@ -247,8 +247,8 @@ UTEST_F( Compute, ReadFromBuffer )
 
     // Shader
     const char* csSource = R"(
-        ByteAddressBuffer g_InRaw;
-        [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
+        ByteAddressBuffer g_InRaw : register(t0, VRHI_STAGE_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
         
         [numthreads(8, 8, 1)]
         void main(uint3 id : SV_DispatchThreadID)
@@ -341,8 +341,8 @@ UTEST_F( Compute, ReadFromBuffer_Unbound )
 
     // Shader
     const char* csSource = R"(
-        ByteAddressBuffer g_InRaw;
-        [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
+        ByteAddressBuffer g_InRaw : register(t0, VRHI_STAGE_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
         
         [numthreads(8, 8, 1)]
         void main(uint3 id : SV_DispatchThreadID)
@@ -423,7 +423,7 @@ UTEST_F( Compute, EndToEnd_UniformsAndConstants )
     // b1 -> World Uniforms (World Matrix)
     // b2 -> User Constant Buffer
     const char* csSource = R"(
-        cbuffer GlobalUniforms : register(b0)
+        cbuffer GlobalUniforms : register(b0, VRHI_STAGE_SPACE)
         {
             float4 u_viewRect;
             float4 u_viewTexel;
@@ -432,17 +432,17 @@ UTEST_F( Compute, EndToEnd_UniformsAndConstants )
             float4x4 u_proj;
         };
 
-        cbuffer WorldUniforms : register(b1)
+        cbuffer WorldUniforms : register(b1, VRHI_STAGE_SPACE)
         {
             float4x4 u_world[4];
         };
 
-        cbuffer UserCB : register(b2)
+        cbuffer UserCB : register(b2, VRHI_STAGE_SPACE)
         {
             float4 u_userData;
         };
 
-        [[vk::image_format("r32f")]] RWTexture2D<float> g_Out;
+        [[vk::image_format("r32f")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
 
         [numthreads(1, 1, 1)]
         void main(uint3 id : SV_DispatchThreadID)
@@ -548,7 +548,7 @@ UTEST_F( Compute, DispatchIndirect )
     // Shader
     // Same as basic test: write 1.0 (white)
     const char* csSource = R"(
-        [[vk::image_format("r8")]] RWTexture2D<float> g_Out;
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
         
         [numthreads(8, 8, 1)]
         void main(uint3 id : SV_DispatchThreadID)

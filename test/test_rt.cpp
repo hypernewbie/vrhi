@@ -33,8 +33,8 @@ extern bool g_captureActive;
 // --------------------------------------------------------------------------
 
 static const char* g_rayGenHLSL = R"(
-RWTexture2D<float4> g_Output : register(u400, space1);
-RaytracingAccelerationStructure g_Scene : register(t200, space1);
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
 
 struct RayPayload {
     float4 color;
@@ -88,8 +88,8 @@ void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes att
 )";
 
 static const char* g_inlineRT_CS = R"(
-RWTexture2D<float4> g_Output : register(u400, space1);
-RaytracingAccelerationStructure g_Scene : register(t200, space1);
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
 
 [numthreads(4, 4, 1)]
 void main(uint3 id : SV_DispatchThreadID)

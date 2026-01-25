@@ -377,15 +377,45 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
 
     // Add each shader's layout sequentially. Shaders determine their own registerSpace
     // via reflection. NVRHI handles mapping layouts to descriptor sets.
+    int maxSetIndex = 0;
+    for ( int idx = 0; idx < shaderCount; ++idx )
+    {
+        const auto& shader = shaders[idx];
+        if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
+            continue;
+        int setIdx = ( int ) vhGetDescriptorSetForStage( shader.flags );
+        if ( setIdx > maxSetIndex ) maxSetIndex = setIdx;
+    }
+
+    // Populate binding layouts sparsely
+    for ( int i = 0; i <= maxSetIndex; ++i )
+    {
+        nvrhi::BindingLayoutHandle layout = m_emptyLayout;
+ 
+        for ( int idx = 0; idx < shaderCount; ++idx )
+        {
+            const auto& shader = shaders[idx];
+            if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
+                continue;
+            
+            if ( i == ( int ) vhGetDescriptorSetForStage( shader.flags ) )
+            {
+                assert( shader.layout );
+                layout = shader.layout;
+                break;
+            }
+        }
+        
+        if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( layout );
+        if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( layout );
+    }
+
+    // Set Shader Handles
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
         auto& shader = shaders[shaderIdx];
         if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
             continue;
-
-        assert( shader.layout );
-        if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( shader.layout );
-        if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( shader.layout );
 
         const uint32_t stage = ( uint32_t ) ( shader.flags & VRHI_SHADER_STAGE_MASK );
         if ( stage == VRHI_SHADER_STAGE_COMPUTE && computePipelineDesc )
@@ -1154,7 +1184,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto layoutDesc = layout->getDesc();
         assert( layoutDesc );
 
-        // Handle empty layouts (used for fixed descriptor set gaps)
         if ( layout == m_emptyLayout )
         {
             if ( computeState )  computeState->addBindingSet( m_emptySet );
@@ -1591,13 +1620,11 @@ void vhCmdBackendState::init()
         m_userUniformBuffer.Init_DeviceStateLocked( descUser );
         assert( g_vhInit.maxUserGlobals % VRHI_CBUF_ALIGN == 0 );
 
-        // Create empty layout/set for fixed descriptor set index gaps
-        nvrhi::BindingLayoutDesc emptyDesc = {};
-        emptyDesc.visibility = nvrhi::ShaderType::All;
-        m_emptyLayout = g_vhDevice->createBindingLayout( emptyDesc );
-
-        nvrhi::BindingSetDesc emptySetDesc;
-        m_emptySet = g_vhDevice->createBindingSet( emptySetDesc, m_emptyLayout );
+        nvrhi::BindingSetDesc bsdescEmpty;
+        nvrhi::BindingLayoutDesc bldescEmpty = {};
+        bldescEmpty.visibility = nvrhi::ShaderType::All;
+        m_emptyLayout = g_vhDevice->createBindingLayout( bldescEmpty );
+        m_emptySet = g_vhDevice->createBindingSet( bsdescEmpty, m_emptyLayout );
     }
 }
 

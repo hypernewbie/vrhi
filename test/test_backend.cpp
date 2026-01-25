@@ -272,8 +272,8 @@ UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
     // Happy Path
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, &computeDesc, nullptr ) );
     EXPECT_EQ( computeDesc.CS.Get(), shader.handle.Get() );
-    EXPECT_EQ( computeDesc.bindingLayouts.size(), 1u );
-    EXPECT_EQ( computeDesc.bindingLayouts[0].Get(), shader.layout.Get() );
+    EXPECT_EQ( computeDesc.bindingLayouts.size(), 2u );
+    EXPECT_EQ( computeDesc.bindingLayouts[1].Get(), shader.layout.Get() );
 
     // Mixed Shaders - Only compute should be picked up
     vhBackendShader shaders[2];
@@ -288,8 +288,8 @@ UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
     nvrhi::ComputePipelineDesc computeDesc2;
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, shaders, 2, &computeDesc2, nullptr ) );
     EXPECT_EQ( computeDesc2.CS.Get(), shaders[0].handle.Get() );
-    EXPECT_EQ( computeDesc2.bindingLayouts.size(), 1u );
-    EXPECT_EQ( computeDesc2.bindingLayouts[0].Get(), shaders[0].layout.Get() );
+    EXPECT_EQ( computeDesc2.bindingLayouts.size(), 2u );
+    EXPECT_EQ( computeDesc2.bindingLayouts[1].Get(), shaders[0].layout.Get() );
 
     vhFlush();
     {

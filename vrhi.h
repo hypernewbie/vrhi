@@ -146,10 +146,6 @@ constexpr uint64_t VRHI_SHADER_STAGE_MASK          = 0xF;
 // Each stage gets its own fixed set index to avoid descriptor set merging.
 // Mutually exclusive stages share indices (e.g. VS/CS, PS/Miss).
 //
-// Set 0: Global (View/Frame) - Reserved
-//
-constexpr uint32_t VRHI_DESCRIPTOR_SET_GLOBAL        = 0;
-
 constexpr uint32_t VRHI_DESCRIPTOR_SET_VERTEX        = 1;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_PIXEL         = 2;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_HULL          = 3;
@@ -170,6 +166,12 @@ constexpr uint32_t VRHI_DESCRIPTOR_SET_CALLABLE      = 6;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_MAX           = 8;
 
 // Returns the fixed descriptor set index for a given shader stage.
+//
+// Each shader stage uses a unique, independent Descriptor Set index for its VRHI_STAGE_SPACE resources.
+// Set 1: Vertex / Compute
+// Set 2: Pixel
+// Set 3+: Other stages
+//
 inline uint32_t vhGetDescriptorSetForStage( uint64_t stageFlags )
 {
     uint64_t stage = stageFlags & VRHI_SHADER_STAGE_MASK;
@@ -189,7 +191,7 @@ inline uint32_t vhGetDescriptorSetForStage( uint64_t stageFlags )
         case VRHI_SHADER_STAGE_ANY_HIT:       return VRHI_DESCRIPTOR_SET_ANY_HIT;
         case VRHI_SHADER_STAGE_INTERSECTION:  return VRHI_DESCRIPTOR_SET_INTERSECTION;
         case VRHI_SHADER_STAGE_CALLABLE:      return VRHI_DESCRIPTOR_SET_CALLABLE;
-        default:                              return VRHI_DESCRIPTOR_SET_GLOBAL; // Fallback
+        default:                              assert( !"Invalid stage" ); return VRHI_DESCRIPTOR_SET_MAX;
     }
 }
 
