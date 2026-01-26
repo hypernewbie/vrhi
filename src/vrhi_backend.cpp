@@ -500,7 +500,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 }
                 if ( it->second->format != vsAttribDef.format )
                 {
-                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Mismatch at Location %d (Buffer: %d, Shader: %d)\n", vsAttribDef.location, ( int ) it->second->format, ( int ) vsAttribDef.format );
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Mismatch at Location %d (Buffer: %d (%s), Shader: %d (%s))\n", vsAttribDef.location, ( int ) it->second->format, nvrhi::getFormatInfo( it->second->format ).name, ( int ) vsAttribDef.format, nvrhi::getFormatInfo( vsAttribDef.format ).name );
                     return false;
                 }
             }
@@ -1014,7 +1014,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 {
                     if ( format == nvrhi::Format::UNKNOWN )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format for typed buffer." );
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format %d (%s) for typed buffer.", ( int ) format, nvrhi::getFormatInfo( format ).name );
                         return false;
                     }
                     outItem = ( item.type == nvrhi::ResourceType::TypedBuffer_UAV ) 
@@ -1027,7 +1027,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 {
                     if ( format == nvrhi::Format::UNKNOWN )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format for structured buffer." );
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format %d (%s) for structured buffer.", ( int ) format, nvrhi::getFormatInfo( format ).name );
                         return false;
                     }
                     outItem = ( item.type == nvrhi::ResourceType::StructuredBuffer_UAV )
@@ -1089,7 +1089,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             return false;
         }
         default:
-            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown or unsupported resource type %d at slot %d\n", ( int ) item.type, item.slot );
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown or unsupported resource type %d (%s) at slot %d\n", ( int ) item.type, vhResourceTypeToString( item.type ), item.slot );
             break;
     }
 
@@ -1848,8 +1848,8 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     if ( cmd->dimensions.x <= 0 || cmd->dimensions.y <= 0 || cmd->dimensions.z <= 0 ||
         cmd->numMips == 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
     {
-        VRHI_ERR( "vhCreateTexture() : Invalid parameters! TexID %u %d x %d x %d mips %d layers %d format %d\n",
-            cmd->texture, cmd->dimensions.x, cmd->dimensions.y, cmd->dimensions.z, cmd->numMips, cmd->numLayers, cmd->format );
+        VRHI_ERR( "vhCreateTexture() : Invalid parameters! TexID %u %d x %d x %d mips %d layers %d format %d (%s)\n",
+            cmd->texture, cmd->dimensions.x, cmd->dimensions.y, cmd->dimensions.z, cmd->numMips, cmd->numLayers, ( int ) cmd->format, nvrhi::getFormatInfo( cmd->format ).name );
         return;
     }
 
