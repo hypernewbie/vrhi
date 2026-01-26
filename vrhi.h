@@ -859,7 +859,7 @@ void vhDestroyTexture( vhTexture texture );
 // `flag` specifies usage and sampling options.
 // `data` is optional initial pixel data. Takes ownership of the memory.
 // VIDL_GENERATE
-void vhCreateTexture(
+vhTexture vhCreateTexture(
     vhTexture texture,
     nvrhi::TextureDimension target,
     glm::ivec3 dimensions,
@@ -870,7 +870,7 @@ void vhCreateTexture(
 );
 
 // Helper to create a 2D texture.
-inline void vhCreateTexture2D(
+inline vhTexture vhCreateTexture2D(
     vhTexture texture,
     glm::ivec2 dimensions,
     int numMips,
@@ -879,11 +879,11 @@ inline void vhCreateTexture2D(
     const vhMem* data = nullptr
 )
 {
-    vhCreateTexture( texture, nvrhi::TextureDimension::Texture2D, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data );
+    return vhCreateTexture( texture, nvrhi::TextureDimension::Texture2D, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data );
 }
 
 // Helper to create a 3D texture.
-inline void vhCreateTexture3D(
+inline vhTexture vhCreateTexture3D(
     vhTexture texture,
     glm::ivec3 dimensions,
     int numMips,
@@ -892,11 +892,11 @@ inline void vhCreateTexture3D(
     const vhMem* data = nullptr
 )
 {
-    vhCreateTexture( texture, nvrhi::TextureDimension::Texture3D, dimensions, numMips, 1, format, flag, data );
+    return vhCreateTexture( texture, nvrhi::TextureDimension::Texture3D, dimensions, numMips, 1, format, flag, data );
 }
 
 // Helper to create a Cube texture.
-inline void vhCreateTextureCube(
+inline vhTexture vhCreateTextureCube(
     vhTexture texture,
     int dimension,
     int numMips,
@@ -905,11 +905,11 @@ inline void vhCreateTextureCube(
     const vhMem* data = nullptr
 )
 {
-    vhCreateTexture( texture, nvrhi::TextureDimension::TextureCube, glm::ivec3( dimension, dimension, 1 ), numMips, 6, format, flag, data );
+    return vhCreateTexture( texture, nvrhi::TextureDimension::TextureCube, glm::ivec3( dimension, dimension, 1 ), numMips, 6, format, flag, data );
 }
 
 // Helper to create a 2D texture array.
-inline void vhCreateTexture2DArray(
+inline vhTexture vhCreateTexture2DArray(
     vhTexture texture,
     glm::ivec2 dimensions,
     int numLayers,
@@ -919,11 +919,11 @@ inline void vhCreateTexture2DArray(
     const vhMem* data = nullptr
 )
 {
-    vhCreateTexture( texture, nvrhi::TextureDimension::Texture2DArray, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data );
+    return vhCreateTexture( texture, nvrhi::TextureDimension::Texture2DArray, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data );
 }
 
 // Helper to create a Cube texture array.
-inline void vhCreateTextureCubeArray(
+inline vhTexture vhCreateTextureCubeArray(
     vhTexture texture,
     int dimension,
     int numLayers,
@@ -933,7 +933,7 @@ inline void vhCreateTextureCubeArray(
     const vhMem* data = nullptr
 )
 {
-    vhCreateTexture( texture, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
+    return vhCreateTexture( texture, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
 }
 
 // Enqueues a command to update a subresource range of a texture.
@@ -1034,7 +1034,7 @@ vhBuffer vhAllocBuffer();
 
 // `numVerts` is the number of vertices in the buffer. It is ignored if `data` is not null.
 // VIDL_GENERATE
-void vhCreateVertexBuffer(
+vhBuffer vhCreateVertexBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -1067,7 +1067,7 @@ void vhUpdateVertexBuffer(
 // `numIndices` is the number of indices. It is ignored if `data` is not null.
 // `flags` specifies usage options.
 // VIDL_GENERATE
-void vhCreateIndexBuffer(
+vhBuffer vhCreateIndexBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -1099,7 +1099,7 @@ void vhUpdateIndexBuffer(
 // `size` is the size in bytes. It is ignored if `data` is not null.
 // `flags` specifies usage options.
 // VIDL_GENERATE
-void vhCreateUniformBuffer(
+vhBuffer vhCreateUniformBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -1135,7 +1135,7 @@ void vhUpdateUniformBuffer(
 // `stride` is the structure stride for Structured Buffers (default 0 for Raw/ByteAddress).
 // `format` is the format for Typed Buffers (default UNKNOWN).
 // VIDL_GENERATE
-void vhCreateStorageBuffer(
+vhBuffer vhCreateStorageBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -1147,7 +1147,7 @@ void vhCreateStorageBuffer(
 
 // Convenience wrapper for creating a structured storage buffer.
 // Calls vhCreateStorageBuffer with format = UNKNOWN.
-inline void vhCreateStorageStructuredBuffer(
+inline vhBuffer vhCreateStorageStructuredBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -1156,12 +1156,12 @@ inline void vhCreateStorageStructuredBuffer(
     uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE
 )
 {
-    vhCreateStorageBuffer( buffer, name, data, size, flags, stride, nvrhi::Format::UNKNOWN );
+    return vhCreateStorageBuffer( buffer, name, data, size, flags, stride, nvrhi::Format::UNKNOWN );
 }
 
 // Convenience wrapper for creating a typed storage buffer.
 // Calls vhCreateStorageBuffer with stride = 0.
-inline void vhCreateStorageTypedBuffer(
+inline vhBuffer vhCreateStorageTypedBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -1170,7 +1170,7 @@ inline void vhCreateStorageTypedBuffer(
     uint16_t flags = VRHI_BUFFER_COMPUTE_READ_WRITE
 )
 {
-    vhCreateStorageBuffer( buffer, name, data, size, flags, 0, format );
+    return vhCreateStorageBuffer( buffer, name, data, size, flags, 0, format );
 }
 
 // Enqueues a command to update a storage buffer with the specified data.
@@ -1238,7 +1238,7 @@ vhShaderTable vhAllocShaderTable();
 // `as` must be a handle allocated via `vhAllocAS`.
 // `desc` is the NVRHI acceleration structure descriptor (BLAS or TLAS).
 // VIDL_GENERATE
-void vhCreateAS( vhAccelStruct as, const nvrhi::rt::AccelStructDesc& desc );
+vhAccelStruct vhCreateAS( vhAccelStruct as, const nvrhi::rt::AccelStructDesc& desc );
 
 // Enqueues a command to destroy the acceleration structure.
 //
@@ -1267,7 +1267,7 @@ void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > ins
 // `pipeline` must be a handle allocated via `vhAllocRTPipeline`.
 // `desc` is the NVRHI raytracing pipeline descriptor.
 // VIDL_GENERATE
-void vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc );
+vhRTPipeline vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc );
 
 // Enqueues a command to destroy the raytracing pipeline.
 //
@@ -1285,7 +1285,7 @@ vhShaderTable vhAllocShaderTable();
 // `table` is the handle allocated via `vhAllocShaderTable`.
 // `pipeline` is the raytracing pipeline handle.
 // VIDL_GENERATE
-void vhCreateShaderTable( vhShaderTable table, vhRTPipeline pipeline );
+vhShaderTable vhCreateShaderTable( vhShaderTable table, vhRTPipeline pipeline );
 
 // Enqueues a command to destroy a shader table.
 //
@@ -1413,7 +1413,7 @@ bool vhCompileShader(
 //
 // `flags` is one of VRHI_SHADER_STAGE_*.
 // VIDL_GENERATE
-void vhCreateShader(
+vhShader vhCreateShader(
     vhShader shader,
     const char* name,
     uint64_t flags,

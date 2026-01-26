@@ -542,7 +542,7 @@ bool vhCompileShader(
     return vhLoadSpirvFile( spvPath, outSpirv );
 }
 
-void vhCreateShader(
+vhShader vhCreateShader(
     vhShader shader,
     const char* name,
     uint64_t flags,
@@ -550,11 +550,13 @@ void vhCreateShader(
     const char* entry
 )
 {
-    if ( shader == VRHI_INVALID_HANDLE ) return;
+    if ( shader == VRHI_INVALID_HANDLE ) return shader;
 
     auto cmd = vhCmdAlloc< VIDL_vhCreateShader >( shader, name, flags, spirv, entry );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return shader;
 }
 
 void vhGetShaderInfo(
@@ -677,11 +679,13 @@ vhShaderTable vhAllocShaderTable()
     return id;
 }
 
-void vhCreateAS( vhAccelStruct as, const nvrhi::rt::AccelStructDesc& desc )
+vhAccelStruct vhCreateAS( vhAccelStruct as, const nvrhi::rt::AccelStructDesc& desc )
 {
     auto cmd = vhCmdAlloc< VIDL_vhCreateAS >( as, desc );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return as;
 }
 
 void vhDestroyAS( vhAccelStruct as )
@@ -712,11 +716,13 @@ void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > ins
 
 
 
-void vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc )
+vhRTPipeline vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc )
 {
     auto cmd = vhCmdAlloc< VIDL_vhCreateRTPipeline >( pipeline, desc );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return pipeline;
 }
 
 void vhDestroyRTPipeline( vhRTPipeline pipeline )
@@ -731,11 +737,13 @@ void vhDestroyRTPipeline( vhRTPipeline pipeline )
     vhCmdEnqueue( cmd );
 }
 
-void vhCreateShaderTable( vhShaderTable table, vhRTPipeline pipeline )
+vhShaderTable vhCreateShaderTable( vhShaderTable table, vhRTPipeline pipeline )
 {
     auto cmd = vhCmdAlloc< VIDL_vhCreateShaderTable >( table, pipeline );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return table;
 }
 
 void vhDestroyShaderTable( vhShaderTable table )

@@ -296,7 +296,7 @@ void vhDestroyBuffer( vhBuffer buffer )
     vhCmdEnqueue( cmd );
 }
 
-void vhCreateVertexBuffer(
+vhBuffer vhCreateVertexBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -305,12 +305,14 @@ void vhCreateVertexBuffer(
     uint16_t flags
 )
 {
-    if ( buffer == VRHI_INVALID_HANDLE ) return;
+    if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
     // Queue up command to create vertex buffer
     auto cmd = vhCmdAlloc<VIDL_vhCreateVertexBuffer>( buffer, name, data, layout, numVerts, flags );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return buffer;
 }
 
 void vhUpdateVertexBuffer(
@@ -324,7 +326,7 @@ void vhUpdateVertexBuffer(
     vhCmdEnqueue( cmd );
 }
 
-void vhCreateIndexBuffer(
+vhBuffer vhCreateIndexBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -332,11 +334,13 @@ void vhCreateIndexBuffer(
     uint16_t flags
 )
 {
-    if ( buffer == VRHI_INVALID_HANDLE ) return;
+    if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
     auto cmd = vhCmdAlloc<VIDL_vhCreateIndexBuffer>( buffer, name, data, numIndices, flags );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return buffer;
 }
 
 void vhUpdateIndexBuffer(
@@ -350,7 +354,7 @@ void vhUpdateIndexBuffer(
     vhCmdEnqueue( cmd );
 }
 
-void vhCreateUniformBuffer(
+vhBuffer vhCreateUniformBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -358,11 +362,13 @@ void vhCreateUniformBuffer(
     uint16_t flags
 )
 {
-    if ( buffer == VRHI_INVALID_HANDLE ) return;
+    if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
     auto cmd = vhCmdAlloc<VIDL_vhCreateUniformBuffer>( buffer, name, data, size, flags );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return buffer;
 }
 
 void vhUpdateUniformBuffer(
@@ -376,7 +382,7 @@ void vhUpdateUniformBuffer(
     vhCmdEnqueue( cmd );
 }
 
-void vhCreateStorageBuffer(
+vhBuffer vhCreateStorageBuffer(
     vhBuffer buffer,
     const char* name,
     const vhMem* data,
@@ -386,11 +392,13 @@ void vhCreateStorageBuffer(
     nvrhi::Format format
 )
 {
-    if ( buffer == VRHI_INVALID_HANDLE ) return;
+    if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
     auto cmd = vhCmdAlloc<VIDL_vhCreateStorageBuffer>( buffer, name, data, size, flags, stride, format );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return buffer;
 }
 
 void vhUpdateStorageBuffer(

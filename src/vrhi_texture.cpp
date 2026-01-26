@@ -165,7 +165,7 @@ void vhDestroyTexture( vhTexture texture )
     vhCmdEnqueue( cmd );
 }
 
-void vhCreateTexture(
+vhTexture vhCreateTexture(
     vhTexture texture,
     nvrhi::TextureDimension target,
     glm::ivec3 dimensions,
@@ -175,7 +175,7 @@ void vhCreateTexture(
     const vhMem* data
 )
 {
-    if ( texture == VRHI_INVALID_HANDLE ) return;
+    if ( texture == VRHI_INVALID_HANDLE ) return texture;
 
     // Verify parameters
 
@@ -201,6 +201,8 @@ void vhCreateTexture(
     auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, target, dimensions, numMips, numLayers, format, flag, data );
     assert( cmd );
     vhCmdEnqueue( cmd );
+
+    return texture;
 }
 
 void vhUpdateTexture(
