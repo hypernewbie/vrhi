@@ -943,14 +943,10 @@ bool vhFrame()
     // Reset per‑frame statistics
     g_vhLastFrameStats.drawCalls = g_vhDrawCallsAccumulator.exchange( 0 );
     g_vhLastFrameStats.dispatchCalls = g_vhDispatchCallsAccumulator.exchange( 0 );
+    vhFlush();
 
     if ( g_vhInit.headless )
     {
-        vhFlush();
-        if ( g_vhInit.vsync )
-        {
-            std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
-        }
         g_vhFrameCount++;
         return true;
     }
@@ -978,7 +974,7 @@ bool vhFrame()
         nvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, g_vhAcquireSemaphores[g_vhFrameIndex], 0 );
         nvrhiDevice->queueSignalSemaphore( nvrhi::CommandQueue::Graphics, g_vhPresentSemaphores[g_vhCurrentSwapchainIndex], 0 );
     }
-    vhFlush( false );
+    vhFlush();
     g_vhFrameInstances[g_vhFrameIndex] = vhCmdListFlush( nvrhi::CommandQueue::Graphics );
 
     VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
