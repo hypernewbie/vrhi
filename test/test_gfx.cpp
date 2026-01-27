@@ -1870,3 +1870,52 @@ UTEST_F( Graphics, ExtensiveSlotBinding )
     vhDestroyShader( vs );
     vhDestroyShader( ps );
 }
+
+// --------------------------------------------------------------------------
+// Clear Flags Behaviour Test
+// --------------------------------------------------------------------------
+// Tests that vhClear respects the clearFlags parameter. When flags is 0
+// (VRHI_CLEAR_NONE), the stored clear colour should be ignored and no
+// clear should occur, regardless of what colour is set in the state.
+// --------------------------------------------------------------------------
+UTEST_F( Graphics, ClearFlagsRespected )
+{
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+
+    vhStateId sid = 1300;
+
+    // Phase 1: Clear to RED using VRHI_CLEAR_COLOR
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 1.0f, 0.0f, 0.0f, 1.0f ) );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhFlush();
+
+    // Verify texture is RED
+    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF0000FF ) );
+
+    // Phase 2: Set clear colour to GREEN but use VRHI_CLEAR_NONE (flags = 0)
+    // The texture should NOT be cleared and should remain RED
+    state.SetViewClear( VRHI_CLEAR_NONE, glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ) );
+    vhSetState( sid, state.DirtyAll() );
+    vhClear( sid, VRHI_CLEAR_NONE );
+    vhFlush();
+
+    // Verify texture is still RED (GREEN colour was ignored)
+    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF0000FF ) );
+
+    // Phase 3: Now actually clear to BLUE using VRHI_CLEAR_COLOR
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) );
+    vhSetState( sid, state.DirtyAll() );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhFlush();
+
+    // Verify texture is now BLUE
+    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt );
+    vhFinish();
+}
