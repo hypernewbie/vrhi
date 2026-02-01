@@ -110,10 +110,15 @@ void vhCmdEnqueue( void* cmd )
 {
     for ( int i = 0; i < 128; i++ )
     {
-        if ( g_vhCmds.try_enqueue( cmd ) ) return;
+        if ( g_vhCmds.try_enqueue( cmd ) )
+        {
+            if ( g_vhInit.debugBlockWaitForBackend ) vhFlush();
+            return;
+        }
         std::this_thread::yield();
     }
     g_vhCmds.enqueue( cmd );
+    if ( g_vhInit.debugBlockWaitForBackend ) vhFlush();
 }
 
 nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };

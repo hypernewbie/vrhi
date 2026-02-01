@@ -56,6 +56,7 @@ struct vhInitData
     bool raytracing = true;
     bool logBackendCmds = false;
     bool logPSOCache = false;
+    bool debugBlockWaitForBackend = false;
 
     // Platform Window Handles
     // On Windows, set windowHandle to (void*)HWND.

@@ -66,6 +66,7 @@ int main( int argc, const char* const argv[] )
     g_vhInit.debug = true;
     g_vhInit.renderdoc = true;
     g_vhInit.markers = true;
+    // g_vhInit.debugBlockWaitForBackend = true; // Enable this to test blocking backend mode.
 #endif
 
 #ifdef _WIN32
