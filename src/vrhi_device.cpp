@@ -857,7 +857,7 @@ void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU )
     // Fence memory must be valid until signaled! 
     // Usually stack memory of the caller waiting on it.
     VIDL_vhFlushInternal* cmd = vhCmdAlloc<VIDL_vhFlushInternal>( fence, waitForGPU );
-    vhCmdEnqueue( cmd );
+    vhCmdEnqueue( cmd, false );
 }
 
 void vhFlush( bool wait )

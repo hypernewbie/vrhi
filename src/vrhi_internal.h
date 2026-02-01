@@ -218,7 +218,7 @@ T* vhCmdAlloc( Args&&... args ) { return new T( std::forward<Args>( args )... );
 template< typename T >
 void vhCmdRelease( T* cmd ) { if ( cmd ) delete cmd; }
 
-void vhCmdEnqueue( void* cmd );
+void vhCmdEnqueue( void* cmd, bool wait = true );
 void vhCmdListFlushAll();
 void vhCmdListFlushTransferIfNeeded();
 

@@ -106,19 +106,19 @@ void vhLog( bool error, const char* fmt, ... )
         printf( "%s", buffer );
 }
 
-void vhCmdEnqueue( void* cmd )
+void vhCmdEnqueue( void* cmd, bool wait )
 {
     for ( int i = 0; i < 128; i++ )
     {
         if ( g_vhCmds.try_enqueue( cmd ) )
         {
-            if ( g_vhInit.debugBlockWaitForBackend ) vhFlush();
+            if ( wait && g_vhInit.debugBlockWaitForBackend ) vhFlush();
             return;
         }
         std::this_thread::yield();
     }
     g_vhCmds.enqueue( cmd );
-    if ( g_vhInit.debugBlockWaitForBackend ) vhFlush();
+    if ( wait && g_vhInit.debugBlockWaitForBackend ) vhFlush();
 }
 
 nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };
