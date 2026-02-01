@@ -650,7 +650,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
     for ( size_t i = 0; i < state.textures.size(); i++ )
     {
-        assert( scache.btex[i] );
+        if ( !scache.btex[i] ) continue;
         auto& btex = *scache.btex[i];
 
         const auto& t = state.textures[i];
@@ -692,7 +692,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
     for ( size_t i = 0; i < state.buffers.size(); i++ )
     {
-        assert( scache.bbuf[i] );
+        if ( !scache.bbuf[i] ) continue;
         auto& bbuf = *scache.bbuf[i];
 
         const auto& b = state.buffers[i];
@@ -3429,6 +3429,5 @@ nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable tabl
 {
     return g_vhCmdBackendState.QueryShaderTableHandle( table );
 }
-
 
 

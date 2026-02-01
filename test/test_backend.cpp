@@ -1127,3 +1127,63 @@ UTEST( Backend, TimerQueryErrors )
     EXPECT_EQ( vhGetTimerQueryTime( 0x999 ), 0.0f );
     vhFinish();
 }
+
+UTEST( Backend, SparseBindings )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "SparseBindingsOut", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = 1.0;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        "CS_SparseBindings",
+        csSource,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0,
+        spirv,
+        "main",
+        {}, {}, &error
+    );
+    if ( !success ) printf( "Shader Compile Error: %s\n", error.c_str() );
+    ASSERT_TRUE( success );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_SparseBindings", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+
+    vhState::TextureBinding tb;
+    tb.name = "g_Out";
+    tb.texture = outTex;
+    tb.dimensionOverride = nvrhi::TextureDimension::Texture2D;
+    tb.formatOverride = nvrhi::Format::R8_UNORM;
+    tb.computeUAV = true;
+    state.SetTexture( 1, tb );
+
+    vhStateId sid = 200;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    vhDestroyShader( cs );
+    vhDestroyTexture( outTex );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
