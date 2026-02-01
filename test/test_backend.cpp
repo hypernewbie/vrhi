@@ -606,6 +606,12 @@ UTEST( BackendInternal, FindResource )
     EXPECT_EQ( outItem.range.byteOffset, 256u );
     EXPECT_EQ( outItem.range.byteSize, 512u );
 
+    // Test Structured Buffer SRV (Format::UNKNOWN allowed)
+    nvrhi::BindingLayoutItem layoutStructBufSRV = nvrhi::BindingLayoutItem::StructuredBuffer_SRV( 1 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutStructBufSRV, outItem ) );
+    EXPECT_EQ( outItem.resourceHandle, hBuf );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::StructuredBuffer_SRV );
+
     // Test Texture UAV
     nvrhi::BindingLayoutItem layoutTexUAV = nvrhi::BindingLayoutItem::Texture_UAV( 2 );
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutTexUAV, outItem ) );
@@ -617,6 +623,12 @@ UTEST( BackendInternal, FindResource )
     EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutBufUAV, outItem ) );
     EXPECT_EQ( outItem.resourceHandle, hBuf );
     EXPECT_EQ( outItem.type, nvrhi::ResourceType::RawBuffer_UAV );
+
+    // Test Structured Buffer UAV (Format::UNKNOWN allowed)
+    nvrhi::BindingLayoutItem layoutStructBufUAV = nvrhi::BindingLayoutItem::StructuredBuffer_UAV( 3 );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, layoutStructBufUAV, outItem ) );
+    EXPECT_EQ( outItem.resourceHandle, hBuf );
+    EXPECT_EQ( outItem.type, nvrhi::ResourceType::StructuredBuffer_UAV );
 
     // Test Sampler
     uint64_t samplerFlags = VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP;

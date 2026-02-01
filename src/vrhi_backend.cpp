@@ -1051,11 +1051,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 case nvrhi::ResourceType::StructuredBuffer_SRV:
                 case nvrhi::ResourceType::StructuredBuffer_UAV:
                 {
-                    if ( format == nvrhi::Format::UNKNOWN )
-                    {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format %d (%s) for structured buffer.", ( int ) format, nvrhi::getFormatInfo( format ).name );
-                        return false;
-                    }
                     outItem = ( item.type == nvrhi::ResourceType::StructuredBuffer_UAV )
                         ? nvrhi::BindingSetItem::StructuredBuffer_UAV( item.slot, result->handle, format, range )
                         : nvrhi::BindingSetItem::StructuredBuffer_SRV( item.slot, result->handle, format, range );
