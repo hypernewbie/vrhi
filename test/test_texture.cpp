@@ -69,6 +69,7 @@ UTEST_F( Texture, CreateDestroyError )
     // Create a texture with INVALID dimensions (-1 implies invalid)
     vhCreateTexture(
         tex,
+        "InvalidTex",
         nvrhi::TextureDimension::Texture2D,
         glm::ivec3( -1, -5, 1 ), // Invalid size
         1, 1,
@@ -92,23 +93,23 @@ UTEST_F( Texture, CreateHelpers )
 
     // 2D
     vhTexture tex2D = vhAllocTexture();
-    vhCreateTexture2D( tex2D, glm::ivec2( 128, 128 ), 1, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTexture2D( tex2D, "TestTexture2D", glm::ivec2( 128, 128 ), 1, nvrhi::Format::RGBA8_UNORM );
 
     // 3D
     vhTexture tex3D = vhAllocTexture();
-    vhCreateTexture3D( tex3D, glm::ivec3( 32, 32, 32 ), 1, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTexture3D( tex3D, "TestTexture3D", glm::ivec3( 32, 32, 32 ), 1, nvrhi::Format::RGBA8_UNORM );
 
     // Cube
     vhTexture texCube = vhAllocTexture();
-    vhCreateTextureCube( texCube, 128, 1, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTextureCube( texCube, "TestTextureCube", 128, 1, nvrhi::Format::RGBA8_UNORM );
 
     // 2D Array
     vhTexture tex2DArray = vhAllocTexture();
-    vhCreateTexture2DArray( tex2DArray, glm::ivec2( 128, 128 ), 4, 1, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTexture2DArray( tex2DArray, "TestTexture2DArray", glm::ivec2( 128, 128 ), 4, 1, nvrhi::Format::RGBA8_UNORM );
 
     // Cube Array
     vhTexture texCubeArray = vhAllocTexture();
-    vhCreateTextureCubeArray( texCubeArray, 128, 12, 1, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTextureCubeArray( texCubeArray, "TestTextureCubeArray", 128, 12, 1, nvrhi::Format::RGBA8_UNORM );
 
     vhFlush();
 
@@ -133,6 +134,7 @@ UTEST_F( Texture, CreateDestroy )
 
     vhCreateTexture(
         tex,
+        "TestCreateDestroy",
         nvrhi::TextureDimension::Texture2D,
         glm::ivec3( 256, 256, 1 ),
         1, 1,
@@ -170,6 +172,7 @@ UTEST_F( Texture, CreateDestroyStressTest )
 
         vhCreateTexture(
             tex,
+            "StressTestTexture",
             nvrhi::TextureDimension::Texture2D,
             glm::ivec3( w, h, 1 ),
             1, 1,
@@ -207,6 +210,7 @@ UTEST_F( Texture, Update )
 
     vhCreateTexture2D(
         tex,
+        "UpdateStressTex",
         glm::ivec2( width, height ),
         1,
         nvrhi::Format::RGBA8_UNORM,
@@ -259,6 +263,7 @@ UTEST_F( Texture, Readback )
 
     vhCreateTexture2D(
         tex,
+        "ReadbackTex",
         glm::ivec2( width, height ),
         1,
         nvrhi::Format::RGBA8_UNORM,
@@ -334,12 +339,12 @@ UTEST_F( Texture, BlitConnectivity )
     // Source: All 255
     vhMem* whiteData = vhAllocMem( dataSize );
     std::fill( whiteData->begin(), whiteData->end(), 255 );
-    vhCreateTexture2D( src, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, whiteData );
+    vhCreateTexture2D( src, "BlitSrcWhite", glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, whiteData );
 
     // Destination: All 0
     vhMem* blackData = vhAllocMem( dataSize );
     std::fill( blackData->begin(), blackData->end(), 0 );
-    vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, blackData );
+    vhCreateTexture2D( dst, "BlitDstBlack", glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, blackData );
 
     vhFinish();
 
@@ -372,9 +377,9 @@ UTEST_F( Texture, BlitMipToMip )
     vhTexture dst = vhAllocTexture();
 
     // Src: 128x128 with 4 mips (Mip 1 is 64x64)
-    vhCreateTexture2D( src, glm::ivec2( 128, 128 ), 4, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTexture2D( src, "BlitMipSrc", glm::ivec2( 128, 128 ), 4, nvrhi::Format::RGBA8_UNORM );
     // Dst: 64x64 with 1 mip
-    vhCreateTexture2D( dst, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTexture2D( dst, "BlitMipDst", glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM );
 
     // Fill Src Mip 1 with 128
     const size_t mip1DataSize = 64 * 64 * 4;
@@ -418,12 +423,12 @@ UTEST_F( Texture, BlitPartialRegion )
     // Source: 200
     vhMem* srcData = vhAllocMem( dataSize );
     std::fill( srcData->begin(), srcData->end(), 200 );
-    vhCreateTexture2D( src, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, srcData );
+    vhCreateTexture2D( src, "BlitRegionSrc", glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, srcData );
 
     // Dest: 50
     vhMem* dstData = vhAllocMem( dataSize );
     std::fill( dstData->begin(), dstData->end(), 50 );
-    vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, dstData );
+    vhCreateTexture2D( dst, "BlitRegionDst", glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, dstData );
 
     vhFinish();
 
@@ -829,12 +834,12 @@ UTEST_F( Texture, BlitFunctional )
     // Source: All White (255)
     vhMem* whiteData = vhAllocMem( dataSize );
     std::fill( whiteData->begin(), whiteData->end(), 255 );
-    vhCreateTexture2D( src, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, whiteData );
+    vhCreateTexture2D( src, "BlitBasicSrc", glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, whiteData );
 
     // Destination: All Black (0)
     vhMem* blackData = vhAllocMem( dataSize );
     std::fill( blackData->begin(), blackData->end(), 0 );
-    vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, blackData );
+    vhCreateTexture2D( dst, "BlitBasicDst", glm::ivec2( width, height ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, blackData );
 
     vhFinish();
 
@@ -904,12 +909,12 @@ UTEST_F( Texture, BlitStress )
         // Background Colour (all 0x55)
         vhMem* bgData = vhAllocMem( dataSize );
         std::fill( bgData->begin(), bgData->end(), 0x55 );
-        vhCreateTexture2D( dst, glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, bgData );
+        vhCreateTexture2D( dst, "BlitStressDst", glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, bgData );
 
         // Foreground Colour (all 0xAA)
         vhMem* fgData = vhAllocMem( dataSize );
         std::fill( fgData->begin(), fgData->end(), 0xAA );
-        vhCreateTexture2D( src, glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, fgData );
+        vhCreateTexture2D( src, "BlitStressSrc", glm::ivec2( width, height ), 1, fmt.format, VRHI_TEXTURE_NONE, fgData );
 
         vhFinish();
 
@@ -1029,7 +1034,7 @@ UTEST_F( Texture, Type_2DArray )
     const size_t totalSize = layerSize * layers;
 
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2DArray( tex, glm::ivec2( width, height ), layers, 1, nvrhi::Format::R8_UINT );
+    vhCreateTexture2DArray( tex, "UpdateLayersTex", glm::ivec2( width, height ), layers, 1, nvrhi::Format::R8_UINT );
 
     // Action 1: Update all 4 layers in one call
     auto fullData = vhAllocMem( totalSize );
@@ -1088,7 +1093,7 @@ UTEST_F( Texture, Type_Cube )
     const size_t totalSize = faceSize * faces;
 
     vhTexture tex = vhAllocTexture();
-    vhCreateTextureCube( tex, dim, 1, nvrhi::Format::R8_UINT );
+    vhCreateTextureCube( tex, "UpdateFacesTex", dim, 1, nvrhi::Format::R8_UINT );
 
     // Action 1: Update all 6 faces
     auto fullData = vhAllocMem( totalSize );
@@ -1145,7 +1150,7 @@ UTEST_F( Texture, Type_3D )
     const size_t totalSize = w * h * d; // R8_UINT
 
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture3D( tex, glm::ivec3( w, h, d ), 1, nvrhi::Format::R8_UINT );
+    vhCreateTexture3D( tex, "UpdateVolumeTex", glm::ivec3( w, h, d ), 1, nvrhi::Format::R8_UINT );
 
     // Action: Update full volume with gradient
     auto data = vhAllocMem( totalSize );
@@ -1190,7 +1195,7 @@ UTEST_F( Texture, MipChain )
     }
 
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2D( tex, glm::ivec2( dim, dim ), mips, fmt );
+    vhCreateTexture2D( tex, "UpdateMipsTex", glm::ivec2( dim, dim ), mips, fmt );
 
     // Action 1: Update all mips in one call
     auto fullData = vhAllocMem( totalSize );
@@ -1247,7 +1252,7 @@ UTEST_F( Texture, Type_1D )
 
     const int width = 256;
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture( tex, nvrhi::TextureDimension::Texture1D, glm::ivec3( width, 1, 1 ), 1, 1, nvrhi::Format::R8_UINT );
+    vhCreateTexture( tex, "Update1DTex", nvrhi::TextureDimension::Texture1D, glm::ivec3( width, 1, 1 ), 1, 1, nvrhi::Format::R8_UINT );
 
     auto data = vhAllocMem( width );
     for ( int i = 0; i < width; ++i ) ( *data )[i] = ( uint8_t ) i;
@@ -1341,7 +1346,7 @@ UTEST( ResourceQueries, Texture )
     vhTexture tex = vhAllocTexture();
     glm::ivec2 dims( 128, 64 );
     nvrhi::Format fmt = nvrhi::Format::RGBA8_UNORM;
-    vhCreateTexture2D( tex, dims, 1, fmt );
+    vhCreateTexture2D( tex, "ResourceQueryTex", dims, 1, fmt );
     vhFlush();
 
     std::vector< vhTextureMipInfo > mipInfo;

@@ -184,7 +184,7 @@ VSOutput main( VSInput input, uint instanceID : SV_VulkanInstanceID )
 static vhTexture CreateTestTexture( int32_t w, int32_t h, nvrhi::Format format, uint64_t flags = VRHI_TEXTURE_RT )
 {
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2D( tex, glm::ivec2( w, h ), 1, format, flags );
+    vhCreateTexture2D( tex, "TestTexture", glm::ivec2( w, h ), 1, format, flags );
     return tex;
 }
 
@@ -1234,7 +1234,7 @@ UTEST_F( Graphics, MipmapRendering )
 
     // Create a texture with 2 mip levels (2x2 and 1x1)
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2D( tex, glm::ivec2( 2, 2 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    vhCreateTexture2D( tex, "MipmapTex", glm::ivec2( 2, 2 ), 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
 
     // Level 0: Red
     uint32_t pixels0[4] = { 0xFF0000FF, 0xFF0000FF, 0xFF0000FF, 0xFF0000FF };

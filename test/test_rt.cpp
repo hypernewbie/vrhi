@@ -121,7 +121,7 @@ void main(uint3 id : SV_DispatchThreadID)
 static vhTexture CreateTestTexture( int32_t w, int32_t h, nvrhi::Format format, uint64_t flags = VRHI_TEXTURE_RT )
 {
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2D( tex, glm::ivec2( w, h ), 1, format, flags );
+    vhCreateTexture2D( tex, "RTTestTexture", glm::ivec2( w, h ), 1, format, flags );
     return tex;
 }
 

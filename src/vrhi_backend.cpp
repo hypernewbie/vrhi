@@ -1880,7 +1880,11 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     }
 
     // Create the NVRHI texture.
-    snprintf( temps, sizeof( temps ), "Texture %d", cmd->texture );
+    if ( !cmd->name )
+    {
+        snprintf( temps, sizeof( temps ), "Texture %d", cmd->texture );
+    }
+    const char* debugName = cmd->name ? cmd->name : temps;
     auto textureDesc = nvrhi::TextureDesc()
         .setDimension( cmd->target )
         .setWidth( cmd->dimensions.x )
@@ -1892,7 +1896,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
         .setIsRenderTarget( ( cmd->flag & VRHI_TEXTURE_RT ) != 0 )
         .setIsUAV( ( cmd->flag & VRHI_TEXTURE_COMPUTE_WRITE ) != 0 )
         .enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource )
-        .setDebugName( temps );
+        .setDebugName( debugName );
 
     nvrhi::TextureHandle texture = nullptr;
     {

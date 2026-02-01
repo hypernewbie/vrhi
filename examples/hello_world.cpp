@@ -18,7 +18,7 @@ int main( int argc, char** argv )
 
     // Create a small render target
     vhTexture rt = vhAllocTexture();
-    vhCreateTexture2D( rt, glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    vhCreateTexture2D( rt, "HelloWorldRT", glm::ivec2( 64, 64 ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
 
     // Setup state to clear the texture to a specific colour
     vhState state;

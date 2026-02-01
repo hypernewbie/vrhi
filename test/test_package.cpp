@@ -70,7 +70,7 @@ int main( )
         return 3;
     }
 
-    vhCreateTexture2D( texture, glm::ivec2( 128, 128 ), 1, nvrhi::Format::RGBA8_UNORM );
+    vhCreateTexture2D( texture, "PackageTestTex", glm::ivec2( 128, 128 ), 1, nvrhi::Format::RGBA8_UNORM );
     vhFlush( );
 
     // Test 3: Shader allocation (without compilation - ShaderMake may have path issues in package test)

@@ -64,7 +64,7 @@ UTEST_F( Compute, EndToEnd_TextureWrite )
 
     // Allocate and Create 8x8 R8 Texture
     vhTexture outTex = vhAllocTexture();
-    vhCreateTexture2D( outTex, { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( outTex, "ComputeBasicOut", { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
     // Compute Shader Source
     // Writes (x+y)/255.0 to output
@@ -156,8 +156,8 @@ UTEST_F( Compute, ReadFromTexture )
     vhMem* initData = vhAllocMem( hostData.size() );
     memcpy( initData->data(), hostData.data(), hostData.size() );
 
-    vhCreateTexture2D( inTex, { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, initData );
-    vhCreateTexture2D( outTex, { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( inTex, "ComputeCopyIn", { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, initData );
+    vhCreateTexture2D( outTex, "ComputeCopyOut", { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
     // Shader: Copy Texture to Texture
     const char* csSource = R"(
@@ -243,7 +243,7 @@ UTEST_F( Compute, ReadFromBuffer )
     }
 
     vhCreateStorageBuffer( inBuf, "InBuf", data, count * sizeof( float ), VRHI_BUFFER_COMPUTE_READ );
-    vhCreateTexture2D( outTex, { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( outTex, "ComputeBufReadOut", { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
     // Shader
     const char* csSource = R"(
@@ -337,7 +337,7 @@ UTEST_F( Compute, ReadFromBuffer_Unbound )
     }
 
     vhCreateStorageBuffer( inBuf, "InBuf", data, count * sizeof( float ), VRHI_BUFFER_COMPUTE_READ );
-    vhCreateTexture2D( outTex, { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( outTex, "ComputeUnboundOut", { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
     // Shader
     const char* csSource = R"(
@@ -409,7 +409,7 @@ UTEST_F( Compute, EndToEnd_UniformsAndConstants )
 
     // Resources
     vhTexture outTex = vhAllocTexture();
-    vhCreateTexture2D( outTex, { 1, 1 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( outTex, "ComputeUniformsOut", { 1, 1 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
 
     vhBuffer userCB = vhAllocBuffer();
     float userConstants[4] = { 10.0f, 20.0f, 30.0f, 40.0f };
@@ -531,7 +531,7 @@ UTEST_F( Compute, DispatchIndirect )
     // Resources
     // Output Texture: 8x8 R8
     vhTexture outTex = vhAllocTexture();
-    vhCreateTexture2D( outTex, { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( outTex, "ComputeIndirectOut", { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
     // Indirect Buffer
     vhBuffer indirectBuf = vhAllocBuffer();

@@ -527,7 +527,7 @@ UTEST( BackendInternal, FindResource )
 
     // Create dummy resources
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2D( tex, { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( tex, "BackendTestTex", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     
     vhBuffer buf = vhAllocBuffer();
     vhCreateStorageBuffer( buf, "TestBuf", nullptr, 1024 );

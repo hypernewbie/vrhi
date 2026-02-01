@@ -861,6 +861,7 @@ void vhDestroyTexture( vhTexture texture );
 // VIDL_GENERATE
 vhTexture vhCreateTexture(
     vhTexture texture,
+    const char* name,
     nvrhi::TextureDimension target,
     glm::ivec3 dimensions,
     int numMips, int numLayers,
@@ -872,6 +873,7 @@ vhTexture vhCreateTexture(
 // Helper to create a 2D texture.
 inline vhTexture vhCreateTexture2D(
     vhTexture texture,
+    const char* name,
     glm::ivec2 dimensions,
     int numMips,
     nvrhi::Format format,
@@ -879,12 +881,13 @@ inline vhTexture vhCreateTexture2D(
     const vhMem* data = nullptr
 )
 {
-    return vhCreateTexture( texture, nvrhi::TextureDimension::Texture2D, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data );
+    return vhCreateTexture( texture, name, nvrhi::TextureDimension::Texture2D, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data );
 }
 
 // Helper to create a 3D texture.
 inline vhTexture vhCreateTexture3D(
     vhTexture texture,
+    const char* name,
     glm::ivec3 dimensions,
     int numMips,
     nvrhi::Format format,
@@ -892,12 +895,13 @@ inline vhTexture vhCreateTexture3D(
     const vhMem* data = nullptr
 )
 {
-    return vhCreateTexture( texture, nvrhi::TextureDimension::Texture3D, dimensions, numMips, 1, format, flag, data );
+    return vhCreateTexture( texture, name, nvrhi::TextureDimension::Texture3D, dimensions, numMips, 1, format, flag, data );
 }
 
 // Helper to create a Cube texture.
 inline vhTexture vhCreateTextureCube(
     vhTexture texture,
+    const char* name,
     int dimension,
     int numMips,
     nvrhi::Format format,
@@ -905,12 +909,13 @@ inline vhTexture vhCreateTextureCube(
     const vhMem* data = nullptr
 )
 {
-    return vhCreateTexture( texture, nvrhi::TextureDimension::TextureCube, glm::ivec3( dimension, dimension, 1 ), numMips, 6, format, flag, data );
+    return vhCreateTexture( texture, name, nvrhi::TextureDimension::TextureCube, glm::ivec3( dimension, dimension, 1 ), numMips, 6, format, flag, data );
 }
 
 // Helper to create a 2D texture array.
 inline vhTexture vhCreateTexture2DArray(
     vhTexture texture,
+    const char* name,
     glm::ivec2 dimensions,
     int numLayers,
     int numMips,
@@ -919,12 +924,13 @@ inline vhTexture vhCreateTexture2DArray(
     const vhMem* data = nullptr
 )
 {
-    return vhCreateTexture( texture, nvrhi::TextureDimension::Texture2DArray, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data );
+    return vhCreateTexture( texture, name, nvrhi::TextureDimension::Texture2DArray, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data );
 }
 
 // Helper to create a Cube texture array.
 inline vhTexture vhCreateTextureCubeArray(
     vhTexture texture,
+    const char* name,
     int dimension,
     int numLayers,
     int numMips,
@@ -933,7 +939,7 @@ inline vhTexture vhCreateTextureCubeArray(
     const vhMem* data = nullptr
 )
 {
-    return vhCreateTexture( texture, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
+    return vhCreateTexture( texture, name, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
 }
 
 // Enqueues a command to update a subresource range of a texture.

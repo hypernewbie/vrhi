@@ -110,6 +110,7 @@ struct VIDL_vhCreateTexture
     static constexpr uint64_t kMagic = 0xB40533D3;
     uint64_t MAGIC = kMagic;
     vhTexture texture;
+    const char* name;
     nvrhi::TextureDimension target;
     glm::ivec3 dimensions;
     int numMips;
@@ -120,8 +121,8 @@ struct VIDL_vhCreateTexture
 
     VIDL_vhCreateTexture() = default;
 
-    VIDL_vhCreateTexture(vhTexture _texture, nvrhi::TextureDimension _target, glm::ivec3 _dimensions, int _numMips, int _numLayers, nvrhi::Format _format, uint64_t _flag, const vhMem* _data)
-        : texture(_texture), target(_target), dimensions(_dimensions), numMips(_numMips), numLayers(_numLayers), format(_format), flag(_flag), data(_data) {}
+    VIDL_vhCreateTexture(vhTexture _texture, const char* _name, nvrhi::TextureDimension _target, glm::ivec3 _dimensions, int _numMips, int _numLayers, nvrhi::Format _format, uint64_t _flag, const vhMem* _data)
+        : texture(_texture), name(_name), target(_target), dimensions(_dimensions), numMips(_numMips), numLayers(_numLayers), format(_format), flag(_flag), data(_data) {}
 };
 
 struct VIDL_vhUpdateTexture
