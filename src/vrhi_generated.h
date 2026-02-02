@@ -332,6 +332,46 @@ struct VIDL_vhDestroyBuffer
         : buffer(_buffer) {}
 };
 
+struct VIDL_vhCreateHeap
+{
+    static constexpr uint64_t kMagic = 0x06E69C4C;
+    uint64_t MAGIC = kMagic;
+    vhHeap heap;
+    uint64_t size;
+    const char* name = nullptr;
+
+    VIDL_vhCreateHeap() = default;
+
+    VIDL_vhCreateHeap(vhHeap _heap, uint64_t _size, const char* _name)
+        : heap(_heap), size(_size), name(_name) {}
+};
+
+struct VIDL_vhDestroyHeap
+{
+    static constexpr uint64_t kMagic = 0xFEE0CA6E;
+    uint64_t MAGIC = kMagic;
+    vhHeap heap;
+
+    VIDL_vhDestroyHeap() = default;
+
+    VIDL_vhDestroyHeap(vhHeap _heap)
+        : heap(_heap) {}
+};
+
+struct VIDL_vhBindTextureMemory
+{
+    static constexpr uint64_t kMagic = 0x5327B456;
+    uint64_t MAGIC = kMagic;
+    vhTexture texture;
+    vhHeap heap;
+    uint64_t offset;
+
+    VIDL_vhBindTextureMemory() = default;
+
+    VIDL_vhBindTextureMemory(vhTexture _texture, vhHeap _heap, uint64_t _offset)
+        : texture(_texture), heap(_heap), offset(_offset) {}
+};
+
 struct VIDL_vhCreateAS
 {
     static constexpr uint64_t kMagic = 0xB7F81FE0;
@@ -945,6 +985,9 @@ struct VIDLHandler
     virtual void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd ) { (void) cmd; };
+    virtual void Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) { (void) cmd; };
@@ -1091,6 +1134,18 @@ struct VIDLHandler
         case 0x3A87A73E:
             HandleLogFunction("Handle_vhDestroyBuffer");
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );
+            break;
+        case 0x06E69C4C:
+            HandleLogFunction("Handle_vhCreateHeap");
+            Handle_vhCreateHeap( (VIDL_vhCreateHeap*) cmd );
+            break;
+        case 0xFEE0CA6E:
+            HandleLogFunction("Handle_vhDestroyHeap");
+            Handle_vhDestroyHeap( (VIDL_vhDestroyHeap*) cmd );
+            break;
+        case 0x5327B456:
+            HandleLogFunction("Handle_vhBindTextureMemory");
+            Handle_vhBindTextureMemory( (VIDL_vhBindTextureMemory*) cmd );
             break;
         case 0xB7F81FE0:
             HandleLogFunction("Handle_vhCreateAS");

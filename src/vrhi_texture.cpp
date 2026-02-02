@@ -22,6 +22,7 @@
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
 
+
 // ------------ Texture Utilities ------------
 
 glm::ivec2 vhGetImageSliceSize( const vhFormatInfo& info, const glm::ivec3& dimensions )
@@ -344,3 +345,4 @@ void vhSamplerCacheShutdown()
     std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
     s_samplerCache.clear(); 
 }
+

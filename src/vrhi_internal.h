@@ -144,6 +144,9 @@ extern std::mutex g_vhTextureIDListMutex;
 extern vhAllocatorObjectFreeList g_vhBufferIDList;
 extern std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
 extern std::mutex g_vhBufferIDListMutex;
+extern vhAllocatorObjectFreeList g_vhHeapIDList;
+extern std::unordered_map< vhHeap, bool > g_vhHeapIDValid;
+extern std::mutex g_vhHeapIDListMutex;
 
 // Shader state
 extern vhAllocatorObjectFreeList g_vhShaderIDList;
@@ -193,6 +196,9 @@ float vhBackendQueryTimer( vhTimerID timerID );
 nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as );
 nvrhi::rt::PipelineHandle vhBackendQueryRTPipelineHandle( vhRTPipeline pipeline );
 nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable table );
+glm::u64vec2 vhBackendQueryTextureMemoryRequirements( vhTexture texture );
+glm::u64vec2 vhBackendAllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment );
+void vhBackendFreeTextureMemory( vhHeap heap, uint64_t offset );
 
 // Dummy Resources
 void vhInitDummyResources();
@@ -221,6 +227,16 @@ void vhCmdRelease( T* cmd ) { if ( cmd ) delete cmd; }
 void vhCmdEnqueue( void* cmd, bool wait = true );
 void vhCmdListFlushAll();
 void vhCmdListFlushTransferIfNeeded();
+
+// Heap Management
+vhHeap vhAllocHeap();
+bool vhCreateHeap( vhHeap heap, uint64_t size, const char* name );
+void vhDestroyHeap( vhHeap heap );
+void vhBindTextureMemory( vhTexture texture, vhHeap heap, uint64_t offset );
+glm::u64vec2 vhGetTextureMemoryRequirements( vhTexture texture );
+glm::u64vec2 vhHeapAlloc( vhHeap heap, uint64_t size, uint64_t alignment );
+void vhHeapFree( vhHeap heap, uint64_t offset );
+glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
 
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count];
@@ -334,6 +350,5 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
 nvrhi::VariableShadingRate vhTranslateShadingRate( uint32_t rate );
 nvrhi::ShadingRateCombiner vhTranslateShadingRateCombiner( uint32_t combiner );
 void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state );
-
 
 

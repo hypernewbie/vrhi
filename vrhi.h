@@ -107,7 +107,8 @@ typedef std::vector< vhShader > vhProgram;
 typedef uint32_t vhAccelStruct;
 typedef uint32_t vhRTPipeline;
 typedef uint32_t vhShaderTable; 
-typedef uint64_t vhStateId; 
+typedef uint64_t vhStateId;
+typedef uint32_t vhHeap; 
 
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
@@ -229,6 +230,7 @@ constexpr uint64_t VRHI_TEXTURE_RT           = 0x0000001000000000;
 constexpr uint64_t VRHI_TEXTURE_COMPUTE_WRITE = 0x0000100000000000;
 constexpr uint64_t VRHI_TEXTURE_SRGB         = 0x0000200000000000;
 constexpr uint64_t VRHI_TEXTURE_BLIT_DST     = 0x0000400000000000;
+constexpr uint64_t VRHI_TEXTURE_VIRTUAL      = 0x0000800000000000;
 
 // --------------------------------------------------------------------------
 // Samplers
@@ -1221,6 +1223,46 @@ uint64_t vhGetBufferInfo( vhBuffer buffer, uint32_t* outStride = nullptr, uint64
 
 // Returns the raw NVRHI handle (nvrhi::IBuffer*).
 nvrhi::BufferHandle vhGetBufferNvrhiHandle( vhBuffer buffer );
+
+// ------------ Heap Management ------------
+
+// Allocates a unique heap handle.
+// Returns VRHI_INVALID_HANDLE on failure.
+vhHeap vhAllocHeap();
+
+// Create the actual NVRHI heap.
+// `size` in bytes. Returns true on success.
+// VIDL_GENERATE
+bool vhCreateHeap( vhHeap heap, uint64_t size, const char* name = nullptr );
+
+// Destroy heap.
+// VIDL_GENERATE
+void vhDestroyHeap( vhHeap heap );
+
+// Returns memory requirements for a texture.
+// x = size, y = alignment.
+// Using u64vec2 to support >2GB resources.
+// Requires the texture to exist on the backend (call vhFlush after vhCreateTexture).
+// Returns {0, 0} if texture not found or invalid.
+glm::u64vec2 vhGetTextureMemoryRequirements( vhTexture texture );
+
+// Binds a virtual texture to a specific heap at a specific offset.
+// VIDL_GENERATE
+void vhBindTextureMemory( vhTexture texture, vhHeap heap, uint64_t offset );
+
+// Allocates from heap with specified size and alignment.
+// Returns { offset, size } where offset is aligned to the alignment.
+// Requires the heap to exist on the backend (call vhFlush first).
+// Returns {0, 0} on failure (heap full, invalid handles, etc).
+glm::u64vec2 vhHeapAlloc( vhHeap heap, uint64_t size, uint64_t alignment );
+
+// Frees a previous heap allocation by offset.
+void vhHeapFree( vhHeap heap, uint64_t offset );
+
+// Allocates from heap and binds texture in one call.
+// Equivalent to calling vhGetTextureMemoryRequirements then vhHeapAlloc and vhBindTextureMemory.
+// Returns { offset, size } or {0, 0} on failure.
+glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
 
 // ------------ Raytracing ------------
 

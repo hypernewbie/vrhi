@@ -620,6 +620,7 @@ void vhShutdown( bool quiet )
     // Clear resources
     if ( !quiet ) VRHI_LOG( "    Clearing resources...\n" );
     g_vhTextureIDList.purge();
+    g_vhHeapIDList.purge();
     vhShutdownDummyResources();
 
     if ( g_vhSwapchain != VK_NULL_HANDLE )

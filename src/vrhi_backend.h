@@ -50,6 +50,14 @@ struct vhBackendBuffer
     std::vector< vhVertexLayoutDef > layout;
 };
 
+struct vhBackendHeap
+{
+    nvrhi::HeapHandle handle;
+    nvrhi::HeapDesc desc;
+    void* allocator = nullptr;
+    std::unordered_map< uint64_t, std::pair< uint32_t, uint32_t > > allocations;
+};
+
 struct vhBackendShader
 {
     std::string name;
@@ -184,6 +192,7 @@ class vhCmdBackendState : public VIDLHandler
     std::map< vhShaderTable, std::unique_ptr< vhBackendShaderTable > > backendShaderTables;
     std::map< vhTimerID, std::unique_ptr< vhBackendTimerQuery > > backendTimerQueries;
     std::map< vhStateId, vhState > backendStates;
+    std::map< vhHeap, std::unique_ptr< vhBackendHeap > > backendHeaps;
     vhTransientBuffer m_globalUniformBuffer;
     uint64_t m_globalUniformBufferLastHash = 0;
     vhTransientBuffer m_worldUniformBuffer;
@@ -325,144 +334,81 @@ public:
     // Backend :: VIDL Command Handlers
     // --------------------------------------------------------------------------
 
-    void Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd ) override;
-
-    void Handle_vhEndMarker( VIDL_vhEndMarker* cmd ) override;
-
-    void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) override;
-
     void Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd ) override;
-
     void Handle_vhBeginTimerQuery( VIDL_vhBeginTimerQuery* cmd ) override;
-
     void Handle_vhEndTimerQuery( VIDL_vhEndTimerQuery* cmd ) override;
-
-    void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override;
-
-    void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override;
-
-    void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override;
-
-    void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override;
-
-    void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) override;
-
+    void Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd ) override;
+    void Handle_vhEndMarker( VIDL_vhEndMarker* cmd ) override;
+    void Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd ) override;
+    void Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd ) override;
+    void Handle_vhResetTexture( VIDL_vhResetTexture* cmd ) override;
     void Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd ) override;
-
-    void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) override;
-
+    void Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd ) override;
+    void Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd ) override;
+    void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override;
+    void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override;
+    void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) override;
+    void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override;
+    void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) override;
+    void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) override;
+    void Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cmd ) override;
+    void Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer* cmd ) override;
+    void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) override;
+    void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) override;
+    void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) override;
+    void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) override;
+    void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override;
+    void Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd ) override;
+    void Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd ) override;
+    void Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd ) override;
+    void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) override;
+    void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) override;
+    void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) override;
+    void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) override;
+    void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) override;
+    void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) override;
+    void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) override;
+    void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) override;
+    void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) override;
+    void Handle_vhShaderTableAddMiss( VIDL_vhShaderTableAddMiss* cmd ) override;
+    void Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHitGroup* cmd ) override;
+    void Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd ) override;
+    void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) override;
+    void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override;
+    void Handle_vhDispatch( VIDL_vhDispatch* cmd ) override;
+    void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) override;
     void Handle_vhClear( VIDL_vhClear* cmd ) override;
+    void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override;
+    void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) override;
+    void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) override;
+    void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) override;
+    void Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* cmd ) override;
+    void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) override;
+    void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) override;
+    void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) override;
+    void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) override;
+    void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override;
+    void Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd ) override;
+    void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) override;
+    void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) override;
+    void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) override;
+    void Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd ) override;
+    void Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd ) override;
+    void Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd ) override;
+    void Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd ) override;
+    void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) override;
+    void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) override;
+    void Handle_vhCmdSetStateBlendConstants( VIDL_vhCmdSetStateBlendConstants* cmd ) override;
+    void Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd ) override;
+    void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) override;
+    void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) override;
+    void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) override;
+    void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) override;
 
     vhBackendBuffer* Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
         const vhMem* data, uint64_t count, uint64_t stride, uint64_t flags );
 
     void Handle_vhUpdateBufferCommon_Internal( const char* fn, vhBuffer buffer, uint64_t offsetElements, const vhMem* data, uint64_t count, bool isVertexBuffer );
-
-    void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override;
-
-    void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) override;
-
-    void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) override;
-
-    void Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cmd ) override;
-
-    void Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer* cmd ) override;
-
-    void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) override;
-
-    void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) override;
-
-    void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) override;
-
-    void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override;
-
-    void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) override;
-
-    void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override;
-
-    void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) override;
-
-    void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) override;
-
-    void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) override;
-
-    void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) override;
-
-    void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) override;
-
-    void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) override;
-
-    void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) override;
-
-    void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) override;
-
-    void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) override;
-
-    void Handle_vhShaderTableAddMiss( VIDL_vhShaderTableAddMiss* cmd ) override;
-
-    void Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHitGroup* cmd ) override;
-
-    void Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd ) override;
-
-    void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) override;
-
-    void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) override;
-
-    void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) override;
-
-    void Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* cmd ) override;
-
-    void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) override;
-
-    void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) override;
-
-    void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) override;
-
-    void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) override;
-
-    void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override;
-
-    void Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd ) override;
-
-    void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) override;
-
-    void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) override;
-
-    void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) override;
-
-    void Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd ) override;
-
-    void Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd ) override;
-
-    void Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd ) override;
-
-    void Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd ) override;
-
-    void Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd ) override;
-
-    void Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd ) override;
-
-    void Handle_vhCmdSetStateBlendConstants( VIDL_vhCmdSetStateBlendConstants* cmd ) override;
-
-    void Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd ) override;
-
-    void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) override;
-
-    void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) override;
-
-    void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) override;
-
-    void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override;
-
-    void Handle_vhDispatch( VIDL_vhDispatch* cmd ) override;
-
-    void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) override;
-
-    void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) override;
-
-    void Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd ) override;
-
-    void Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd ) override;
 
     // --------------------------------------------------------------------------
     // Backend :: RHIThreadEntry
@@ -507,4 +453,8 @@ public:
     nvrhi::rt::PipelineHandle QueryRTPipelineHandle( vhRTPipeline pipeline );
 
     nvrhi::rt::ShaderTableHandle QueryShaderTableHandle( vhShaderTable table );
+    
+    glm::u64vec2 QueryTextureMemoryRequirements( vhTexture texture );
+    glm::u64vec2 AllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment );
+    void FreeTextureMemory( vhHeap heap, uint64_t offset );
 };

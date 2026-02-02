@@ -1172,7 +1172,7 @@ UTEST( Backend, SparseBindings )
         "main",
         {}, {}, &error
     );
-    if ( !success ) printf( "Shader Compile Error: %s\n", error.c_str() );
+    if ( !success ) UTEST_PRINTF( "Shader Compile Error: %s\n", error.c_str() );
     ASSERT_TRUE( success );
 
     vhShader cs = vhAllocShader();
@@ -1197,5 +1197,120 @@ UTEST( Backend, SparseBindings )
     vhDestroyShader( cs );
     vhDestroyTexture( outTex );
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST( Backend, HeapAliasing )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, 64ull * 1024ull * 1024ull, "TestHeap" ) );
+    vhFlush();
+
+    vhTexture texA = vhAllocTexture();
+    vhTexture texB = vhAllocTexture();
+
+    vhCreateTexture2D( texA, "HeapAliasA", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE | VRHI_TEXTURE_VIRTUAL );
+    vhCreateTexture2D( texB, "HeapAliasB", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE | VRHI_TEXTURE_VIRTUAL );
+    vhFlush();
+
+    glm::u64vec2 reqA = vhGetTextureMemoryRequirements( texA );
+    ASSERT_GT( reqA.x, 0ull );
+    ASSERT_GT( reqA.y, 0ull );
+
+    glm::u64vec2 allocation = vhHeapAlloc( heap, reqA.x, reqA.y );
+    ASSERT_GT( allocation.y, 0ull );
+
+    vhBindTextureMemory( texA, heap, allocation.x );
+    vhBindTextureMemory( texB, heap, allocation.x );
+    vhFlush();
+
+    const char* csSource = R"(
+        [[vk::image_format("rgba8")]] RWTexture2D<float4> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        cbuffer globalParams : register(b300, VRHI_STAGE_SPACE)
+        {
+            float4 g_Colour;
+        };
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = g_Colour;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        "CS_HeapAlias",
+        csSource,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0,
+        spirv,
+        "main",
+        {}, {}, &error
+    );
+    if ( !success ) printf( "Shader Compile Error: %s\n", error.c_str() );
+    ASSERT_TRUE( success );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_HeapAlias", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    auto DispatchWithColour = [&]( vhTexture tex, const glm::vec4& colour, vhStateId sid )
+    {
+        vhState state = g_state0;
+        state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+        state.SetProgram( vhCreateComputeProgram( cs ) );
+
+        vhState::TextureBinding tb;
+        tb.name = "g_Out";
+        tb.texture = tex;
+        tb.dimensionOverride = nvrhi::TextureDimension::Texture2D;
+        tb.formatOverride = nvrhi::Format::RGBA8_UNORM;
+        tb.computeUAV = true;
+        state.SetTexture( 0, tb );
+
+        vhState::UniformBufferValue ub;
+        ub.name = "g_Colour";
+        ub.data = { colour };
+        state.SetUniform( 0, ub );
+
+        vhSetState( sid, state );
+        vhDispatch( sid, { 64, 64, 1 } );
+        vhFinish();
+    };
+
+    DispatchWithColour( texA, glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ), 310 );
+    vhSetState( 310, g_state0, VRHI_DIRTY_ALL );
+    DispatchWithColour( texB, glm::vec4( 1.0f, 0.0f, 0.0f, 1.0f ), 311 );
+    vhSetState( 311, g_state0, VRHI_DIRTY_ALL );
+
+    vhMem readData;
+    vhReadTextureSlow( texA, 0, 0, &readData );
+    vhFinish();
+
+    vhTexInfo info = vhGetTextureInfo( texA );
+    ASSERT_EQ( readData.size(), ( size_t ) info.dimensions.x * info.dimensions.y * 4 );
+
+    uint8_t r = readData[0];
+    uint8_t g = readData[1];
+    uint8_t b = readData[2];
+    uint8_t a = readData[3];
+    EXPECT_GT( r, 200 );
+    EXPECT_LT( g, 50 );
+    EXPECT_LT( b, 50 );
+    EXPECT_GT( a, 200 );
+
+    vhDestroyShader( cs );
+    vhSetState( 310, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( 311, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyTexture( texA );
+    vhDestroyTexture( texB );
+    vhDestroyHeap( heap );
     vhFinish();
 }

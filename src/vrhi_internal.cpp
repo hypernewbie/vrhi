@@ -59,6 +59,10 @@ vhAllocatorObjectFreeList g_vhBufferIDList( 16 * 1024 );
 std::unordered_map< vhBuffer, bool > g_vhBufferIDValid;
 std::mutex g_vhBufferIDListMutex;
 
+vhAllocatorObjectFreeList g_vhHeapIDList( 4 * 1024 );
+std::unordered_map< vhHeap, bool > g_vhHeapIDValid;
+std::mutex g_vhHeapIDListMutex;
+
 // Shader
 vhAllocatorObjectFreeList g_vhShaderIDList( 16 * 1024 );
 std::unordered_map< vhShader, bool > g_vhShaderIDValid;
@@ -220,6 +224,132 @@ void vhCmdListFlushTransferIfNeeded()
         vhCmdListFlush( nvrhi::CommandQueue::Copy );
         g_vhCmdListTransferSizeHeuristic = 0;
     }
+}
+
+// ------------ Heap Management ------------
+
+vhHeap vhAllocHeap()
+{
+    std::lock_guard< std::mutex > lock( g_vhHeapIDListMutex );
+    uint32_t id = g_vhHeapIDList.alloc();
+    g_vhHeapIDValid[id] = true;
+    return id;
+}
+
+bool vhCreateHeap( vhHeap heap, uint64_t size, const char* name )
+{
+    if ( heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhCreateHeap(): Invalid heap handle\n" );
+        return false;
+    }
+    if ( size == 0 )
+    {
+        VRHI_ERR( "vhCreateHeap(): Invalid size 0\n" );
+        return false;
+    }
+
+    auto cmd = vhCmdAlloc<VIDL_vhCreateHeap>( heap, size, name );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+    return true;
+}
+
+void vhDestroyHeap( vhHeap heap )
+{
+    if ( heap == VRHI_INVALID_HANDLE ) return;
+
+    std::lock_guard< std::mutex > lock( g_vhHeapIDListMutex );
+    if ( g_vhHeapIDValid.find( heap ) == g_vhHeapIDValid.end() )
+    {
+        // Invalid heap handle
+        return;
+    }
+
+    g_vhHeapIDValid.erase( heap );
+    g_vhHeapIDList.release( heap );
+
+    auto cmd = vhCmdAlloc<VIDL_vhDestroyHeap>( heap );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhBindTextureMemory( vhTexture texture, vhHeap heap, uint64_t offset )
+{
+    if ( texture == VRHI_INVALID_HANDLE || heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Invalid texture or heap handle\n" );
+        return;
+    }
+
+    auto cmd = vhCmdAlloc<VIDL_vhBindTextureMemory>( texture, heap, offset );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+glm::u64vec2 vhGetTextureMemoryRequirements( vhTexture texture )
+{
+    if ( texture == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhGetTextureMemoryRequirements(): Invalid texture handle\n" );
+        return glm::u64vec2( 0 );
+    }
+    return vhBackendQueryTextureMemoryRequirements( texture );
+}
+
+glm::u64vec2 vhHeapAlloc( vhHeap heap, uint64_t size, uint64_t alignment )
+{
+    if ( heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Invalid heap handle\n" );
+        return glm::u64vec2( 0 );
+    }
+    if ( size == 0 )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Invalid size 0\n" );
+        return glm::u64vec2( 0 );
+    }
+    if ( alignment == 0 )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Invalid alignment 0\n" );
+        return glm::u64vec2( 0 );
+    }
+    return vhBackendAllocTextureMemory( heap, size, alignment );
+}
+
+void vhHeapFree( vhHeap heap, uint64_t offset )
+{
+    if ( heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhHeapFree(): Invalid heap handle\n" );
+        return;
+    }
+    vhBackendFreeTextureMemory( heap, offset );
+}
+
+glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap )
+{
+    if ( texture == VRHI_INVALID_HANDLE || heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhAllocBindTextureMemory(): Invalid texture or heap handle\n" );
+        return glm::u64vec2( 0 );
+    }
+
+    glm::u64vec2 requirements = vhGetTextureMemoryRequirements( texture );
+    if ( requirements.y == 0 )
+    {
+        VRHI_ERR( "vhAllocBindTextureMemory(): Invalid texture memory requirements\n" );
+        return glm::u64vec2( 0 );
+    }
+
+    glm::u64vec2 allocation = vhHeapAlloc( heap, requirements.x, requirements.y );
+    if ( allocation.y == 0 )
+    {
+        return allocation;
+    }
+
+    vhBindTextureMemory( texture, heap, allocation.x );
+    return allocation;
 }
 
 void vhCmdListFlushAll_DeviceStateLocked()

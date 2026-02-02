@@ -22,6 +22,7 @@
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
 #include "vrhi_backend.h"
+#include "vdeps/OffsetAllocator/offsetAllocator.hpp"
 #include <komihash/komihash.h>
 
 vhCmdBackendState g_vhCmdBackendState;
@@ -1654,6 +1655,16 @@ void vhCmdBackendState::shutdown()
     std::lock_guard< std::mutex > lock( backendMutex );
     std::lock_guard< std::mutex > lock2( g_nvRHIStateMutex );
 
+    for ( auto& heapPair : backendHeaps )
+    {
+        if ( heapPair.second && heapPair.second->allocator )
+        {
+            delete static_cast< OffsetAllocator::Allocator* >( heapPair.second->allocator );
+            heapPair.second->allocator = nullptr;
+            heapPair.second->allocations.clear();
+        }
+    }
+
     backendAccelStructs.clear();
     backendRTPipelines.clear();
     backendShaderTables.clear();
@@ -1666,6 +1677,7 @@ void vhCmdBackendState::shutdown()
     m_emptyLayout = nullptr;
 
     backendTextures.clear();
+    backendHeaps.clear();
     backendBuffers.clear();
     backendShaders.clear();
     backendTimerQueries.clear();
@@ -1700,66 +1712,11 @@ void vhCmdBackendState::RegisterInternalTexture( vhTexture id, const nvrhi::Text
 // Backend :: VIDL Command Handlers
 // --------------------------------------------------------------------------
 
-void vhCmdBackendState::Handle_vhResetTexture( VIDL_vhResetTexture* cmd )
-{
-    BE_CmdRAII cmdRAII( cmd );
-    if ( cmd->texture == VRHI_INVALID_HANDLE )
-    {
-        return;
-    }
-
-    // Ensure entry exists to make subsequent Destroy/Update safe
-    if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
-    {
-        backendTextures[cmd->texture] = std::make_unique<vhBackendTexture>();
-    }
-}
 
 void vhCmdBackendState::Handle_vhResizeCleanup( VIDL_vhResizeCleanup* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
     vhFBOCacheReset();
-}
-
-void vhCmdBackendState::Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd )
-{
-    BE_CmdRAII cmdRAII( cmd );
-    auto cmdList = vhCmdListGet();
-    if ( cmdList )
-    {
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        cmdList->beginMarker( cmd->name.c_str( ) );
-    }
-}
-
-void vhCmdBackendState::Handle_vhEndMarker( VIDL_vhEndMarker* cmd )
-{
-    BE_CmdRAII cmdRAII( cmd );
-    auto cmdList = vhCmdListGet();
-    if ( cmdList )
-    {
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        cmdList->endMarker();
-    }
-}
-
-void vhCmdBackendState::Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd )
-{
-    BE_CmdRAII cmdRAII( cmd );
-    if ( g_vhRenderDoc ) g_vhRenderDoc->StartFrameCapture( NULL, NULL );
-}
-
-void vhCmdBackendState::Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd )
-{
-    BE_CmdRAII cmdRAII( cmd );
-
-    // Flush commands to GPU so they are submitted within the capture window.
-    {
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        vhCmdListFlushAll_DeviceStateLocked();
-    }
-
-    if ( g_vhRenderDoc ) g_vhRenderDoc->EndFrameCapture( NULL, NULL );
 }
 
 void vhCmdBackendState::Handle_vhBeginTimerQuery( VIDL_vhBeginTimerQuery* cmd )
@@ -1835,6 +1792,77 @@ void vhCmdBackendState::Handle_vhEndTimerQuery( VIDL_vhEndTimerQuery* cmd )
     timerQuery.currentFrameIndex = ( currentIdx + 1 ) % VRHI_MAX_FRAMES_INFLIGHT;
 }
 
+void vhCmdBackendState::Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto cmdList = vhCmdListGet();
+    if ( cmdList )
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdList->beginMarker( cmd->name.c_str() );
+    }
+}
+
+void vhCmdBackendState::Handle_vhEndMarker( VIDL_vhEndMarker* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto cmdList = vhCmdListGet();
+    if ( cmdList )
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdList->endMarker();
+    }
+}
+
+void vhCmdBackendState::Handle_vhCaptureStart( VIDL_vhCaptureStart* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( g_vhRenderDoc ) g_vhRenderDoc->StartFrameCapture( NULL, NULL );
+}
+
+void vhCmdBackendState::Handle_vhCaptureEnd( VIDL_vhCaptureEnd* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    // Flush commands to GPU so they are submitted within the capture window.
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhCmdListFlushAll_DeviceStateLocked();
+    }
+
+    if ( g_vhRenderDoc ) g_vhRenderDoc->EndFrameCapture( NULL, NULL );
+}
+
+void vhCmdBackendState::Handle_vhResetTexture( VIDL_vhResetTexture* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->texture == VRHI_INVALID_HANDLE )
+    {
+        return;
+    }
+
+    // Ensure entry exists to make subsequent Destroy/Update safe
+    if ( backendTextures.find( cmd->texture ) == backendTextures.end() )
+    {
+        backendTextures[cmd->texture] = std::make_unique< vhBackendTexture >();
+    }
+}
+
+void vhCmdBackendState::Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->buffer == VRHI_INVALID_HANDLE )
+    {
+        return;
+    }
+
+    // Ensure entry exists to make subsequent Destroy/Update safe
+    if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
+    {
+        backendBuffers[cmd->buffer] = std::make_unique< vhBackendBuffer >();
+    }
+}
+
 void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
@@ -1890,6 +1918,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
         .setArraySize( cmd->numLayers )
         .setIsRenderTarget( ( cmd->flag & VRHI_TEXTURE_RT ) != 0 )
         .setIsUAV( ( cmd->flag & VRHI_TEXTURE_COMPUTE_WRITE ) != 0 )
+        .setIsVirtual( ( cmd->flag & VRHI_TEXTURE_VIRTUAL ) != 0 )
         .enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource )
         .setDebugName( debugName );
 
@@ -2045,21 +2074,6 @@ void vhCmdBackendState::Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd )
     }
 
     BE_BlitTexture( bdst, bsrc, cmd->dstMip, cmd->srcMip, cmd->dstLayer, cmd->srcLayer, cmd->dstOffset, cmd->srcOffset, extent );
-}
-
-void vhCmdBackendState::Handle_vhResetBuffer( VIDL_vhResetBuffer* cmd )
-{
-    BE_CmdRAII cmdRAII( cmd );
-    if ( cmd->buffer == VRHI_INVALID_HANDLE )
-    {
-        return;
-    }
-
-    // Ensure entry exists to make subsequent Destroy/Update safe
-    if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
-    {
-        backendBuffers[cmd->buffer] = std::make_unique< vhBackendBuffer >();
-    }
 }
 
 vhBackendBuffer* vhCmdBackendState::Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
@@ -2307,6 +2321,118 @@ void vhCmdBackendState::Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer
 
     // Reuse common update logic (isVertexBuffer = true uses stride from creation)
     Handle_vhUpdateBufferCommon_Internal( "vhUpdateStorageBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->size, true );
+}
+
+void vhCmdBackendState::Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhCreateHeap(): Invalid heap handle\n" );
+        return;
+    }
+
+    // Check if heap already exists
+    if ( backendHeaps.find( cmd->heap ) != backendHeaps.end() )
+    {
+        VRHI_ERR( "vhCreateHeap(): Heap %d already exists\n", cmd->heap );
+        return;
+    }
+
+    if ( cmd->size > UINT32_MAX )
+    {
+        VRHI_ERR( "vhCreateHeap(): Size %llu exceeds maximum supported size %u\n", cmd->size, UINT32_MAX );
+        return;
+    }
+
+    nvrhi::HeapDesc desc;
+    desc.capacity = cmd->size;
+    desc.type = nvrhi::HeapType::DeviceLocal;
+    desc.debugName = ( cmd->name && cmd->name[0] ) ? cmd->name : nullptr;
+
+    nvrhi::HeapHandle handle = nullptr;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        handle = g_vhDevice->createHeap( desc );
+    }
+    if ( !handle )
+    {
+        VRHI_ERR( "vhCreateHeap(): Failed to create heap of size %llu\n", cmd->size );
+        return;
+    }
+
+    auto heap = std::make_unique< vhBackendHeap >();
+    heap->handle = handle;
+    heap->desc = desc;
+    heap->allocator = new OffsetAllocator::Allocator( static_cast< uint32_t >( desc.capacity ) );
+
+    backendHeaps[cmd->heap] = std::move( heap );
+}
+
+void vhCmdBackendState::Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->heap == VRHI_INVALID_HANDLE )
+    {
+        return;
+    }
+
+    auto it = backendHeaps.find( cmd->heap );
+    if ( it == backendHeaps.end() )
+    {
+        VRHI_ERR( "vhDestroyHeap(): Heap %d not found\n", cmd->heap );
+        return;
+    }
+
+    if ( it->second->allocator )
+    {
+        delete static_cast< OffsetAllocator::Allocator* >( it->second->allocator );
+        it->second->allocator = nullptr;
+        it->second->allocations.clear();
+    }
+
+    backendHeaps.erase( it );
+}
+
+void vhCmdBackendState::Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->texture == VRHI_INVALID_HANDLE || cmd->heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Invalid texture or heap handle\n" );
+        return;
+    }
+
+    auto texIt = backendTextures.find( cmd->texture );
+    if ( texIt == backendTextures.end() || !texIt->second->handle )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Texture %d not found or invalid\n", cmd->texture );
+        return;
+    }
+    if ( ( texIt->second->flags & VRHI_TEXTURE_VIRTUAL ) == 0 )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Texture %d is not virtual\n", cmd->texture );
+        return;
+    }
+
+    auto heapIt = backendHeaps.find( cmd->heap );
+    if ( heapIt == backendHeaps.end() || !heapIt->second->handle )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Heap %d not found or invalid\n", cmd->heap );
+        return;
+    }
+
+    if ( cmd->offset >= heapIt->second->desc.capacity )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Offset %llu exceeds heap %d capacity %llu\n", cmd->offset, cmd->heap, heapIt->second->desc.capacity );
+        return;
+    }
+
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    if ( !g_vhDevice->bindTextureMemory( texIt->second->handle, heapIt->second->handle, cmd->offset ) )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture %d to heap %d at offset %llu\n", cmd->texture, cmd->heap, cmd->offset );
+    }
 }
 
 void vhCmdBackendState::Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd )
@@ -3322,6 +3448,112 @@ float vhCmdBackendState::QueryTimer( vhTimerID timerID )
     return it->second->lastQueryTime;
 }
 
+glm::u64vec2 vhCmdBackendState::QueryTextureMemoryRequirements( vhTexture texture )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto texIt = backendTextures.find( texture );
+    if ( texIt == backendTextures.end() || !texIt->second->handle )
+    {
+        return glm::u64vec2( 0 );
+    }
+
+    uint64_t size = 0;
+    uint64_t alignment = 0;
+    {
+        std::lock_guard< std::mutex > lockDevice( g_nvRHIStateMutex );
+        nvrhi::MemoryRequirements req = g_vhDevice->getTextureMemoryRequirements( texIt->second->handle );
+        size = req.size;
+        alignment = req.alignment;
+    }
+    return glm::u64vec2( size, alignment );
+}
+
+glm::u64vec2 vhCmdBackendState::AllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    if ( alignment == 0 )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Invalid alignment 0\n" );
+        return glm::u64vec2( 0 );
+    }
+
+    auto heapIt = backendHeaps.find( heap );
+    if ( heapIt == backendHeaps.end() || !heapIt->second->handle )
+    {
+        return glm::u64vec2( 0 );
+    }
+    if ( !heapIt->second->allocator )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Heap %d allocator not initialised\n", heap );
+        return glm::u64vec2( 0 );
+    }
+
+    if ( size > UINT32_MAX )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Size %llu exceeds maximum supported size %u\n", size, UINT32_MAX );
+        return glm::u64vec2( 0 );
+    }
+    if ( alignment > UINT32_MAX )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Alignment %llu exceeds maximum supported size %u\n", alignment, UINT32_MAX );
+        return glm::u64vec2( 0 );
+    }
+    if ( size > UINT32_MAX - ( alignment - 1 ) )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Aligned size %llu exceeds maximum supported size %u\n", size + alignment - 1, UINT32_MAX );
+        return glm::u64vec2( 0 );
+    }
+
+    uint64_t alignedSize = size + alignment - 1;
+
+    OffsetAllocator::Allocation allocation = static_cast< OffsetAllocator::Allocator* >( heapIt->second->allocator )->allocate( static_cast< uint32_t >( alignedSize ) );
+    if ( allocation.offset == OffsetAllocator::Allocation::NO_SPACE )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Heap %d out of memory (need %llu, capacity %llu)\n", heap, alignedSize, heapIt->second->desc.capacity );
+        return glm::u64vec2( 0 );
+    }
+
+    uint64_t alignedOffset = ( ( uint64_t ) allocation.offset + alignment - 1 ) / alignment * alignment;
+    uint64_t allocationEnd = ( uint64_t ) allocation.offset + alignedSize;
+    if ( alignedOffset + size > allocationEnd )
+    {
+        VRHI_ERR( "vhHeapAlloc(): Internal alignment overflow for heap %d\n", heap );
+        static_cast< OffsetAllocator::Allocator* >( heapIt->second->allocator )->free( allocation );
+        return glm::u64vec2( 0 );
+    }
+
+    heapIt->second->allocations[alignedOffset] = std::make_pair( allocation.offset, allocation.metadata );
+    return glm::u64vec2( alignedOffset, size );
+}
+
+void vhCmdBackendState::FreeTextureMemory( vhHeap heap, uint64_t offset )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto heapIt = backendHeaps.find( heap );
+    if ( heapIt == backendHeaps.end() || !heapIt->second->handle )
+    {
+        return;
+    }
+    if ( !heapIt->second->allocator )
+    {
+        VRHI_ERR( "vhHeapFree(): Heap %d allocator not initialised\n", heap );
+        return;
+    }
+
+    auto allocIt = heapIt->second->allocations.find( offset );
+    if ( allocIt == heapIt->second->allocations.end() )
+    {
+        VRHI_ERR( "vhHeapFree(): Unknown offset %llu in heap %d\n", offset, heap );
+        return;
+    }
+
+    OffsetAllocator::Allocation allocation;
+    allocation.offset = allocIt->second.first;
+    allocation.metadata = allocIt->second.second;
+    static_cast< OffsetAllocator::Allocator* >( heapIt->second->allocator )->free( allocation );
+    heapIt->second->allocations.erase( allocIt );
+}
+
 nvrhi::rt::AccelStructHandle vhCmdBackendState::QueryAccelStructHandle( vhAccelStruct as )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
@@ -3410,6 +3642,21 @@ float vhBackendQueryTimer( vhTimerID timerID )
     return g_vhCmdBackendState.QueryTimer( timerID );
 }
 
+glm::u64vec2 vhBackendQueryTextureMemoryRequirements( vhTexture texture )
+{
+    return g_vhCmdBackendState.QueryTextureMemoryRequirements( texture );
+}
+
+glm::u64vec2 vhBackendAllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment )
+{
+    return g_vhCmdBackendState.AllocTextureMemory( heap, size, alignment );
+}
+
+void vhBackendFreeTextureMemory( vhHeap heap, uint64_t offset )
+{
+    g_vhCmdBackendState.FreeTextureMemory( heap, offset );
+}
+
 nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as )
 {
     return g_vhCmdBackendState.QueryAccelStructHandle( as );
@@ -3419,6 +3666,7 @@ nvrhi::rt::PipelineHandle vhBackendQueryRTPipelineHandle( vhRTPipeline pipeline 
 {
     return g_vhCmdBackendState.QueryRTPipelineHandle( pipeline );
 }
+
 
 nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable table )
 {
