@@ -141,7 +141,7 @@ jobs:
   # Release Job - runs on tag pushes only
   # ==========================================================================
   release:
-    name: Release ${{ matrix.name }}
+    name: Release
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ${{ matrix.os }}
@@ -197,7 +197,7 @@ jobs:
       - name: Install Dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ninja llvm@17
+          brew install ninja llvm@17 zip
 
       - name: Configure CMake (Release)
         run: |

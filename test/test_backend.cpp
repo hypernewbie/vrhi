@@ -1208,6 +1208,11 @@ UTEST( Backend, HeapAliasing )
         g_testInit = true;
     }
 
+#ifdef __APPLE__
+    // MoltenVK/Metal does not support texture memory aliasing in the same way as Vulkan
+    UTEST_SKIP( "Texture heap aliasing not supported on macOS/MoltenVK" );
+#endif
+
     vhHeap heap = vhAllocHeap();
     ASSERT_TRUE( vhCreateHeap( heap, 64ull * 1024ull * 1024ull, "TestHeap" ) );
     vhFlush();
