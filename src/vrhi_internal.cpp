@@ -352,6 +352,54 @@ glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap )
     return allocation;
 }
 
+glm::u64vec2 vhGetBufferMemoryRequirements( vhBuffer buffer )
+{
+    if ( buffer == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhGetBufferMemoryRequirements(): Invalid buffer handle\n" );
+        return glm::u64vec2( 0 );
+    }
+    return vhBackendQueryBufferMemoryRequirements( buffer );
+}
+
+void vhBindBufferMemory( vhBuffer buffer, vhHeap heap, uint64_t offset )
+{
+    if ( buffer == VRHI_INVALID_HANDLE || heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhBindBufferMemory(): Invalid buffer or heap handle\n" );
+        return;
+    }
+
+    auto cmd = vhCmdAlloc<VIDL_vhBindBufferMemory>( buffer, heap, offset );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+glm::u64vec2 vhAllocBindBufferMemory( vhBuffer buffer, vhHeap heap )
+{
+    if ( buffer == VRHI_INVALID_HANDLE || heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhAllocBindBufferMemory(): Invalid buffer or heap handle\n" );
+        return glm::u64vec2( 0 );
+    }
+
+    glm::u64vec2 requirements = vhGetBufferMemoryRequirements( buffer );
+    if ( requirements.y == 0 )
+    {
+        VRHI_ERR( "vhAllocBindBufferMemory(): Invalid buffer memory requirements\n" );
+        return glm::u64vec2( 0 );
+    }
+
+    glm::u64vec2 allocation = vhHeapAlloc( heap, requirements.x, requirements.y );
+    if ( allocation.y == 0 )
+    {
+        return allocation;
+    }
+
+    vhBindBufferMemory( buffer, heap, allocation.x );
+    return allocation;
+}
+
 void vhCmdListFlushAll_DeviceStateLocked()
 {
     // WARNING: Lock g_nvRHIStateMutex before calling this.

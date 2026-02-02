@@ -372,6 +372,20 @@ struct VIDL_vhBindTextureMemory
         : texture(_texture), heap(_heap), offset(_offset) {}
 };
 
+struct VIDL_vhBindBufferMemory
+{
+    static constexpr uint64_t kMagic = 0x498D57CE;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    vhHeap heap;
+    uint64_t offset;
+
+    VIDL_vhBindBufferMemory() = default;
+
+    VIDL_vhBindBufferMemory(vhBuffer _buffer, vhHeap _heap, uint64_t _offset)
+        : buffer(_buffer), heap(_heap), offset(_offset) {}
+};
+
 struct VIDL_vhCreateAS
 {
     static constexpr uint64_t kMagic = 0xB7F81FE0;
@@ -988,6 +1002,7 @@ struct VIDLHandler
     virtual void Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd ) { (void) cmd; };
     virtual void Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd ) { (void) cmd; };
+    virtual void Handle_vhBindBufferMemory( VIDL_vhBindBufferMemory* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) { (void) cmd; };
@@ -1146,6 +1161,10 @@ struct VIDLHandler
         case 0x5327B456:
             HandleLogFunction("Handle_vhBindTextureMemory");
             Handle_vhBindTextureMemory( (VIDL_vhBindTextureMemory*) cmd );
+            break;
+        case 0x498D57CE:
+            HandleLogFunction("Handle_vhBindBufferMemory");
+            Handle_vhBindBufferMemory( (VIDL_vhBindBufferMemory*) cmd );
             break;
         case 0xB7F81FE0:
             HandleLogFunction("Handle_vhCreateAS");

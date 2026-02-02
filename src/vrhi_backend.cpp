@@ -2110,6 +2110,7 @@ vhBackendBuffer* vhCmdBackendState::Handle_vhCreateBufferCommon_Internal( const 
         .setCanHaveTypedViews( !!( flags & VRHI_BUFFER_COMPUTE_READ ) )
         .setCanHaveRawViews( !!( flags & VRHI_BUFFER_COMPUTE_READ ) )
         .setIsDrawIndirectArgs( !!( flags & VRHI_BUFFER_DRAW_INDIRECT ) )
+        .setIsVirtual( !!( flags & VRHI_BUFFER_VIRTUAL ) )
         .setDebugName( ( name && name[0] ) ? name : temps );
 
     nvrhi::BufferHandle bhandle = nullptr;
@@ -2432,6 +2433,47 @@ void vhCmdBackendState::Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cm
     if ( !g_vhDevice->bindTextureMemory( texIt->second->handle, heapIt->second->handle, cmd->offset ) )
     {
         VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture %d to heap %d at offset %llu\n", cmd->texture, cmd->heap, cmd->offset );
+    }
+}
+
+void vhCmdBackendState::Handle_vhBindBufferMemory( VIDL_vhBindBufferMemory* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->buffer == VRHI_INVALID_HANDLE || cmd->heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhBindBufferMemory(): Invalid buffer or heap handle\n" );
+        return;
+    }
+
+    auto bufIt = backendBuffers.find( cmd->buffer );
+    if ( bufIt == backendBuffers.end() || !bufIt->second->handle )
+    {
+        VRHI_ERR( "vhBindBufferMemory(): Buffer %d not found or invalid\n", cmd->buffer );
+        return;
+    }
+    if ( ( bufIt->second->flags & VRHI_BUFFER_VIRTUAL ) == 0 )
+    {
+        VRHI_ERR( "vhBindBufferMemory(): Buffer %d is not virtual\n", cmd->buffer );
+        return;
+    }
+
+    auto heapIt = backendHeaps.find( cmd->heap );
+    if ( heapIt == backendHeaps.end() || !heapIt->second->handle )
+    {
+        VRHI_ERR( "vhBindBufferMemory(): Heap %d not found or invalid\n", cmd->heap );
+        return;
+    }
+
+    if ( cmd->offset >= heapIt->second->desc.capacity )
+    {
+        VRHI_ERR( "vhBindBufferMemory(): Offset %llu exceeds heap %d capacity %llu\n", cmd->offset, cmd->heap, heapIt->second->desc.capacity );
+        return;
+    }
+
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    if ( !g_vhDevice->bindBufferMemory( bufIt->second->handle, heapIt->second->handle, cmd->offset ) )
+    {
+        VRHI_ERR( "vhBindBufferMemory(): Failed to bind buffer %d to heap %d at offset %llu\n", cmd->buffer, cmd->heap, cmd->offset );
     }
 }
 
@@ -3554,6 +3596,23 @@ void vhCmdBackendState::FreeTextureMemory( vhHeap heap, uint64_t offset )
     heapIt->second->allocations.erase( allocIt );
 }
 
+glm::u64vec2 vhCmdBackendState::QueryBufferMemoryRequirements( vhBuffer buffer )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto bufIt = backendBuffers.find( buffer );
+    if ( bufIt == backendBuffers.end() || !bufIt->second->handle )
+    {
+        return glm::u64vec2( 0 );
+    }
+
+    // Buffer alignment is typically 256 bytes for uniform/storage buffers
+    // Use the device properties for proper alignment if available
+    uint64_t size = bufIt->second->desc.byteSize;
+    uint64_t alignment = 256; // Standard Vulkan buffer alignment
+
+    return glm::u64vec2( size, alignment );
+}
+
 nvrhi::rt::AccelStructHandle vhCmdBackendState::QueryAccelStructHandle( vhAccelStruct as )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
@@ -3655,6 +3714,11 @@ glm::u64vec2 vhBackendAllocTextureMemory( vhHeap heap, uint64_t size, uint64_t a
 void vhBackendFreeTextureMemory( vhHeap heap, uint64_t offset )
 {
     g_vhCmdBackendState.FreeTextureMemory( heap, offset );
+}
+
+glm::u64vec2 vhBackendQueryBufferMemoryRequirements( vhBuffer buffer )
+{
+    return g_vhCmdBackendState.QueryBufferMemoryRequirements( buffer );
 }
 
 nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as )

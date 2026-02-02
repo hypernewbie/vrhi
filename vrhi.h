@@ -219,6 +219,7 @@ constexpr uint64_t VRHI_BUFFER_COMPUTE_WRITE  = 0x0200;
 constexpr uint64_t VRHI_BUFFER_DRAW_INDIRECT  = 0x0400;
 constexpr uint64_t VRHI_BUFFER_ALLOW_RESIZE   = 0x0800;
 constexpr uint64_t VRHI_BUFFER_INDEX32        = 0x1000;
+constexpr uint64_t VRHI_BUFFER_VIRTUAL        = 0x2000;
 constexpr uint64_t VRHI_BUFFER_COMPUTE_READ_WRITE = ( VRHI_BUFFER_COMPUTE_READ | VRHI_BUFFER_COMPUTE_WRITE );
 
 // --------------------------------------------------------------------------
@@ -1263,6 +1264,23 @@ void vhHeapFree( vhHeap heap, uint64_t offset );
 // Equivalent to calling vhGetTextureMemoryRequirements then vhHeapAlloc and vhBindTextureMemory.
 // Returns { offset, size } or {0, 0} on failure.
 glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
+
+// Returns memory requirements for a buffer.
+// x = size, y = alignment.
+// Using u64vec2 to support >2GB resources.
+// Requires the buffer to exist on the backend (call vhFlush after vhCreate*Buffer).
+// Returns {0, 0} if buffer not found or invalid.
+glm::u64vec2 vhGetBufferMemoryRequirements( vhBuffer buffer );
+
+// Binds a virtual buffer to a specific heap at a specific offset.
+// The buffer must have been created with VRHI_BUFFER_VIRTUAL flag.
+// VIDL_GENERATE
+void vhBindBufferMemory( vhBuffer buffer, vhHeap heap, uint64_t offset );
+
+// Allocates from heap and binds buffer in one call.
+// Equivalent to calling vhGetBufferMemoryRequirements then vhHeapAlloc and vhBindBufferMemory.
+// Returns { offset, size } or {0, 0} on failure.
+glm::u64vec2 vhAllocBindBufferMemory( vhBuffer buffer, vhHeap heap );
 
 // ------------ Raytracing ------------
 

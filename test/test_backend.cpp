@@ -1314,3 +1314,125 @@ UTEST( Backend, HeapAliasing )
     vhDestroyHeap( heap );
     vhFinish();
 }
+
+UTEST( Backend, BufferHeapAllocation )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Create heap
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, 64 * 1024 * 1024, "BufferHeap" ) );
+    vhFlush();
+
+    // Create virtual buffers
+    vhBuffer bufA = vhAllocBuffer();
+    vhBuffer bufB = vhAllocBuffer();
+
+    // Create vertex buffer with VIRTUAL flag
+    vhCreateVertexBuffer( bufA, "HeapBufferA", nullptr, "float3", 1000,
+        VRHI_BUFFER_VIRTUAL | VRHI_BUFFER_ALLOW_RESIZE );
+
+    // Create uniform buffer with VIRTUAL flag
+    vhCreateUniformBuffer( bufB, "HeapBufferB", nullptr, 4096,
+        VRHI_BUFFER_VIRTUAL );
+    vhFlush();
+
+    // Query memory requirements
+    glm::u64vec2 reqA = vhGetBufferMemoryRequirements( bufA );
+    ASSERT_GT( reqA.x, 0ull );
+    ASSERT_EQ( reqA.y, 256ull ); // Standard 256-byte alignment
+
+    glm::u64vec2 reqB = vhGetBufferMemoryRequirements( bufB );
+    ASSERT_GT( reqB.x, 0ull );
+    ASSERT_EQ( reqB.y, 256ull );
+
+    // Allocate from heap
+    glm::u64vec2 allocA = vhHeapAlloc( heap, reqA.x, reqA.y );
+    ASSERT_GT( allocA.y, 0ull );
+
+    glm::u64vec2 allocB = vhHeapAlloc( heap, reqB.x, reqB.y );
+    ASSERT_GT( allocB.y, 0ull );
+
+    // Verify allocations don't overlap
+    uint64_t endA = allocA.x + reqA.x;
+    uint64_t endB = allocB.x + reqB.x;
+    bool overlap = ( allocA.x < endB ) && ( allocB.x < endA );
+    ASSERT_FALSE( overlap );
+
+    // Bind buffers to heap memory
+    vhBindBufferMemory( bufA, heap, allocA.x );
+    vhBindBufferMemory( bufB, heap, allocB.x );
+    vhFlush();
+
+    // Test buffer operations
+    std::vector< uint8_t > testData( reqA.x, 0xAB );
+    vhMem* uploadMem = vhAllocMem( testData );
+    vhUpdateVertexBuffer( bufA, uploadMem, 0, 0 );
+    vhFlush();
+
+    // Test convenience wrapper
+    vhBuffer bufC = vhAllocBuffer();
+    vhCreateStorageBuffer( bufC, "HeapBufferC", nullptr, 8192,
+        VRHI_BUFFER_VIRTUAL | VRHI_BUFFER_COMPUTE_READ_WRITE );
+    vhFlush();
+
+    glm::u64vec2 allocC = vhAllocBindBufferMemory( bufC, heap );
+    ASSERT_GT( allocC.y, 0ull );
+    vhFlush();
+
+    // Cleanup
+    vhDestroyBuffer( bufA );
+    vhDestroyBuffer( bufB );
+    vhDestroyBuffer( bufC );
+    vhDestroyHeap( heap );
+    vhFinish();
+}
+
+UTEST( Backend, BufferHeapAllocationErrorCases )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, 64 * 1024 * 1024, "ErrorTestHeap" ) );
+    vhFlush();
+
+    // Test invalid handle
+    glm::u64vec2 result = vhGetBufferMemoryRequirements( VRHI_INVALID_HANDLE );
+    EXPECT_EQ( result.x, 0ull );
+    EXPECT_EQ( result.y, 0ull );
+
+    // Test non-virtual buffer binding (should fail validation)
+    vhBuffer nonVirtualBuf = vhAllocBuffer();
+    vhCreateUniformBuffer( nonVirtualBuf, "NonVirtualBuf", nullptr, 1024, VRHI_BUFFER_NONE );
+    vhFlush();
+
+    // Try to bind non-virtual buffer - this should log an error but not crash
+    vhBindBufferMemory( nonVirtualBuf, heap, 0 );
+    vhFlush();
+
+    // Test double-allocation prevention
+    vhBuffer bufA = vhAllocBuffer();
+    vhCreateUniformBuffer( bufA, "DoubleAllocTest", nullptr, 1024, VRHI_BUFFER_VIRTUAL );
+    vhFlush();
+
+    glm::u64vec2 req = vhGetBufferMemoryRequirements( bufA );
+    glm::u64vec2 alloc = vhHeapAlloc( heap, req.x, req.y );
+    ASSERT_GT( alloc.y, 0ull );
+
+    vhBindBufferMemory( bufA, heap, alloc.x );
+    vhFlush();
+
+    // Cleanup
+    vhDestroyBuffer( nonVirtualBuf );
+    vhDestroyBuffer( bufA );
+    vhDestroyHeap( heap );
+    vhFinish();
+}

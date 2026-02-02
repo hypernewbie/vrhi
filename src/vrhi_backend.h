@@ -361,6 +361,7 @@ public:
     void Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd ) override;
     void Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd ) override;
     void Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd ) override;
+    void Handle_vhBindBufferMemory( VIDL_vhBindBufferMemory* cmd ) override;
     void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) override;
     void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) override;
     void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) override;
@@ -457,4 +458,5 @@ public:
     glm::u64vec2 QueryTextureMemoryRequirements( vhTexture texture );
     glm::u64vec2 AllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment );
     void FreeTextureMemory( vhHeap heap, uint64_t offset );
+    glm::u64vec2 QueryBufferMemoryRequirements( vhBuffer buffer );
 };
