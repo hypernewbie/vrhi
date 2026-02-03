@@ -2111,10 +2111,27 @@ void vhClear( vhStateId state, uint16_t clearFlags = VRHI_CLEAR_COLOR );
 // --------------------------------------------------------------------------
 
 // Triple-buffered ring allocator.
+//
 // Use this to prevent CPU-GPU sync stalls by maintaining a separate buffer for each frame-in-flight.
 // Step() must be called once per frame to advance the ring.
 // Step() advances to the next frame's buffer but does NOT reset the allocation offset.
 // Call Reset() at frame start to reuse buffer space.
+//
+// Typical usage pairs with three vhBuffer handles, each sized for per-frame transient data:
+//   vhBuffer g_transientInstanceBuffers[3] = { VRHI_INVALID_HANDLE, VRHI_INVALID_HANDLE, VRHI_INVALID_HANDLE };
+//   vhTransientAllocator g_transientInstanceBufferAlloc;
+//
+//   // Initialise after buffer creation:
+//   g_transientInstanceBufferAlloc.Init( g_transientInstanceBuffers, bufferSize );
+//
+//   // Per-frame:
+//   g_transientInstanceBufferAlloc.Reset();
+//   g_transientInstanceBufferAlloc.Step();
+//   int64_t offset = g_transientInstanceBufferAlloc.Alloc( dataSize );
+//   if ( offset >= 0 )
+//   {
+//       vhUpdateUniformBuffer( g_transientInstanceBufferAlloc.GetBuffer(), data, offset );
+//   }
 //
 class vhTransientAllocator
 {
