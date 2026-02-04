@@ -29,6 +29,7 @@
 #include "test.h"
 #include <vrhi.h>
 #include <vrhi_internal.h>
+#include <vrhi_utils.h>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -1406,4 +1407,158 @@ UTEST( Sampler, HandleCaching )
     // Different flags should return different handle
     nvrhi::SamplerHandle s3 = vhGetSamplerHandle( VRHI_SAMPLER_UVW_WRAP );
     EXPECT_NE( s1, s3 );
+}
+
+UTEST( Texture, GetImageMaxMipCount )
+{
+    // Compare vhGetImageMaxMipCount against vhTextureMiplevelInfo (ground truth)
+    struct TestCase
+    {
+        glm::ivec3 dimensions;
+    };
+
+    std::vector< TestCase > tests = {
+        { glm::ivec3( 1, 1, 1 ) },
+        { glm::ivec3( 2, 2, 1 ) },
+        { glm::ivec3( 32, 32, 1 ) },
+        { glm::ivec3( 48, 16, 1 ) },
+        { glm::ivec3( 64, 64, 4 ) },
+        { glm::ivec3( 7, 3, 1 ) },
+    };
+
+    for ( const auto& test : tests )
+    {
+        // Generate full mip chain info using vhTextureMiplevelInfo
+        vhTexInfo info;
+        info.dimensions = test.dimensions;
+        info.format = nvrhi::Format::R8_UINT;
+        info.mipLevels = 32; // Large enough to get full chain
+        info.arrayLayers = 1;
+        info.target = ( test.dimensions.z > 1 ) ? nvrhi::TextureDimension::Texture3D : nvrhi::TextureDimension::Texture2D;
+
+        std::vector< vhTextureMipInfo > mipInfo;
+        int64_t pitchSize, arraySize;
+        vhTextureMiplevelInfo( mipInfo, pitchSize, arraySize, info );
+
+        // Find true mip count: count until we hit all-1 dimensions
+        int actualCount = 0;
+        for ( const auto& mip : mipInfo )
+        {
+            actualCount++;
+            if ( mip.dimensions.x == 1 && mip.dimensions.y == 1 && mip.dimensions.z == 1 )
+            {
+                break;
+            }
+        }
+
+        // Compare against vhGetImageMaxMipCount
+        int calculatedCount = vhGetImageMaxMipCount( test.dimensions );
+
+        EXPECT_EQ( calculatedCount, actualCount );
+    }
+
+    // Invalid dimensions: should return 0
+    EXPECT_EQ( vhGetImageMaxMipCount( glm::ivec3( 0, 10, 10 ) ), 0 );
+    EXPECT_EQ( vhGetImageMaxMipCount( glm::ivec3( 10, 0, 10 ) ), 0 );
+    EXPECT_EQ( vhGetImageMaxMipCount( glm::ivec3( 10, 10, 0 ) ), 0 );
+    EXPECT_EQ( vhGetImageMaxMipCount( glm::ivec3( -1, 10, 10 ) ), 0 );
+}
+
+UTEST_F( Texture, MipComplete_Create2D_CountAndDims )
+{
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhTexture tex = vhAllocTexture();
+    EXPECT_NE( tex, VRHI_INVALID_HANDLE );
+
+    // Create texture with VRHI_MIPMAP_COMPLETE for full mip chain
+    glm::ivec2 dimensions( 48, 16 );
+    vhCreateTexture2D( tex, "MipCompleteTest", dimensions, VRHI_MIPMAP_COMPLETE, nvrhi::Format::R8_UINT );
+    vhFlush();
+
+    // Query texture info
+    std::vector< vhTextureMipInfo > mipInfo;
+    vhTexInfo info = vhGetTextureInfo( tex, &mipInfo );
+
+    // Verify mip chain count matches calculated count
+    int expectedMipCount = vhGetImageMaxMipCount( glm::ivec3( dimensions, 1 ) );
+    EXPECT_EQ( ( int ) mipInfo.size(), expectedMipCount );
+    EXPECT_EQ( info.mipLevels, expectedMipCount );
+
+    // Verify base dimensions
+    EXPECT_EQ( mipInfo[0].dimensions, glm::ivec3( dimensions, 1 ) );
+
+    // Verify each subsequent mip is half the previous (clamped to 1)
+    for ( size_t i = 1; i < mipInfo.size(); ++i )
+    {
+        glm::ivec3 expectedDim = vhGetImageNextMipmapDim( mipInfo[i - 1].dimensions );
+        EXPECT_EQ( mipInfo[i].dimensions, expectedDim );
+    }
+
+    // Verify last mip is exactly 1,1,1 and previous is NOT 1,1,1
+    EXPECT_EQ( mipInfo.back().dimensions, glm::ivec3( 1, 1, 1 ) );
+    if ( mipInfo.size() > 1 )
+    {
+        EXPECT_NE( mipInfo[mipInfo.size() - 2].dimensions, glm::ivec3( 1, 1, 1 ) );
+    }
+
+    vhDestroyTexture( tex );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
+UTEST_F( Texture, MipComplete_UpdateAllMips )
+{
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhTexture tex = vhAllocTexture();
+    EXPECT_NE( tex, VRHI_INVALID_HANDLE );
+
+    // Create texture with full mip chain
+    glm::ivec2 dimensions( 32, 32 );
+    vhCreateTexture2D( tex, "MipCompleteUpdateTest", dimensions, VRHI_MIPMAP_COMPLETE, nvrhi::Format::R8_UINT );
+    vhFlush();
+
+    // Query mip info for data sizing
+    std::vector< vhTextureMipInfo > mipInfo;
+    vhGetTextureInfo( tex, &mipInfo );
+
+    // Calculate total size needed
+    int64_t totalSize = 0;
+    for ( const auto& mip : mipInfo )
+    {
+        totalSize += mip.size;
+    }
+
+    // Allocate and fill data with unique patterns per mip
+    auto uploadData = vhAllocMem( totalSize );
+    int64_t offset = 0;
+    for ( size_t i = 0; i < mipInfo.size(); ++i )
+    {
+        uint8_t patternValue = ( uint8_t )( i + 1 );
+        std::fill( uploadData->begin() + offset, uploadData->begin() + offset + mipInfo[i].size, patternValue );
+        offset += mipInfo[i].size;
+    }
+
+    // Update all mips in one call using VRHI_MIPMAP_COMPLETE
+    vhUpdateTexture( tex, 0, 0, VRHI_MIPMAP_COMPLETE, 1, uploadData );
+    vhFinish();
+
+    // Read back and verify each mip
+    for ( size_t i = 0; i < mipInfo.size(); ++i )
+    {
+        vhMem readData;
+        vhReadTextureSlow( tex, ( int ) i, 0, &readData );
+        vhFinish();
+
+        EXPECT_EQ( readData.size(), mipInfo[i].size );
+        uint8_t expectedValue = ( uint8_t )( i + 1 );
+        for ( size_t j = 0; j < readData.size(); ++j )
+        {
+            EXPECT_EQ( readData[j], expectedValue );
+            if ( readData[j] != expectedValue ) break;
+        }
+    }
+
+    vhDestroyTexture( tex );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }

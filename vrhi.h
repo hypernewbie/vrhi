@@ -859,6 +859,7 @@ void vhDestroyTexture( vhTexture texture );
 // `target` specifies the texture dimensionality.
 // `dimensions` specifies width, height, and depth.
 // `numMips` and `numLayers` specify mip count and array size.
+// `numMips` can be VRHI_MIPMAP_COMPLETE to create a full mip chain down to 1x1x1.
 // `format` is the pixel format.
 // `flag` specifies usage and sampling options.
 // `data` is optional initial pixel data. Takes ownership of the memory.
@@ -951,6 +952,7 @@ inline vhTexture vhCreateTextureCubeArray(
 // `texture` is the handle to the texture to update.
 // `startMips` and `startLayers` define the beginning of the range.
 // `numMips` and `numLayers` define the size of the range.
+// `numMips` can be VRHI_MIPMAP_COMPLETE to update all remaining mips from `startMips`.
 // `data` contains the pixel data for the entire texture. Takes ownership of the memory.
 // VIDL_GENERATE
 void vhUpdateTexture(

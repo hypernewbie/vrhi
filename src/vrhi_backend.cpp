@@ -1895,7 +1895,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
         return;
     }
     if ( cmd->dimensions.x <= 0 || cmd->dimensions.y <= 0 || cmd->dimensions.z <= 0 ||
-        cmd->numMips == 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
+        cmd->numMips <= 0 || cmd->numLayers <= 0 || cmd->format == nvrhi::Format::UNKNOWN )
     {
         VRHI_ERR( "vhCreateTexture() : Invalid parameters! TexID %u %d x %d x %d mips %d layers %d format %d (%s)\n",
             cmd->texture, cmd->dimensions.x, cmd->dimensions.y, cmd->dimensions.z, cmd->numMips, cmd->numLayers, ( int ) cmd->format, nvrhi::getFormatInfo( cmd->format ).name );
@@ -1971,8 +1971,15 @@ void vhCmdBackendState::Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd )
     }
     auto& btex = *it->second;
 
-    // Calculate expected data size for the range.
-    int32_t mipStart = cmd->startMips, mipEnd = cmd->startMips + cmd->numMips;
+    // Resolve VRHI_MIPMAP_COMPLETE to remaining mips count.
+    int32_t resolvedNumMips = cmd->numMips;
+    if ( cmd->numMips == VRHI_MIPMAP_COMPLETE )
+    {
+        resolvedNumMips = ( int32_t ) btex.info.mipLevels - cmd->startMips;
+    }
+
+    // Calculate expected data size for range.
+    int32_t mipStart = cmd->startMips, mipEnd = cmd->startMips + resolvedNumMips;
     int32_t layerStart = cmd->startLayers, layerEnd = cmd->startLayers + cmd->numLayers;
 
     // Validation: range must be within texture limits.
@@ -1997,7 +2004,7 @@ void vhCmdBackendState::Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd )
         return;
     }
 
-    glm::ivec4 range = glm::ivec4( cmd->startMips, cmd->startMips + cmd->numMips, cmd->startLayers, cmd->startLayers + cmd->numLayers );
+    glm::ivec4 range = glm::ivec4( cmd->startMips, cmd->startMips + resolvedNumMips, cmd->startLayers, cmd->startLayers + cmd->numLayers );
     BE_UpdateTexture( btex, cmd->data, range );
 }
 

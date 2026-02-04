@@ -199,6 +199,12 @@ vhTexture vhCreateTexture(
         dimensions.z = 1;
     }
 
+    // Resolve VRHI_MIPMAP_COMPLETE to actual mipmap count.
+    if ( numMips == VRHI_MIPMAP_COMPLETE )
+    {
+        numMips = vhGetImageMaxMipCount( dimensions );
+    }
+
     // Queue up command to create texture
     auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, name, target, dimensions, numMips, numLayers, format, flag, data );
     assert( cmd );
