@@ -849,7 +849,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
     const uint32_t stage,
     const vhStateResolveCache& scache,
     const nvrhi::BindingLayoutItem& item,
-    nvrhi::BindingSetItem& outItem
+    nvrhi::BindingSetItem& outItem,
+    const char* name
 )
 {
     assert( scache.init );
@@ -926,19 +927,19 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             auto it = stageTable.bufferTable.find( item.slot );
             if ( it == stageTable.bufferTable.end() )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer not found in cache at slot %d\n", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer not found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
             const auto result = &it->second;
             assert( result );
             if ( !result->handle )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer found in cache at slot %d but null handle.\n", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer found in cache at slot %d but null handle ('%s').\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
             if ( !result->handle->getDesc().isConstantBuffer )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer found in cache at slot %d but NOT a ConstantBuffer.\n", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer found in cache at slot %d but NOT a ConstantBuffer ('%s').\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
 
@@ -947,11 +948,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, result->handle, range );
             if ( result->handle->getDesc().isVolatile && item.type != nvrhi::ResourceType::VolatileConstantBuffer )
             {
-                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Volatile Buffer bound to Static ConstantBuffer slot %d. This may be unsafe!\n", item.slot );
+                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Volatile Buffer bound to Static ConstantBuffer slot %d. This may be unsafe! ('%s')\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
             outItem.type = item.type;
-            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: ConstantBuffer found in cache at slot %d\n", item.slot );
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: ConstantBuffer found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
             return true;
         }
 
@@ -973,12 +974,12 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             }
             if ( !result )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Texture %s not found in cache at slot %d\n", isUAV ? "UAV" : "SRV", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Texture %s not found in cache at slot %d ('%s')\n", isUAV ? "UAV" : "SRV", item.slot, name ? name : "Unknown" );
                 break;
             }
             if ( !result->handle || !result->binding )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Texture %s found in cache at slot %d but invalid configuration.\n", isUAV ? "UAV" : "SRV", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Texture %s found in cache at slot %d but invalid configuration ('%s').\n", isUAV ? "UAV" : "SRV", item.slot, name ? name : "Unknown" );
                 return false;
             }
 
@@ -987,7 +988,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             outItem.format = result->binding->formatOverride;
             outItem.subresources = result->binding->subresources;
             outItem.dimension = result->binding->dimensionOverride;
-            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Texture %s found in cache at slot %d\n", isUAV ? "UAV" : "SRV", item.slot );
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Texture %s found in cache at slot %d ('%s')\n", isUAV ? "UAV" : "SRV", item.slot, name ? name : "Unknown" );
             return true;
         }
 
@@ -1013,12 +1014,12 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             }
             if ( !result )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Buffer %s not found in cache at slot %d\n", isUAV ? "UAV" : "SRV", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Buffer %s not found in cache at slot %d ('%s')\n", isUAV ? "UAV" : "SRV", item.slot, name ? name : "Unknown" );
                 break;
             }
             if ( !result->handle || !result->binding )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Buffer %s found in cache at slot %d but invalid configuration.\n", isUAV ? "UAV" : "SRV", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Buffer %s found in cache at slot %d but invalid configuration ('%s').\n", isUAV ? "UAV" : "SRV", item.slot, name ? name : "Unknown" );
                 assert( !"Buffer found in cache at slot but invalid configuration. This is likely a Vrhi bug." );
                 return false;
             }
@@ -1026,7 +1027,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             // RawBuffer SRV and UAV require 16 byte alignment.
             if ( result->binding->byteOffset % 16 != 0 || result->binding->byteSize % 16 != 0 )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Offset and size must be aligned to 16 bytes for RawBuffer %ss.\n", isUAV ? "UAV" : "SRV" );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Offset and size must be aligned to 16 bytes for RawBuffer %ss ('%s').\n", isUAV ? "UAV" : "SRV", name ? name : "Unknown" );
                 return false;
             }
             
@@ -1041,7 +1042,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 {
                     if ( format == nvrhi::Format::UNKNOWN )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format %d (%s) for typed buffer.", ( int ) format, nvrhi::getFormatInfo( format ).name );
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format %d (%s) for typed buffer ('%s').", ( int ) format, nvrhi::getFormatInfo( format ).name, name ? name : "Unknown" );
                         return false;
                     }
                     outItem = ( item.type == nvrhi::ResourceType::TypedBuffer_UAV ) 
@@ -1070,7 +1071,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                     return false;
             }
 
-            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: %s %s found in cache at slot %d\n", vhResourceTypeToString( item.type ), isUAV ? "UAV" : "SRV", item.slot );
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: %s %s found in cache at slot %d ('%s')\n", vhResourceTypeToString( item.type ), isUAV ? "UAV" : "SRV", item.slot, name ? name : "Unknown" );
             return true;
         }
         case nvrhi::ResourceType::PushConstants:
@@ -1083,17 +1084,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             auto it = stageTable.samplerTable.find( item.slot );
             if ( it == stageTable.samplerTable.end() )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler not found in cache at slot %d\n", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler not found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
                 break;
             }
             
             if ( !it->second )
             {
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler found in cache at slot %d but handle is null\n", item.slot );
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler found in cache at slot %d but handle is null ('%s')\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
             outItem = nvrhi::BindingSetItem::Sampler( item.slot, it->second );
-            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Sampler found in cache at slot %d\n", item.slot );
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Sampler found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
             return true;
         }
         case nvrhi::ResourceType::RayTracingAccelStruct:
@@ -1243,7 +1244,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             {
                 // Special early branch for push constants.
                 nvrhi::BindingSetItem item;
-                if ( BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item ) )
+                if ( BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item, "PushConstants" ) )
                 {
                     bsetDesc.addItem( item );
                 }
@@ -1265,7 +1266,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 return false;
 
             nvrhi::BindingSetItem item;
-            if ( !BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item ) )
+            if ( !BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item, reflection.name.c_str() ) )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in state. Dummy resource bound.\n", binding.slot );
                 item = vhGetDummyBindingItem( binding, reflection.format, reflection.dim );

@@ -286,7 +286,8 @@ class vhCmdBackendState : public VIDLHandler
         const uint32_t stage,
         const vhStateResolveCache& scache,
         const nvrhi::BindingLayoutItem& item,
-        nvrhi::BindingSetItem& outItem
+        nvrhi::BindingSetItem& outItem,
+        const char* name = nullptr
     );
 
     bool BE_PreSubmitCommon_State(
