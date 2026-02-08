@@ -603,3 +603,229 @@ UTEST_F( Compute, DispatchIndirect )
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
+
+UTEST_F( Compute, MultipleStageSpaceBindings )
+{
+    vhFlush();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
+
+    // Setup 3 input textures with different patterns
+    vhTexture texA = vhAllocTexture();
+    vhTexture texB = vhAllocTexture();
+    vhTexture texC = vhAllocTexture();
+    vhTexture outSum = vhAllocTexture();
+    vhTexture outWeighted = vhAllocTexture();
+
+    int width = 4, height = 4;
+    int count = width * height;
+
+    // Pattern A: x coordinate (0,1,2,3 repeating)
+    std::vector<uint8_t> dataA;
+    dataA.resize( count );
+    for ( int i = 0; i < count; ++i )
+    {
+        int x = i % width;
+        dataA[i] = static_cast<uint8_t>( x );
+    }
+
+    // Pattern B: y coordinate (0,0,0,0, 1,1,1,1, etc)
+    std::vector<uint8_t> dataB;
+    dataB.resize( count );
+    for ( int i = 0; i < count; ++i )
+    {
+        int y = i / width;
+        dataB[i] = static_cast<uint8_t>( y );
+    }
+
+    // Pattern C: constant 10
+    std::vector<uint8_t> dataC;
+    dataC.resize( count, 10 );
+
+    vhMem* initA = vhAllocMem( dataA.size() );
+    vhMem* initB = vhAllocMem( dataB.size() );
+    vhMem* initC = vhAllocMem( dataC.size() );
+    memcpy( initA->data(), dataA.data(), dataA.size() );
+    memcpy( initB->data(), dataB.data(), dataB.size() );
+    memcpy( initC->data(), dataC.data(), dataC.size() );
+
+    vhCreateTexture2D( texA, "TexA", { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, initA );
+    vhCreateTexture2D( texB, "TexB", { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, initB );
+    vhCreateTexture2D( texC, "TexC", { width, height }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, initC );
+    vhCreateTexture2D( outSum, "OutSum", { width, height }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( outWeighted, "OutWeighted", { width, height }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    // 4 constant buffers with different values
+    vhBuffer cbA = vhAllocBuffer();
+    vhBuffer cbB = vhAllocBuffer();
+    vhBuffer cbC = vhAllocBuffer();
+    vhBuffer cbOffset = vhAllocBuffer();
+
+    float weightA[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+    float weightB[4] = { 0.0f, 2.0f, 0.0f, 0.0f };
+    float weightC[4] = { 0.0f, 0.0f, 3.0f, 0.0f };
+    float offsetVal[4] = { 5.0f, 0.0f, 0.0f, 0.0f };
+
+    vhMem* dataA_CB = vhAllocMem( sizeof( weightA ) );
+    vhMem* dataB_CB = vhAllocMem( sizeof( weightB ) );
+    vhMem* dataC_CB = vhAllocMem( sizeof( weightC ) );
+    vhMem* dataOffset_CB = vhAllocMem( sizeof( offsetVal ) );
+    memcpy( dataA_CB->data(), weightA, sizeof( weightA ) );
+    memcpy( dataB_CB->data(), weightB, sizeof( weightB ) );
+    memcpy( dataC_CB->data(), weightC, sizeof( weightC ) );
+    memcpy( dataOffset_CB->data(), offsetVal, sizeof( offsetVal ) );
+
+    vhCreateUniformBuffer( cbA, "ParamsA", dataA_CB, sizeof( weightA ) );
+    vhCreateUniformBuffer( cbB, "ParamsB", dataB_CB, sizeof( weightB ) );
+    vhCreateUniformBuffer( cbC, "ParamsC", dataC_CB, sizeof( weightC ) );
+    vhCreateUniformBuffer( cbOffset, "ParamsOffset", dataOffset_CB, sizeof( offsetVal ) );
+
+    // Shader with multiple VRHI_STAGE_SPACE bindings
+    // Note: b0 and b1 are reserved for GlobalUniforms and WorldUniforms
+    // User constant buffers must start at b2
+    const char* csSource = R"(
+        Texture2D<float> g_TexA : register(t0, VRHI_STAGE_SPACE);
+        Texture2D<float> g_TexB : register(t1, VRHI_STAGE_SPACE);
+        Texture2D<float> g_TexC : register(t2, VRHI_STAGE_SPACE);
+
+        [[vk::image_format("r32f")]] RWTexture2D<float> g_OutSum : register(u0, VRHI_STAGE_SPACE);
+        [[vk::image_format("r32f")]] RWTexture2D<float> g_OutWeighted : register(u1, VRHI_STAGE_SPACE);
+
+        cbuffer ParamsA : register(b2, VRHI_STAGE_SPACE) { float4 u_weightA; };
+        cbuffer ParamsB : register(b3, VRHI_STAGE_SPACE) { float4 u_weightB; };
+        cbuffer ParamsC : register(b4, VRHI_STAGE_SPACE) { float4 u_weightC; };
+        cbuffer ParamsOffset : register(b5, VRHI_STAGE_SPACE) { float u_offset; };
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            float valA = g_TexA[id.xy];
+            float valB = g_TexB[id.xy];
+            float valC = g_TexC[id.xy];
+            
+            float sum = valA + valB + valC;
+            float weighted = valA * u_weightA.x + valB * u_weightB.y + valC * u_weightC.z + u_offset;
+            
+            g_OutSum[id.xy] = sum;
+            g_OutWeighted[id.xy] = weighted;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader( "CS_MultiBindings", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if ( !success ) std::cout << "Shader Compile Error: " << error << std::endl;
+    ASSERT_TRUE( success );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_MultiBindings", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    // Setup state with all bindings
+    vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+
+    // Bind 3 input textures at t0, t1, t2 (slots 0, 1, 2)
+    vhState::TextureBinding tbA;
+    tbA.name = "g_TexA";
+    tbA.texture = texA;
+    state.SetTexture( 0, tbA );
+
+    vhState::TextureBinding tbB;
+    tbB.name = "g_TexB";
+    tbB.texture = texB;
+    state.SetTexture( 1, tbB );
+
+    vhState::TextureBinding tbC;
+    tbC.name = "g_TexC";
+    tbC.texture = texC;
+    state.SetTexture( 2, tbC );
+
+    // Bind 2 output UAVs at u0, u1 (slots 3, 4 - separate from SRV slots)
+    vhState::TextureBinding tbOutSum;
+    tbOutSum.name = "g_OutSum";
+    tbOutSum.texture = outSum;
+    tbOutSum.computeUAV = true;
+    tbOutSum.formatOverride = nvrhi::Format::R32_FLOAT;
+    state.SetTexture( 3, tbOutSum );
+
+    vhState::TextureBinding tbOutWeighted;
+    tbOutWeighted.name = "g_OutWeighted";
+    tbOutWeighted.texture = outWeighted;
+    tbOutWeighted.computeUAV = true;
+    tbOutWeighted.formatOverride = nvrhi::Format::R32_FLOAT;
+    state.SetTexture( 4, tbOutWeighted );
+
+    // Bind 4 constant buffers at b0, b1, b2, b3
+    vhState::BufferBinding bbA;
+    bbA.name = "ParamsA";
+    bbA.buffer = cbA;
+    state.SetBuffer( 0, bbA );
+
+    vhState::BufferBinding bbB;
+    bbB.name = "ParamsB";
+    bbB.buffer = cbB;
+    state.SetBuffer( 1, bbB );
+
+    vhState::BufferBinding bbC;
+    bbC.name = "ParamsC";
+    bbC.buffer = cbC;
+    state.SetBuffer( 2, bbC );
+
+    vhState::BufferBinding bbOffset;
+    bbOffset.name = "ParamsOffset";
+    bbOffset.buffer = cbOffset;
+    state.SetBuffer( 3, bbOffset );
+
+    // Dispatch
+    vhStateId sid = 128;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    // Readback and verify
+    vhMem readSum;
+    vhMem readWeighted;
+    vhReadTextureSlow( outSum, 0, 0, &readSum );
+    vhReadTextureSlow( outWeighted, 0, 0, &readWeighted );
+    vhFinish();
+
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
+    ASSERT_EQ( readSum.size(), count * sizeof( float ) );
+    ASSERT_EQ( readWeighted.size(), count * sizeof( float ) );
+
+    float* fSum = reinterpret_cast< float* >( readSum.data() );
+    float* fWeighted = reinterpret_cast< float* >( readWeighted.data() );
+
+    for ( int y = 0; y < height; ++y )
+    {
+        for ( int x = 0; x < width; ++x )
+        {
+            int idx = y * width + x;
+            // R8_UNORM textures normalize to 0-1 range when read as float
+            float valA = static_cast< float >( x ) / 255.0f;
+            float valB = static_cast< float >( y ) / 255.0f;
+            float valC = 10.0f / 255.0f;
+
+            float expectedSum = valA + valB + valC;
+            // weighted = A*1 + B*2 + C*3 + offset
+            // u_weightA.x = 1.0, u_weightB.y = 2.0, u_weightC.z = 3.0, u_offset = 5.0
+            float expectedWeighted = valA * 1.0f + valB * 2.0f + valC * 3.0f + 5.0f;
+
+            EXPECT_NEAR( fSum[idx], expectedSum, 0.001f );
+            EXPECT_NEAR( fWeighted[idx], expectedWeighted, 0.001f );
+        }
+    }
+
+    // Cleanup
+    vhDestroyTexture( texA );
+    vhDestroyTexture( texB );
+    vhDestroyTexture( texC );
+    vhDestroyTexture( outSum );
+    vhDestroyTexture( outWeighted );
+    vhDestroyBuffer( cbA );
+    vhDestroyBuffer( cbB );
+    vhDestroyBuffer( cbC );
+    vhDestroyBuffer( cbOffset );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}

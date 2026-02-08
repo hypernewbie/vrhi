@@ -336,36 +336,22 @@ bool vhRunExe( const std::string& command, std::string& outOutput )
 
 const char* vhGetShaderProfile( uint64_t flags )
 {
-    // Get the stage prefix
-    const char* stage = "ps";
-    uint64_t stageFlags = ( flags & VRHI_SHADER_STAGE_MASK );
-    switch ( stageFlags )
+    uint64_t stage = ( flags & VRHI_SHADER_STAGE_MASK );
+    switch ( stage )
     {
-        case VRHI_SHADER_STAGE_VERTEX:        stage = "vs"; break;
-        case VRHI_SHADER_STAGE_PIXEL:         stage = "ps"; break;
-        case VRHI_SHADER_STAGE_COMPUTE:       stage = "cs"; break;
-        case VRHI_SHADER_STAGE_HULL:          stage = "hs"; break;
-        case VRHI_SHADER_STAGE_DOMAIN:        stage = "ds"; break;
-        case VRHI_SHADER_STAGE_GEOMETRY:      stage = "gs"; break;
+        case VRHI_SHADER_STAGE_VERTEX:        return "vs";
+        case VRHI_SHADER_STAGE_PIXEL:         return "ps";
+        case VRHI_SHADER_STAGE_COMPUTE:       return "cs";
+        case VRHI_SHADER_STAGE_HULL:          return "hs";
+        case VRHI_SHADER_STAGE_DOMAIN:        return "ds";
+        case VRHI_SHADER_STAGE_GEOMETRY:      return "gs";
         case VRHI_SHADER_STAGE_RAYGEN:
         case VRHI_SHADER_STAGE_MISS:
-        case VRHI_SHADER_STAGE_CLOSEST_HIT:   stage = "lib"; break;
-        case VRHI_SHADER_STAGE_MESH:          stage = "ms"; break;
-        case VRHI_SHADER_STAGE_AMPLIFICATION: stage = "as"; break;
+        case VRHI_SHADER_STAGE_CLOSEST_HIT:   return "lib";
+        case VRHI_SHADER_STAGE_MESH:          return "ms";
+        case VRHI_SHADER_STAGE_AMPLIFICATION: return "as";
     }
-
-    // Get the shader model version string
-    const char* smVer = "6_5"; // Default to 6_5
-    uint64_t sm = ( flags & VRHI_SHADER_SM_MASK );
-    if ( sm == VRHI_SHADER_SM_5_0 )      smVer = "5_0";
-    else if ( sm == VRHI_SHADER_SM_6_0 ) smVer = "6_0";
-    else if ( sm == VRHI_SHADER_SM_6_6 ) smVer = "6_6";
-
-    // Concatenate stage and version (e.g., "cs_6_5")
-    static thread_local char buffer[16];
-    snprintf( buffer, sizeof( buffer ), "%s_%s", stage, smVer );
-
-    return buffer;
+    return "ps";
 }
 
 std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
