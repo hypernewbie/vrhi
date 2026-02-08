@@ -1224,6 +1224,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto shader = layoutItr->second;
         if ( !shader )
             continue;
+        if ( state.debugFlags == VRHI_STATE_DEBUG_ALL ) VRHI_LOG( "Binding resources for shader %s.\n", shader->name.c_str() );
 
         for ( uint32_t i = 0; i < ( uint32_t ) shader->reflection.size(); i++ )
         {
