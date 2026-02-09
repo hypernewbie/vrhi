@@ -91,10 +91,10 @@ struct vhInitData
     uint32_t shaderMake_bRegShift = 300;
     uint32_t shaderMake_uRegShift = 400;
 
-    // Default configuration for global and world uniform buffers.
-    uint32_t maxViewGlobals = 4 * 1024;
-    uint32_t maxWorldMatrices = 16 * 1024;
-    uint32_t maxUserGlobals = 16 * 1024 * 1024;
+    // Global uniform buffer sizes. These back VRHI's state uniform system (vhState::uniforms).
+    uint32_t maxViewGlobals = 4 * 1024;           // Per-view constants (camera, projection, etc).
+    uint32_t maxWorldMatrices = 16 * 1024;         // World-space transform matrices.
+    uint32_t maxUserGlobals = 16 * 1024 * 1024;    // User shader parameters (material data, etc).
 };
 
 typedef uint32_t vhTexture;
@@ -147,18 +147,19 @@ constexpr uint64_t VRHI_SHADER_STAGE_MASK          = 0xF;
 // Shader Stage -> Descriptor Set Mapping (Fixed, Non-Merging):
 // Each stage gets its own fixed set index to avoid descriptor set merging.
 // Mutually exclusive stages share indices (e.g. VS/CS, PS/Miss).
+// Use VRHI_STAGE_SPACE in register declarations to target these automatically.
 //
-constexpr uint32_t VRHI_DESCRIPTOR_SET_VERTEX        = 1;
-constexpr uint32_t VRHI_DESCRIPTOR_SET_PIXEL         = 2;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_VERTEX        = 1; // VS default set (shared with CS)
+constexpr uint32_t VRHI_DESCRIPTOR_SET_PIXEL         = 2; // PS default set
 constexpr uint32_t VRHI_DESCRIPTOR_SET_HULL          = 3;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_DOMAIN        = 4;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_GEOMETRY      = 5;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_MESH          = 6;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_AMPLIFICATION = 7;
 
-constexpr uint32_t VRHI_DESCRIPTOR_SET_COMPUTE       = 1;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_COMPUTE       = 1; // CS default set (shared with VS)
 
-constexpr uint32_t VRHI_DESCRIPTOR_SET_RAYGEN        = 1;
+constexpr uint32_t VRHI_DESCRIPTOR_SET_RAYGEN        = 1; // RT stages
 constexpr uint32_t VRHI_DESCRIPTOR_SET_MISS          = 2;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_CLOSEST_HIT   = 3;
 constexpr uint32_t VRHI_DESCRIPTOR_SET_ANY_HIT       = 4;
@@ -2338,3 +2339,66 @@ void vhDrawCommonInternal(
     uint32_t startInstanceLocation,
     uint32_t drawCount
 );
+
+// --------------------------------------------------------------------------
+// Slang Shaders
+// --------------------------------------------------------------------------
+//
+// VRHI compiles shaders with Slang. Each shader stage gets its own descriptor set
+// to avoid binding conflicts between stages (VS uses Set 1, PS uses Set 2, etc).
+//
+// VRHI_STAGE_SPACE:
+//   A define injected at compile time that resolves to the stage's descriptor set.
+//   Use it in register declarations to place resources in the correct set:
+//
+//     Texture2D    g_Tex : register( t0, VRHI_STAGE_SPACE );
+//     SamplerState g_Sam : register( s0, VRHI_STAGE_SPACE );
+//     cbuffer Data : register( b2, VRHI_STAGE_SPACE ) { float4 u_val; };
+//     RWTexture2D<float> g_Out : register( u0, VRHI_STAGE_SPACE );
+//
+// Register Shifts (ShaderMake):
+//   Register numbers are shifted by type to avoid collisions within a set:
+//     s100+ = Samplers,  t200+ = Textures,  b300+ = Constant Buffers,  u400+ = UAVs
+//   So s0 becomes binding 100, t0 becomes 200, b0 becomes 300, u0 becomes 400.
+//   These shifts are configurable via g_vhInit.shaderMake_*RegShift.
+//
+// Bare Uniforms (globalParams):
+//   Bare uniform variables without a ConstantBuffer<> wrapper:
+//     float4 u_colour;
+//     float  u_time;
+//   Slang collects these into an implicit constant buffer (globalParams / $Globals).
+//   Update them via vhState::SetUniform() which uses an efficient ring buffer.
+//
+// Built-in Uniform Buffers (for matching slots b300 and b301):
+//   GlobalUniforms (b300+0) and WorldUniforms (b300+1) are automatically bound.
+//   GlobalUniforms contains camera/projection state, WorldUniforms contains transforms.
+//   Use vhState::SetViewTransform() and vhState::SetWorldTransform() to update these.
+//   Shader-side definitions:
+//
+//     struct GlobalUniforms : register( b0, VRHI_STAGE_SPACE )
+//     {
+//         glm::vec4 u_viewRect;
+//         glm::vec4 u_viewTexel;
+//         glm::mat4  u_view;
+//         glm::mat4  u_invView;
+//         glm::mat4  u_proj;
+//         glm::mat4  u_invProj;
+//         glm::mat4  u_viewProj;
+//         glm::mat4  u_invViewProj;
+//         glm::vec4 u_alphaRef4;
+//         glm::vec4 u_global[21];
+//     };
+//
+//     struct WorldUniforms : register( b1, VRHI_STAGE_SPACE )
+//     {
+//         glm::mat4 u_world[4];
+//         glm::mat4 u_worldView;
+//         glm::mat4 u_worldViewProj;
+//         glm::vec4 _pad[8];
+//     };
+//
+// VRHI_SHADER_PATCH_DSET0:
+//   Shaders that omit explicit register spaces default to DescriptorSet 0.
+//   Set this flag to automatically remap those to the stage's descriptor set.
+//   Useful for simple shaders where you don't want to annotate every resource.
+//
