@@ -208,6 +208,7 @@ constexpr uint64_t VRHI_SHADER_ROW_MAJOR           = ( 1ULL << 9 );   // -matrix
 constexpr uint64_t VRHI_SHADER_WARNINGS_AS_ERRORS  = ( 1ULL << 10 );  // -warnings-as-errors
 constexpr uint64_t VRHI_SHADER_STRIP_REFLECTION    = ( 1ULL << 11 );  // --stripReflection. Good for release builds to reduce binary size.
 constexpr uint64_t VRHI_SHADER_ALL_RESOURCES_BOUND = ( 1ULL << 12 );  // --allResourcesBound. Optimisation hint for the compiler.
+constexpr uint64_t VRHI_SHADER_PATCH_DSET0         = ( 1ULL << 13 );  // Post-compile SPIR-V patch: remaps DescriptorSet 0 to VRHI_STAGE_SPACE (stage-specific set). Useful when shaders omit explicit register spaces.
 
 // --------------------------------------------------------------------------
 // Buffers

@@ -26,6 +26,48 @@
 
 // ------------ Shader Utilities ------------
 
+uint32_t vhPatchSpirvDescriptorSet0( std::vector< uint32_t >& spirv, uint32_t targetSet )
+{
+    constexpr uint32_t spirvHeaderWords = 5;
+    constexpr uint32_t spvOpDecorate = 71;
+    constexpr uint32_t spvDecorationDescriptorSet = 34;
+
+    if ( spirv.size() < spirvHeaderWords )
+    {
+        return 0;
+    }
+
+    uint32_t patchedCount = 0;
+    size_t i = spirvHeaderWords;
+
+    while ( i < spirv.size() )
+    {
+        uint32_t firstWord = spirv[i];
+        uint32_t opcode = firstWord & 0xFFFF;
+        uint32_t wordCount = firstWord >> 16;
+
+        if ( wordCount == 0 || i + wordCount > spirv.size() )
+        {
+            break;
+        }
+
+        if ( opcode == spvOpDecorate && wordCount >= 4 )
+        {
+            uint32_t decoration = spirv[i + 2];
+
+            if ( decoration == spvDecorationDescriptorSet && spirv[i + 3] == 0 )
+            {
+                spirv[i + 3] = targetSet;
+                patchedCount++;
+            }
+        }
+
+        i += wordCount;
+    }
+
+    return patchedCount;
+}
+
 // SPIRV reflection helper.
 bool vhReflectSpirv(
     const std::vector< uint32_t >& spirvBlob,
@@ -440,6 +482,13 @@ bool vhCompileShader(
     {
         if ( vhLoadSpirvFile( spvPath, outSpirv ) )
         {
+            // Apply descriptor set patching even when loading from cache.
+            // The cache key does not include the patch flag, so we must patch after load.
+            if ( flags & VRHI_SHADER_PATCH_DSET0 )
+            {
+                uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
+                vhPatchSpirvDescriptorSet0( outSpirv, stageSpace );
+            }
             return true;
         }
     }
@@ -539,7 +588,17 @@ bool vhCompileShader(
         spvPath = fallbackPath;
     }
 
-    return vhLoadSpirvFile( spvPath, outSpirv );
+    bool loaded = vhLoadSpirvFile( spvPath, outSpirv );
+
+    // Optionally patch DescriptorSet 0 decorations to the stage-specific set.
+    // This allows shaders without explicit register spaces to work with VRHI's stage-based binding model.
+    if ( loaded && ( flags & VRHI_SHADER_PATCH_DSET0 ) )
+    {
+        uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
+        vhPatchSpirvDescriptorSet0( outSpirv, stageSpace );
+    }
+
+    return loaded;
 }
 
 vhShader vhCreateShader(

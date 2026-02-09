@@ -922,3 +922,485 @@ UTEST_F( Shader, CompileNonMainEntryPoints )
         EXPECT_GT( spirv.size(), 0 );
     }
 }
+
+// --------------------------------------------------------------------------
+// SPIR-V Descriptor Set Patching Tests
+// --------------------------------------------------------------------------
+
+// Construct an OpDecorate instruction word array: OpDecorate TargetId Decoration [Literals]
+static std::vector< uint32_t > MakeOpDecorate( uint32_t targetId, uint32_t decoration, const std::vector< uint32_t >& literals )
+{
+    std::vector< uint32_t > result;
+    uint32_t wordCount = 1 + 1 + 1 + static_cast< uint32_t >( literals.size() );
+    constexpr uint32_t spvOpDecorate = 71;
+    result.push_back( ( wordCount << 16 ) | spvOpDecorate );
+    result.push_back( targetId );
+    result.push_back( decoration );
+    result.insert( result.end(), literals.begin(), literals.end() );
+    return result;
+}
+
+UTEST( SpirvPatchDescriptorSet, PatchesOnlySetZero )
+{
+    // SPIR-V header: Magic, Version, Generator, Bound, Schema
+    std::vector< uint32_t > spirv = {
+        0x07230203, // Magic number
+        0x00010600, // Version 1.6.0
+        0x00000000, // Generator
+        100,        // Bound
+        0           // Schema
+    };
+
+    // Add OpDecorate instructions:
+    // Decoration 34 = DescriptorSet per SPIR-V spec
+    constexpr uint32_t spvDecorationDescriptorSet = 34;
+    constexpr uint32_t spvDecorationBuiltIn = 11;
+
+    // Instruction 1: DescriptorSet 0 (should be patched to 10)
+    auto inst1 = MakeOpDecorate( 10, spvDecorationDescriptorSet, { 0 } );
+    spirv.insert( spirv.end(), inst1.begin(), inst1.end() );
+
+    // Instruction 2: DescriptorSet 1 (should remain unchanged)
+    auto inst2 = MakeOpDecorate( 20, spvDecorationDescriptorSet, { 1 } );
+    spirv.insert( spirv.end(), inst2.begin(), inst2.end() );
+
+    // Instruction 3: BuiltIn decoration (not a descriptor set, should be unchanged)
+    auto inst3 = MakeOpDecorate( 30, spvDecorationBuiltIn, { 5 } );
+    spirv.insert( spirv.end(), inst3.begin(), inst3.end() );
+
+    // Record original values for comparison
+    size_t inst1SetIndex = 5 + 3;  // Header (5) + instruction offset + set literal offset
+    size_t inst2SetIndex = 5 + 4 + 3;  // Previous + inst1 size + instruction offset
+    size_t inst3LiteralIndex = 5 + 4 + 4 + 3;
+
+    uint32_t originalInst1Set = spirv[inst1SetIndex];
+    uint32_t originalInst2Set = spirv[inst2SetIndex];
+    uint32_t originalInst3Literal = spirv[inst3LiteralIndex];
+
+    // Apply patch
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 10 );
+
+    // Assertions
+    EXPECT_EQ( patchedCount, 1 );
+    EXPECT_EQ( spirv[inst1SetIndex], 10 );      // Patched from 0 to 10
+    EXPECT_EQ( spirv[inst2SetIndex], originalInst2Set );  // Unchanged (was 1)
+    EXPECT_EQ( spirv[inst3LiteralIndex], originalInst3Literal );  // Unchanged (BuiltIn)
+}
+
+UTEST( SpirvPatchDescriptorSet, NoOpWhenTargetIsZero )
+{
+    // SPIR-V header
+    std::vector< uint32_t > spirv = {
+        0x07230203, 0x00010600, 0x00000000, 100, 0
+    };
+
+    constexpr uint32_t spvDecorationDescriptorSet = 34;
+
+    // Add DescriptorSet 0 decoration
+    auto inst = MakeOpDecorate( 10, spvDecorationDescriptorSet, { 0 } );
+    spirv.insert( spirv.end(), inst.begin(), inst.end() );
+
+    // Record original value
+    size_t setIndex = 5 + 3;
+    uint32_t originalValue = spirv[setIndex];
+
+    // Patch with target 0 (same as original, should be idempotent)
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 0 );
+
+    // When target is 0, we still report the patch but value remains 0
+    EXPECT_EQ( patchedCount, 1 );
+    EXPECT_EQ( spirv[setIndex], originalValue );  // Still 0
+}
+
+UTEST( SpirvPatchDescriptorSet, MultipleSetZeroDecorations )
+{
+    // SPIR-V header
+    std::vector< uint32_t > spirv = {
+        0x07230203, 0x00010600, 0x00000000, 100, 0
+    };
+
+    constexpr uint32_t spvDecorationDescriptorSet = 34;
+
+    // Add multiple DescriptorSet 0 decorations
+    for ( uint32_t i = 0; i < 5; ++i )
+    {
+        auto inst = MakeOpDecorate( 10 + i, spvDecorationDescriptorSet, { 0 } );
+        spirv.insert( spirv.end(), inst.begin(), inst.end() );
+    }
+
+    // Add one DescriptorSet 1 decoration (should not be patched)
+    auto instNonZero = MakeOpDecorate( 20, spvDecorationDescriptorSet, { 1 } );
+    spirv.insert( spirv.end(), instNonZero.begin(), instNonZero.end() );
+
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 15 );
+
+    EXPECT_EQ( patchedCount, 5 );  // Only the 5 set-0 decorations
+}
+
+UTEST( SpirvPatchDescriptorSet, TooShortInput )
+{
+    // Vector shorter than header size (5 words)
+    std::vector< uint32_t > spirv = {
+        0x07230203, 0x00010600, 0x00000000  // Only 3 words
+    };
+
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 10 );
+
+    EXPECT_EQ( patchedCount, 0 );
+}
+
+UTEST( SpirvPatchDescriptorSet, MalformedWordCountOverflow )
+{
+    // SPIR-V header
+    std::vector< uint32_t > spirv = {
+        0x07230203, 0x00010600, 0x00000000, 100, 0
+    };
+
+    // Add an instruction with wordCount that would exceed buffer size
+    constexpr uint32_t spvOpDecorate = 71;
+    uint32_t wordCount = 100;  // Claims to be 100 words but we only add a few
+    spirv.push_back( ( wordCount << 16 ) | spvOpDecorate );
+    spirv.push_back( 10 );   // TargetId
+    spirv.push_back( 34 );   // DescriptorSet decoration
+    spirv.push_back( 0 );    // Set literal
+
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 10 );
+
+    // Should detect overflow and stop safely
+    EXPECT_EQ( patchedCount, 0 );
+}
+
+UTEST( SpirvPatchDescriptorSet, MalformedZeroWordCount )
+{
+    // SPIR-V header
+    std::vector< uint32_t > spirv = {
+        0x07230203, 0x00010600, 0x00000000, 100, 0
+    };
+
+    // Add an instruction with wordCount = 0 (invalid)
+    constexpr uint32_t spvOpDecorate = 71;
+    spirv.push_back( ( 0 << 16 ) | spvOpDecorate );  // wordCount = 0
+
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 10 );
+
+    // Should detect invalid word count and stop
+    EXPECT_EQ( patchedCount, 0 );
+}
+
+UTEST( SpirvPatchDescriptorSet, ShortInstructionNotDescriptorSet )
+{
+    // SPIR-V header
+    std::vector< uint32_t > spirv = {
+        0x07230203, 0x00010600, 0x00000000, 100, 0
+    };
+
+    // Add an OpDecorate with only 3 words (missing literal)
+    // This should be skipped because it doesn't have enough operands
+    constexpr uint32_t spvOpDecorate = 71;
+    constexpr uint32_t spvDecorationDescriptorSet = 34;
+    spirv.push_back( ( 3 << 16 ) | spvOpDecorate );  // wordCount = 3
+    spirv.push_back( 10 );   // TargetId
+    spirv.push_back( spvDecorationDescriptorSet );  // Decoration
+    // Missing: set literal
+
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 10 );
+
+    // Should skip this instruction due to insufficient operands
+    EXPECT_EQ( patchedCount, 0 );
+}
+
+UTEST( SpirvPatchDescriptorSet, MixedDecorations )
+{
+    // SPIR-V header
+    std::vector< uint32_t > spirv = {
+        0x07230203, 0x00010600, 0x00000000, 100, 0
+    };
+
+    constexpr uint32_t spvOpDecorate = 71;
+    constexpr uint32_t spvDecorationDescriptorSet = 34;
+    constexpr uint32_t spvDecorationBinding = 33;
+    constexpr uint32_t spvDecorationLocation = 30;
+
+    // Interleave various decoration types with DescriptorSet decorations
+    auto addInst = [&]( uint32_t opcode, uint32_t wordCount, const std::vector< uint32_t >& operands )
+    {
+        spirv.push_back( ( wordCount << 16 ) | opcode );
+        for ( uint32_t op : operands ) spirv.push_back( op );
+    };
+
+    // Binding decoration (not DescriptorSet)
+    addInst( spvOpDecorate, 4, { 10, spvDecorationBinding, 5 } );
+
+    // DescriptorSet 0 (should be patched)
+    addInst( spvOpDecorate, 4, { 11, spvDecorationDescriptorSet, 0 } );
+
+    // Location decoration
+    addInst( spvOpDecorate, 4, { 12, spvDecorationLocation, 0 } );
+
+    // DescriptorSet 2 (should NOT be patched - not set 0)
+    addInst( spvOpDecorate, 4, { 13, spvDecorationDescriptorSet, 2 } );
+
+    // Another DescriptorSet 0 (should be patched)
+    addInst( spvOpDecorate, 4, { 14, spvDecorationDescriptorSet, 0 } );
+
+    // Record indices of the DescriptorSet literals
+    size_t set0Index1 = 5 + 4 + 3;  // After first 3-word inst + 4-word inst
+    size_t set2Index = set0Index1 + 4 + 4;
+    size_t set0Index2 = set2Index + 4;
+
+    uint32_t patchedCount = vhPatchSpirvDescriptorSet0( spirv, 99 );
+
+    EXPECT_EQ( patchedCount, 2 );  // Two set-0 decorations patched
+    EXPECT_EQ( spirv[set0Index1], 99 );  // First set-0 patched
+    EXPECT_EQ( spirv[set2Index], 2 );    // Set-2 unchanged
+    EXPECT_EQ( spirv[set0Index2], 99 );  // Second set-0 patched
+}
+
+// --------------------------------------------------------------------------
+// Shader Compilation Flag Tests
+// --------------------------------------------------------------------------
+
+UTEST_F( Shader, CompileWithPatchDescriptorSetFlag )
+{
+    // Shader that uses unannotated resources (will default to DescriptorSet 0)
+    const char* shaderSource = R"(
+        struct Data { float4 val; };
+        ConstantBuffer<Data> g_Constants;  // No explicit register space
+        RWStructuredBuffer<Data> g_Output; // No explicit register space
+        
+        [numthreads(8, 4, 1)]
+        void main(uint3 threadID : SV_DispatchThreadID)
+        {
+            g_Output[threadID.x].val = g_Constants.val;
+        }
+    )";
+
+    // Compile WITHOUT the patch flag
+    std::vector< uint32_t > spirvNoPatch;
+    std::string error;
+    bool success = vhCompileShader(
+        "TestNoPatch",
+        shaderSource,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_5,
+        spirvNoPatch,
+        "main",
+        {},
+        {},
+        &error
+    );
+    
+    if ( !success )
+    {
+        std::cout << "No-patch compilation failed: " << error << std::endl;
+    }
+    ASSERT_TRUE( success );
+    EXPECT_GT( spirvNoPatch.size(), 0 );
+
+    // Compile WITH the patch flag
+    std::vector< uint32_t > spirvWithPatch;
+    success = vhCompileShader(
+        "TestWithPatch",
+        shaderSource,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_5 | VRHI_SHADER_PATCH_DSET0,
+        spirvWithPatch,
+        "main",
+        {},
+        {},
+        &error
+    );
+    
+    if ( !success )
+    {
+        std::cout << "With-patch compilation failed: " << error << std::endl;
+    }
+    ASSERT_TRUE( success );
+    EXPECT_GT( spirvWithPatch.size(), 0 );
+
+    // Both should produce valid SPIR-V of the same size
+    EXPECT_EQ( spirvNoPatch.size(), spirvWithPatch.size() );
+
+    // Reflect both shaders and verify descriptor sets differ
+    nvrhi::BindingLayoutDesc descNoPatch;
+    std::vector< vhShaderReflectionResource > resourcesNoPatch;
+    glm::uvec3 groupSizeNoPatch;
+    std::vector< vhPushConstantRange > pushConstantsNoPatch;
+    
+    bool reflectedNoPatch = vhReflectSpirv( spirvNoPatch, descNoPatch, resourcesNoPatch, groupSizeNoPatch, pushConstantsNoPatch );
+    ASSERT_TRUE( reflectedNoPatch );
+
+    nvrhi::BindingLayoutDesc descWithPatch;
+    std::vector< vhShaderReflectionResource > resourcesWithPatch;
+    glm::uvec3 groupSizeWithPatch;
+    std::vector< vhPushConstantRange > pushConstantsWithPatch;
+    
+    bool reflectedWithPatch = vhReflectSpirv( spirvWithPatch, descWithPatch, resourcesWithPatch, groupSizeWithPatch, pushConstantsWithPatch );
+    ASSERT_TRUE( reflectedWithPatch );
+
+    // Find the resources and verify their descriptor sets
+    bool foundConstantsNoPatch = false;
+    bool foundConstantsWithPatch = false;
+    
+    for ( const auto& res : resourcesNoPatch )
+    {
+        if ( res.name == "g_Constants" )
+        {
+            foundConstantsNoPatch = true;
+            // Without patch flag, should be in set 0
+            EXPECT_EQ( res.set, 0 );
+        }
+    }
+    
+    for ( const auto& res : resourcesWithPatch )
+    {
+        if ( res.name == "g_Constants" )
+        {
+            foundConstantsWithPatch = true;
+            // With patch flag, should be in set VRHI_DESCRIPTOR_SET_COMPUTE (which is 1)
+            EXPECT_EQ( res.set, VRHI_DESCRIPTOR_SET_COMPUTE );
+        }
+    }
+    
+    EXPECT_TRUE( foundConstantsNoPatch );
+    EXPECT_TRUE( foundConstantsWithPatch );
+}
+
+UTEST_F( Shader, CompileWithPatchFlagVertexStage )
+{
+    // Vertex shader with unannotated constant buffer
+    const char* shaderSource = R"(
+        struct Globals { float4x4 mvp; };
+        ConstantBuffer<Globals> g_Globals;
+        
+        struct VSInput { float3 pos : POSITION; };
+        struct VSOutput { float4 pos : SV_Position; };
+        
+        VSOutput main(VSInput input)
+        {
+            VSOutput output;
+            output.pos = mul( float4( input.pos, 1.0 ), g_Globals.mvp );
+            return output;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        "TestVSPatch",
+        shaderSource,
+        VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_5 | VRHI_SHADER_PATCH_DSET0,
+        spirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+    
+    if ( !success )
+    {
+        std::cout << "Vertex shader with patch flag compilation failed: " << error << std::endl;
+    }
+    
+    ASSERT_TRUE( success );
+    EXPECT_GT( spirv.size(), 0 );
+
+    // Reflect and verify the resource is in the correct set
+    nvrhi::BindingLayoutDesc desc;
+    std::vector< vhShaderReflectionResource > resources;
+    glm::uvec3 groupSize;
+    std::vector< vhPushConstantRange > pushConstants;
+    
+    bool reflected = vhReflectSpirv( spirv, desc, resources, groupSize, pushConstants );
+    ASSERT_TRUE( reflected );
+
+    bool foundGlobals = false;
+    for ( const auto& res : resources )
+    {
+        if ( res.name.find( "Globals" ) != std::string::npos || res.name == "g_Globals" || res.name == "$Globals" )
+        {
+            foundGlobals = true;
+            // With patch flag on vertex shader, should be in set VRHI_DESCRIPTOR_SET_VERTEX (which is 1)
+            EXPECT_EQ( res.set, VRHI_DESCRIPTOR_SET_VERTEX );
+        }
+    }
+    
+    EXPECT_TRUE( foundGlobals );
+}
+
+UTEST_F( Shader, CompileWithPatchFlagBareUniforms )
+{
+    // Pixel shader with bare uniforms (no struct wrapper)
+    // These should be collected into globalParams/$Globals by the compiler
+    const char* shaderSource = R"(
+        float4 u_colour;  // Bare uniform, no struct
+        float u_time;     // Another bare uniform
+        
+        float4 main() : SV_Target
+        {
+            return u_colour * u_time;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        "TestBareUniformsPatch",
+        shaderSource,
+        VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_5 | VRHI_SHADER_PATCH_DSET0,
+        spirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+    
+    if ( !success )
+    {
+        std::cout << "Bare uniforms shader with patch flag compilation failed: " << error << std::endl;
+    }
+    
+    ASSERT_TRUE( success );
+    EXPECT_GT( spirv.size(), 0 );
+
+    // Reflect and verify the global uniform buffer is in the correct set
+    nvrhi::BindingLayoutDesc desc;
+    std::vector< vhShaderReflectionResource > resources;
+    glm::uvec3 groupSize;
+    std::vector< vhPushConstantRange > pushConstants;
+    
+    bool reflected = vhReflectSpirv( spirv, desc, resources, groupSize, pushConstants );
+    ASSERT_TRUE( reflected );
+
+    bool foundGlobalParams = false;
+    for ( const auto& res : resources )
+    {
+        // Bare uniforms get collected into globalParams/$Globals
+        if ( res.type == nvrhi::ResourceType::ConstantBuffer && 
+             ( res.name == "globalParams" || res.name == "$Globals" || res.name == "_Globals" ) )
+        {
+            foundGlobalParams = true;
+            // With patch flag on pixel shader, should be in set VRHI_DESCRIPTOR_SET_PIXEL (which is 2)
+            EXPECT_EQ( res.set, VRHI_DESCRIPTOR_SET_PIXEL );
+            
+            // Verify the members are present
+            bool foundColour = false;
+            bool foundTime = false;
+            for ( const auto& member : res.members )
+            {
+                if ( member.name == "u_colour" )
+                {
+                    foundColour = true;
+                    EXPECT_EQ( member.size, 16 );  // float4 is 16 bytes
+                }
+                else if ( member.name == "u_time" )
+                {
+                    foundTime = true;
+                    EXPECT_EQ( member.size, 4 );  // float is 4 bytes
+                }
+            }
+            EXPECT_TRUE( foundColour );
+            EXPECT_TRUE( foundTime );
+        }
+    }
+    
+    EXPECT_TRUE( foundGlobalParams );
+}
