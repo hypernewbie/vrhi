@@ -2369,8 +2369,9 @@ void vhDrawCommonInternal(
 //   Slang collects these into an implicit constant buffer (globalParams / $Globals).
 //   Update them via vhState::SetUniform() which uses an efficient ring buffer.
 //
-// Built-in Uniform Buffers (for matching slots b300 and b301):
-//   GlobalUniforms (b300+0) and WorldUniforms (b300+1) are automatically bound.
+// Built-in Uniform Buffers (matched by name):
+//   GlobalUniforms and WorldUniforms are automatically bound when shaders declare them.
+//   They are identified by cbuffer name, not by fixed slots.
 //   GlobalUniforms contains camera/projection state, WorldUniforms contains transforms.
 //   Use vhState::SetViewTransform() and vhState::SetWorldTransform() to update these.
 //   Shader-side definitions:

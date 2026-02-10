@@ -123,6 +123,8 @@ struct vhStateResolveCache
         std::unordered_map< uint32_t, std::pair< ResolvedTexture, ResolvedBuffer > > uavTable; // slot -> UAV. Either texture or buffer, but not both.
         uint32_t userGlobalsSlot = UINT32_MAX;  // UINT32_MAX = no User Globals
         uint64_t userGlobalsHash = 0;           // Hash of reflection members
+        uint32_t globalUniformsSlot = UINT32_MAX; // UINT32_MAX = no GlobalUniforms
+        uint32_t worldUniformsSlot = UINT32_MAX;  // UINT32_MAX = no WorldUniforms
     };
     std::unordered_map< uint32_t, std::unique_ptr< ShaderStageBindingSlotState > > stageBinding; // stage flag -> binding slot state
 

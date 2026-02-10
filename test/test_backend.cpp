@@ -574,6 +574,10 @@ UTEST( BackendInternal, FindResource )
     stageTable.bufferTable[1] = { hBuf, &bufBind };
     stageTable.uavTable[2].first = { hTex, &texBind };
     stageTable.uavTable[3].second = { hBuf, &bufBind };
+    
+    // Set up system uniform slots for testing
+    stageTable.globalUniformsSlot = g_vhInit.shaderMake_bRegShift + 0;
+    stageTable.worldUniformsSlot = g_vhInit.shaderMake_bRegShift + 1;
 
     nvrhi::BindingSetItem outItem;
 

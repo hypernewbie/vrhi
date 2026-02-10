@@ -766,17 +766,35 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
         for ( const auto& res : shaders[j].reflection )
         {
-            if ( res.type == nvrhi::ResourceType::ConstantBuffer && ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" ) )
+            if ( res.type == nvrhi::ResourceType::ConstantBuffer )
             {
-                uint64_t hash = vhHashReflectionMembers( res.members );
-                stageTable.userGlobalsSlot = res.slot;
-                stageTable.userGlobalsHash = hash;
-                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                if ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" )
                 {
-                    VRHI_LOG( "ResolveCache: Found User Globals '%s' at slot %u for stage %u. Hash: 0x%llx\n",
-                        res.name.c_str(), res.slot, stage, hash );
+                    uint64_t hash = vhHashReflectionMembers( res.members );
+                    stageTable.userGlobalsSlot = res.slot;
+                    stageTable.userGlobalsHash = hash;
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                    {
+                        VRHI_LOG( "ResolveCache: Found User Globals '%s' at slot %u for stage %u. Hash: 0x%llx\n",
+                            res.name.c_str(), res.slot, stage, hash );
+                    }
                 }
-                break;
+                else if ( res.name == "GlobalUniforms" )
+                {
+                    stageTable.globalUniformsSlot = res.slot;
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                    {
+                        VRHI_LOG( "ResolveCache: Found GlobalUniforms at slot %u for stage %u\n", res.slot, stage );
+                    }
+                }
+                else if ( res.name == "WorldUniforms" )
+                {
+                    stageTable.worldUniformsSlot = res.slot;
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
+                    {
+                        VRHI_LOG( "ResolveCache: Found WorldUniforms at slot %u for stage %u\n", res.slot, stage );
+                    }
+                }
             }
         }
     }
@@ -869,7 +887,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
         case nvrhi::ResourceType::ConstantBuffer:
         case nvrhi::ResourceType::VolatileConstantBuffer:
         {
-            if ( item.slot == g_vhInit.shaderMake_bRegShift + 0 )
+            if ( stageTable.globalUniformsSlot != UINT32_MAX && item.slot == stageTable.globalUniformsSlot )
             {
                 int64_t offset = BE_Util_WriteGlobalUniform( state, m_globalUniformBuffer, m_globalUniformBufferLastHash );
                 if ( offset < 0 )
@@ -883,7 +901,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: GlobalUniforms bound to slot %d\n", item.slot );
                 return true;
             }
-            if ( item.slot == g_vhInit.shaderMake_bRegShift + 1 )
+            if ( stageTable.worldUniformsSlot != UINT32_MAX && item.slot == stageTable.worldUniformsSlot )
             {
                 int64_t offset = BE_Util_WriteWorldUniform( state, m_worldUniformBuffer, m_worldUniformBufferLastHash );
                 if ( offset < 0 )
