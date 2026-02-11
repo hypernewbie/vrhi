@@ -130,9 +130,7 @@ find_library(SLANG_LIBRARY NAMES slang slang.lib libslang.so libslang.dylib
 )
 
 if(NOT SLANG_INCLUDE_DIR OR NOT SLANG_LIBRARY)
-    message(STATUS "Slang not found in Vulkan SDK, using bundled version")
-    set(SLANG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/vdeps/ShaderMake/build_$<LOWER_CASE:$<CONFIG>>/_deps/slang-src/include")
-    set(SLANG_LIBRARY slang)
+    message(FATAL_ERROR "Slang not found. Please install Vulkan SDK 1.3.275 or newer.")
 else()
     message(STATUS "Using Slang from Vulkan SDK: ${SLANG_LIBRARY}")
 endif()

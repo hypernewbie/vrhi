@@ -598,7 +598,7 @@ bool vhCompileShader(
 
     std::string prefix = std::string( name ) + "_" + std::to_string( hash );
     
-    // Construct output filename compatible with ShaderMake's conventions (mostly for visual consistency in cache)
+    // Construct output filename
     std::string outputFilename = prefix;
     if ( entry && strcmp( entry, "main" ) != 0 )
         outputFilename += "_" + std::string( entry );

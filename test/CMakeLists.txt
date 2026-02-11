@@ -47,9 +47,7 @@ target_link_libraries(test_package_exe PRIVATE
     nvrhi
     vk-bootstrap
     rtxmu
-    ShaderMakeBlob
     slang
-    slang-rt
     Vulkan::Vulkan
 )
 

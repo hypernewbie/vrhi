@@ -105,7 +105,7 @@ struct vhStateResolveCache
         const vhState::AccelStructBinding* binding = nullptr;
     };
 
-    // We work with ShaderMake defaults, which define bindings into 4 ranges.
+    // Register binding shifts define 4 distinct ranges for descriptor types.
     //
     // * Samplers (s registers): Default shift is 100.
     // * Textures (t registers): Default shift is 200.

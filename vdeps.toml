@@ -18,26 +18,6 @@ cmake_options = [
 ]
 
 [[dependency]]
-name = "ShaderMake"
-rel_path = "ShaderMake"
-init_submodules = true
-libs = ["ShaderMakeBlob", "slang", "slang-rt"]
-executables = ["ShaderMake", "slangc"]
-extra_files = [
-    "slangc.exe", "slang.dll", "slang-glslang.dll", "slang-llvm.dll",
-    "slangc", "libslang.dylib", "libslang-glslang.dylib", "libslang-llvm.dylib", "libslang-rt.dylib", "libslang-glsl-module.dylib",
-    "libslang.so", "libslang-glslang.so", "libslang-llvm.so", "libslang-rt.so", "libslang-glsl-module.so"
-]
-cmake_options = [
-    "-DSHADERMAKE_FIND_DXC=OFF",
-    "-DSHADERMAKE_FIND_DXC_VK=OFF",
-    "-DSHADERMAKE_FIND_FXC=OFF",
-    "-DSHADERMAKE_FIND_SLANG=ON",
-    "-DSHADERMAKE_FIND_COMPILERS=ON",
-    "-DSHADERMAKE_TOOL=OFF"
-]
-
-[[dependency]]
 name = "vk-bootstrap"
 rel_path = "vk-bootstrap"
 init_submodules = false

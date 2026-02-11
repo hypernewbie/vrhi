@@ -73,7 +73,7 @@ int main( )
     vhCreateTexture2D( texture, "PackageTestTex", glm::ivec2( 128, 128 ), 1, nvrhi::Format::RGBA8_UNORM );
     vhFlush( );
 
-    // Test 3: Shader allocation (without compilation - ShaderMake may have path issues in package test)
+    // Test 3: Shader allocation (without compilation - Vulkan SDK required for runtime compile)
     vhShader shader = vhAllocShader( );
     if ( shader == VRHI_INVALID_HANDLE )
     {

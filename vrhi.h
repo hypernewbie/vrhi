@@ -78,7 +78,7 @@ struct vhInitData
     bool markers = true;
     bool renderdoc = false;
 
-    // We work with ShaderMake defaults, which define bindings into 4 ranges.
+    // Register binding shifts define 4 distinct ranges for descriptor types.
     //
     // * Samplers (s registers): Default shift is 100.
     // * Textures (t registers): Default shift is 200.
@@ -1460,7 +1460,7 @@ void vhGetShaderInfo(
 // Returns the raw NVRHI handle (nvrhi::IShader*).
 nvrhi::ShaderHandle vhGetShaderNvrhiHandle( vhShader shader );
 
-// Compiles shader source code to SPIR-V bytecode using ShaderMake.
+// Compiles shader source code to SPIR-V bytecode using Slang.
 //
 // `name` is an optional debug name for the shader.
 // `source` is the HLSL/GLSL source code to compile.
@@ -2358,7 +2358,7 @@ void vhDrawCommonInternal(
 //     cbuffer Data : register( b2, VRHI_STAGE_SPACE ) { float4 u_val; };
 //     RWTexture2D<float> g_Out : register( u0, VRHI_STAGE_SPACE );
 //
-// Register Shifts (ShaderMake):
+// Register Shifts:
 //   Register numbers are shifted by type to avoid collisions within a set:
 //     s100+ = Samplers,  t200+ = Textures,  b300+ = Constant Buffers,  u400+ = UAVs
 //   So s0 becomes binding 100, t0 becomes 200, b0 becomes 300, u0 becomes 400.
