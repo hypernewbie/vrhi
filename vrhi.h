@@ -71,7 +71,9 @@ struct vhInitData
     std::string shaderCompileTempDir = "./tmp/shader_cache/";
     std::string shaderMakePath = "./tools/linux_release";
     std::string shaderMakeSlangPath = "./tools/linux_release";
-    bool forceShaderRecompile = false;
+    bool forceShaderRecompile = false; // Ignore cache, always recompile
+    bool skipShaderCacheWrite = false; // Don't write .spirv cache files
+    bool dumpShaderSource = false;      // Write .slang source files for debugging
     bool robust = false;
     bool markers = true;
     bool renderdoc = false;

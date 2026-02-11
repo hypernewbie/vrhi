@@ -350,10 +350,10 @@ vhShader vhAllocShader()
     return id;
 }
 
-
 bool vhCompileShaderSlang(
+    const char* source,
     const std::filesystem::path& sourcePath,
-    const std::filesystem::path& outputPath,
+    std::vector< uint32_t >& outSpirv,
     uint64_t flags,
     const char* entry,
     const std::vector< std::string >& defines,
@@ -362,6 +362,7 @@ bool vhCompileShaderSlang(
 )
 {
     if ( outError ) *outError = "";
+    outSpirv.clear();
     static Slang::ComPtr< slang::IGlobalSession > g_slang;
     if ( !g_slang ) slang::createGlobalSession( g_slang.writeRef() );
     if ( !g_slang )
@@ -376,12 +377,10 @@ bool vhCompileShaderSlang(
     sessionDesc.targetCount = 0;
     sessionDesc.targets = nullptr;
     
-    // Use the directory of the source file as a search path for includes
     std::vector< const char* > searchPaths;
     std::string sourceDir = sourcePath.parent_path().generic_string();
     searchPaths.push_back( sourceDir.c_str() );
     
-    // Add user include paths
     for ( const auto& inc : includes )
     {
         searchPaths.push_back( inc.c_str() );
@@ -500,7 +499,7 @@ bool vhCompileShaderSlang(
         return false;
     }
     int translationUnitIndex = request->addTranslationUnit( SLANG_SOURCE_LANGUAGE_SLANG, nullptr );
-    request->addTranslationUnitSourceFile( translationUnitIndex, sourcePath.generic_string().c_str() );
+    request->addTranslationUnitSourceString( translationUnitIndex, "source", source );
 
     auto fnGetSlangStage = []( uint64_t flags ) -> SlangStage
     {
@@ -539,7 +538,7 @@ bool vhCompileShaderSlang(
     if ( diag && diag[0] )
     {
         if ( outError ) *outError += diag;
-        VRHI_LOG( "%s\n", diag );
+        // VRHI_LOG( "%s\n", diag );
     }
     if ( !compileSuccess )
         return false;
@@ -553,15 +552,19 @@ bool vhCompileShaderSlang(
         return false;
     }
 
-    // Write to file
+    // Copy SPIRV blob to output vector
+    size_t blobSize = blob->getBufferSize();
+    size_t numWords = ( blobSize + 3 ) / 4;
+    outSpirv.resize( numWords );
+    std::memcpy( outSpirv.data(), blob->getBufferPointer(), blobSize );
+    // Zero out any padding bytes in the last word
+    if ( blobSize % 4 != 0 )
     {
-        std::ofstream outFile( outputPath, std::ios::binary );
-        if ( !outFile.is_open() )
+        uint8_t* bytes = reinterpret_cast< uint8_t* >( outSpirv.data() );
+        for ( size_t i = blobSize; i < numWords * 4; ++i )
         {
-            if ( outError ) *outError = "Failed to open output file for writing: " + outputPath.string();
-            return false;
+            bytes[i] = 0;
         }
-        outFile.write( (const char*)blob->getBufferPointer(), blob->getBufferSize() );
     }
     return true;
 }
@@ -617,9 +620,8 @@ bool vhCompileShader(
         }
     }
 
-    // Write source to temporary file
-    std::string sourceFilename = prefix + ".slang";
-    std::filesystem::path sourceFilePath = tempDir / sourceFilename;
+    std::filesystem::path sourceFilePath = tempDir / ( prefix + ".slang" );
+    if ( g_vhInit.dumpShaderSource )
     {
         std::ofstream sourceFile( sourceFilePath );
         if ( !sourceFile.is_open() )
@@ -630,23 +632,22 @@ bool vhCompileShader(
         sourceFile << source;
     }
 
-    // Compile using libslang
-    if ( !vhCompileShaderSlang( sourceFilePath, spvPath, flags, entry, defines, includes, outError ) )
+    if ( !vhCompileShaderSlang( source, sourceFilePath, outSpirv, flags, entry, defines, includes, outError ) )
     {
         return false;
     }
 
-    // Load Result
-    bool loaded = vhLoadSpirvFile( spvPath, outSpirv );
-
-    // Optionally patch DescriptorSet 0 decorations to the stage-specific set.
-    if ( loaded && ( flags & VRHI_SHADER_PATCH_DSET0 ) )
+    if ( !g_vhInit.skipShaderCacheWrite )
+    {
+        std::ofstream outFile( spvPath, std::ios::binary );
+        if ( outFile.is_open() ) outFile.write( reinterpret_cast< const char* >( outSpirv.data() ), outSpirv.size() * sizeof( uint32_t ) );
+    }
+    if ( flags & VRHI_SHADER_PATCH_DSET0 )
     {
         uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
         vhPatchSpirvDescriptorSet0( outSpirv, stageSpace );
     }
-
-    return loaded;
+    return true;
 }
 
 vhShader vhCreateShader(

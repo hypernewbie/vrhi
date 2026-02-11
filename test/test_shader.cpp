@@ -1365,3 +1365,224 @@ UTEST_F( Shader, CompileWithPatchFlagBareUniforms )
     
     EXPECT_TRUE( foundGlobalParams );
 }
+
+// Test shader compilation flags work correctly
+UTEST_F( Shader, CompileFlags )
+{
+    const char* shaderSource = R"(
+        uniform float4 g_colour;
+
+        float4 main() : SV_Target
+        {
+            return g_colour;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+
+    // Test with DEBUG flag
+    {
+        bool success = vhCompileShader(
+            "TestDebugFlag",
+            shaderSource,
+            VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0 | VRHI_SHADER_DEBUG,
+            spirv,
+            "main",
+            {},
+            {},
+            &error
+        );
+        ASSERT_TRUE( success );
+        EXPECT_GT( spirv.size(), 0 );
+    }
+
+    // Test with ROW_MAJOR flag
+    {
+        spirv.clear();
+        bool success = vhCompileShader(
+            "TestRowMajorFlag",
+            shaderSource,
+            VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0 | VRHI_SHADER_ROW_MAJOR,
+            spirv,
+            "main",
+            {},
+            {},
+            &error
+        );
+        ASSERT_TRUE( success );
+        EXPECT_GT( spirv.size(), 0 );
+    }
+
+    // Test with STRIP_REFLECTION flag
+    {
+        spirv.clear();
+        bool success = vhCompileShader(
+            "TestStripReflectionFlag",
+            shaderSource,
+            VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0 | VRHI_SHADER_STRIP_REFLECTION,
+            spirv,
+            "main",
+            {},
+            {},
+            &error
+        );
+        ASSERT_TRUE( success );
+        EXPECT_GT( spirv.size(), 0 );
+    }
+
+    // Test with ALL_RESOURCES_BOUND flag
+    {
+        spirv.clear();
+        bool success = vhCompileShader(
+            "TestAllResourcesBoundFlag",
+            shaderSource,
+            VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0 | VRHI_SHADER_ALL_RESOURCES_BOUND,
+            spirv,
+            "main",
+            {},
+            {},
+            &error
+        );
+        ASSERT_TRUE( success );
+        EXPECT_GT( spirv.size(), 0 );
+    }
+}
+
+// Test skipShaderCacheWrite prevents file creation
+UTEST_F( Shader, SkipShaderCacheWrite )
+{
+    const char* shaderSource = R"(
+        uniform float4 g_colour;
+
+        float4 main() : SV_Target
+        {
+            return g_colour;
+        }
+    )";
+
+    // Enable skipShaderCacheWrite
+    bool originalSkipValue = g_vhInit.skipShaderCacheWrite;
+    g_vhInit.skipShaderCacheWrite = true;
+
+    // Clean up any existing cache files for this test
+    std::filesystem::path tempDir = g_vhInit.shaderCompileTempDir;
+    std::string testShaderName = "TestSkipCacheWrite";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        testShaderName.c_str(),
+        shaderSource,
+        VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0,
+        spirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+
+    // Restore original value
+    g_vhInit.skipShaderCacheWrite = originalSkipValue;
+
+    ASSERT_TRUE( success );
+    EXPECT_GT( spirv.size(), 0 );
+
+    // Verify no .spirv file was created
+    // The filename includes a hash, so we need to search for it
+    bool foundSpirvFile = false;
+    std::string expectedPrefix = testShaderName + "_";
+    if ( std::filesystem::exists( tempDir ) )
+    {
+        for ( const auto& entry : std::filesystem::directory_iterator( tempDir ) )
+        {
+            std::string filename = entry.path().filename().string();
+            if ( filename.starts_with( expectedPrefix ) && filename.ends_with( ".spirv" ) )
+            {
+                foundSpirvFile = true;
+                break;
+            }
+        }
+    }
+
+    EXPECT_FALSE( foundSpirvFile );
+
+    // Clean up the .slang source file that was created
+    for ( const auto& entry : std::filesystem::directory_iterator( tempDir ) )
+    {
+        std::string filename = entry.path().filename().string();
+        if ( filename.starts_with( expectedPrefix ) && filename.ends_with( ".slang" ) )
+        {
+            std::filesystem::remove( entry.path() );
+        }
+    }
+}
+
+// Test dumpShaderSource creates source files when enabled
+UTEST_F( Shader, DumpShaderSource )
+{
+    const char* shaderSource = R"(
+        uniform float4 g_colour;
+
+        float4 main() : SV_Target
+        {
+            return g_colour;
+        }
+    )";
+
+    // Enable dumpShaderSource
+    bool originalDumpValue = g_vhInit.dumpShaderSource;
+    g_vhInit.dumpShaderSource = true;
+
+    std::filesystem::path tempDir = g_vhInit.shaderCompileTempDir;
+    std::string testShaderName = "TestDumpShaderSource";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader(
+        testShaderName.c_str(),
+        shaderSource,
+        VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0,
+        spirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+
+    // Restore original value
+    g_vhInit.dumpShaderSource = originalDumpValue;
+
+    ASSERT_TRUE( success );
+    EXPECT_GT( spirv.size(), 0 );
+
+    // Verify .slang file was created
+    bool foundSlangFile = false;
+    std::string expectedPrefix = testShaderName + "_";
+    if ( std::filesystem::exists( tempDir ) )
+    {
+        for ( const auto& entry : std::filesystem::directory_iterator( tempDir ) )
+        {
+            std::string filename = entry.path().filename().string();
+            if ( filename.starts_with( expectedPrefix ) && filename.ends_with( ".slang" ) )
+            {
+                foundSlangFile = true;
+                // Clean it up
+                std::filesystem::remove( entry.path() );
+                break;
+            }
+        }
+    }
+
+    EXPECT_TRUE( foundSlangFile );
+
+    // Clean up any .spirv file that was created
+    for ( const auto& entry : std::filesystem::directory_iterator( tempDir ) )
+    {
+        std::string filename = entry.path().filename().string();
+        if ( filename.starts_with( expectedPrefix ) && filename.ends_with( ".spirv" ) )
+        {
+            std::filesystem::remove( entry.path() );
+        }
+    }
+}
