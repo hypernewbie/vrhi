@@ -51,6 +51,9 @@
     #ifdef Status
         #undef Status
     #endif
+    #ifdef Bool
+        #undef Bool
+    #endif
 #endif // #if VK_USE_PLATFORM_XLIB_KHR
 
 #include <nvrhi/vulkan.h>
