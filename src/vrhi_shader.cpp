@@ -23,6 +23,8 @@
 #include "vrhi_utils.h"
 #include <komihash/komihash.h>
 #include <spirv_reflect.h>
+#include <slang.h>
+#include <slang-com-ptr.h>
 
 // ------------ Shader Utilities ------------
 
@@ -350,6 +352,8 @@ bool vhRunExe( const std::string& command, std::string& outOutput )
     std::string fullCommand = command + " 2>&1";
 #endif // VK_USE_PLATFORM_WIN32_KHR
 
+    printf( "vhRunExe: %s\n", fullCommand.c_str() );
+
     // Use the prefixed macro
     FILE* pipe = VH_POPEN( fullCommand.c_str(), "r" );
     if ( !pipe )
@@ -360,6 +364,7 @@ bool vhRunExe( const std::string& command, std::string& outOutput )
     char buffer[2048];
     while ( fgets( buffer, sizeof( buffer ), pipe ) )
     {
+        printf( "%s", buffer );
         outOutput += buffer;
     }
 
@@ -440,6 +445,222 @@ vhShader vhAllocShader()
     return id;
 }
 
+
+bool vhCompileShaderSlang(
+    const std::filesystem::path& sourcePath,
+    const std::filesystem::path& outputPath,
+    uint64_t flags,
+    const char* entry,
+    const std::vector< std::string >& defines,
+    const std::vector< std::string >& includes,
+    std::string* outError
+)
+{
+    if ( outError ) *outError = "";
+    static Slang::ComPtr< slang::IGlobalSession > g_slang;
+    if ( !g_slang ) slang::createGlobalSession( g_slang.writeRef() );
+    if ( !g_slang )
+    {
+        if ( outError ) *outError = "Failed to create Slang global session";
+        VRHI_ERR( "vhCompileShaderSlang: Failed to create Slang global session\n" );
+        return false;
+    }
+
+    Slang::ComPtr< slang::ISession > session;
+    slang::SessionDesc sessionDesc = {};
+    sessionDesc.targetCount = 0;
+    sessionDesc.targets = nullptr;
+    
+    // Use the directory of the source file as a search path for includes
+    std::vector< const char* > searchPaths;
+    std::string sourceDir = sourcePath.parent_path().generic_string();
+    searchPaths.push_back( sourceDir.c_str() );
+    
+    // Add user include paths
+    for ( const auto& inc : includes )
+    {
+        searchPaths.push_back( inc.c_str() );
+    }
+    sessionDesc.searchPaths = searchPaths.data();
+    sessionDesc.searchPathCount = (SlangInt)searchPaths.size();
+
+    if ( SLANG_FAILED( g_slang->createSession( sessionDesc, session.writeRef() ) ) )
+    {
+        if ( outError ) *outError = "Failed to create Slang session";
+        return false;
+    }
+    Slang::ComPtr< slang::ICompileRequest > request;
+    if ( SLANG_FAILED( session->createCompileRequest( request.writeRef() ) ) )
+    {
+        if ( outError ) *outError = "Failed to create Slang compile request";
+        return false;
+    }
+
+    std::vector< const char* > args;
+    args.push_back( "-target" );
+    args.push_back( "spirv" );
+
+    // Profile
+    // Map VRHI_SHADER_SM_* to Slang profiles.
+    // e.g., VRHI_SHADER_SM_6_5 + VERTEX -> vs_6_5
+    const char* stageProfile = vhGetShaderProfile( flags ); // "vs", "ps", etc.
+    uint64_t sm = ( flags & VRHI_SHADER_SM_MASK );
+    std::string smStr = "6_5";
+    if ( sm == VRHI_SHADER_SM_5_0 ) smStr = "5_0";
+    else if ( sm == VRHI_SHADER_SM_6_0 ) smStr = "6_0";
+    else if ( sm == VRHI_SHADER_SM_6_6 ) smStr = "6_6";
+    std::string profileArg = std::string( stageProfile ) + "_" + smStr;
+    
+    // We need to keep the string alive until processCommandLineArguments is called.
+    // Use std::list to ensure pointers remain valid after insertion.
+    std::list< std::string > argStrings;
+    auto fnSlangAddArg = [&]( const std::string& arg )
+    {
+        argStrings.push_back( arg );
+        args.push_back( argStrings.back().c_str() );
+    };
+
+    // Override fnSlangAddArg to push directly to args for literals to avoid string copies/allocs
+    auto fnSlangAddLit = [&]( const char* literal )
+    {
+        args.push_back( literal );
+    };
+
+    fnSlangAddLit( "-profile" );
+    fnSlangAddArg( profileArg );
+
+    // Entry Point
+    fnSlangAddLit( "-entry" );
+    fnSlangAddLit( entry );
+    fnSlangAddLit( "-fvk-use-entrypoint-name" );
+
+    // Optimization & Debug
+    if ( flags & VRHI_SHADER_DEBUG )
+    {
+        fnSlangAddLit( "-O0" );
+        fnSlangAddLit( "-g" );
+    }
+    else
+    {
+        fnSlangAddLit( "-O3" );
+    }
+
+    // Matrix Layout
+    if ( flags & VRHI_SHADER_ROW_MAJOR )
+        fnSlangAddLit( "-matrix-layout-row-major" );
+    else
+        fnSlangAddLit( "-matrix-layout-column-major" );
+    if ( flags & VRHI_SHADER_WARNINGS_AS_ERRORS )
+        fnSlangAddLit( "-warnings-as-errors" );
+
+    // Defines
+    for ( const auto& d : defines )
+    {
+        fnSlangAddLit( "-D" );
+        fnSlangAddArg( d );
+    }
+
+    for ( uint32_t space = 0; space < VRHI_DESCRIPTOR_SET_MAX; ++space )
+    {
+        // s-shift
+        fnSlangAddLit( "-fvk-s-shift" );
+        fnSlangAddArg( std::to_string( g_vhInit.shaderMake_sRegShift ) );
+        fnSlangAddArg( std::to_string( space ) );
+
+        // t-shift
+        fnSlangAddLit( "-fvk-t-shift" );
+        fnSlangAddArg( std::to_string( g_vhInit.shaderMake_tRegShift ) );
+        fnSlangAddArg( std::to_string( space ) );
+
+        // b-shift
+        fnSlangAddLit( "-fvk-b-shift" );
+        fnSlangAddArg( std::to_string( g_vhInit.shaderMake_bRegShift ) );
+        fnSlangAddArg( std::to_string( space ) );
+
+        // u-shift
+        fnSlangAddLit( "-fvk-u-shift" );
+        fnSlangAddArg( std::to_string( g_vhInit.shaderMake_uRegShift ) );
+        fnSlangAddArg( std::to_string( space ) );
+    }
+
+    // VRHI Stage Space Define
+    uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
+    fnSlangAddLit( "-D" );
+    fnSlangAddArg( "VRHI_STAGE_SPACE=space" + std::to_string( stageSpace ) );
+
+    // Process arguments
+    if ( SLANG_FAILED( request->processCommandLineArguments( args.data(), (int)args.size() ) ) )
+    {
+        if ( outError ) *outError = "Failed to process Slang command line arguments";
+        return false;
+    }
+    int translationUnitIndex = request->addTranslationUnit( SLANG_SOURCE_LANGUAGE_SLANG, nullptr );
+    request->addTranslationUnitSourceFile( translationUnitIndex, sourcePath.generic_string().c_str() );
+
+    auto fnGetSlangStage = []( uint64_t flags ) -> SlangStage
+    {
+        uint64_t stage = ( flags & VRHI_SHADER_STAGE_MASK );
+        switch ( stage )
+        {
+            case VRHI_SHADER_STAGE_VERTEX:        return SLANG_STAGE_VERTEX;
+            case VRHI_SHADER_STAGE_PIXEL:         return SLANG_STAGE_FRAGMENT;
+            case VRHI_SHADER_STAGE_COMPUTE:       return SLANG_STAGE_COMPUTE;
+            case VRHI_SHADER_STAGE_HULL:          return SLANG_STAGE_HULL;
+            case VRHI_SHADER_STAGE_DOMAIN:        return SLANG_STAGE_DOMAIN;
+            case VRHI_SHADER_STAGE_GEOMETRY:      return SLANG_STAGE_GEOMETRY;
+            case VRHI_SHADER_STAGE_RAYGEN:        return SLANG_STAGE_RAY_GENERATION;
+            case VRHI_SHADER_STAGE_MISS:          return SLANG_STAGE_MISS;
+            case VRHI_SHADER_STAGE_CLOSEST_HIT:   return SLANG_STAGE_CLOSEST_HIT;
+            case VRHI_SHADER_STAGE_ANY_HIT:       return SLANG_STAGE_ANY_HIT;
+            case VRHI_SHADER_STAGE_INTERSECTION:  return SLANG_STAGE_INTERSECTION;
+            case VRHI_SHADER_STAGE_CALLABLE:      return SLANG_STAGE_CALLABLE;
+            case VRHI_SHADER_STAGE_MESH:          return SLANG_STAGE_MESH;
+            case VRHI_SHADER_STAGE_AMPLIFICATION: return SLANG_STAGE_AMPLIFICATION;
+            default:                              return SLANG_STAGE_NONE;
+        }
+    };
+
+    SlangStage stage = fnGetSlangStage( flags );
+    int entryPointIndex = request->addEntryPoint( translationUnitIndex, entry, stage );
+    int targetIndex = request->addCodeGenTarget( SLANG_SPIRV );
+
+    // Compile
+    bool compileSuccess = true;
+    if ( SLANG_FAILED( request->compile() ) )
+    {
+        compileSuccess = false;
+    }
+    const char* diag = request->getDiagnosticOutput();
+    if ( diag && diag[0] )
+    {
+        if ( outError ) *outError += diag;
+        VRHI_LOG( "%s\n", diag );
+    }
+    if ( !compileSuccess )
+        return false;
+
+    // Get output
+    Slang::ComPtr< slang::IBlob > blob;
+    if ( SLANG_FAILED( request->getEntryPointCodeBlob( entryPointIndex, targetIndex, blob.writeRef() ) ) )
+    {
+        if ( outError ) *outError = "Shader compilation failed (see output)";
+        if ( diag && outError ) *outError += "\n" + std::string( diag );
+        return false;
+    }
+
+    // Write to file
+    {
+        std::ofstream outFile( outputPath, std::ios::binary );
+        if ( !outFile.is_open() )
+        {
+            if ( outError ) *outError = "Failed to open output file for writing: " + outputPath.string();
+            return false;
+        }
+        outFile.write( (const char*)blob->getBufferPointer(), blob->getBufferSize() );
+    }
+    return true;
+}
+
 bool vhCompileShader(
     const char* name,
     const char* source,
@@ -468,16 +689,14 @@ bool vhCompileShader(
     uint64_t hash = komihash( hashInput.data(), hashInput.size(), 0 );
 
     std::string prefix = std::string( name ) + "_" + std::to_string( hash );
-    const char* profile = vhGetShaderProfile( flags );
-
-    // ShaderMake usually appends profile to output, e.g. Name_hash_ps.spirv
-
+    
+    // Construct output filename compatible with ShaderMake's conventions (mostly for visual consistency in cache)
     std::string outputFilename = prefix;
     if ( entry && strcmp( entry, "main" ) != 0 )
         outputFilename += "_" + std::string( entry );
     outputFilename += ".spirv";
     std::filesystem::path spvPath = tempDir / outputFilename;
-    // VRHI_LOG( "Looking for shader %s\n", outputFilename.c_str() );
+
     if ( !g_vhInit.forceShaderRecompile && std::filesystem::exists( spvPath ) )
     {
         if ( vhLoadSpirvFile( spvPath, outSpirv ) )
@@ -493,9 +712,6 @@ bool vhCompileShader(
         }
     }
 
-    // Argument Construction
-    std::string argString = vhBuildShaderFlagArgs_Internal( flags );
-
     // Write source to temporary file
     std::string sourceFilename = prefix + ".slang";
     std::filesystem::path sourceFilePath = tempDir / sourceFilename;
@@ -509,89 +725,16 @@ bool vhCompileShader(
         sourceFile << source;
     }
 
-    // Write config file for ShaderMake
-    std::string configFilename = prefix + ".cfg";
-    std::filesystem::path configFilePath = tempDir / configFilename;
+    // Compile using libslang
+    if ( !vhCompileShaderSlang( sourceFilePath, spvPath, flags, entry, defines, includes, outError ) )
     {
-        std::ofstream configFile( configFilePath );
-        if ( !configFile.is_open() )
-        {
-            if ( outError ) *outError = "Failed to create temporary shader config file: " + configFilePath.string();
-            return false;
-        }
-        // Config format: filename -T profile -E entry
-        configFile << sourceFilename << " -T " << profile << " -E " << entry;
-    }
-
-    // Build
-
-    std::filesystem::path shaderMakePath = g_vhInit.shaderMakePath;
-    std::filesystem::path slangPath = g_vhInit.shaderMakeSlangPath;
-
-#ifdef _WIN32
-    std::filesystem::path shaderMakeExe = shaderMakePath / "ShaderMake.exe";
-    std::filesystem::path slangExe = slangPath / "slangc.exe";
-#else
-    std::filesystem::path shaderMakeExe = shaderMakePath / "ShaderMake";
-    std::filesystem::path slangExe = slangPath / "slangc";
-#endif
-    shaderMakeExe.make_preferred();
-    slangExe.make_preferred();
-
-    std::string cmd = "\"" + shaderMakeExe.string() + "\"";
-    cmd += " -p SPIRV --binary --flatten --serial"; // --serial to avoid overhead/issues in single file compile
-    cmd += " -c \"" + configFilePath.string() + "\"";
-    cmd += " -o \"" + tempDir.string() + "\"";
-    cmd += " --compiler \"" + slangExe.string() + "\"";
-    cmd += " --slang";
-
-    cmd += argString; // Includes -m, -O, etc.
-
-    // Provide VRHI_STAGE_SPACE define for opt-in per-stage descriptor sets.
-    // Shaders can use: register(u0, VRHI_STAGE_SPACE) to get stage-specific binding.
-    uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
-    cmd += " -D VRHI_STAGE_SPACE=space" + std::to_string( stageSpace );
-
-    for ( const auto& d : defines ) cmd += " -D " + d;
-    for ( const auto& i : includes ) cmd += " -I \"" + i + "\"";
-
-    // Run Command
-
-    std::string output;
-    if ( !vhRunExe( cmd, output ) )
-    {
-        if ( outError ) *outError = output;
         return false;
     }
 
     // Load Result
-    if ( !std::filesystem::exists( spvPath ) )
-    {
-        // Try opposite suffix pattern for backward compatibility
-        std::filesystem::path fallbackPath;
-        if ( entry && strcmp( entry, "main" ) != 0 )
-        {
-            // Entry ≠ "main": try unsuffixed fallback (old VRHI behavior)
-            fallbackPath = tempDir / ( prefix + ".spirv" );
-        }
-        else
-        {
-            // Entry == "main": try suffixed fallback (if somehow created)
-            fallbackPath = tempDir / ( prefix + "_main.spirv" );
-        }
-        
-        if ( !std::filesystem::exists( fallbackPath ) )
-        {
-            if ( outError ) *outError = "Compilation finished but output file not found: " + spvPath.string() + "\nOutput:\n" + output;
-            return false;
-        }
-        spvPath = fallbackPath;
-    }
-
     bool loaded = vhLoadSpirvFile( spvPath, outSpirv );
 
     // Optionally patch DescriptorSet 0 decorations to the stage-specific set.
-    // This allows shaders without explicit register spaces to work with VRHI's stage-based binding model.
     if ( loaded && ( flags & VRHI_SHADER_PATCH_DSET0 ) )
     {
         uint32_t stageSpace = vhGetDescriptorSetForStage( flags );

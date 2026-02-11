@@ -69,6 +69,8 @@ int main( int argc, const char* const argv[] )
     // g_vhInit.debugBlockWaitForBackend = true; // Enable this to test blocking backend mode.
 #endif
 
+    g_vhInit.forceShaderRecompile = true;
+
 #ifdef _WIN32
     g_vhInit.shaderMakePath = "../tools/win_release";
     g_vhInit.shaderMakeSlangPath = "../tools/win_release";

@@ -175,6 +175,7 @@
      "${CMAKE_CURRENT_SOURCE_DIR}"
      "${CMAKE_CURRENT_SOURCE_DIR}/src"
      "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
+     "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/ShaderMake/build_debug/_deps/slang-src/include"
  )
  target_include_directories(vrhi PRIVATE "${SPIRV_REFLECT_DIR}")
  
@@ -182,8 +183,7 @@
  target_link_directories(vrhi PUBLIC "${VRHI_LIB_DIR}")
  
  # Link dependencies
- target_link_libraries(vrhi PUBLIC Vulkan::Vulkan)
- 
+ target_link_libraries(vrhi PUBLIC Vulkan::Vulkan slang) 
  if(UNIX AND NOT APPLE)
      target_link_libraries(vrhi PUBLIC X11 Xi Xext)
  endif()

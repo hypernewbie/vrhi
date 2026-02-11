@@ -711,8 +711,8 @@ UTEST( Hashing, ShaderDebugName )
 // --------------------------------------------------------------------------
 
 static const char* g_globalsTestShader = R"(
-float3 u_float3;
-float4 u_float4;
+uniform float3 u_float3;
+uniform float4 u_float4;
 
 [shader("vertex")]
 float4 main() : SV_Position
@@ -823,7 +823,7 @@ UTEST_F( Shader, CompileNonMainEntryPoints )
         struct VSInput { float3 pos : POSITION; };
         struct VSOutput { float4 pos : SV_Position; float4 col : COLOUR; };
         
-        float4 u_colour;
+        uniform float4 u_colour;
         
         [shader("vertex")]
         VSOutput VSMain(VSInput input)
@@ -1331,8 +1331,8 @@ UTEST_F( Shader, CompileWithPatchFlagBareUniforms )
     // Pixel shader with bare uniforms (no struct wrapper)
     // These should be collected into globalParams/$Globals by the compiler
     const char* shaderSource = R"(
-        float4 u_colour;  // Bare uniform, no struct
-        float u_time;     // Another bare uniform
+        uniform float4 u_colour;  // Bare uniform, no struct
+        uniform float u_time;     // Another bare uniform
         
         float4 main() : SV_Target
         {
