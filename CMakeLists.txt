@@ -98,22 +98,44 @@
  # Python (optional - for code generation)
  find_package(Python3 COMPONENTS Interpreter)
  
- # SPIRV-Reflect (from Vulkan SDK)
- find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
-     HINTS 
-         "$ENV{VULKAN_SDK}/source/SPIRV-Reflect"
-         "$ENV{VULKAN_SDK}/Source/SPIRV-Reflect"
-         "${Vulkan_INCLUDE_DIR}/../source/SPIRV-Reflect"
-         "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect"
-         "${Vulkan_INCLUDE_DIR}/SPIRV-Reflect"
- )
- 
- if(NOT SPIRV_REFLECT_DIR)
-     message(FATAL_ERROR "SPIRV-Reflect not found in Vulkan SDK")
- endif()
- 
- set(SPIRV_REFLECT_SOURCE "${SPIRV_REFLECT_DIR}/spirv_reflect.c")
- set(SPIRV_REFLECT_HEADER "${SPIRV_REFLECT_DIR}/spirv_reflect.h")
+# SPIRV-Reflect (from Vulkan SDK)
+find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
+    HINTS 
+        "$ENV{VULKAN_SDK}/source/SPIRV-Reflect"
+        "$ENV{VULKAN_SDK}/Source/SPIRV-Reflect"
+        "${Vulkan_INCLUDE_DIR}/../source/SPIRV-Reflect"
+        "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect"
+        "${Vulkan_INCLUDE_DIR}/SPIRV-Reflect"
+)
+
+if(NOT SPIRV_REFLECT_DIR)
+    message(FATAL_ERROR "SPIRV-Reflect not found in Vulkan SDK")
+endif()
+
+set(SPIRV_REFLECT_SOURCE "${SPIRV_REFLECT_DIR}/spirv_reflect.c")
+set(SPIRV_REFLECT_HEADER "${SPIRV_REFLECT_DIR}/spirv_reflect.h")
+
+# Slang (from Vulkan SDK, fallback to bundled)
+find_path(SLANG_INCLUDE_DIR NAMES slang.h
+    HINTS
+        "$ENV{VULKAN_SDK}/include/slang"
+        "${Vulkan_INCLUDE_DIR}/slang"
+)
+
+find_library(SLANG_LIBRARY NAMES slang slang.lib libslang.so libslang.dylib
+    HINTS
+        "$ENV{VULKAN_SDK}/lib"
+        "$ENV{VULKAN_SDK}/Lib"
+        "${VRHI_LIB_DIR}"
+)
+
+if(NOT SLANG_INCLUDE_DIR OR NOT SLANG_LIBRARY)
+    message(STATUS "Slang not found in Vulkan SDK, using bundled version")
+    set(SLANG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/vdeps/ShaderMake/build_$<LOWER_CASE:$<CONFIG>>/_deps/slang-src/include")
+    set(SLANG_LIBRARY slang)
+else()
+    message(STATUS "Using Slang from Vulkan SDK: ${SLANG_LIBRARY}")
+endif()
  
  # -----------------------------------------------------------------------------
  # Code Generation
@@ -170,23 +192,23 @@
  endif()
  
  # Include directories
- target_include_directories(vrhi PUBLIC 
-     "${CMAKE_CURRENT_SOURCE_DIR}/include"
-     "${CMAKE_CURRENT_SOURCE_DIR}"
-     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-     "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
-     "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/ShaderMake/build_debug/_deps/slang-src/include"
- )
+target_include_directories(vrhi PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
+    "${SLANG_INCLUDE_DIR}"
+)
  target_include_directories(vrhi PRIVATE "${SPIRV_REFLECT_DIR}")
  
  # Library search paths
  target_link_directories(vrhi PUBLIC "${VRHI_LIB_DIR}")
  
- # Link dependencies
- target_link_libraries(vrhi PUBLIC Vulkan::Vulkan slang) 
- if(UNIX AND NOT APPLE)
-     target_link_libraries(vrhi PUBLIC X11 Xi Xext)
- endif()
+# Link dependencies
+target_link_libraries(vrhi PUBLIC Vulkan::Vulkan ${SLANG_LIBRARY})
+if(UNIX AND NOT APPLE)
+    target_link_libraries(vrhi PUBLIC X11 Xi Xext)
+endif()
  
  if(WIN32)
      target_link_libraries(vrhi PUBLIC dxgi shlwapi)

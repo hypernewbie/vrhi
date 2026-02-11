@@ -12,9 +12,10 @@
  - **Vulkan SDK**: Install from [vulkan.lunarg.com](https://vulkan.lunarg.com/sdk/home) (Tested on version `1.4.335.0`).
  - **CMake**: CMake 3.22 or newer.
  - **Python 3**: Python 3.12 or newer.
- - **Windows**: Visual Studio 2022 or newer (MSVC C++23).
- - **Linux**: Clang 21 (`libc++-21-dev`, `libc++abi-21-dev`), Ninja, X11 libraries (`libx11-dev`, `libxrandr-dev`, `libxi-dev`, `libxcursor-dev`, `libxinerama-dev`, `libxext-dev`), `mesa-vulkan-drivers`.
- - **macOS**: Clang 17 (`brew install llvm@17`), Ninja.
+  - **Windows**: Visual Studio 2022 or newer (MSVC C++23).
+  - **Linux**: Clang 21 (`libc++-21-dev`, `libc++abi-21-dev`), Ninja, X11 libraries (`libx11-dev`, `libxrandr-dev`, `libxi-dev`, `libxcursor-dev`, `libxinerama-dev`, `libxext-dev`), `mesa-vulkan-drivers`.
+  - **macOS**: Clang 17 (`brew install llvm@17`), Ninja.
+  - **Slang Library**: Included in Vulkan SDK (1.3.275+). Falls back to bundled version if not found.
  
  ## Build
  
