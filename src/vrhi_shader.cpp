@@ -21,6 +21,7 @@
 
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
+#include <list>
 #include <komihash/komihash.h>
 #include <spirv_reflect.h>
 #include <slang.h>
