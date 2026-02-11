@@ -54,8 +54,6 @@ UTEST_F_TEARDOWN( Shader )
 {
     vhEndMarker();
 }
-extern std::string vhBuildShaderFlagArgs_Internal( uint64_t flags );
-extern bool vhRunExe( const std::string& command, std::string& outOutput );
 
 UTEST( ShaderInternal, StateToDesc )
 {
@@ -365,43 +363,6 @@ UTEST_F( Shader, Lifecycle )
     vhFlush();
 
     EXPECT_EQ( g_vhErrorCounter.load(), baseline );
-}
-
-UTEST_F( Shader, BuildFlags )
-{
-    // Test 1: Default/Release
-    {
-        uint64_t flags = 0;
-        std::string args = vhBuildShaderFlagArgs_Internal( flags );
-        // ShaderMake uses -m for model, profile is in config file
-        EXPECT_TRUE( args.find( "-m 6_5" ) != std::string::npos );
-        EXPECT_TRUE( args.find( "-O 3" ) != std::string::npos );
-    }
-
-    // Test 2: Debug & SM 6.0 & Vertex
-    {
-        uint64_t flags = VRHI_SHADER_DEBUG | VRHI_SHADER_SM_6_0 | VRHI_SHADER_STAGE_VERTEX;
-        std::string args = vhBuildShaderFlagArgs_Internal( flags );
-        EXPECT_TRUE( args.find( "-m 6_0" ) != std::string::npos );
-        EXPECT_TRUE( args.find( "-O 0" ) != std::string::npos );
-        EXPECT_TRUE( args.find( "--embedPDB" ) != std::string::npos );
-    }
-
-    // Test 3: Matrix & Warnings
-    {
-        uint64_t flags = VRHI_SHADER_ROW_MAJOR | VRHI_SHADER_WARNINGS_AS_ERRORS;
-        std::string args = vhBuildShaderFlagArgs_Internal( flags );
-        EXPECT_TRUE( args.find( "--matrixRowMajor" ) != std::string::npos );
-        EXPECT_TRUE( args.find( "--WX" ) != std::string::npos );
-    }
-}
-
-UTEST_F( Shader, RunExe )
-{
-    std::string output;
-    bool success = vhRunExe( "echo HelloVRHI", output );
-    EXPECT_TRUE( success );
-    EXPECT_TRUE( output.find( "HelloVRHI" ) != std::string::npos );
 }
 
 UTEST_F( Shader, Compile )

@@ -320,67 +320,6 @@ static bool vhLoadSpirvFile( const std::filesystem::path& path, std::vector< uin
     return true;
 }
 
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    // Map to Windows underscore variants
-    #define VH_POPEN       _popen
-    #define VH_PCLOSE      _pclose
-    #define VH_PUTENV      _putenv
-
-    // Windows pclose returns the exit code directly
-    #define VH_WEXITSTATUS(x) (x)
-    #define VH_WIFEXITED(x)   ((x) != -1)
-#else // VK_USE_PLATFORM_WIN32_KHR
-    #include <unistd.h>
-    #include <sys/wait.h>
-
-    // Map to standard POSIX names
-    #define VH_POPEN       popen
-    #define VH_PCLOSE      pclose
-    #define VH_PUTENV      putenv
-
-    // Map to standard POSIX macros
-    #define VH_WEXITSTATUS(x) WEXITSTATUS(x)
-    #define VH_WIFEXITED(x)   WIFEXITED(x)
-#endif // VK_USE_PLATFORM_WIN32_KHR
-
-bool vhRunExe( const std::string& command, std::string& outOutput )
-{
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    // Wrap in quotes to prevent cmd.exe from stripping the executable's quotes
-    std::string fullCommand = "\"" + command + "\" 2>&1";
-#else // VK_USE_PLATFORM_WIN32_KHR
-    std::string fullCommand = command + " 2>&1";
-#endif // VK_USE_PLATFORM_WIN32_KHR
-
-    printf( "vhRunExe: %s\n", fullCommand.c_str() );
-
-    // Use the prefixed macro
-    FILE* pipe = VH_POPEN( fullCommand.c_str(), "r" );
-    if ( !pipe )
-    {
-        return false;
-    }
-
-    char buffer[2048];
-    while ( fgets( buffer, sizeof( buffer ), pipe ) )
-    {
-        printf( "%s", buffer );
-        outOutput += buffer;
-    }
-
-    // Use the prefixed close
-    int result = VH_PCLOSE( pipe );
-
-    // Use the prefixed status macros
-    bool failed = false;
-    if ( result == -1 || !VH_WIFEXITED( result ) || VH_WEXITSTATUS( result ) != 0 )
-    {
-        failed = true;
-    }
-
-    return !failed;
-}
-
 const char* vhGetShaderProfile( uint64_t flags )
 {
     uint64_t stage = ( flags & VRHI_SHADER_STAGE_MASK );
@@ -399,40 +338,6 @@ const char* vhGetShaderProfile( uint64_t flags )
         case VRHI_SHADER_STAGE_AMPLIFICATION: return "as";
     }
     return "ps";
-}
-
-std::string vhBuildShaderFlagArgs_Internal( uint64_t flags )
-{
-    std::string args = "";
-
-    // Shader Model
-    uint64_t sm = ( flags & VRHI_SHADER_SM_MASK );
-    const char* smStr = "6_5";
-    if ( sm == VRHI_SHADER_SM_5_0 ) smStr = "5_0";
-    else if ( sm == VRHI_SHADER_SM_6_0 ) smStr = "6_0";
-    else if ( sm == VRHI_SHADER_SM_6_6 ) smStr = "6_6";
-
-    // ShaderMake uses -m for model
-    args += " -m ";
-    args += smStr;
-
-    // Optimisation
-    if ( flags & VRHI_SHADER_DEBUG )
-    {
-        args += " -O 0 --embedPDB";
-    }
-    else
-    {
-        args += " -O 3";
-    }
-
-    // Toggles
-    if ( flags & VRHI_SHADER_ROW_MAJOR ) args += " --matrixRowMajor";
-    if ( flags & VRHI_SHADER_WARNINGS_AS_ERRORS ) args += " --WX";
-    if ( flags & VRHI_SHADER_STRIP_REFLECTION ) args += " --stripReflection";
-    if ( flags & VRHI_SHADER_ALL_RESOURCES_BOUND ) args += " --allResourcesBound";
-
-    return args;
 }
 
 // ------------ Shader Implementation ------------
