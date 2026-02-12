@@ -1,7 +1,6 @@
 [[dependency]]
 name = "nvrhi"
 rel_path = "nvrhi"
-init_submodules = true
 libs = ["nvrhi_vk", "rtxmu", "nvrhi"]
 cmake_options = [
     "-DNVRHI_INSTALL=OFF",
@@ -20,7 +19,6 @@ cmake_options = [
 [[dependency]]
 name = "vk-bootstrap"
 rel_path = "vk-bootstrap"
-init_submodules = false
 libs = ["vk-bootstrap"]
 cmake_options = [
     "-DBUILD_SHARED_LIBS=OFF",
