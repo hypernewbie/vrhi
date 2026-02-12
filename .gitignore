@@ -36,9 +36,10 @@ _deps/
 *.obj
 *.ilk
 *.exp
-*.lib
-!lib/
-!lib/**/*.lib
+# Ignore all files in lib/ (built by vdeps.py)
+# Except the .gitkeep file which ensures directory exists
+/lib/*
+!/lib/.gitkeep
 *.exe
 *.dll
 
