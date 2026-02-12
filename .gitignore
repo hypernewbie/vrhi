@@ -40,6 +40,11 @@ _deps/
 # Except the .gitkeep file which ensures directory exists
 /lib/*
 !/lib/.gitkeep
+
+# Ignore all files in tools/ (built by vdeps.py)
+# Except the .gitkeep file which ensures directory exists
+/tools/*
+!/tools/.gitkeep
 *.exe
 *.dll
 
