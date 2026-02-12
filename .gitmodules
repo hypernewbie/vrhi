@@ -12,3 +12,9 @@
 [submodule "vdeps/RGFW"]
 	path = vdeps/RGFW
 	url = https://github.com/hypernewbie/RGFW
+[submodule "vdeps/SPIRV-Headers"]
+	path = vdeps/SPIRV-Headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers.git
+[submodule "vdeps/SPIRV-Tools"]
+	path = vdeps/SPIRV-Tools
+	url = https://github.com/KhronosGroup/SPIRV-Tools.git
