@@ -22,6 +22,7 @@
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
 #include <list>
+#include <mutex>
 #include <komihash/komihash.h>
 #include <spirv_reflect.h>
 #include <slang.h>
@@ -367,17 +368,22 @@ bool vhCompileShaderSlang(
     if ( outError ) *outError = "";
     outSpirv.clear();
     static Slang::ComPtr< slang::IGlobalSession > g_slang;
-    if ( !g_slang ) slang::createGlobalSession( g_slang.writeRef() );
+    static std::once_flag g_slangInit;
+    std::call_once( g_slangInit, []()
+    {
+        slang::createGlobalSession( g_slang.writeRef() );
+        if ( g_slang )
+        {
+            g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_SPIRV_OPT );
+            g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_GLSLANG );
+        }
+    } );
     if ( !g_slang )
     {
         if ( outError ) *outError = "Failed to create Slang global session";
         VRHI_ERR( "vhCompileShaderSlang: Failed to create Slang global session\n" );
         return false;
     }
-
-    // Pre-warm downstream compiler cache to silence load failures as errors.
-    g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_SPIRV_OPT );
-    g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_GLSLANG );
 
     Slang::ComPtr< slang::ISession > session;
     slang::SessionDesc sessionDesc = {};
