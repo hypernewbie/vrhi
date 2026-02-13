@@ -375,6 +375,10 @@ bool vhCompileShaderSlang(
         return false;
     }
 
+    // Pre-warm downstream compiler cache to silence load failures as errors.
+    g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_SPIRV_OPT );
+    g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_GLSLANG );
+
     Slang::ComPtr< slang::ISession > session;
     slang::SessionDesc sessionDesc = {};
     sessionDesc.targetCount = 0;
