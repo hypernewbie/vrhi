@@ -1586,3 +1586,44 @@ UTEST_F( Shader, DumpShaderSource )
         }
     }
 }
+
+// Test SPIRV optimisation with O3 flag
+UTEST_F( Shader, CompileWithO3Optimisation )
+{
+    const char* shaderSource = R"(
+        uniform float4 g_colour;
+
+        float4 main() : SV_Target
+        {
+            float4 colour = g_colour;
+            // Dead code that should be eliminated by optimiser
+            float unused = colour.x + colour.y;
+            float4 result = colour;
+            return result;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    
+    // Compile with O3 optimisation (no VRHI_SHADER_DEBUG flag)
+    bool success = vhCompileShader(
+        "TestO3Optimise",
+        shaderSource,
+        VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0,  // No VRHI_SHADER_DEBUG
+        spirv,
+        "main",
+        {},
+        {},
+        &error
+    );
+
+    ASSERT_TRUE( success );
+    EXPECT_GT( spirv.size(), 0 );
+    
+    // Verify it's valid SPIRV (magic number)
+    EXPECT_EQ( spirv[0], 0x07230203 );
+
+    // Check no downstream compiler warnings present
+    EXPECT_EQ( error.find( "failed to load downstream compiler" ), std::string::npos );
+}

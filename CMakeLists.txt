@@ -134,6 +134,63 @@ if(NOT SLANG_INCLUDE_DIR OR NOT SLANG_LIBRARY)
 else()
     message(STATUS "Using Slang from Vulkan SDK: ${SLANG_LIBRARY}")
 endif()
+
+# SPIRV-Tools (built by vdeps - for SPIRV optimisation)
+# Use per-config imported targets for multi-config generators (Visual Studio).
+get_filename_component( VULKAN_SDK_LIB_DIR "${Vulkan_LIBRARY}" DIRECTORY )
+
+# Determine platform tag for local lib paths
+if( WIN32 )
+    set( VRHI_PLATFORM_TAG "win" )
+elseif( UNIX AND NOT APPLE )
+    set( VRHI_PLATFORM_TAG "linux" )
+else()
+    set( VRHI_PLATFORM_TAG "macosx" )
+endif()
+
+# Set up per-config library paths
+# vdeps.py builds to lib/${VRHI_PLATFORM_TAG}_debug and lib/${VRHI_PLATFORM_TAG}_release
+set( SPIRV_TOOLS_DEBUG_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_debug" )
+set( SPIRV_TOOLS_RELEASE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_release" )
+
+if( WIN32 )
+    # Windows: use .lib files with per-config IMPORTED_LOCATION
+    # Debug builds use lib/win_debug, Release builds use lib/win_release
+    add_library( SPIRV-Tools-opt STATIC IMPORTED )
+    set_target_properties( SPIRV-Tools-opt PROPERTIES
+        IMPORTED_LOCATION "${SPIRV_TOOLS_RELEASE_LIB_DIR}/SPIRV-Tools-opt.lib"
+        IMPORTED_LOCATION_DEBUG "${SPIRV_TOOLS_DEBUG_LIB_DIR}/SPIRV-Tools-opt.lib"
+    )
+    add_library( SPIRV-Tools STATIC IMPORTED )
+    set_target_properties( SPIRV-Tools PROPERTIES
+        IMPORTED_LOCATION "${SPIRV_TOOLS_RELEASE_LIB_DIR}/SPIRV-Tools.lib"
+        IMPORTED_LOCATION_DEBUG "${SPIRV_TOOLS_DEBUG_LIB_DIR}/SPIRV-Tools.lib"
+    )
+    
+    message( STATUS "Using SPIRV-Tools-opt (imported): Debug=${SPIRV_TOOLS_DEBUG_LIB_DIR}/SPIRV-Tools-opt.lib, Release=${SPIRV_TOOLS_RELEASE_LIB_DIR}/SPIRV-Tools-opt.lib" )
+    message( STATUS "Using SPIRV-Tools (imported): Debug=${SPIRV_TOOLS_DEBUG_LIB_DIR}/SPIRV-Tools.lib, Release=${SPIRV_TOOLS_RELEASE_LIB_DIR}/SPIRV-Tools.lib" )
+else()
+    # Linux/macOS: find .a or .so files (fallback to find_library for SDK paths)
+    find_library( SPIRV_TOOLS_OPT_LIBRARY NAMES SPIRV-Tools-opt
+        HINTS 
+            "${SPIRV_TOOLS_RELEASE_LIB_DIR}"
+            "${SPIRV_TOOLS_DEBUG_LIB_DIR}"
+            "${VULKAN_SDK_LIB_DIR}"
+    )
+    find_library( SPIRV_TOOLS_LIBRARY NAMES SPIRV-Tools
+        HINTS 
+            "${SPIRV_TOOLS_RELEASE_LIB_DIR}"
+            "${SPIRV_TOOLS_DEBUG_LIB_DIR}"
+            "${VULKAN_SDK_LIB_DIR}"
+    )
+    
+    if( NOT SPIRV_TOOLS_OPT_LIBRARY OR NOT SPIRV_TOOLS_LIBRARY )
+        message( FATAL_ERROR "SPIRV-Tools not found. Please run vdeps.py or install Vulkan SDK." )
+    endif()
+    
+    message( STATUS "Using SPIRV-Tools-opt: ${SPIRV_TOOLS_OPT_LIBRARY}" )
+    message( STATUS "Using SPIRV-Tools: ${SPIRV_TOOLS_LIBRARY}" )
+endif()
  
  # -----------------------------------------------------------------------------
  # Code Generation
@@ -197,13 +254,23 @@ target_include_directories(vrhi PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
     "${SLANG_INCLUDE_DIR}"
 )
- target_include_directories(vrhi PRIVATE "${SPIRV_REFLECT_DIR}")
+ target_include_directories(vrhi PRIVATE "${SPIRV_REFLECT_DIR}" "${Vulkan_INCLUDE_DIR}")
  
  # Library search paths
  target_link_directories(vrhi PUBLIC "${VRHI_LIB_DIR}")
  
 # Link dependencies
 target_link_libraries(vrhi PUBLIC Vulkan::Vulkan ${SLANG_LIBRARY})
+
+# Link SPIRV-Tools (needed for vhOptimiseSpirv in vrhi_shader.cpp)
+# PUBLIC because vrhi is STATIC - downstream executables need to resolve these symbols.
+# Uses imported targets with per-config library paths for multi-config generators.
+if( WIN32 )
+    target_link_libraries( vrhi PUBLIC SPIRV-Tools-opt SPIRV-Tools )
+else()
+    target_link_libraries( vrhi PUBLIC ${SPIRV_TOOLS_OPT_LIBRARY} ${SPIRV_TOOLS_LIBRARY} )
+endif()
+
 if(UNIX AND NOT APPLE)
     target_link_libraries(vrhi PUBLIC X11 Xi Xext)
 endif()

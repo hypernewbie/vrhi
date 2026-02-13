@@ -22,6 +22,19 @@ if(DEFINED ENV{VULKAN_SDK})
 endif()
 find_package(Vulkan REQUIRED)
 
+# Find SPIRV-Tools for the package test
+get_filename_component( VULKAN_LIB_DIR_PKG "${Vulkan_LIBRARY}" DIRECTORY )
+find_library( SPIRV_TOOLS_OPT_PKG NAMES SPIRV-Tools-opt 
+    HINTS 
+        "${VRHI_PACKAGE_PATH}/lib"
+        "${VULKAN_LIB_DIR_PKG}" 
+)
+find_library( SPIRV_TOOLS_PKG NAMES SPIRV-Tools 
+    HINTS 
+        "${VRHI_PACKAGE_PATH}/lib"
+        "${VULKAN_LIB_DIR_PKG}" 
+)
+
 # VRHI Package path (passed from driver script)
 if(NOT VRHI_PACKAGE_PATH)
     message(FATAL_ERROR "VRHI_PACKAGE_PATH not specified")
@@ -49,6 +62,8 @@ target_link_libraries(test_package_exe PRIVATE
     rtxmu
     slang
     Vulkan::Vulkan
+    ${SPIRV_TOOLS_OPT_PKG}
+    ${SPIRV_TOOLS_PKG}
 )
 
 # Platform-specific system libraries

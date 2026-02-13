@@ -1462,6 +1462,21 @@ nvrhi::ShaderHandle vhGetShaderNvrhiHandle( vhShader shader );
 
 // Compiles shader source code to SPIR-V bytecode using Slang.
 //
+// Optimise a SPIRV binary using SPIRV-Tools from the Vulkan SDK.
+// This is automatically called by vhCompileShader() when compiling
+// with optimisation enabled (i.e., without VRHI_SHADER_DEBUG flag).
+// 
+// Parameters:
+//   spirv - Vector containing SPIRV binary. Will be replaced with 
+//           optimised version on success.
+//
+// Returns:
+//   true if optimisation succeeded, false otherwise.
+//   On failure, spirv is unchanged.
+//
+// Note: This function requires SPIRV-Tools libraries from the Vulkan SDK.
+bool vhOptimiseSpirv( std::vector< uint32_t >& spirv );
+
 // `name` is an optional debug name for the shader.
 // `source` is the HLSL/GLSL source code to compile.
 // `flags` specifies shader stage and compile options (VRHI_SHADER_STAGE_*, VRHI_SHADER_DEBUG, etc.).

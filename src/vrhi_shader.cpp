@@ -26,6 +26,8 @@
 #include <spirv_reflect.h>
 #include <slang.h>
 #include <slang-com-ptr.h>
+#include <spirv-tools/optimizer.hpp>
+#include <spirv-tools/libspirv.hpp>
 
 // ------------ Shader Utilities ------------
 
@@ -570,6 +572,59 @@ bool vhCompileShaderSlang(
     return true;
 }
 
+bool vhOptimiseSpirv( std::vector< uint32_t >& spirv )
+{
+    if ( spirv.empty() )
+    {
+        return false;
+    }
+
+    // Verify it's valid SPIRV
+    if ( spirv.size() < 5 || spirv[0] != SpvMagicNumber )
+    {
+        VRHI_ERR( "vhOptimiseSpirv: Invalid SPIRV binary\n" );
+        return false;
+    }
+
+    // Create optimiser for Vulkan 1.3 environment
+    spvtools::Optimizer optimizer( SPV_ENV_VULKAN_1_3 );
+
+    // Set up message consumer to log warnings/errors
+    optimizer.SetMessageConsumer(
+        []( spv_message_level_t level, const char* source,
+            const spv_position_t& position, const char* message )
+        {
+            const char* levelStr = "";
+            switch ( level )
+            {
+                case SPV_MSG_FATAL:          levelStr = "FATAL"; break;
+                case SPV_MSG_INTERNAL_ERROR:  levelStr = "INTERNAL_ERROR"; break;
+                case SPV_MSG_ERROR:           levelStr = "ERROR"; break;
+                case SPV_MSG_WARNING:         levelStr = "WARNING"; break;
+                case SPV_MSG_INFO:            levelStr = "INFO"; break;
+                case SPV_MSG_DEBUG:           levelStr = "DEBUG"; break;
+                default:                      levelStr = "UNKNOWN"; break;
+            }
+            VRHI_LOG( "SPIRV-Tools [%s]: %s\n", levelStr, message );
+        }
+    );
+
+    // Register performance optimisation passes (equivalent to spirv-opt -O)
+    optimizer.RegisterPerformancePasses();
+
+    // Run optimisation
+    std::vector< uint32_t > optimisedSpirv;
+    if ( !optimizer.Run( spirv.data(), spirv.size(), &optimisedSpirv ) )
+    {
+        VRHI_ERR( "vhOptimiseSpirv: SPIRV optimisation failed\n" );
+        return false;
+    }
+
+    // Replace original with optimised
+    spirv = std::move( optimisedSpirv );
+    return true;
+}
+
 bool vhCompileShader(
     const char* name,
     const char* source,
@@ -636,6 +691,17 @@ bool vhCompileShader(
     if ( !vhCompileShaderSlang( source, sourceFilePath, outSpirv, flags, entry, defines, includes, outError ) )
     {
         return false;
+    }
+
+    // Optimise SPIRV if not in debug mode
+    if ( !( flags & VRHI_SHADER_DEBUG ) )
+    {
+        if ( !vhOptimiseSpirv( outSpirv ) )
+        {
+            // Optimisation failed - log warning but don't fail compilation
+            // We still have valid (unoptimised) SPIRV from Slang
+            VRHI_LOG( "Warning: SPIRV optimisation failed, using unoptimised shader\n" );
+        }
     }
 
     if ( !g_vhInit.skipShaderCacheWrite )

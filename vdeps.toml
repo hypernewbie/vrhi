@@ -28,3 +28,11 @@ cmake_options = [
     "-DVK_BOOTSTRAP_INSTALL=OFF",
     "-DUSE_MSVC_RUNTIME_LIBRARY_DLL=OFF"
 ]
+
+[[dependency]]
+name = "SPIRV-Tools"
+rel_path = "spirv-tools-shim"
+libs = ["SPIRV-Tools-opt", "SPIRV-Tools"]
+cmake_options = [
+    "-DBUILD_SHARED_LIBS=OFF",
+]
