@@ -406,6 +406,7 @@ bool vhCompileShaderSlang(
     std::vector< const char* > args;
     args.push_back( "-target" );
     args.push_back( "spirv" );
+    args.push_back( "-emit-spirv-directly" );
 
     // Profile
     // Map VRHI_SHADER_SM_* to Slang profiles.

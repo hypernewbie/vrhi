@@ -1590,6 +1590,9 @@ UTEST_F( Shader, DumpShaderSource )
 // Test SPIRV optimisation with O3 flag
 UTEST_F( Shader, CompileWithO3Optimisation )
 {
+    // Force recompilation to ensure we actually test the compilation path, not cache
+    bool oldForceRecompile = g_vhInit.forceShaderRecompile;
+    g_vhInit.forceShaderRecompile = true;
     const char* shaderSource = R"(
         uniform float4 g_colour;
 
@@ -1626,4 +1629,7 @@ UTEST_F( Shader, CompileWithO3Optimisation )
 
     // Check no downstream compiler warnings present
     EXPECT_EQ( error.find( "failed to load downstream compiler" ), std::string::npos );
+
+    // Restore previous force recompile setting
+    g_vhInit.forceShaderRecompile = oldForceRecompile;
 }
