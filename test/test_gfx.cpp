@@ -1919,3 +1919,53 @@ UTEST_F( Graphics, ClearFlagsRespected )
     vhDestroyTexture( rt );
     vhFinish();
 }
+
+UTEST_F( Graphics, VertexFormatPadding )
+{
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    static const char* vsPadding = R"(
+struct VSInput {
+    float4 colour : ATTR0;
+};
+struct VSOutput {
+    float4 pos : SV_Position;
+    float4 colour : COLOR;
+};
+VSOutput main(VSInput input, uint id : SV_VulkanVertexID) {
+    VSOutput output;
+    float2 pos = float2( (id << 1) & 2, id & 2 );
+    output.pos = float4( pos * 2.0 - 1.0, 0.0, 1.0 );
+    output.colour = input.colour;
+    return output;
+}
+)";
+
+    float colourData[] = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f };
+    vhBuffer vb = CreateTestVB( "float3 ATTR0", colourData, sizeof( colourData ) );
+
+    vhShader vs = CreateTestShader( vsPadding, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    vhProgram program = vhCreateGfxProgram( vs, ps );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb, 0 )
+         .SetProgram( program );
+
+    vhStateId sid = 1400;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    vhFinish();
+
+    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+}

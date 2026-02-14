@@ -63,7 +63,6 @@ static const char* vhResourceTypeToString( nvrhi::ResourceType type )
 }
 
 // Check if buffer format is compatible with shader format for vertex attributes
-// Allows Float format conversions with same component count (e.g., Float16 to Float32)
 static bool vhAreVertexFormatsCompatible( nvrhi::Format bufferFmt, nvrhi::Format shaderFmt )
 {
     if ( bufferFmt == shaderFmt ) return true;
@@ -71,21 +70,10 @@ static bool vhAreVertexFormatsCompatible( nvrhi::Format bufferFmt, nvrhi::Format
     const nvrhi::FormatInfo& bufInfo = nvrhi::getFormatInfo( bufferFmt );
     const nvrhi::FormatInfo& shdInfo = nvrhi::getFormatInfo( shaderFmt );
 
-    // Must be same kind (both Float, both Integer, etc.)
-    if ( bufInfo.kind != shdInfo.kind ) return false;
+    if ( bufInfo.kind == shdInfo.kind ) return true;
+    if ( bufInfo.kind == nvrhi::FormatKind::Normalized && shdInfo.kind == nvrhi::FormatKind::Float ) return true;
 
-    // Only allow Float kind conversions
-    if ( bufInfo.kind != nvrhi::FormatKind::Float ) return false;
-
-    // Must have same components (R, G, B, A)
-    if ( bufInfo.hasRed != shdInfo.hasRed ) return false;
-    if ( bufInfo.hasGreen != shdInfo.hasGreen ) return false;
-    if ( bufInfo.hasBlue != shdInfo.hasBlue ) return false;
-    if ( bufInfo.hasAlpha != shdInfo.hasAlpha ) return false;
-
-    // Allow any Float format with same component count
-    // Buffer can have lower, equal, or higher precision than shader expects
-    return true;
+    return false;
 }
 
 int32_t vhCmdBackendState::BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader, bool debugLog )
