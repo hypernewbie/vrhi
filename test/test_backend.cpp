@@ -1445,3 +1445,36 @@ UTEST( Backend, BufferHeapAllocationErrorCases )
     vhDestroyHeap( heap );
     vhFinish();
 }
+
+UTEST( Backend, ProfilingCallback )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    static std::atomic<int> callbackCount = 0;
+    callbackCount = 0;
+
+    g_vhInit.fnProfileCallback = []( const char* name, bool begin )
+    {
+        callbackCount++;
+    };
+
+    // Perform an action that we know is profiled
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateUniformBuffer( buf, "ProfileTestBuf", nullptr, 256 );
+    
+    vhFlush();
+    vhFinish();
+
+    // Expect at least 2 calls (begin/end for Handle_vhCreateUniformBuffer)
+    EXPECT_GT( callbackCount.load(), 0 );
+
+    // Cleanup (Reset test state)
+    g_vhInit.fnProfileCallback = nullptr;
+    vhDestroyBuffer( buf );
+    vhFlush();
+    vhFinish();
+}

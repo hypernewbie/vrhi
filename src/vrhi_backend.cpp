@@ -153,6 +153,7 @@ int64_t vhCmdBackendState::BE_Util_WriteWorldUniform( const vhState& state, vhTr
 
 void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* data, glm::ivec4 arrayMipUpdateRange )
 {
+    VRHI_PROFILE_FUNCTION();
     if ( !btex.handle || !data || !data->size() ) return;
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
@@ -196,6 +197,7 @@ void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* d
 
 void vhCmdBackendState::BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture& bsrc, int dstMip, int srcMip, int dstLayer, int srcLayer, glm::ivec3 dstOffset, glm::ivec3 srcOffset, glm::ivec3 extent )
 {
+    VRHI_PROFILE_FUNCTION();
     if ( !bdst.handle || !bsrc.handle ) return;
 
     // Higher level layers should already handle the validation.
@@ -226,6 +228,7 @@ void vhCmdBackendState::BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture
 
 void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outData, int mip, int layer )
 {
+    VRHI_PROFILE_FUNCTION();
     if ( !btex.handle || !outData ) return;
     assert( btex.info.target != nvrhi::TextureDimension::Texture3D );
 
@@ -301,6 +304,7 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
 
 void vhCmdBackendState::BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size )
 {
+    VRHI_PROFILE_FUNCTION();
     if ( !bbuf.handle ) return;
 
     auto oldHandle = bbuf.handle;
@@ -324,6 +328,7 @@ void vhCmdBackendState::BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size )
 
 void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data )
 {
+    VRHI_PROFILE_FUNCTION();
     if ( !bbuf.handle || !data || !data->size() ) return;
 
     if ( offset + data->size() > bbuf.desc.byteSize )
@@ -1428,6 +1433,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
 void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount )
 {
+    VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
 
     nvrhi::ComputePipelineDesc desc;
@@ -1466,6 +1472,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
 
 void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset )
 {
+    VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
     assert( indirectBuffer.handle );
 
@@ -1513,6 +1520,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
 
 void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
 {
+    VRHI_PROFILE_FUNCTION();
     nvrhi::GraphicsPipelineDesc pipelineDesc;
     if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &pipelineDesc ) )
     {
@@ -1583,6 +1591,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
 
 void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size )
 {
+    VRHI_PROFILE_FUNCTION();
     // Should already have been validated by handler.
     assert( dst.handle );
     assert( src.handle );
@@ -1598,6 +1607,7 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
 
 void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args )
 {
+    VRHI_PROFILE_FUNCTION();
     vhBackendShader rtShaders[VRHI_SHADER_STAGE_MAX];
     int rtShaderCount = 0;
     for ( auto h : state.program )
@@ -1906,6 +1916,7 @@ void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
 
 void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -1975,6 +1986,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
 
 void vhCmdBackendState::Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2030,6 +2042,7 @@ void vhCmdBackendState::Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd )
 
 void vhCmdBackendState::Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     // NO dataRAII here - outData is owned by the caller.
 
@@ -2056,6 +2069,7 @@ void vhCmdBackendState::Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd )
 
 void vhCmdBackendState::Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
 
     if ( cmd->dst == VRHI_INVALID_HANDLE || cmd->src == VRHI_INVALID_HANDLE )
@@ -2219,6 +2233,7 @@ void vhCmdBackendState::Handle_vhUpdateBufferCommon_Internal( const char* fn, vh
 
 void vhCmdBackendState::Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2253,6 +2268,7 @@ void vhCmdBackendState::Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* 
 
 void vhCmdBackendState::Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2261,6 +2277,7 @@ void vhCmdBackendState::Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* 
 
 void vhCmdBackendState::Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2281,6 +2298,7 @@ void vhCmdBackendState::Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cm
 
 void vhCmdBackendState::Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2289,6 +2307,7 @@ void vhCmdBackendState::Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cm
 
 void vhCmdBackendState::Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2309,6 +2328,7 @@ void vhCmdBackendState::Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer
 
 void vhCmdBackendState::Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2318,6 +2338,7 @@ void vhCmdBackendState::Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer
 
 void vhCmdBackendState::Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 
@@ -2344,6 +2365,7 @@ void vhCmdBackendState::Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer
 
 void vhCmdBackendState::Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     auto dataRAII = BE_MemRAII( cmd->data );
 

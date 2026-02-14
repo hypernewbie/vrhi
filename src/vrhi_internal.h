@@ -221,6 +221,23 @@ void vhLog( bool error, const char* fmt, ... );
 #define VRHI_LOG( fmt, ... ) vhLog( false, fmt, ##__VA_ARGS__ )
 #define VRHI_ERR( fmt, ... ) vhLog( true, fmt, ##__VA_ARGS__ )
 
+// Profiling helper
+void vhProfile( const char* name, bool begin );
+
+struct vhProfileScope
+{
+    const char* name;
+    vhProfileScope( const char* name_ ) : name( name_ ) { vhProfile( name, true ); }
+    ~vhProfileScope() { vhProfile( name, false ); }
+};
+
+#define VRHI_PROFILE_SCOPE( name ) vhProfileScope _vh_profile_scope( name )
+#if defined(_MSC_VER)
+#define VRHI_PROFILE_FUNCTION() VRHI_PROFILE_SCOPE( __FUNCTION__ )
+#else
+#define VRHI_PROFILE_FUNCTION() VRHI_PROFILE_SCOPE( __func__ )
+#endif
+
 // Command function templates
 template< typename T, typename... Args >
 T* vhCmdAlloc( Args&&... args ) { return new T( std::forward<Args>( args )... ); }

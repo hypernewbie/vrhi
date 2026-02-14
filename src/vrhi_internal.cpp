@@ -110,6 +110,12 @@ void vhLog( bool error, const char* fmt, ... )
         printf( "%s", buffer );
 }
 
+void vhProfile( const char* name, bool begin )
+{
+    if ( g_vhInit.fnProfileCallback )
+        g_vhInit.fnProfileCallback( name, begin );
+}
+
 void vhCmdEnqueue( void* cmd, bool wait )
 {
     for ( int i = 0; i < 128; i++ )

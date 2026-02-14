@@ -50,6 +50,7 @@ struct vhInitData
     // Logging and thread initialisation callbacks.
     std::function<void( bool error, const std::string& )> fnLogCallback = nullptr;
     std::function<void() > fnThreadInitCallback = nullptr;
+    std::function<void( const char*, bool )> fnProfileCallback = nullptr;
 
     // Debug and feature toggles.
     bool debug = false;
