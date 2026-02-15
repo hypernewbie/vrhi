@@ -367,18 +367,18 @@ bool vhCompileShaderSlang(
 {
     if ( outError ) *outError = "";
     outSpirv.clear();
-    static Slang::ComPtr< slang::IGlobalSession > g_slang;
-    static std::once_flag g_slangInit;
-    std::call_once( g_slangInit, []()
+    
+    thread_local Slang::ComPtr< slang::IGlobalSession > tls_slang;
+    if ( !tls_slang )
     {
-        slang::createGlobalSession( g_slang.writeRef() );
-        if ( g_slang )
+        slang::createGlobalSession( tls_slang.writeRef() );
+        if ( tls_slang )
         {
-            g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_SPIRV_OPT );
-            g_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_GLSLANG );
+            tls_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_SPIRV_OPT );
+            tls_slang->checkPassThroughSupport( SLANG_PASS_THROUGH_GLSLANG );
         }
-    } );
-    if ( !g_slang )
+    }
+    if ( !tls_slang )
     {
         if ( outError ) *outError = "Failed to create Slang global session";
         VRHI_ERR( "vhCompileShaderSlang: Failed to create Slang global session\n" );
@@ -401,7 +401,7 @@ bool vhCompileShaderSlang(
     sessionDesc.searchPaths = searchPaths.data();
     sessionDesc.searchPathCount = (SlangInt)searchPaths.size();
 
-    if ( SLANG_FAILED( g_slang->createSession( sessionDesc, session.writeRef() ) ) )
+    if ( SLANG_FAILED( tls_slang->createSession( sessionDesc, session.writeRef() ) ) )
     {
         if ( outError ) *outError = "Failed to create Slang session";
         return false;
