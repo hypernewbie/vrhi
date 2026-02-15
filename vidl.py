@@ -195,7 +195,7 @@ def main():
     
     if len(sys.argv) >= 3:
         output_file = sys.argv[2]
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, 'w', encoding='utf-8', newline='\n') as f:
             f.write(result)
     else:
         print(result)
