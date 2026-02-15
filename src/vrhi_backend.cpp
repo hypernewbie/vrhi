@@ -2997,7 +2997,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVert
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
     if ( cmd->stream >= state.vertexBindings.size() ) state.vertexBindings.resize( cmd->stream + 1 );
-    state.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num, cmd->offset };
+    state.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num, cmd->offset, cmd->layoutOverride };
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd )

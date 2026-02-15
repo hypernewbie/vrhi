@@ -141,6 +141,19 @@ public:
             return it->second.dirty;
         return 0;
     }
+
+    // Get vertex layout override for a specific state and stream
+    static std::string GetVertexLayoutOverride( vhStateId id, uint8_t stream )
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto it = g_vhCmdBackendState.backendStates.find( id );
+        if ( it != g_vhCmdBackendState.backendStates.end() )
+        {
+            if ( stream < it->second.vertexBindings.size() )
+                return it->second.vertexBindings[stream].layoutOverride;
+        }
+        return "";
+    }
 };
 
 
@@ -1477,4 +1490,53 @@ UTEST( Backend, ProfilingCallback )
     vhDestroyBuffer( buf );
     vhFlush();
     vhFinish();
+}
+
+// End-to-end test for layout override transmission through the backend.
+// This test verifies that layoutOverride set via SetVertexBuffer is actually
+// received and stored by the backend when binding vertex buffers.
+UTEST( Backend, VertexLayoutOverrideTransmission )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhState state;
+    vhStateId sid = 9999; // Unique state ID for this test
+
+    // Create vertex buffer with original layout: position + colour (28 bytes)
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "TestVBLayoutOverride", vhAllocMem( 1024 ), "float3 float4" );
+    vhFlush();
+
+    // Set up state with layout override to only use position (12 bytes)
+    // This simulates a shader that only reads position, ignoring colour
+    state.SetVertexBuffer( buf, 0, 0, 0, 100, "float3" );
+
+    // Apply the state - this transmits the layoutOverride to backend
+    vhSetState( sid, state );
+    vhFlush(); // Ensure backend processes the command
+
+    // Verify layoutOverride was transmitted to backend state
+    std::string layoutOverride = vhCmdBackendStateTest::GetVertexLayoutOverride( sid, 0 );
+    EXPECT_FALSE( layoutOverride.empty() );
+    EXPECT_STREQ( layoutOverride.c_str(), "float3" );
+
+    // Test with empty override - should remain empty after transmission
+    vhState state2;
+    vhStateId sid2 = 10000;
+    state2.SetVertexBuffer( buf, 0, 0, 0, 100, nullptr );
+    vhSetState( sid2, state2 );
+    vhFlush();
+
+    std::string layoutOverride2 = vhCmdBackendStateTest::GetVertexLayoutOverride( sid2, 0 );
+    EXPECT_TRUE( layoutOverride2.empty() );
+
+    // Cleanup
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid2, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyBuffer( buf );
+    vhFlush();
 }
