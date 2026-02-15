@@ -655,6 +655,20 @@ constexpr uint32_t VRHI_DRAW_INDIRECT = ( 1u << 1 );
 // Manually Regenerate this with py vidl.py vrhi.h src/vrhi_generated.h
 // Cmake should automatically do this already.
 
+// ************************************************************
+// *** WARNING: POINTER INPUT MEMORY MANAGEMENT REQUIRED! ***
+// ************************************************************
+//
+// VRHI uses a threaded backend. Pointer inputs (especially const char*) 
+// MUST be either:
+//   1. 3-frame managed delayed free, OR
+//   2. Static/literal strings, OR  
+//   3. Memory held until next flush/frame of backend.
+//
+// PASSING POINTERS TO STACK MEMORY WILL CAUSE CORRUPTION!
+// const char* is NOT vmem managed!
+// ************************************************************
+
 // ------------ Device ------------
 
 // Initialises the Vulkan RHI and starts the backend command thread.
