@@ -1044,6 +1044,10 @@ typedef std::string vhVertexLayout;
 // Validates a vertex layout string.
 bool vhValidateVertexLayout( const vhVertexLayout& layout );
 
+// Returns the stride in bytes for a valid vertex layout string.
+// Returns 0 if the layout is invalid.
+uint32_t vhGetVertexLayoutStride( const vhVertexLayout& layout );
+
 // Allocates a unique buffer handle.
 //
 // Returns a valid `vhBuffer` handle, or `VRHI_INVALID_HANDLE` on failure.

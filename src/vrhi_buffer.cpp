@@ -246,6 +246,13 @@ bool vhValidateVertexLayout( const vhVertexLayout& layout )
     return vhParseVertexLayout< false >( layout, nullptr );
 }
 
+uint32_t vhGetVertexLayoutStride( const vhVertexLayout& layout )
+{
+    std::vector< vhVertexLayoutDef > defs;
+    if ( !vhParseVertexLayoutInternal( layout, defs ) ) return 0;
+    return static_cast< uint32_t >( vhVertexLayoutDefSize( defs ) );
+}
+
 bool vhParseVertexLayoutInternal( const vhVertexLayout& layout, std::vector< vhVertexLayoutDef >& outDefs )
 {
     return vhParseVertexLayout< true >( layout, &outDefs );

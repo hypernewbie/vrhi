@@ -291,6 +291,48 @@ UTEST_F( Buffer, VertexLayoutOverride )
     vhFlush();
 }
 
+UTEST_F( Buffer, VertexLayoutStride )
+{
+    // Basic layouts
+    EXPECT_EQ( vhGetVertexLayoutStride( "float3" ), 12 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "float2" ), 8 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "float" ), 4 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "half2" ), 4 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "short2" ), 4 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "ushort2" ), 4 );
+    
+    // 8-bit formats
+    EXPECT_EQ( vhGetVertexLayoutStride( "byte" ), 1 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "byte2" ), 2 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "byte4" ), 4 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "ubyte" ), 1 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "ubyte2" ), 2 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "ubyte4" ), 4 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "unorm" ), 1 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "unorm2" ), 2 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "unorm4" ), 4 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "snorm" ), 1 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "snorm2" ), 2 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "snorm4" ), 4 );
+    
+    // Multiple attributes
+    EXPECT_EQ( vhGetVertexLayoutStride( "float3 float2" ), 20 ); // 12 + 8
+    EXPECT_EQ( vhGetVertexLayoutStride( "float3 float2 short2 ATTR5" ), 24 ); // from internal test
+    EXPECT_EQ( vhGetVertexLayoutStride( "byte2 ATTR0 unorm4 ATTR1" ), 6 ); // from 8-bit test
+    
+    // Explicit locations
+    EXPECT_EQ( vhGetVertexLayoutStride( "float3 ATTR5" ), 12 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "float3 ATTR0 float2" ), 20 ); // explicit 0, implicit 1
+    
+    // Invalid layouts return 0
+    EXPECT_EQ( vhGetVertexLayoutStride( "" ), 0 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "double3" ), 0 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "float5" ), 0 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "byte3" ), 0 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "float3 ATTR" ), 0 );
+    EXPECT_EQ( vhGetVertexLayoutStride( "float3 float3 ATTR0" ), 0 ); // collision
+}
+
 UTEST_F( Buffer, Allocation )
 {
     vhBuffer b1 = vhAllocBuffer();
