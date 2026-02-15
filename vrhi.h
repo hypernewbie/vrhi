@@ -1031,7 +1031,7 @@ nvrhi::TextureHandle vhGetTextureNvrhiHandle( vhTexture texture );
 // ------------ Buffer ------------
 
 // Vertex layouts are defined as standard strings.
-// Supported base types: float, half, int, uint, short, ushort
+// Supported base types: float, half, int, uint, short, ushort, byte, ubyte, unorm, snorm
 // Supported suffixes: 2, 3, 4
 // Format: "TYPE[COUNT] [ATTRn]"
 // Examples:

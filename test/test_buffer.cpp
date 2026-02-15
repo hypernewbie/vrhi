@@ -149,7 +149,7 @@ UTEST_F( Buffer, ValidateLayout )
     EXPECT_TRUE( vhValidateVertexLayout( "float3 ATTR5" ) ); // Explicit 5
     EXPECT_TRUE( vhValidateVertexLayout( "float3 ATTR0" ) ); // Explicit 0
     EXPECT_TRUE( vhValidateVertexLayout( "float3 ATTR0 float2" ) ); // Explicit 0, Implicit 1
-    EXPECT_FALSE( vhValidateVertexLayout( "ubyte4" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "ubyte4" ) );
     EXPECT_TRUE( vhValidateVertexLayout( "half2" ) );
     EXPECT_TRUE( vhValidateVertexLayout( "float" ) ); // Scalar
 
@@ -213,6 +213,51 @@ UTEST_F( Buffer, VertexLayoutInternals )
 
         // Total Stride = 24
         EXPECT_EQ( vhVertexLayoutDefSize( defs ), 24 );
+    }
+}
+
+UTEST_F( Buffer, VertexLayout8Bit )
+{
+    // Valid 8-bit formats
+    EXPECT_TRUE( vhValidateVertexLayout( "byte" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "byte2" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "byte4" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "ubyte" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "ubyte2" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "ubyte4" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "unorm" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "unorm2" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "unorm4" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "snorm" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "snorm2" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "snorm4" ) );
+
+    // Invalid 3-component variants (no RGB8 support)
+    EXPECT_FALSE( vhValidateVertexLayout( "byte3" ) );
+    EXPECT_FALSE( vhValidateVertexLayout( "ubyte3" ) );
+    EXPECT_FALSE( vhValidateVertexLayout( "unorm3" ) );
+    EXPECT_FALSE( vhValidateVertexLayout( "snorm3" ) );
+
+    // Mixed layouts with existing types
+    EXPECT_TRUE( vhValidateVertexLayout( "float3 byte2 ATTR2" ) );
+    EXPECT_TRUE( vhValidateVertexLayout( "unorm2 short4 ATTR5" ) );
+
+    // Verify format mapping via internal parsing
+    {
+        std::vector< vhVertexLayoutDef > defs;
+        bool res = vhParseVertexLayoutInternal( "byte2 ATTR0 unorm4 ATTR1", defs );
+        EXPECT_TRUE( res );
+        EXPECT_EQ( defs.size(), 2 );
+        if ( defs.size() >= 2 )
+        {
+            EXPECT_EQ( defs[0].format, nvrhi::Format::RG8_SINT );
+            EXPECT_EQ( defs[0].location, 0 );
+            EXPECT_EQ( defs[0].offset, 0 );
+            EXPECT_EQ( defs[1].format, nvrhi::Format::RGBA8_UNORM );
+            EXPECT_EQ( defs[1].location, 1 );
+            EXPECT_EQ( defs[1].offset, 2 ); // byte2 = 2 bytes
+            EXPECT_EQ( vhVertexLayoutDefSize( defs ), 6 ); // 2 + 4 bytes
+        }
     }
 }
 

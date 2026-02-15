@@ -84,12 +84,41 @@ nvrhi::Format vhGetFormatFromTypeString( const std::string& type, int count )
         if ( count == 3 ) return Format::UNKNOWN;
         if ( count == 4 ) return Format::RGBA16_UINT;
     }
+    else if ( type == "byte" )
+    {
+        if ( count == 1 ) return Format::R8_SINT;
+        if ( count == 2 ) return Format::RG8_SINT;
+        if ( count == 3 ) return Format::UNKNOWN;
+        if ( count == 4 ) return Format::RGBA8_SINT;
+    }
+    else if ( type == "ubyte" )
+    {
+        if ( count == 1 ) return Format::R8_UINT;
+        if ( count == 2 ) return Format::RG8_UINT;
+        if ( count == 3 ) return Format::UNKNOWN;
+        if ( count == 4 ) return Format::RGBA8_UINT;
+    }
+    else if ( type == "unorm" )
+    {
+        if ( count == 1 ) return Format::R8_UNORM;
+        if ( count == 2 ) return Format::RG8_UNORM;
+        if ( count == 3 ) return Format::UNKNOWN;
+        if ( count == 4 ) return Format::RGBA8_UNORM;
+    }
+    else if ( type == "snorm" )
+    {
+        if ( count == 1 ) return Format::R8_SNORM;
+        if ( count == 2 ) return Format::RG8_SNORM;
+        if ( count == 3 ) return Format::UNKNOWN;
+        if ( count == 4 ) return Format::RGBA8_SNORM;
+    }
     return Format::UNKNOWN;
 }
 
 // Parses a vertex layout string.
 // Vertex layouts are defined as standard strings.
 // Format: "TYPE[COUNT] [ATTRn]"
+// Supported types: float, half, int, uint, short, ushort, byte, ubyte, unorm, snorm.
 // Examples: 
 //   "float3" -> Location 0 (Implicit)
 //   "float3 ATTR5" -> Location 5 (Explicit)
@@ -104,7 +133,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
     }
 
     const char* ptr = layout.c_str();
-    const char* baseTypes[] = { "float", "half", "int", "uint", "short", "ushort", nullptr };
+    const char* baseTypes[] = { "float", "half", "int", "uint", "short", "ushort", "byte", "ubyte", "unorm", "snorm", nullptr };
     int currentOffset = 0;
     int currentLocation = 0;
 
