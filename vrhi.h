@@ -1638,6 +1638,12 @@ struct vhState
         uint32_t startVertex = 0;
         uint32_t numVertices = UINT32_MAX;
         uint64_t byteOffset = 0;
+
+        // Advanced: optional vertex layout override for this binding.
+        // This override lets you specify a different vertex layout at bind time,
+        // but you must manage stride and memory layout yourself. The buffer's original stride is ignored;
+        // ensure your data matches the override layout.
+        vhVertexLayout layoutOverride = "";
     };
     std::vector< VertexBinding > vertexBindings;
 
@@ -1808,6 +1814,14 @@ struct vhState
     {
         if ( stream >= vertexBindings.size() ) vertexBindings.resize( stream + 1 );
         vertexBindings[stream] = { buffer, stream, startVertex, numVertices, offset };
+        dirty |= VRHI_DIRTY_VERTEX_INDEX;
+        return *this;
+    }
+    vhState& SetVertexBuffer( vhBuffer buffer, uint8_t stream, uint64_t offset, uint32_t startVertex, uint32_t numVertices, const char* layoutOverride )
+    {
+        if ( stream >= vertexBindings.size() ) vertexBindings.resize( stream + 1 );
+        vertexBindings[stream] = { buffer, stream, startVertex, numVertices, offset };
+        vertexBindings[stream].layoutOverride = layoutOverride ? layoutOverride : "";
         dirty |= VRHI_DIRTY_VERTEX_INDEX;
         return *this;
     }

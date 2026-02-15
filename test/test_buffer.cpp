@@ -216,6 +216,36 @@ UTEST_F( Buffer, VertexLayoutInternals )
     }
 }
 
+UTEST_F( Buffer, VertexLayoutOverride )
+{
+    vhState state;
+    
+    // Create a vertex buffer with original layout
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "TestVB", vhAllocMem( 1024 ), "float3 float2" );
+    
+    // Bind with layout override
+    state.SetVertexBuffer( buf, 0, 0, 0, UINT32_MAX, "float2 ATTR0" );
+    
+    // Verify binding stores the override
+    EXPECT_EQ( state.vertexBindings.size(), 1 );
+    EXPECT_FALSE( state.vertexBindings[0].layoutOverride.empty() );
+    EXPECT_STREQ( state.vertexBindings[0].layoutOverride.c_str(), "float2 ATTR0" );
+    
+    // Test stride calculation for override
+    std::vector< vhVertexLayoutDef > defs;
+    bool res = vhParseVertexLayoutInternal( "float2 ATTR0", defs );
+    EXPECT_TRUE( res );
+    EXPECT_EQ( vhVertexLayoutDefSize( defs ), 8 );
+    
+    // Test with empty override (should default to buffer's layout)
+    state.SetVertexBuffer( buf, 1, 0, 0, UINT32_MAX, nullptr );
+    EXPECT_TRUE( state.vertexBindings[1].layoutOverride.empty() );
+    
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
 UTEST_F( Buffer, Allocation )
 {
     vhBuffer b1 = vhAllocBuffer();

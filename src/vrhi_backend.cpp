@@ -479,8 +479,10 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         // [TODO] The following fields are not currently populated from vhState:
         // - patchControlPoints: tessellation is only supported if we add it.
 
+        static std::vector< std::vector< vhVertexLayoutDef > > s_parsedLayouts;
         s_layoutLocationTable.clear();
         s_attributes.clear();
+        s_parsedLayouts.clear();
 
         for ( size_t i = 0; i < state.vertexBindings.size(); ++i )
         {
@@ -493,7 +495,23 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 continue;
 
             const auto& bbuf = *it->second;
-            for ( const auto& def : bbuf.layout )
+            const std::vector< vhVertexLayoutDef >* pLayout = &bbuf.layout;
+            uint32_t stride = bbuf.stride;
+            
+            if ( !binding.layoutOverride.empty() )
+            {
+                s_parsedLayouts.emplace_back();
+                if ( !vhParseVertexLayoutInternal( binding.layoutOverride, s_parsedLayouts.back() ) )
+                {
+                    VRHI_ERR( "Failed to parse vertex layout override: %s\n", binding.layoutOverride.c_str() );
+                    return false;
+                }
+                pLayout = &s_parsedLayouts.back();
+                stride = 0;
+                for ( const auto& def : *pLayout ) stride += vhVertexLayoutDefSize( def );
+            }
+            
+            for ( const auto& def : *pLayout )
             {
                 if ( s_layoutLocationTable.find( def.location ) != s_layoutLocationTable.end() )
                 {
@@ -502,7 +520,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 }
                 s_layoutLocationTable[def.location] = &def;
                 nvrhi::VertexAttributeDesc attr = vhTranslateVertexAttribute( def, ( uint32_t ) i );
-                attr.elementStride = bbuf.stride;
+                attr.elementStride = stride;
                 s_attributes.push_back( attr );
             }
         }
