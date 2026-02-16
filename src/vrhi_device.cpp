@@ -154,6 +154,10 @@ void vhInit( bool quiet )
         return;
     }
 
+    // Temporarily disable debugBlockWaitForBackend to avoid deadlock during initialisation
+    bool originalDebugBlockWaitForBackend = g_vhInit.debugBlockWaitForBackend;
+    g_vhInit.debugBlockWaitForBackend = false;
+
     // Create VkInstance (via vk-bootstrap)
 
     if ( !quiet ) VRHI_LOG( "    Creating VK Instance (via vk-bootstrap)\n" );
@@ -576,6 +580,9 @@ void vhInit( bool quiet )
     g_vhCmdThreadReady = false;
     g_vhCmdThread = std::thread( vhBackendThreadEntry, g_vhInit.fnThreadInitCallback );
     while ( !g_vhCmdThreadReady ) { std::this_thread::yield(); }
+
+    // Restore debugBlockWaitForBackend now that initialisation is complete
+    g_vhInit.debugBlockWaitForBackend = originalDebugBlockWaitForBackend;
 }
 
 void vhShutdown( bool quiet )
