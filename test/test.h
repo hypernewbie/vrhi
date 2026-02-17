@@ -70,5 +70,14 @@ struct utest_type_deducer< nvrhi::RefCountPtr< T >, false >
     }
 };
 
+// Specialisation for std::string
+template <> struct utest_type_deducer< std::string, false >
+{
+    static void _( const std::string& s )
+    {
+        UTEST_PRINTF( "%s", s.c_str() );
+    }
+};
+
 #endif // __clang__
 #endif defined(__cplusplus) && (__cplusplus >= 201103L)
