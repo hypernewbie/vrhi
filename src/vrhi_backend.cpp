@@ -163,6 +163,13 @@ void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* d
     }
     vhProfile( "BE_UpdateTexture_Calc", false );
 
+    uint64_t expectedSize = uint64_t( layerEnd - layerStart ) * uint64_t( totalLayerSize );
+    if ( data->size() < expectedSize )
+    {
+        VRHI_ERR( "BE_UpdateTexture: texture '%s' data size %llu < expected %llu\n", btex.name.c_str(), data->size(), expectedSize );
+        return;
+    }
+
     // Update the texture.
     {
         vhProfile( "BE_UpdateTexture_Write", true );
