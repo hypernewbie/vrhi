@@ -154,15 +154,18 @@ void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* d
     layerEnd = glm::clamp( layerEnd, 0, ( int32_t ) btex.info.arrayLayers );
     assert( mipStart <= mipEnd );
 
+    vhProfile( "BE_UpdateTexture_Calc", true );
     // Calculate layer size.
     int64_t totalLayerSize = 0;
     for ( int32_t mip = mipStart; mip < mipEnd; ++mip )
     {
         totalLayerSize += btex.mipInfo[mip].size;
     }
+    vhProfile( "BE_UpdateTexture_Calc", false );
 
     // Update the texture.
     {
+        vhProfile( "BE_UpdateTexture_Write", true );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
         for ( int32_t layer = layerStart; layer < layerEnd; ++layer )
@@ -180,6 +183,7 @@ void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* d
                 cmdlist->writeTexture( btex.handle, layer, mip, srcMipPtr, mipData.pitch, mipData.slice_size );
             }
         }
+        vhProfile( "BE_UpdateTexture_Write", false );
     }
 }
 
@@ -194,6 +198,7 @@ void vhCmdBackendState::BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture
     assert( srcLayer >= 0 && srcLayer < bsrc.info.arrayLayers );
     assert( dstLayer >= 0 && dstLayer < bdst.info.arrayLayers );
 
+    vhProfile( "BE_BlitTexture_SliceSetup", true );
     nvrhi::TextureSlice srcSlice;
     srcSlice.mipLevel = srcMip;
     srcSlice.arraySlice = srcLayer;
@@ -205,12 +210,15 @@ void vhCmdBackendState::BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture
     dstSlice.arraySlice = dstLayer;
     dstSlice.x = dstOffset.x; dstSlice.y = dstOffset.y; dstSlice.z = dstOffset.z;
     dstSlice.width = extent.x; dstSlice.height = extent.y; dstSlice.depth = extent.z;
+    vhProfile( "BE_BlitTexture_SliceSetup", false );
 
     // Acquire command list and execute copy
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
+        vhProfile( "BE_BlitTexture_Execute", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->copyTexture( bdst.handle, dstSlice, bsrc.handle, srcSlice );
+        vhProfile( "BE_BlitTexture_Execute", false );
     }
 }
 
@@ -231,8 +239,10 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
 
     nvrhi::StagingTextureHandle stagingTex;
     {
+        vhProfile( "BE_ReadTextureSlow_StagingCreate", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         stagingTex = g_vhDevice->createStagingTexture( desc, nvrhi::CpuAccessMode::Read );
+        vhProfile( "BE_ReadTextureSlow_StagingCreate", false );
     }
 
     if ( !stagingTex ) return;
@@ -244,6 +254,7 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
     // For this slow-path operation, just use Graphics queue for everything
     // (avoids complexity with transfer queue barriers)
     {
+        vhProfile( "BE_ReadTextureSlow_Copy", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
 
         nvrhi::CommandListParameters params = { .queueType = nvrhi::CommandQueue::Graphics };
@@ -253,6 +264,7 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
         cmdList->close();
         g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
         g_vhDevice->waitForIdle();
+        vhProfile( "BE_ReadTextureSlow_Copy", false );
     }
 
     // CPU copy
@@ -260,8 +272,10 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
     size_t rowPitch = 0;
 
     {
+        vhProfile( "BE_ReadTextureSlow_Map", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         pData = g_vhDevice->mapStagingTexture( stagingTex, slice, nvrhi::CpuAccessMode::Read, &rowPitch );
+        vhProfile( "BE_ReadTextureSlow_Map", false );
     }
 
     if ( pData )
@@ -278,14 +292,18 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
         uint8_t* src = ( uint8_t* ) pData;
         uint8_t* dst = outData->data();
 
+        vhProfile( "BE_ReadTextureSlow_CopyCPU", true );
         for ( int y = 0; y < height; ++y )
         {
             memcpy( dst + ( size_t ) y * expectedPitch, src + ( size_t ) y * rowPitch, expectedPitch );
         }
+        vhProfile( "BE_ReadTextureSlow_CopyCPU", false );
 
         {
+            vhProfile( "BE_ReadTextureSlow_Unmap", true );
             std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
             g_vhDevice->unmapStagingTexture( stagingTex );
+            vhProfile( "BE_ReadTextureSlow_Unmap", false );
         }
     }
 }
@@ -300,8 +318,10 @@ void vhCmdBackendState::BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size )
 
     bbuf.desc.setByteSize( size );
     {
+        vhProfile( "BE_ResizeBuffer_Create", true );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         bbuf.handle = g_vhDevice->createBuffer( bbuf.desc );
+        vhProfile( "BE_ResizeBuffer_Create", false );
     }
 
     if ( !bbuf.handle )
@@ -311,7 +331,9 @@ void vhCmdBackendState::BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size )
     }
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    vhProfile( "BE_ResizeBuffer_Copy", true );
     cmdlist->copyBuffer( bbuf.handle, 0, oldHandle, 0, glm::min( bbuf.desc.byteSize, oldSize ) );
+    vhProfile( "BE_ResizeBuffer_Copy", false );
 }
 
 void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data )
@@ -321,14 +343,18 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
 
     if ( offset + data->size() > bbuf.desc.byteSize )
     {
+        vhProfile( "BE_UpdateBuffer_ResizeCheck", true );
         assert( bbuf.flags & VRHI_BUFFER_ALLOW_RESIZE );
         BE_ResizeBuffer( bbuf, offset + data->size() );
+        vhProfile( "BE_UpdateBuffer_ResizeCheck", false );
     }
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
+        vhProfile( "BE_UpdateBuffer_Write", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->writeBuffer( bbuf.handle, data->data(), data->size(), offset );
+        vhProfile( "BE_UpdateBuffer_Write", false );
     }
 }
 
@@ -397,6 +423,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
 
     // Add each shader's layout sequentially. Shaders determine their own registerSpace
     // via reflection. NVRHI handles mapping layouts to descriptor sets.
+    vhProfile( "BE_PresubmitCommon_PipelineDesc_Layouts", true );
     int maxSetIndex = 0;
     for ( int idx = 0; idx < shaderCount; ++idx )
     {
@@ -404,8 +431,9 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
             continue;
         int setIdx = ( int ) vhGetDescriptorSetForStage( shader.flags );
-        if ( setIdx > maxSetIndex ) maxSetIndex = setIdx;
+            if ( setIdx > maxSetIndex ) maxSetIndex = setIdx;
     }
+    vhProfile( "BE_PresubmitCommon_PipelineDesc_Layouts", false );
 
     // Populate binding layouts sparsely
     for ( int i = 0; i <= maxSetIndex; ++i )
@@ -430,6 +458,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( layout );
     }
 
+    vhProfile( "BE_PresubmitCommon_PipelineDesc_ShaderHandles", true );
     // Set Shader Handles
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
@@ -464,9 +493,11 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
             graphicsPipelineDesc->setPixelShader( shader.handle );
         }
     }
+    vhProfile( "BE_PresubmitCommon_PipelineDesc_ShaderHandles", false );
 
     if ( graphicsPipelineDesc )
     {
+        vhProfile( "BE_PresubmitCommon_PipelineDesc_RenderState", true );
         graphicsPipelineDesc->setPrimType( vhTranslatePrimitiveType( state.stateFlags ) );
         graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
         graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.stencilState );
@@ -475,10 +506,12 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         graphicsPipelineDesc->renderState.rasterState.depthBias = state.depthBias;
         graphicsPipelineDesc->renderState.rasterState.depthBiasClamp = state.depthBiasClamp;
         graphicsPipelineDesc->renderState.rasterState.slopeScaledDepthBias = state.slopeScaledDepthBias;
+        vhProfile( "BE_PresubmitCommon_PipelineDesc_RenderState", false );
 
         // [TODO] The following fields are not currently populated from vhState:
         // - patchControlPoints: tessellation is only supported if we add it.
 
+        vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", true );
         static std::vector< std::vector< vhVertexLayoutDef > > s_parsedLayouts;
         s_layoutLocationTable.clear();
         s_attributes.clear();
@@ -548,6 +581,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 graphicsPipelineDesc->inputLayout = g_vhDevice->createInputLayout( s_attributes.data(), ( uint32_t ) s_attributes.size(), vertexShader->handle );
             }
         }
+        vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
     }
 
     return true;
@@ -568,6 +602,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
     // Resolve backend pointers.
 
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_Textures", true );
     for ( size_t i = 0; i < state.textures.size(); i++ )
     {
         if ( state.textures[i].texture == VRHI_INVALID_HANDLE )
@@ -576,9 +611,10 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         if ( it != backendTextures.end() )
             scache.btex[i] = it->second.get();
     }
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_Textures", false );
 
     // Resolve shaders.
-
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_Shaders", true );
     scache.bshaders.clear();
     if ( shaders && shaderCount > 0 )
     {
@@ -595,7 +631,9 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         }
     }
     int bshaderCount = ( int ) scache.bshaders.size();
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_Shaders", false );
 
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_Buffers", true );
     for ( size_t i = 0; i < state.buffers.size(); i++ )
     {
         if ( state.buffers[i].buffer == VRHI_INVALID_HANDLE )
@@ -604,9 +642,10 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         if ( it != backendBuffers.end() )
             scache.bbuf[i] = it->second.get();
     }
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_Buffers", false );
 
     // Resolve acceleration structures.
-
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_AccelStructs", true );
     scache.baccel.resize( state.accelStructs.size(), nullptr );
     for ( size_t i = 0; i < state.accelStructs.size(); i++ )
     {
@@ -616,6 +655,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         if ( it != backendAccelStructs.end() )
             scache.baccel[i] = it->second.get();
     }
+    vhProfile( "BE_PreSubmitCommon_ResolveStateCache_AccelStructs", false );
 
     // Build slot maps.
 
@@ -1175,6 +1215,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     const nvrhi::BindingLayoutVector& layouts = *psoLayouts;
 
     // Build map of hash --> psoLayouts.
+    vhProfile( "BE_PreSubmitCommon_State_PSOLayoutHash", true );
     static std::unordered_map< uint64_t, const nvrhi::BindingLayoutHandle* > s_hashToPSOlayout;
     s_hashToPSOlayout.clear();
     for ( int i = 0; i < layouts.size(); i++ )
@@ -1184,8 +1225,10 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto hash = vhHashBindingLayout( *bdesc );
         s_hashToPSOlayout[hash] = &layouts[i];
     }
+    vhProfile( "BE_PreSubmitCommon_State_PSOLayoutHash", false );
 
     // Build map of layouts --> shader.
+    vhProfile( "BE_PreSubmitCommon_State_ShaderLayoutMatch", true );
 
     s_layoutToShader.clear();
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
@@ -1215,10 +1258,13 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         s_layoutToShader[ tempPSOLayout ] = &shader;
     }
     s_hashToPSOlayout.clear();
+    vhProfile( "BE_PreSubmitCommon_State_ShaderLayoutMatch", false );
 
     // Resolve state resource cache
     s_resolveCache.Clear();
+    vhProfile( "BE_PreSubmitCommon_State_ResolveCache", true );
     BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, s_resolveCache );
+    vhProfile( "BE_PreSubmitCommon_State_ResolveCache", false );
     if ( !s_resolveCache.init )
     {
         VRHI_ERR( "vhSetState(): Failed to resolve state resource cache.\n" );
@@ -1226,7 +1272,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
 
     // Loop through the layouts and bind resources.
-
+    vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", true );
     for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
     {
         nvrhi::BindingSetDesc bsetDesc;
@@ -1320,7 +1366,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     if ( graphicsState )
     {
         // Transfer some overlapping state from vhState to nvrhi::GraphicsState.
-
+        vhProfile( "BE_PreSubmitCommon_State_GraphicsStateSetup", true );
         // Set blend constant color
         graphicsState->blendConstantColor = nvrhi::Color( state.blendConstantColor.r, state.blendConstantColor.g, state.blendConstantColor.b, state.blendConstantColor.a );
 
@@ -1407,6 +1453,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
     }
 
+    if ( graphicsState )
+    {
+        vhProfile( "BE_PreSubmitCommon_State_GraphicsStateSetup", false );
+    }
+
     // Final layout check and detailed diff print.
 
     const nvrhi::BindingSetVector* stateLayouts = nullptr;
@@ -1434,6 +1485,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             }
         }
     }
+    vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
     return true;
 }
 
@@ -1443,36 +1495,48 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     assert( computeShader.handle );
 
     nvrhi::ComputePipelineDesc desc;
+    vhProfile( "BE_Dispatch_PipelineDesc", true );
     if ( !BE_PresubmitCommon_PipelineDesc( state, &computeShader, 1, &desc, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
+    vhProfile( "BE_Dispatch_PipelineDesc", false );
 
     nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( desc );
+    vhProfile( "BE_Dispatch_PSOCache", true );
     if ( !pso )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
+    vhProfile( "BE_Dispatch_PSOCache", false );
 
     nvrhi::ComputeState cstate;
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     cstate.setPipeline( pso.Get() );
+    vhProfile( "BE_Dispatch_StateSetup", true );
     if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
+    vhProfile( "BE_Dispatch_StateSetup", false );
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
         
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
+        {
+            vhProfile( "BE_Dispatch_PushConstants", true );
             vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+            vhProfile( "BE_Dispatch_PushConstants", false );
+        }
 
+        vhProfile( "BE_Dispatch_Execute", true );
         cmdlist->dispatch( workGroupCount.x, workGroupCount.y, workGroupCount.z );
+        vhProfile( "BE_Dispatch_Execute", false );
     }
 }
 
@@ -1482,45 +1546,62 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     assert( computeShader.handle );
     assert( indirectBuffer.handle );
 
+    vhProfile( "BE_DispatchIndirect_Validation", true );
     if ( !( indirectBuffer.flags & VRHI_BUFFER_DRAW_INDIRECT ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Indirect buffer %s was not created with VRHI_BUFFER_DRAW_INDIRECT! SKIPPING COMPUTE DISPATCH.\n", indirectBuffer.name.c_str() );
         return;
     }
+    vhProfile( "BE_DispatchIndirect_Validation", false );
 
     nvrhi::ComputePipelineDesc desc;
+    vhProfile( "BE_DispatchIndirect_PipelineDesc", true );
     if ( !BE_PresubmitCommon_PipelineDesc( state, &computeShader, 1, &desc, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
+    vhProfile( "BE_DispatchIndirect_PipelineDesc", false );
 
     nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( desc );
+    vhProfile( "BE_DispatchIndirect_PSOCache", true );
     if ( !pso )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
+    vhProfile( "BE_DispatchIndirect_PSOCache", false );
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
     nvrhi::ComputeState cstate;
     cstate.setPipeline( pso.Get() );
+    vhProfile( "BE_DispatchIndirect_StateSetup", true );
     if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
+    vhProfile( "BE_DispatchIndirect_StateSetup", false );
+
+    vhProfile( "BE_DispatchIndirect_SetParams", true );
     cstate.setIndirectParams( indirectBuffer.handle );
+    vhProfile( "BE_DispatchIndirect_SetParams", false );
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->setComputeState( cstate );
         
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
+        {
+            vhProfile( "BE_DispatchIndirect_PushConstants", true );
             vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+            vhProfile( "BE_DispatchIndirect_PushConstants", false );
+        }
 
+        vhProfile( "BE_DispatchIndirect_Execute", true );
         cmdlist->dispatchIndirect( ( uint32_t ) byteOffset );
+        vhProfile( "BE_DispatchIndirect_Execute", false );
     }
 }
 
@@ -1528,13 +1609,17 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
 {
     VRHI_PROFILE_FUNCTION();
     nvrhi::GraphicsPipelineDesc pipelineDesc;
+    vhProfile( "BE_Submit_PipelineDesc", true );
     if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &pipelineDesc ) )
     {
         VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
         return;
     }
+    vhProfile( "BE_Submit_PipelineDesc", false );
 
+    vhProfile( "BE_Submit_GetFramebuffer", true );
     nvrhi::FramebufferHandle fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
+    vhProfile( "BE_Submit_GetFramebuffer", false );
     if ( !fb )
     {
         VRHI_ERR( "BE_Submit(): Failed to get Framebuffer!\n" );
@@ -1542,20 +1627,24 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
     }
 
     nvrhi::GraphicsPipelineHandle pso = vhPSOCacheGet( pipelineDesc, fb->getFramebufferInfo() );
+    vhProfile( "BE_Submit_PSOCache", true );
     if ( !pso )
     {
         VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
         return;
     }
+    vhProfile( "BE_Submit_PSOCache", false );
 
     nvrhi::GraphicsState gstate;
     gstate.setPipeline( pso.Get() );
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    vhProfile( "BE_Submit_StateSetup", true );
     if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &gstate, nullptr, nullptr, fb ) )
     {
         VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
         return;
     }
+    vhProfile( "BE_Submit_StateSetup", false );
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -1563,6 +1652,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
 
         if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
         {
+            vhProfile( "BE_Submit_PushConstants", true );
             for ( int i = 0; i < shaderCount; ++i )
             {
                 if ( !shaders[i].pushConstants.empty() )
@@ -1571,8 +1661,10 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
                     break;
                 }
             }
+            vhProfile( "BE_Submit_PushConstants", false );
         }
 
+        vhProfile( "BE_Submit_Execute", true );
         if ( flags & VRHI_DRAW_INDIRECT )
         {
             uint32_t offset = ( uint32_t ) state.indirectParams.byteOffset;
@@ -1592,6 +1684,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
                 cmdlist->draw( args );
             }
         }
+        vhProfile( "BE_Submit_Execute", false );
     }
 }
 
@@ -1606,8 +1699,10 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
+        vhProfile( "BE_BlitBuffer_Execute", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
         cmdlist->copyBuffer( dst.handle, dstOffset, src.handle, srcOffset, size );
+        vhProfile( "BE_BlitBuffer_Execute", false );
     }
 }
 
@@ -1616,6 +1711,7 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
     VRHI_PROFILE_FUNCTION();
     vhBackendShader rtShaders[VRHI_SHADER_STAGE_MAX];
     int rtShaderCount = 0;
+    vhProfile( "BE_DispatchRays_ShaderSetup", true );
     for ( auto h : state.program )
     {
         auto it = backendShaders.find( h );
@@ -1625,12 +1721,14 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
             rtShaders[rtShaderCount++] = *it->second;
         }
     }
+    vhProfile( "BE_DispatchRays_ShaderSetup", false );
 
     nvrhi::rt::State rtState;
     rtState.shaderTable = shaderTable.handle;
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
+    vhProfile( "BE_DispatchRays_StateSetup", true );
     if ( !BE_PreSubmitCommon_State(
         cmdlist, state, rtShaders, rtShaderCount,
         nullptr, nullptr,
@@ -1639,11 +1737,14 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
         VRHI_ERR( "BE_DispatchRays(): Failed to set RT state.\n" );
         return;
     }
+    vhProfile( "BE_DispatchRays_StateSetup", false );
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         cmdlist->setRayTracingState( rtState );
+        vhProfile( "BE_DispatchRays_Execute", true );
         cmdlist->dispatchRays( args );
+        vhProfile( "BE_DispatchRays_Execute", false );
     }
 }
 
