@@ -440,7 +440,10 @@ UTEST_F( State, Hashing_BindingLayout )
 
 UTEST_F( State, Hashing_InputLayout )
 {
-
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Input layout hashing differentiation not testable in Null RHI mode" );
+    }
 
     nvrhi::VertexAttributeDesc attr1;
     attr1.name = "POSITION";
@@ -720,7 +723,10 @@ UTEST_F( State, Hashing_BindingSet_RawData )
 
 UTEST_F( State, Debug_LayoutDiffCheck )
 {
-
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Layout diff check validation not testable in Null RHI mode" );
+    }
 
     // Create a simple buffer for binding
     nvrhi::BufferHandle buffer;

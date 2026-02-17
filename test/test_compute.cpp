@@ -58,6 +58,11 @@ UTEST_F_TEARDOWN( Compute )
 
 UTEST_F( Compute, EndToEnd_TextureWrite )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
     vhFlush();
     int32_t startErrors = g_vhErrorCounter.load();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
@@ -124,13 +129,16 @@ UTEST_F( Compute, EndToEnd_TextureWrite )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
     ASSERT_EQ( readData.size(), 64 * 1 );
 
-    for ( int y = 0; y < 8; ++y )
+    if ( !g_vhInit.nullMode )
     {
-        for ( int x = 0; x < 8; ++x )
+        for ( int y = 0; y < 8; ++y )
         {
-            uint8_t expected = ( x + y ) % 256;
-            uint8_t actual = readData[y * 8 + x];
-            EXPECT_NEAR( actual, expected, 1 );
+            for ( int x = 0; x < 8; ++x )
+            {
+                uint8_t expected = ( x + y ) % 256;
+                uint8_t actual = readData[y * 8 + x];
+                EXPECT_NEAR( actual, expected, 1 );
+            }
         }
     }
 
@@ -142,6 +150,11 @@ UTEST_F( Compute, EndToEnd_TextureWrite )
 
 UTEST_F( Compute, ReadFromTexture )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -208,9 +221,12 @@ UTEST_F( Compute, ReadFromTexture )
 
     ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     ASSERT_EQ( readData.size(), 64 );
-    for ( int i = 0; i < 64; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        EXPECT_NEAR( readData[i], hostData[i], 1 );
+        for ( int i = 0; i < 64; ++i )
+        {
+            EXPECT_NEAR( readData[i], hostData[i], 1 );
+        }
     }
 
     vhDestroyTexture( inTex );
@@ -222,6 +238,11 @@ UTEST_F( Compute, ReadFromTexture )
 
 UTEST_F( Compute, ReadFromBuffer )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -297,11 +318,14 @@ UTEST_F( Compute, ReadFromBuffer )
 
     ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     ASSERT_EQ( readData.size(), 64 );
-    for ( int i = 0; i < 64; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        // Expected: i (since we wrote i/255.0 and R8 stores round(val*255))
-        uint8_t expected = static_cast<uint8_t>( i );
-        EXPECT_NEAR( expected, readData[i], 1 );
+        for ( int i = 0; i < 64; ++i )
+        {
+            // Expected: i (since we wrote i/255.0 and R8 stores round(val*255))
+            uint8_t expected = static_cast<uint8_t>( i );
+            EXPECT_NEAR( expected, readData[i], 1 );
+        }
     }
 
     vhDestroyBuffer( inBuf );
@@ -314,6 +338,11 @@ UTEST_F( Compute, ReadFromBuffer )
 
 UTEST_F( Compute, ReadFromBuffer_Unbound )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
     // g_vhInit.logBackendCmds = true;
     // g_vhInit.logPSOCache = true;
     vhFlush();
@@ -388,11 +417,14 @@ UTEST_F( Compute, ReadFromBuffer_Unbound )
 
     ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     ASSERT_EQ( readData.size(), 64 );
-    for ( int i = 0; i < 64; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        // Expected: i (since we wrote i/255.0 and R8 stores round(val*255))
-        uint8_t expected = 127;
-        EXPECT_NEAR( expected, readData[i], 1 );
+        for ( int i = 0; i < 64; ++i )
+        {
+            // Expected: i (since we wrote i/255.0 and R8 stores round(val*255))
+            uint8_t expected = 127;
+            EXPECT_NEAR( expected, readData[i], 1 );
+        }
     }
 
     vhDestroyBuffer( inBuf );
@@ -404,6 +436,11 @@ UTEST_F( Compute, ReadFromBuffer_Unbound )
 
 UTEST_F( Compute, EndToEnd_UniformsAndConstants )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -513,8 +550,11 @@ UTEST_F( Compute, EndToEnd_UniformsAndConstants )
 
     ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     ASSERT_EQ( readData.size(), 4 );
-    float* fData = reinterpret_cast< float* >( readData.data() );
-    EXPECT_NEAR( 22.0f, fData[0], 0.001f );
+    if ( !g_vhInit.nullMode )
+    {
+        float* fData = reinterpret_cast< float* >( readData.data() );
+        EXPECT_NEAR( 22.0f, fData[0], 0.001f );
+    }
 
     vhDestroyTexture( outTex );
     vhDestroyBuffer( userCB );
@@ -525,6 +565,11 @@ UTEST_F( Compute, EndToEnd_UniformsAndConstants )
 
 UTEST_F( Compute, DispatchIndirect )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -591,9 +636,12 @@ UTEST_F( Compute, DispatchIndirect )
 
     ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
     ASSERT_EQ( readData.size(), 64 );
-    for ( int i = 0; i < 64; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        EXPECT_EQ( readData[i], 255 );
+        for ( int i = 0; i < 64; ++i )
+        {
+            EXPECT_EQ( readData[i], 255 );
+        }
     }
 
     // Cleanup
@@ -606,6 +654,11 @@ UTEST_F( Compute, DispatchIndirect )
 
 UTEST_F( Compute, MultipleStageSpaceBindings )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
     vhFlush();
     int32_t startPSOs = g_vhPSOCompileCounter.load();
 
@@ -792,26 +845,29 @@ UTEST_F( Compute, MultipleStageSpaceBindings )
     ASSERT_EQ( readSum.size(), count * sizeof( float ) );
     ASSERT_EQ( readWeighted.size(), count * sizeof( float ) );
 
-    float* fSum = reinterpret_cast< float* >( readSum.data() );
-    float* fWeighted = reinterpret_cast< float* >( readWeighted.data() );
-
-    for ( int y = 0; y < height; ++y )
+    if ( !g_vhInit.nullMode )
     {
-        for ( int x = 0; x < width; ++x )
+        float* fSum = reinterpret_cast< float* >( readSum.data() );
+        float* fWeighted = reinterpret_cast< float* >( readWeighted.data() );
+
+        for ( int y = 0; y < height; ++y )
         {
-            int idx = y * width + x;
-            // R8_UNORM textures normalize to 0-1 range when read as float
-            float valA = static_cast< float >( x ) / 255.0f;
-            float valB = static_cast< float >( y ) / 255.0f;
-            float valC = 10.0f / 255.0f;
+            for ( int x = 0; x < width; ++x )
+            {
+                int idx = y * width + x;
+                // R8_UNORM textures normalize to 0-1 range when read as float
+                float valA = static_cast< float >( x ) / 255.0f;
+                float valB = static_cast< float >( y ) / 255.0f;
+                float valC = 10.0f / 255.0f;
 
-            float expectedSum = valA + valB + valC;
-            // weighted = A*1 + B*2 + C*3 + offset
-            // u_weightA.x = 1.0, u_weightB.y = 2.0, u_weightC.z = 3.0, u_offset = 5.0
-            float expectedWeighted = valA * 1.0f + valB * 2.0f + valC * 3.0f + 5.0f;
+                float expectedSum = valA + valB + valC;
+                // weighted = A*1 + B*2 + C*3 + offset
+                // u_weightA.x = 1.0, u_weightB.y = 2.0, u_weightC.z = 3.0, u_offset = 5.0
+                float expectedWeighted = valA * 1.0f + valB * 2.0f + valC * 3.0f + 5.0f;
 
-            EXPECT_NEAR( fSum[idx], expectedSum, 0.001f );
-            EXPECT_NEAR( fWeighted[idx], expectedWeighted, 0.001f );
+                EXPECT_NEAR( fSum[idx], expectedSum, 0.001f );
+                EXPECT_NEAR( fWeighted[idx], expectedWeighted, 0.001f );
+            }
         }
     }
 

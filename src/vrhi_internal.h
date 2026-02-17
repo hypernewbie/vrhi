@@ -169,6 +169,7 @@ extern std::mutex g_vhShaderTableIDListMutex;
 
 extern bool g_vhRayTracingEnabled;
 extern bool g_vhMemoryBudgetEnabled;
+extern bool g_vhNullMode;
 
 #include <renderdoc_app.h>
 extern RENDERDOC_API_1_1_2* g_vhRenderDoc;

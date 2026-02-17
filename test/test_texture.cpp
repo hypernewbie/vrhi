@@ -247,6 +247,10 @@ UTEST_F( Texture, Update )
 
 UTEST_F( Texture, Readback )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Texture readback requires GPU in Null RHI mode" );
+    }
 
 
     int32_t startErrors = g_vhErrorCounter.load();
@@ -288,7 +292,7 @@ UTEST_F( Texture, Readback )
 
     // Compare
     EXPECT_EQ( readData.size(), dataSize );
-    if ( readData.size() == dataSize )
+    if ( !g_vhInit.nullMode && readData.size() == dataSize )
     {
         for ( size_t i = 0; i < dataSize; ++i )
         {
@@ -328,6 +332,10 @@ UTEST_F( Texture, Allocation )
 
 UTEST_F( Texture, BlitConnectivity )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Texture blit requires GPU in Null RHI mode" );
+    }
 
 
     const int width = 64;
@@ -359,10 +367,13 @@ UTEST_F( Texture, BlitConnectivity )
     vhFinish();
 
     ASSERT_EQ( readData.size(), dataSize );
-    for ( size_t i = 0; i < dataSize; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        EXPECT_EQ( readData[i], 255 );
-        if ( readData[i] != 255 ) break;
+        for ( size_t i = 0; i < dataSize; ++i )
+        {
+            EXPECT_EQ( readData[i], 255 );
+            if ( readData[i] != 255 ) break;
+        }
     }
 
     vhDestroyTexture( src );
@@ -372,6 +383,10 @@ UTEST_F( Texture, BlitConnectivity )
 
 UTEST_F( Texture, BlitMipToMip )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Texture blit requires GPU in Null RHI mode" );
+    }
 
 
     vhTexture src = vhAllocTexture();
@@ -399,10 +414,13 @@ UTEST_F( Texture, BlitMipToMip )
     vhFinish();
 
     ASSERT_EQ( readData.size(), mip1DataSize );
-    for ( size_t i = 0; i < mip1DataSize; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        EXPECT_EQ( readData[i], 128 );
-        if ( readData[i] != 128 ) break;
+        for ( size_t i = 0; i < mip1DataSize; ++i )
+        {
+            EXPECT_EQ( readData[i], 128 );
+            if ( readData[i] != 128 ) break;
+        }
     }
 
     vhDestroyTexture( src );
@@ -412,6 +430,10 @@ UTEST_F( Texture, BlitMipToMip )
 
 UTEST_F( Texture, BlitPartialRegion )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Texture blit requires GPU in Null RHI mode" );
+    }
 
 
     const int width = 64;
@@ -446,18 +468,21 @@ UTEST_F( Texture, BlitPartialRegion )
     vhFinish();
 
     ASSERT_EQ( readData.size(), dataSize );
-    for ( int y = 0; y < height; ++y )
+    if ( !g_vhInit.nullMode )
     {
-        for ( int x = 0; x < width; ++x )
+        for ( int y = 0; y < height; ++y )
         {
-            uint8_t val = readData[( y * width + x ) * 4];
-            if ( x >= 8 && x < 8 + 32 && y >= 8 && y < 8 + 32 )
+            for ( int x = 0; x < width; ++x )
             {
-                EXPECT_EQ( val, 200 );
-            }
-            else
-            {
-                EXPECT_EQ( val, 50 );
+                uint8_t val = readData[( y * width + x ) * 4];
+                if ( x >= 8 && x < 8 + 32 && y >= 8 && y < 8 + 32 )
+                {
+                    EXPECT_EQ( val, 200 );
+                }
+                else
+                {
+                    EXPECT_EQ( val, 50 );
+                }
             }
         }
     }
@@ -855,20 +880,23 @@ UTEST_F( Texture, BlitFunctional )
 
     // Functional check
     bool match = true;
-    if ( readData.size() == dataSize )
+    if ( !g_vhInit.nullMode )
     {
-        for ( size_t i = 0; i < dataSize; ++i )
+        if ( readData.size() == dataSize )
         {
-            if ( readData[i] != 255 )
+            for ( size_t i = 0; i < dataSize; ++i )
             {
-                match = false;
-                break;
+                if ( readData[i] != 255 )
+                {
+                    match = false;
+                    break;
+                }
             }
         }
-    }
-    else
-    {
-        match = false;
+        else
+        {
+            match = false;
+        }
     }
     EXPECT_TRUE( match );
 
@@ -879,6 +907,10 @@ UTEST_F( Texture, BlitFunctional )
 
 UTEST_F( Texture, BlitStress )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Texture blit requires GPU in Null RHI mode" );
+    }
 
 
     struct FormatInfo {
@@ -928,10 +960,13 @@ UTEST_F( Texture, BlitStress )
         vhFinish();
 
         ASSERT_EQ( readData.size(), dataSize );
-        for ( size_t i = 0; i < dataSize; ++i )
+        if ( !g_vhInit.nullMode )
         {
-            EXPECT_EQ( readData[i], 0xAA );
-            if ( readData[i] != 0xAA ) break;
+            for ( size_t i = 0; i < dataSize; ++i )
+            {
+                EXPECT_EQ( readData[i], 0xAA );
+                if ( readData[i] != 0xAA ) break;
+            }
         }
 
         // Action 2: Region Blit
@@ -952,17 +987,20 @@ UTEST_F( Texture, BlitStress )
         vhFinish();
 
         ASSERT_EQ( readData.size(), dataSize );
-        for ( int y = 0; y < height; ++y )
+        if ( !g_vhInit.nullMode )
         {
-            for ( int x = 0; x < width; ++x )
+            for ( int y = 0; y < height; ++y )
             {
-                size_t pixelOffset = ( size_t ) ( y * width + x ) * pixelSize;
-                bool inRegion = ( x >= 8 && x < 8 + 16 && y >= 8 && y < 8 + 16 );
-                uint8_t expected = inRegion ? 0xAA : 0x55;
-                for ( int c = 0; c < pixelSize; ++c )
+                for ( int x = 0; x < width; ++x )
                 {
-                    EXPECT_EQ( readData[pixelOffset + c], expected );
-                    if ( readData[pixelOffset + c] != expected ) break;
+                    size_t pixelOffset = ( size_t ) ( y * width + x ) * pixelSize;
+                    bool inRegion = ( x >= 8 && x < 8 + 16 && y >= 8 && y < 8 + 16 );
+                    uint8_t expected = inRegion ? 0xAA : 0x55;
+                    for ( int c = 0; c < pixelSize; ++c )
+                    {
+                        EXPECT_EQ( readData[pixelOffset + c], expected );
+                        if ( readData[pixelOffset + c] != expected ) break;
+                    }
                 }
             }
         }
@@ -1047,16 +1085,19 @@ UTEST_F( Texture, Type_2DArray )
     vhFinish();
 
     // Verify 1
-    for ( int l = 0; l < layers; ++l )
+    if ( !g_vhInit.nullMode )
     {
-        vhMem readData;
-        vhReadTextureSlow( tex, 0, l, &readData );
-        vhFinish();
-        ASSERT_EQ( readData.size(), layerSize );
-        for ( size_t i = 0; i < layerSize; ++i )
+        for ( int l = 0; l < layers; ++l )
         {
-            EXPECT_EQ( readData[i], ( uint8_t ) l );
-            if ( readData[i] != ( uint8_t ) l ) break;
+            vhMem readData;
+            vhReadTextureSlow( tex, 0, l, &readData );
+            vhFinish();
+            ASSERT_EQ( readData.size(), layerSize );
+            for ( size_t i = 0; i < layerSize; ++i )
+            {
+                EXPECT_EQ( readData[i], ( uint8_t ) l );
+                if ( readData[i] != ( uint8_t ) l ) break;
+            }
         }
     }
 
@@ -1067,16 +1108,19 @@ UTEST_F( Texture, Type_2DArray )
     vhFinish();
 
     // Verify 2
-    for ( int l = 0; l < layers; ++l )
+    if ( !g_vhInit.nullMode )
     {
-        vhMem readData;
-        vhReadTextureSlow( tex, 0, l, &readData );
-        vhFinish();
-        uint8_t expected = ( l == 2 ) ? 0xFF : ( uint8_t ) l;
-        for ( size_t i = 0; i < layerSize; ++i )
+        for ( int l = 0; l < layers; ++l )
         {
-            EXPECT_EQ( readData[i], expected );
-            if ( readData[i] != expected ) break;
+            vhMem readData;
+            vhReadTextureSlow( tex, 0, l, &readData );
+            vhFinish();
+            uint8_t expected = ( l == 2 ) ? 0xFF : ( uint8_t ) l;
+            for ( size_t i = 0; i < layerSize; ++i )
+            {
+                EXPECT_EQ( readData[i], expected );
+                if ( readData[i] != expected ) break;
+            }
         }
     }
 
@@ -1106,16 +1150,19 @@ UTEST_F( Texture, Type_Cube )
     vhFinish();
 
     // Verify 1
-    for ( int f = 0; f < faces; ++f )
+    if ( !g_vhInit.nullMode )
     {
-        vhMem readData;
-        vhReadTextureSlow( tex, 0, f, &readData );
-        vhFinish();
-        ASSERT_EQ( readData.size(), faceSize );
-        for ( size_t i = 0; i < faceSize; ++i )
+        for ( int f = 0; f < faces; ++f )
         {
-            EXPECT_EQ( readData[i], ( uint8_t ) ( f + 10 ) );
-            if ( readData[i] != ( uint8_t ) ( f + 10 ) ) break;
+            vhMem readData;
+            vhReadTextureSlow( tex, 0, f, &readData );
+            vhFinish();
+            ASSERT_EQ( readData.size(), faceSize );
+            for ( size_t i = 0; i < faceSize; ++i )
+            {
+                EXPECT_EQ( readData[i], ( uint8_t ) ( f + 10 ) );
+                if ( readData[i] != ( uint8_t ) ( f + 10 ) ) break;
+            }
         }
     }
 
@@ -1126,16 +1173,19 @@ UTEST_F( Texture, Type_Cube )
     vhFinish();
 
     // Verify 2
-    for ( int f = 0; f < faces; ++f )
+    if ( !g_vhInit.nullMode )
     {
-        vhMem readData;
-        vhReadTextureSlow( tex, 0, f, &readData );
-        vhFinish();
-        uint8_t expected = ( f == 3 ) ? 0xAA : ( uint8_t ) ( f + 10 );
-        for ( size_t i = 0; i < faceSize; ++i )
+        for ( int f = 0; f < faces; ++f )
         {
-            EXPECT_EQ( readData[i], expected );
-            if ( readData[i] != expected ) break;
+            vhMem readData;
+            vhReadTextureSlow( tex, 0, f, &readData );
+            vhFinish();
+            uint8_t expected = ( f == 3 ) ? 0xAA : ( uint8_t ) ( f + 10 );
+            for ( size_t i = 0; i < faceSize; ++i )
+            {
+                EXPECT_EQ( readData[i], expected );
+                if ( readData[i] != expected ) break;
+            }
         }
     }
 
@@ -1210,16 +1260,19 @@ UTEST_F( Texture, MipChain )
     vhFinish();
 
     // Verify 1
-    for ( int i = 0; i < mips; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        vhMem readData;
-        vhReadTextureSlow( tex, i, 0, &readData );
-        vhFinish();
-        ASSERT_EQ( readData.size(), mipSizes[i] );
-        for ( size_t j = 0; j < mipSizes[i]; ++j )
+        for ( int i = 0; i < mips; ++i )
         {
-            EXPECT_EQ( readData[j], ( uint8_t ) ( i + 1 ) );
-            if ( readData[j] != ( uint8_t ) ( i + 1 ) ) break;
+            vhMem readData;
+            vhReadTextureSlow( tex, i, 0, &readData );
+            vhFinish();
+            ASSERT_EQ( readData.size(), mipSizes[i] );
+            for ( size_t j = 0; j < mipSizes[i]; ++j )
+            {
+                EXPECT_EQ( readData[j], ( uint8_t ) ( i + 1 ) );
+                if ( readData[j] != ( uint8_t ) ( i + 1 ) ) break;
+            }
         }
     }
 
@@ -1230,16 +1283,19 @@ UTEST_F( Texture, MipChain )
     vhFinish();
 
     // Verify 2
-    for ( int i = 0; i < mips; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        vhMem readData;
-        vhReadTextureSlow( tex, i, 0, &readData );
-        vhFinish();
-        uint8_t expected = ( i == 2 ) ? 0x77 : ( uint8_t ) ( i + 1 );
-        for ( size_t j = 0; j < mipSizes[i]; ++j )
+        for ( int i = 0; i < mips; ++i )
         {
-            EXPECT_EQ( readData[j], expected );
-            if ( readData[j] != expected ) break;
+            vhMem readData;
+            vhReadTextureSlow( tex, i, 0, &readData );
+            vhFinish();
+            uint8_t expected = ( i == 2 ) ? 0x77 : ( uint8_t ) ( i + 1 );
+            for ( size_t j = 0; j < mipSizes[i]; ++j )
+            {
+                EXPECT_EQ( readData[j], expected );
+                if ( readData[j] != expected ) break;
+            }
         }
     }
 
@@ -1249,6 +1305,10 @@ UTEST_F( Texture, MipChain )
 
 UTEST_F( Texture, Type_1D )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Texture readback requires GPU in Null RHI mode" );
+    }
 
 
     const int width = 256;
@@ -1265,10 +1325,13 @@ UTEST_F( Texture, Type_1D )
     vhFinish();
 
     ASSERT_EQ( readData.size(), ( size_t ) width );
-    for ( int i = 0; i < width; ++i )
+    if ( !g_vhInit.nullMode )
     {
-        EXPECT_EQ( readData[i], ( uint8_t ) i );
-        if ( readData[i] != ( uint8_t ) i ) break;
+        for ( int i = 0; i < width; ++i )
+        {
+            EXPECT_EQ( readData[i], ( uint8_t ) i );
+            if ( readData[i] != ( uint8_t ) i ) break;
+        }
     }
 
     vhDestroyTexture( tex );
@@ -1544,18 +1607,21 @@ UTEST_F( Texture, MipComplete_UpdateAllMips )
     vhFinish();
 
     // Read back and verify each mip
-    for ( size_t i = 0; i < mipInfo.size(); ++i )
+    if ( !g_vhInit.nullMode )
     {
-        vhMem readData;
-        vhReadTextureSlow( tex, ( int ) i, 0, &readData );
-        vhFinish();
-
-        EXPECT_EQ( readData.size(), mipInfo[i].size );
-        uint8_t expectedValue = ( uint8_t )( i + 1 );
-        for ( size_t j = 0; j < readData.size(); ++j )
+        for ( size_t i = 0; i < mipInfo.size(); ++i )
         {
-            EXPECT_EQ( readData[j], expectedValue );
-            if ( readData[j] != expectedValue ) break;
+            vhMem readData;
+            vhReadTextureSlow( tex, ( int ) i, 0, &readData );
+            vhFinish();
+
+            EXPECT_EQ( readData.size(), mipInfo[i].size );
+            uint8_t expectedValue = ( uint8_t )( i + 1 );
+            for ( size_t j = 0; j < readData.size(); ++j )
+            {
+                EXPECT_EQ( readData[j], expectedValue );
+                if ( readData[j] != expectedValue ) break;
+            }
         }
     }
 

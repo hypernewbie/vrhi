@@ -229,6 +229,8 @@ static bool VerifyPixel( vhTexture rt, int32_t x, int32_t y, uint32_t expectedRG
     vhTexInfo info = vhGetTextureInfo( rt );
     if ( readData.size() == 0 ) return false;
 
+    if ( g_vhInit.nullMode ) return true;
+
     // RGBA8 assumed
     int32_t offset = ( y * info.dimensions.x + x ) * 4;
     
@@ -287,6 +289,11 @@ UTEST_F_TEARDOWN( Graphics )
 
 UTEST_F( Graphics, DrawTriangle )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -326,6 +333,11 @@ UTEST_F( Graphics, DrawTriangle )
 
 UTEST_F( Graphics, DrawIndexedTriangle )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -368,6 +380,11 @@ UTEST_F( Graphics, DrawIndexedTriangle )
 
 UTEST_F( Graphics, DrawTriangleStrip )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -408,6 +425,11 @@ UTEST_F( Graphics, DrawTriangleStrip )
 
 UTEST_F( Graphics, DepthTest )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32 );
 
@@ -473,6 +495,11 @@ UTEST_F( Graphics, DepthTest )
 
 UTEST_F( Graphics, StencilTest )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32S8 );
 
@@ -540,6 +567,11 @@ UTEST_F( Graphics, StencilTest )
 
 UTEST_F( Graphics, AlphaBlending )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -582,6 +614,11 @@ UTEST_F( Graphics, AlphaBlending )
 
 UTEST_F( Graphics, Culling )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -650,6 +687,11 @@ UTEST_F( Graphics, Culling )
 
 UTEST_F( Graphics, CullingExtensive )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -801,6 +843,11 @@ UTEST_F( Graphics, CullingExtensive )
 
 UTEST_F( Graphics, ScissorTest )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -846,6 +893,11 @@ UTEST_F( Graphics, ScissorTest )
 
 UTEST_F( Graphics, MultipleTextures )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     // Create two source textures
@@ -947,6 +999,16 @@ UTEST_F( Graphics, TextureFormats )
     vhReadTextureSlow( rt, 0, 0, &readData );
     vhFinish();
     
+    if ( g_vhInit.nullMode )
+    {
+        vhDestroyTexture( rt );
+        vhDestroyBuffer( vb );
+        vhDestroyShader( vs );
+        vhDestroyShader( ps );
+        vhFinish();
+        return;
+    }
+
     uint64_t offset = ( 32 * 64 + 32 ) * 8; // 8 bytes per pixel
     if ( readData.size() > offset + 8 )
     {
@@ -975,6 +1037,11 @@ UTEST_F( Graphics, TextureFormats )
 
 UTEST_F( Graphics, UniformBuffers )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -1018,6 +1085,11 @@ UTEST_F( Graphics, UniformBuffers )
 
 UTEST_F( Graphics, PushConstants )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -1061,6 +1133,11 @@ UTEST_F( Graphics, PushConstants )
 
 UTEST_F( Graphics, MultipleRenderTargets )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt0 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     vhTexture rt1 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
@@ -1106,6 +1183,11 @@ UTEST_F( Graphics, MultipleRenderTargets )
 
 UTEST_F( Graphics, InstancedRendering )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
@@ -1149,6 +1231,11 @@ UTEST_F( Graphics, InstancedRendering )
 // -------------------------------------------------------------------------------------------------
 UTEST_F( Graphics, SamplerModes )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
 
     // Create a 2x2 texture with different colours in each quadrant
     uint32_t pixels[4] = {
@@ -1231,6 +1318,11 @@ UTEST_F( Graphics, SamplerModes )
 // -------------------------------------------------------------------------------------------------
 UTEST_F( Graphics, MipmapRendering )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
 
     // Create a texture with 2 mip levels (2x2 and 1x1)
     vhTexture tex = vhAllocTexture();
@@ -1317,6 +1409,11 @@ VSOutput main(VSInput input) {
 
 UTEST_F( Graphics, MultipleVertexStreams )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     // Stream 0: Positions
@@ -1363,6 +1460,11 @@ UTEST_F( Graphics, MultipleVertexStreams )
 // -------------------------------------------------------------------------------------------------
 UTEST_F( Graphics, VertexBufferOffset )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     // One buffer with two triangles: Triangle 1 is Red, Triangle 2 is Green.
@@ -1414,6 +1516,11 @@ UTEST_F( Graphics, VertexBufferOffset )
 // -------------------------------------------------------------------------------------------------
 UTEST_F( Graphics, IndirectDraw )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     struct Vertex { glm::vec3 pos; glm::vec4 col; };
@@ -1473,6 +1580,11 @@ UTEST_F( Graphics, IndirectDraw )
 
 UTEST_F( Graphics, ClearTexture )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
 
     // Create colour render target
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
@@ -1599,6 +1711,11 @@ UTEST_F( Graphics, BareGlobals )
 {
     if ( !g_testInit ) return;
 
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     // Create Render Target
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
@@ -1717,6 +1834,11 @@ UTEST_F( Graphics, DrawDebugLines )
 {
     if ( !g_testInit ) return;
 
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     // Vertex Buffer: simple 0.0 and 1.0 x-values to select endpoints
@@ -1800,6 +1922,11 @@ UTEST_F( Graphics, DrawDebugLines )
 
 UTEST_F( Graphics, ExtensiveSlotBinding )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     const char* vsSourceUnique = R"(
         cbuffer TestCB_VS : register(b2, VRHI_STAGE_SPACE) { float4 u_valVS; };
         struct VSOutput { float4 pos : SV_Position; float4 color : COLOR; };
@@ -1880,6 +2007,11 @@ UTEST_F( Graphics, ExtensiveSlotBinding )
 // --------------------------------------------------------------------------
 UTEST_F( Graphics, ClearFlagsRespected )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     vhState state;
@@ -1922,6 +2054,11 @@ UTEST_F( Graphics, ClearFlagsRespected )
 
 UTEST_F( Graphics, VertexFormatPadding )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
     static const char* vsPadding = R"(

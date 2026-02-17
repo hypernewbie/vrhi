@@ -218,6 +218,7 @@ endif()
      src/vrhi_internal.h
      src/vrhi_utils.h
      src/vrhi_backend.h
+     src/vrhi_null.h
      src/vrhi_internal.cpp
      src/vrhi_backend.cpp
      src/vrhi_device.cpp
@@ -300,6 +301,7 @@ endif()
          test/test_gfx.cpp
          test/test_rt.cpp
          test/test_window.cpp
+         test/test_null_device.cpp
      )
  
      add_executable(vrhi_test ${TEST_SOURCES})

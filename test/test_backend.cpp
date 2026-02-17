@@ -327,6 +327,11 @@ public:
 
 UTEST( BackendInternal, PreSubmitCommon_State_Compute )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping hardware-specific state validation in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -531,6 +536,11 @@ UTEST( Backend, FramebufferCaching )
 
 UTEST( BackendInternal, FindResource )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping transient buffer mapping test in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -676,6 +686,11 @@ UTEST( BackendInternal, FindResource )
 
 UTEST( Backend, Util_WriteGlobalUniform )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping uniform buffer write test in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -962,6 +977,11 @@ UTEST( Backend, VertexIndexBufferBinding )
 
 UTEST( Backend, Util_WriteWorldUniform )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping world uniform write test in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -1051,6 +1071,11 @@ UTEST( Backend, PushConstantsDirtyBit )
 
 UTEST( Backend, TimerQueryBasic )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Timestamp queries not supported in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -1101,6 +1126,11 @@ UTEST( Backend, TimerQueryBasic )
 
 UTEST( Backend, TimerQueryMultiple )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Timestamp queries not supported in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -1219,6 +1249,11 @@ UTEST( Backend, SparseBindings )
 
 UTEST( Backend, HeapAliasing )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping texture readback test in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );

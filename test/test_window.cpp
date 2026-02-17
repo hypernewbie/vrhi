@@ -42,6 +42,10 @@
 
 UTEST( Window, SwapchainClear )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Window tests not supported in Null RHI mode" );
+    }
 #if defined(__linux__)
     if ( std::getenv( "DISPLAY" ) == nullptr )
     {
@@ -133,6 +137,10 @@ UTEST( Window, SwapchainClear )
 
 UTEST( Window, ResizeSwapchain )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Window tests not supported in Null RHI mode" );
+    }
 #if defined(__linux__)
     if ( std::getenv( "DISPLAY" ) == nullptr )
     {

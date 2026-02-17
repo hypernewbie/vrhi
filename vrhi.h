@@ -55,6 +55,7 @@ struct vhInitData
     // Debug and feature toggles.
     bool debug = false;
     bool raytracing = true;
+    bool nullMode = false;
     bool logBackendCmds = false;
     bool logPSOCache = false;
     bool debugBlockWaitForBackend = false;

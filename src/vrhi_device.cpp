@@ -25,6 +25,7 @@
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
 #include "vrhi_backend.h"
+#include "vrhi_null.h"
 #include "renderdoc_app.h"
 
 #include <nvrhi/validation.h>
@@ -158,400 +159,424 @@ void vhInit( bool quiet )
     bool originalDebugBlockWaitForBackend = g_vhInit.debugBlockWaitForBackend;
     g_vhInit.debugBlockWaitForBackend = false;
 
-    // Create VkInstance (via vk-bootstrap)
+    g_vhNullMode = g_vhInit.nullMode;
+    if ( g_vhNullMode )
+    {
+        // Force headless - there is no surface or swapchain in null mode
+        g_vhInit.headless = true;
 
-    if ( !quiet ) VRHI_LOG( "    Creating VK Instance (via vk-bootstrap)\n" );
-    vkb::InstanceBuilder instBuilder;
-    instBuilder.set_app_name( g_vhInit.appName.c_str() )
-        .set_engine_name( g_vhInit.engineName.c_str() )
-        .require_api_version( 1, 3, 0 )
-        // .set_headless( g_vhInit.headless )
-        .request_validation_layers( g_vhInit.debug )
-        .set_debug_callback( vhVKDebugCallback );
-    if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
+        // Create null device as the NVRHI backend
+        g_vhDevice = nvrhi::DeviceHandle( new vhNullDevice() );
+        g_vhVulkanDevice = nullptr;
+        g_vhWindowSize = g_vhInit.resolution;
+
+        // Populate device info for null mode
+        g_vhDeviceInfo = {};
+        g_vhDeviceInfo.name = "NULL Device";
+        g_vhDeviceInfo.driver = "None";
+        g_vhDeviceInfo.apiVersion = "N/A";
+        g_vhDeviceInfo.summary = "NULL RHI Mode - No GPU";
+
+        // Skip straight to frame state, dummy resources, and backend thread
+        goto vrhi_init_post_device;
+    }
+
+    // Create VkInstance (via vk-bootstrap)
+    {
+        if ( !quiet ) VRHI_LOG( "    Creating VK Instance (via vk-bootstrap)\n" );
+        vkb::InstanceBuilder instBuilder;
+        instBuilder.set_app_name( g_vhInit.appName.c_str() )
+            .set_engine_name( g_vhInit.engineName.c_str() )
+            .require_api_version( 1, 3, 0 )
+            // .set_headless( g_vhInit.headless )
+            .request_validation_layers( g_vhInit.debug )
+            .set_debug_callback( vhVKDebugCallback );
+        if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 
 #ifdef __APPLE__
-    instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
-    instBuilder.enable_extension( VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME );
+        instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
+        instBuilder.enable_extension( VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME );
 #endif
 
-    auto instRet = instBuilder.build();
-    if ( !instRet )
-    {
-        VRHI_LOG( "Failed to create Vulkan Instance: %s\n", instRet.error().message().c_str() );
-        exit( 1 );
-    }
+        auto instRet = instBuilder.build();
+        if ( !instRet )
+        {
+            VRHI_LOG( "Failed to create Vulkan Instance: %s\n", instRet.error().message().c_str() );
+            exit( 1 );
+        }
 
-    vkb::Instance vkbInst = instRet.value();
-    g_vulkanInstance = vkbInst.instance;
-    g_vulkanDebugMessenger = vkbInst.debug_messenger;
+        vkb::Instance vkbInst = instRet.value();
+        g_vulkanInstance = vkbInst.instance;
+        g_vulkanDebugMessenger = vkbInst.debug_messenger;
 
-    // Initialise vulkan.hpp dynamic dispatcher with instance functions
-    if ( !quiet ) VRHI_LOG( "    Initialising vulkan.hpp dynamic dispatcher with instance functions\n" );
-    VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr );
+        // Initialise vulkan.hpp dynamic dispatcher with instance functions
+        if ( !quiet ) VRHI_LOG( "    Initialising vulkan.hpp dynamic dispatcher with instance functions\n" );
+        VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr );
 
-    // Surface Creation
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    if ( !g_vhInit.headless && g_vhInit.windowHandle )
-    {
-        if ( !quiet ) VRHI_LOG( "    Creating Surface from Window Handle...\n" );
+        // Surface Creation
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
+        if ( !g_vhInit.headless && g_vhInit.windowHandle )
+        {
+            if ( !quiet ) VRHI_LOG( "    Creating Surface from Window Handle...\n" );
 #if defined(_WIN32)
-        VkWin32SurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-        sci.hinstance = GetModuleHandle( NULL );
-        sci.hwnd = ( HWND ) g_vhInit.windowHandle;
-        auto res = vkCreateWin32SurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
-        if ( res != VK_SUCCESS )
-        {
-            VRHI_LOG( "Failed to create Win32 surface: %d\n", res );
-            exit( 1 );
-        }
-#elif defined(VK_USE_PLATFORM_XLIB_KHR)
-        VkXlibSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
-        sci.dpy = ( Display* ) g_vhInit.displayHandle;
-        sci.window = ( Window ) g_vhInit.windowHandle;
-        auto res = vkCreateXlibSurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
-        if ( res != VK_SUCCESS )
-        {
-            VRHI_LOG( "Failed to create Xlib surface: %d\n", res );
-            exit( 1 );
-        }
-#elif defined(__APPLE__)
-        VkMetalSurfaceCreateInfoEXT sci = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
-        sci.pLayer = ( const CAMetalLayer* ) g_vhInit.windowHandle;
-        auto res = vkCreateMetalSurfaceEXT( g_vulkanInstance, &sci, nullptr, &surface );
-        if ( res != VK_SUCCESS )
-        {
-            VRHI_LOG( "Failed to create Metal surface: %d. Falling back to MVK...\n", res );
-            VkMacOSSurfaceCreateInfoMVK sciMvk = { VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK };
-            sciMvk.pView = g_vhInit.windowHandle;
-            res = vkCreateMacOSSurfaceMVK( g_vulkanInstance, &sciMvk, nullptr, &surface );
+            VkWin32SurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
+            sci.hinstance = GetModuleHandle( NULL );
+            sci.hwnd = ( HWND ) g_vhInit.windowHandle;
+            auto res = vkCreateWin32SurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
             if ( res != VK_SUCCESS )
             {
-                VRHI_LOG( "Failed to create MacOS surface: %d\n", res );
+                VRHI_LOG( "Failed to create Win32 surface: %d\n", res );
                 exit( 1 );
             }
-        }
+#elif defined(VK_USE_PLATFORM_XLIB_KHR)
+            VkXlibSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
+            sci.dpy = ( Display* ) g_vhInit.displayHandle;
+            sci.window = ( Window ) g_vhInit.windowHandle;
+            auto res = vkCreateXlibSurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
+            if ( res != VK_SUCCESS )
+            {
+                VRHI_LOG( "Failed to create Xlib surface: %d\n", res );
+                exit( 1 );
+            }
+#elif defined(__APPLE__)
+            VkMetalSurfaceCreateInfoEXT sci = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
+            sci.pLayer = ( const CAMetalLayer* ) g_vhInit.windowHandle;
+            auto res = vkCreateMetalSurfaceEXT( g_vulkanInstance, &sci, nullptr, &surface );
+            if ( res != VK_SUCCESS )
+            {
+                VRHI_LOG( "Failed to create Metal surface: %d. Falling back to MVK...\n", res );
+                VkMacOSSurfaceCreateInfoMVK sciMvk = { VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK };
+                sciMvk.pView = g_vhInit.windowHandle;
+                res = vkCreateMacOSSurfaceMVK( g_vulkanInstance, &sciMvk, nullptr, &surface );
+                if ( res != VK_SUCCESS )
+                {
+                    VRHI_LOG( "Failed to create MacOS surface: %d\n", res );
+                    exit( 1 );
+                }
+            }
 #endif
-    }
-    g_vhSurface = surface;
+        }
+        g_vhSurface = surface;
 
-    // Physical Device Selection (via vk-bootstrap)
+        // Physical Device Selection (via vk-bootstrap)
 
-    if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
-    vkb::PhysicalDeviceSelector selector( vkbInst );
-    selector.require_present( !g_vhInit.headless );
-    if ( g_vhSurface )
-    {
-        selector.set_surface( g_vhSurface );
-    }
-
-    VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-    v12Features.timelineSemaphore = VK_TRUE;
-    v12Features.bufferDeviceAddress = VK_TRUE;
-    
-    VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-    v13Features.dynamicRendering = VK_TRUE;
-
-    VkPhysicalDeviceFeatures features = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
-    features.independentBlend = VK_TRUE;
-    features.fillModeNonSolid = VK_TRUE;
-    features.samplerAnisotropy = VK_TRUE;
-    features.depthClamp = VK_TRUE;
-
-    selector.set_minimum_version( 1, 3 )
-        .set_required_features_12( v12Features )
-        .set_required_features_13( v13Features )
-        .set_required_features( features );
-
-    vkb::PhysicalDevice vkbPhys;
-
-    if ( g_vhInit.deviceIndex >= 0 )
-    {
-        // User selected device.
-        auto physRet = selector.select_devices();
-        if ( !physRet || g_vhInit.deviceIndex >= ( int ) physRet.value().size() )
+        if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
+        vkb::PhysicalDeviceSelector selector( vkbInst );
+        selector.require_present( !g_vhInit.headless );
+        if ( g_vhSurface )
         {
-            VRHI_LOG( "Failed to select physical device at index %d\n", g_vhInit.deviceIndex );
+            selector.set_surface( g_vhSurface );
+        }
+
+        VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        v12Features.timelineSemaphore = VK_TRUE;
+        v12Features.bufferDeviceAddress = VK_TRUE;
+
+        VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        v13Features.dynamicRendering = VK_TRUE;
+
+        VkPhysicalDeviceFeatures features = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
+        features.independentBlend = VK_TRUE;
+        features.fillModeNonSolid = VK_TRUE;
+        features.samplerAnisotropy = VK_TRUE;
+        features.depthClamp = VK_TRUE;
+
+        selector.set_minimum_version( 1, 3 )
+            .set_required_features_12( v12Features )
+            .set_required_features_13( v13Features )
+            .set_required_features( features );
+
+        vkb::PhysicalDevice vkbPhys;
+
+        if ( g_vhInit.deviceIndex >= 0 )
+        {
+            // User selected device.
+            auto physRet = selector.select_devices();
+            if ( !physRet || g_vhInit.deviceIndex >= ( int ) physRet.value().size() )
+            {
+                VRHI_LOG( "Failed to select physical device at index %d\n", g_vhInit.deviceIndex );
+                exit( 1 );
+            }
+            vkbPhys = physRet.value()[g_vhInit.deviceIndex];
+        }
+        else
+        {
+            // Auto selected device.
+            auto physRet = selector.select();
+            if ( !physRet )
+            {
+                VRHI_LOG( "Failed to select suitable physical device: %s\n", physRet.error().message().c_str() );
+                exit( 1 );
+            }
+            vkbPhys = physRet.value();
+        }
+
+        g_vulkanPhysicalDevice = vkbPhys.physical_device;
+        if ( !quiet ) VRHI_LOG( "    Selected GPU Device: %s\n", vkbPhys.name.c_str() );
+
+        VkPhysicalDeviceDriverProperties driverProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
+        VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+        props2.pNext = &driverProps;
+        vkGetPhysicalDeviceProperties2( g_vulkanPhysicalDevice, &props2 );
+        VRHI_LOG( "    Vulkan Driver: %s (%s)\n", driverProps.driverName, driverProps.driverInfo );
+
+        // Populate device info struct
+        const char* deviceTypeStr = "Unknown";
+        switch ( props2.properties.deviceType )
+        {
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   deviceTypeStr = "Discrete GPU"; break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: deviceTypeStr = "Integrated GPU"; break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:     deviceTypeStr = "Virtual GPU"; break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:             deviceTypeStr = "CPU"; break;
+            default:                                      deviceTypeStr = "Other"; break;
+        }
+
+        g_vhDeviceInfo.name = std::string( props2.properties.deviceName ) + " - " + deviceTypeStr;
+        g_vhDeviceInfo.driver = std::string( driverProps.driverName ) + " " + std::string( driverProps.driverInfo );
+        g_vhDeviceInfo.apiVersion = std::to_string( VK_API_VERSION_MAJOR( props2.properties.apiVersion ) ) + "." +
+            std::to_string( VK_API_VERSION_MINOR( props2.properties.apiVersion ) ) + "." +
+            std::to_string( VK_API_VERSION_PATCH( props2.properties.apiVersion ) );
+        g_vhDeviceInfo.maxTextureSize = props2.properties.limits.maxImageDimension2D;
+        g_vhDeviceInfo.maxColorAttachments = props2.properties.limits.maxColorAttachments;
+
+        // Get memory heap info
+        VkPhysicalDeviceMemoryProperties memProps;
+        vkGetPhysicalDeviceMemoryProperties( g_vulkanPhysicalDevice, &memProps );
+        for ( uint32_t i = 0; i < memProps.memoryHeapCount; ++i )
+        {
+            if ( memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT )
+            {
+                g_vhDeviceInfo.totalVRAM += memProps.memoryHeaps[i].size;
+            }
+        }
+
+        // Device Creation & Queues (via vk-bootstrap)
+
+        bool rtExtEnabled = false;
+        if ( g_vhInit.raytracing )
+        {
+            rtExtEnabled = vkbPhys.enable_extension_if_present( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) &&
+                vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
+                vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+        }
+
+        bool robustness2Enabled = false;
+        if ( g_vhInit.robust )
+        {
+            robustness2Enabled = vkbPhys.enable_extension_if_present( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
+        }
+        bool shaderDrawParametersEnabled = vkbPhys.enable_extension_if_present( "VK_KHR_shader_draw_parameters" );
+        if ( shaderDrawParametersEnabled && !quiet ) VRHI_LOG( "    Enabled VK_KHR_shader_draw_parameters extension.\n" );
+
+        bool memoryBudgetEnabled = vkbPhys.enable_extension_if_present( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
+        if ( memoryBudgetEnabled && !quiet ) VRHI_LOG( "    Enabled VK_EXT_memory_budget extension.\n" );
+        g_vhMemoryBudgetEnabled = memoryBudgetEnabled;
+
+        if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
+        vkb::DeviceBuilder devBuilder( vkbPhys );
+
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+
+        if ( rtExtEnabled )
+        {
+            accelFeatures.accelerationStructure = VK_TRUE;
+            rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
+            devBuilder.add_pNext( &accelFeatures );
+            devBuilder.add_pNext( &rtPipelineFeatures );
+            if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions enabled.\n" );
+        }
+        else
+        {
+            if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions missing. RT features disabled.\n" );
+        }
+
+        VkPhysicalDeviceRobustness2FeaturesEXT robustness2Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
+        if ( robustness2Enabled )
+        {
+            // Query supported features first!
+            VkPhysicalDeviceRobustness2FeaturesEXT supported = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
+            VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features2.pNext = &supported;
+            vkGetPhysicalDeviceFeatures2( vkbPhys.physical_device, &features2 );
+
+            if ( supported.nullDescriptor ) robustness2Features.nullDescriptor = VK_TRUE;
+            if ( supported.robustBufferAccess2 ) robustness2Features.robustBufferAccess2 = VK_TRUE;
+            if ( supported.robustImageAccess2 ) robustness2Features.robustImageAccess2 = VK_TRUE;
+
+            devBuilder.add_pNext( &robustness2Features );
+            if ( !quiet ) VRHI_LOG( "    Robustness2 extension enabled.\n" );
+        }
+        else
+        {
+            if ( !quiet && g_vhInit.robust ) VRHI_LOG( "    Robustness2 extension missing or disabled.\n" );
+        }
+
+        VkPhysicalDeviceVulkan11Features v11Feat = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+        if ( shaderDrawParametersEnabled )
+        {
+            v11Feat.shaderDrawParameters = VK_TRUE;
+            devBuilder.add_pNext( &v11Feat );
+        }
+
+        auto devRet = devBuilder.build();
+        if ( !devRet )
+        {
+            VRHI_LOG( "Failed to create Vulkan Device: %s\n", devRet.error().message().c_str() );
             exit( 1 );
         }
-        vkbPhys = physRet.value()[g_vhInit.deviceIndex];
-    }
-    else
-    {
-        // Auto selected device.
-        auto physRet = selector.select();
-        if ( !physRet )
+
+        g_vulkanBDevice = std::make_unique<vkb::Device>( devRet.value() );
+        g_vulkanDevice = g_vulkanBDevice->device;
+
+        // Verify RT enablement via function pointers
+        if ( rtExtEnabled )
         {
-            VRHI_LOG( "Failed to select suitable physical device: %s\n", physRet.error().message().c_str() );
+            auto fp = vkGetDeviceProcAddr( g_vulkanDevice, "vkCreateAccelerationStructureKHR" );
+            if ( !fp )
+            {
+                rtExtEnabled = false;
+                if ( !quiet ) VRHI_LOG( "    WARNING: RT extensions requested but vkCreateAccelerationStructureKHR not found. Disabling RT.\n" );
+            }
+        }
+        g_vhRayTracingEnabled = rtExtEnabled;
+
+        // Get Queues
+        auto graphicsQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::graphics );
+        if ( !graphicsQueueRet )
+        {
+            VRHI_LOG( "Failed to get graphics queue: %s\n", graphicsQueueRet.error().message().c_str() );
             exit( 1 );
         }
-        vkbPhys = physRet.value();
-    }
+        g_vulkanGraphicsQueue = graphicsQueueRet.value();
+        g_QueueFamilyGraphics = g_vulkanBDevice->get_queue_index( vkb::QueueType::graphics ).value();
 
-    g_vulkanPhysicalDevice = vkbPhys.physical_device;
-    if ( !quiet ) VRHI_LOG( "    Selected GPU Device: %s\n", vkbPhys.name.c_str() );
-
-    VkPhysicalDeviceDriverProperties driverProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
-    VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
-    props2.pNext = &driverProps;
-    vkGetPhysicalDeviceProperties2( g_vulkanPhysicalDevice, &props2 );
-    VRHI_LOG( "    Vulkan Driver: %s (%s)\n", driverProps.driverName, driverProps.driverInfo );
-
-    // Populate device info struct
-    const char* deviceTypeStr = "Unknown";
-    switch ( props2.properties.deviceType )
-    {
-        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   deviceTypeStr = "Discrete GPU"; break;
-        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: deviceTypeStr = "Integrated GPU"; break;
-        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:     deviceTypeStr = "Virtual GPU"; break;
-        case VK_PHYSICAL_DEVICE_TYPE_CPU:             deviceTypeStr = "CPU"; break;
-        default:                                      deviceTypeStr = "Other"; break;
-    }
-
-    g_vhDeviceInfo.name = std::string( props2.properties.deviceName ) + " - " + deviceTypeStr;
-    g_vhDeviceInfo.driver = std::string( driverProps.driverName ) + " " + std::string( driverProps.driverInfo );
-    g_vhDeviceInfo.apiVersion = std::to_string( VK_API_VERSION_MAJOR( props2.properties.apiVersion ) ) + "." +
-                                std::to_string( VK_API_VERSION_MINOR( props2.properties.apiVersion ) ) + "." +
-                                std::to_string( VK_API_VERSION_PATCH( props2.properties.apiVersion ) );
-    g_vhDeviceInfo.maxTextureSize = props2.properties.limits.maxImageDimension2D;
-    g_vhDeviceInfo.maxColorAttachments = props2.properties.limits.maxColorAttachments;
-
-    // Get memory heap info
-    VkPhysicalDeviceMemoryProperties memProps;
-    vkGetPhysicalDeviceMemoryProperties( g_vulkanPhysicalDevice, &memProps );
-    for ( uint32_t i = 0; i < memProps.memoryHeapCount; ++i )
-    {
-        if ( memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT )
+        auto computeQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::compute );
+        if ( computeQueueRet )
         {
-            g_vhDeviceInfo.totalVRAM += memProps.memoryHeaps[i].size;
+            g_vulkanComputeQueue = computeQueueRet.value();
+            g_QueueFamilyCompute = g_vulkanBDevice->get_queue_index( vkb::QueueType::compute ).value();
         }
-    }
-
-    // Device Creation & Queues (via vk-bootstrap)
-
-    bool rtExtEnabled = false;
-    if ( g_vhInit.raytracing )
-    {
-        rtExtEnabled = vkbPhys.enable_extension_if_present( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) &&
-            vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
-            vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
-    }
-
-    bool robustness2Enabled = false;
-    if ( g_vhInit.robust )
-    {
-        robustness2Enabled = vkbPhys.enable_extension_if_present( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
-    }
-    bool shaderDrawParametersEnabled = vkbPhys.enable_extension_if_present( "VK_KHR_shader_draw_parameters" );
-    if ( shaderDrawParametersEnabled && !quiet ) VRHI_LOG( "    Enabled VK_KHR_shader_draw_parameters extension.\n" );
-
-    bool memoryBudgetEnabled = vkbPhys.enable_extension_if_present( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
-    if ( memoryBudgetEnabled && !quiet ) VRHI_LOG( "    Enabled VK_EXT_memory_budget extension.\n" );
-    g_vhMemoryBudgetEnabled = memoryBudgetEnabled;
-
-    if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
-    vkb::DeviceBuilder devBuilder( vkbPhys );
-
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
-
-    if ( rtExtEnabled )
-    {
-        accelFeatures.accelerationStructure = VK_TRUE;
-        rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
-        devBuilder.add_pNext( &accelFeatures );
-        devBuilder.add_pNext( &rtPipelineFeatures );
-        if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions enabled.\n" );
-    }
-    else
-    {
-        if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions missing. RT features disabled.\n" );
-    }
-
-    VkPhysicalDeviceRobustness2FeaturesEXT robustness2Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
-    if ( robustness2Enabled )
-    {
-        // Query supported features first!
-        VkPhysicalDeviceRobustness2FeaturesEXT supported = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
-        VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-        features2.pNext = &supported;
-        vkGetPhysicalDeviceFeatures2( vkbPhys.physical_device, &features2 );
-
-        if ( supported.nullDescriptor ) robustness2Features.nullDescriptor = VK_TRUE;
-        if ( supported.robustBufferAccess2 ) robustness2Features.robustBufferAccess2 = VK_TRUE;
-        if ( supported.robustImageAccess2 ) robustness2Features.robustImageAccess2 = VK_TRUE;
-
-        devBuilder.add_pNext( &robustness2Features );
-        if ( !quiet ) VRHI_LOG( "    Robustness2 extension enabled.\n" );
-    }
-    else
-    {
-        if ( !quiet && g_vhInit.robust ) VRHI_LOG( "    Robustness2 extension missing or disabled.\n" );
-    }
-
-    VkPhysicalDeviceVulkan11Features v11Feat = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
-    if ( shaderDrawParametersEnabled )
-    {
-        v11Feat.shaderDrawParameters = VK_TRUE;
-        devBuilder.add_pNext( &v11Feat );
-    }
-
-    auto devRet = devBuilder.build();
-    if ( !devRet )
-    {
-        VRHI_LOG( "Failed to create Vulkan Device: %s\n", devRet.error().message().c_str() );
-        exit( 1 );
-    }
-
-    g_vulkanBDevice = std::make_unique<vkb::Device>( devRet.value() );
-    g_vulkanDevice = g_vulkanBDevice->device;
-
-    // Verify RT enablement via function pointers
-    if ( rtExtEnabled )
-    {
-        auto fp = vkGetDeviceProcAddr( g_vulkanDevice, "vkCreateAccelerationStructureKHR" );
-        if ( !fp )
+        else
         {
-            rtExtEnabled = false;
-            if ( !quiet ) VRHI_LOG( "    WARNING: RT extensions requested but vkCreateAccelerationStructureKHR not found. Disabling RT.\n" );
+            g_vulkanComputeQueue = g_vulkanGraphicsQueue;
+            g_QueueFamilyCompute = g_QueueFamilyGraphics;
         }
-    }
-    g_vhRayTracingEnabled = rtExtEnabled;
 
-    // Get Queues
-    auto graphicsQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::graphics );
-    if ( !graphicsQueueRet )
-    {
-        VRHI_LOG( "Failed to get graphics queue: %s\n", graphicsQueueRet.error().message().c_str() );
-        exit( 1 );
-    }
-    g_vulkanGraphicsQueue = graphicsQueueRet.value();
-    g_QueueFamilyGraphics = g_vulkanBDevice->get_queue_index( vkb::QueueType::graphics ).value();
+        auto transferQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::transfer );
+        if ( transferQueueRet )
+        {
+            g_vulkanTransferQueue = transferQueueRet.value();
+            g_QueueFamilyTransfer = g_vulkanBDevice->get_queue_index( vkb::QueueType::transfer ).value();
+        }
+        else
+        {
+            g_vulkanTransferQueue = g_vulkanComputeQueue;
+            g_QueueFamilyTransfer = g_QueueFamilyCompute;
+        }
 
-    auto computeQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::compute );
-    if ( computeQueueRet )
-    {
-        g_vulkanComputeQueue = computeQueueRet.value();
-        g_QueueFamilyCompute = g_vulkanBDevice->get_queue_index( vkb::QueueType::compute ).value();
-    }
-    else
-    {
-        g_vulkanComputeQueue = g_vulkanGraphicsQueue;
-        g_QueueFamilyCompute = g_QueueFamilyGraphics;
-    }
+        static std::vector<std::string> s_enabledExtensions;
+        s_enabledExtensions.clear();
+        if ( g_vhRayTracingEnabled )
+        {
+            s_enabledExtensions.push_back( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME );
+            s_enabledExtensions.push_back( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME );
+            s_enabledExtensions.push_back( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+        }
+        if ( robustness2Enabled )
+        {
+            s_enabledExtensions.push_back( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
+        }
+        if ( shaderDrawParametersEnabled )
+        {
+            s_enabledExtensions.push_back( VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME );
+        }
+        if ( memoryBudgetEnabled )
+        {
+            s_enabledExtensions.push_back( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
+        }
 
-    auto transferQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::transfer );
-    if ( transferQueueRet )
-    {
-        g_vulkanTransferQueue = transferQueueRet.value();
-        g_QueueFamilyTransfer = g_vulkanBDevice->get_queue_index( vkb::QueueType::transfer ).value();
-    }
-    else
-    {
-        g_vulkanTransferQueue = g_vulkanComputeQueue;
-        g_QueueFamilyTransfer = g_QueueFamilyCompute;
-    }
+        g_vulkanEnabledExtensionCount = ( uint32_t ) s_enabledExtensions.size();
 
-    static std::vector<std::string> s_enabledExtensions;
-    s_enabledExtensions.clear();
-    if ( g_vhRayTracingEnabled )
-    {
-        s_enabledExtensions.push_back( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME );
-        s_enabledExtensions.push_back( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME );
-        s_enabledExtensions.push_back( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
-    }
-    if ( robustness2Enabled )
-    {
-        s_enabledExtensions.push_back( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
-    }
-    if ( shaderDrawParametersEnabled )
-    {
-        s_enabledExtensions.push_back( VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME );
-    }
-    if ( memoryBudgetEnabled )
-    {
-        s_enabledExtensions.push_back( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
-    }
+        static std::vector<const char*> s_enabledExtensionPointers;
+        s_enabledExtensionPointers.clear();
+        for ( const auto& ext : s_enabledExtensions ) s_enabledExtensionPointers.push_back( ext.c_str() );
 
-    g_vulkanEnabledExtensionCount = ( uint32_t ) s_enabledExtensions.size();
+        if ( !quiet ) VRHI_LOG( "    Selected VK Queues: Graphics %d, Compute %d, Transfer %d\n", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
 
-    static std::vector<const char*> s_enabledExtensionPointers;
-    s_enabledExtensionPointers.clear();
-    for ( const auto& ext : s_enabledExtensions ) s_enabledExtensionPointers.push_back( ext.c_str() );
+        // Populate queues string for device info
+        char queuesBuffer[256];
+        snprintf( queuesBuffer, sizeof( queuesBuffer ), "Graphics:%d Compute:%d Transfer:%d", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
+        g_vhDeviceInfo.queues = std::string( queuesBuffer );
 
-    if ( !quiet ) VRHI_LOG( "    Selected VK Queues: Graphics %d, Compute %d, Transfer %d\n", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
+        // Store features we know from extension checking
+        g_vhDeviceInfo.raytracing = g_vhRayTracingEnabled;
+        g_vhDeviceInfo.memoryBudget = memoryBudgetEnabled;
 
-    // Populate queues string for device info
-    char queuesBuffer[256];
-    snprintf( queuesBuffer, sizeof( queuesBuffer ), "Graphics:%d Compute:%d Transfer:%d", g_QueueFamilyGraphics, g_QueueFamilyCompute, g_QueueFamilyTransfer );
-    g_vhDeviceInfo.queues = std::string( queuesBuffer );
+        if ( !quiet ) VRHI_LOG( "    Created VK Logical Device.\n" );
 
-    // Store features we know from extension checking
-    g_vhDeviceInfo.raytracing = g_vhRayTracingEnabled;
-    g_vhDeviceInfo.memoryBudget = memoryBudgetEnabled;
+        // NVRHI Handover
 
-    if ( !quiet ) VRHI_LOG( "    Created VK Logical Device.\n" );
+        if ( !quiet ) VRHI_LOG( "    Linking to nvRHI .... \n" );
 
-    // NVRHI Handover
+        // Required by NVRHI Vulkan backend - initialises vk::DispatchLoaderDynamic for function pointers.
+        VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr, g_vulkanDevice, vkGetDeviceProcAddr );
 
-    if ( !quiet ) VRHI_LOG( "    Linking to nvRHI .... \n" );
+        nvrhi::vulkan::DeviceDesc nvrhiDesc;
+        nvrhiDesc.errorCB = &g_vhVKMessageCallback;
+        nvrhiDesc.instance = g_vulkanInstance;
+        nvrhiDesc.physicalDevice = g_vulkanPhysicalDevice;
+        nvrhiDesc.device = g_vulkanDevice;
 
-    // Required by NVRHI Vulkan backend - initialises vk::DispatchLoaderDynamic for function pointers.
-    VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr, g_vulkanDevice, vkGetDeviceProcAddr );
+        nvrhiDesc.graphicsQueue = g_vulkanGraphicsQueue;
+        nvrhiDesc.graphicsQueueIndex = g_QueueFamilyGraphics;
+        nvrhiDesc.computeQueue = g_vulkanComputeQueue;
+        nvrhiDesc.computeQueueIndex = g_QueueFamilyCompute;
+        nvrhiDesc.transferQueue = g_vulkanTransferQueue;
+        nvrhiDesc.transferQueueIndex = g_QueueFamilyTransfer;
 
-    nvrhi::vulkan::DeviceDesc nvrhiDesc;
-    nvrhiDesc.errorCB = &g_vhVKMessageCallback;
-    nvrhiDesc.instance = g_vulkanInstance;
-    nvrhiDesc.physicalDevice = g_vulkanPhysicalDevice;
-    nvrhiDesc.device = g_vulkanDevice;
+        std::vector<const char*> instanceExtensions;
+        if ( g_vhInit.renderdoc ) instanceExtensions.push_back( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 
-    nvrhiDesc.graphicsQueue = g_vulkanGraphicsQueue;
-    nvrhiDesc.graphicsQueueIndex = g_QueueFamilyGraphics;
-    nvrhiDesc.computeQueue = g_vulkanComputeQueue;
-    nvrhiDesc.computeQueueIndex = g_QueueFamilyCompute;
-    nvrhiDesc.transferQueue = g_vulkanTransferQueue;
-    nvrhiDesc.transferQueueIndex = g_QueueFamilyTransfer;
+        nvrhiDesc.deviceExtensions = s_enabledExtensionPointers.data();
+        nvrhiDesc.numDeviceExtensions = ( uint32_t ) s_enabledExtensionPointers.size();
+        nvrhiDesc.instanceExtensions = instanceExtensions.data();
+        nvrhiDesc.numInstanceExtensions = ( uint32_t ) instanceExtensions.size();
 
-    std::vector<const char*> instanceExtensions;
-    if ( g_vhInit.renderdoc ) instanceExtensions.push_back( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
+        g_vhDevice = nvrhi::vulkan::createDevice( nvrhiDesc );
+        if ( !g_vhDevice )
+        {
+            VRHI_LOG( "Failed to create NVRHI device!\n" );
+            exit( 1 );
+        }
+        g_vhVulkanDevice = ( nvrhi::vulkan::IDevice* ) g_vhDevice.Get();
 
-    nvrhiDesc.deviceExtensions = s_enabledExtensionPointers.data();
-    nvrhiDesc.numDeviceExtensions = ( uint32_t ) s_enabledExtensionPointers.size();
-    nvrhiDesc.instanceExtensions = instanceExtensions.data();
-    nvrhiDesc.numInstanceExtensions = ( uint32_t ) instanceExtensions.size();
+        if ( g_vhInit.debug )
+        {
+            // Wrap with validation layer in debug builds - catches state tracking errors
+            if ( !quiet ) VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
+            g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
+        }
 
-    g_vhDevice = nvrhi::vulkan::createDevice( nvrhiDesc );
-    if ( !g_vhDevice )
-    {
-        VRHI_LOG( "Failed to create NVRHI device!\n" );
-        exit( 1 );
-    }
-    g_vhVulkanDevice = ( nvrhi::vulkan::IDevice* ) g_vhDevice.Get();
+        // Auto-detect remaining features
+        g_vhDeviceInfo.bindless = vhQueryFeatureSupport_Internal( nvrhi::Feature::HlslExtensionUAV );
+        g_vhDeviceInfo.vrs = vhQueryFeatureSupport_Internal( nvrhi::Feature::VariableRateShading );
+        g_vhDeviceInfo.asyncCompute = vhQueryFeatureSupport_Internal( nvrhi::Feature::CopyQueue );
 
-    if ( g_vhInit.debug )
-    {
-        // Wrap with validation layer in debug builds - catches state tracking errors
-        if ( !quiet ) VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
-        g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
+        // Generate summary string for legacy compatibility
+        char summaryBuffer[1024];
+        snprintf( summaryBuffer, sizeof( summaryBuffer ),
+            "Device: %s Vulkan: %s Type: %s Queues: %s NVRHI: Active Extensions: %u",
+            props2.properties.deviceName,
+            g_vhDeviceInfo.apiVersion.c_str(),
+            g_vhDeviceInfo.name.c_str(),
+            g_vhDeviceInfo.queues.c_str(),
+            g_vulkanEnabledExtensionCount
+        );
+        g_vhDeviceInfo.summary = std::string( summaryBuffer );
     }
 
-    // Auto-detect remaining features
-    g_vhDeviceInfo.bindless = vhQueryFeatureSupport_Internal( nvrhi::Feature::HlslExtensionUAV );
-    g_vhDeviceInfo.vrs = vhQueryFeatureSupport_Internal( nvrhi::Feature::VariableRateShading );
-    g_vhDeviceInfo.asyncCompute = vhQueryFeatureSupport_Internal( nvrhi::Feature::CopyQueue );
-
-    // Generate summary string for legacy compatibility
-    char summaryBuffer[1024];
-    snprintf( summaryBuffer, sizeof( summaryBuffer ),
-        "Device: %s Vulkan: %s Type: %s Queues: %s NVRHI: Active Extensions: %u",
-        props2.properties.deviceName,
-        g_vhDeviceInfo.apiVersion.c_str(),
-        g_vhDeviceInfo.name.c_str(),
-        g_vhDeviceInfo.queues.c_str(),
-        g_vulkanEnabledExtensionCount
-    );
-    g_vhDeviceInfo.summary = std::string( summaryBuffer );
-
+vrhi_init_post_device:
     // Swapchain Creation
     if ( g_vhSurface != VK_NULL_HANDLE )
     {
@@ -676,15 +701,17 @@ void vhShutdown( bool quiet )
         vkDestroyInstance( g_vulkanInstance, nullptr );
         g_vulkanInstance = VK_NULL_HANDLE;
     }
+
+    g_vhNullMode = false;
 }
 
 vhMemoryStats vhStatsMemory()
 {
     vhMemoryStats stats = {};
     
-    if ( !g_vhDevice )
+    if ( !g_vhDevice || g_vhNullMode )
     {
-        VRHI_ERR( "vhStatsMemory(): Device not initialised.\n" );
+        if ( !g_vhDevice ) VRHI_ERR( "vhStatsMemory(): Device not initialised.\n" );
         return stats;
     }
     
@@ -1173,6 +1200,12 @@ void vhResize( int width, int height )
     if ( width <= 0 || height <= 0 )
     {
         VRHI_ERR( "vhResize(): Invalid dimensions %dx%d. Dimensions must be positive.\n", width, height );
+        return;
+    }
+
+    if ( g_vhNullMode )
+    {
+        g_vhWindowSize = glm::uvec2( width, height );
         return;
     }
 

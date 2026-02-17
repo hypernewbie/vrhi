@@ -114,6 +114,11 @@ UTEST_F( Buffer, Transient )
 
 UTEST_F( Buffer, TransientWrite )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping transient buffer write test in Null RHI mode" );
+    }
+
     vhTransientBuffer tb;
     nvrhi::BufferDesc desc;
     desc.byteSize = 1024;

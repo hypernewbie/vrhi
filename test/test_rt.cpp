@@ -155,6 +155,8 @@ static bool VerifyPixel( vhTexture rt, int32_t x, int32_t y, uint32_t expectedRG
     vhReadTextureSlow( rt, 0, 0, &readData );
     vhFinish();
 
+    if ( g_vhInit.nullMode ) return true;
+
     vhTexInfo info = vhGetTextureInfo( rt );
     if ( readData.size() == 0 ) return false;
 

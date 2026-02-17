@@ -80,6 +80,7 @@ std::unordered_map< vhShaderTable, bool > g_vhShaderTableIDValid;
 std::mutex g_vhShaderTableIDListMutex;
 
 bool g_vhRayTracingEnabled = false;
+bool g_vhNullMode = false;
 
 // # Backend Command List Thread
 

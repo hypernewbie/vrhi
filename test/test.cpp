@@ -20,6 +20,7 @@
 */
 
 #include <cstdio>
+#include <cstring>
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -62,6 +63,16 @@ UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
 {
+    // Parse command line arguments
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strcmp( argv[i], "--null" ) == 0 )
+        {
+            g_vhInit.nullMode = true;
+            g_vhInit.headless = true;
+        }
+    }
+
 #ifndef NDEBUG
     g_vhInit.debug = true;
     g_vhInit.renderdoc = true;

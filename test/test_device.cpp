@@ -48,8 +48,12 @@ UTEST( RHI, Init )
     // Verify device info is populated
     EXPECT_FALSE( g_vhDeviceInfo.name.empty() );
     EXPECT_FALSE( g_vhDeviceInfo.driver.empty() );
-    EXPECT_FALSE( g_vhDeviceInfo.apiVersion.empty() );
-    EXPECT_GT( g_vhDeviceInfo.totalVRAM, 0u );
+
+    if ( !g_vhInit.nullMode )
+    {
+        EXPECT_FALSE( g_vhDeviceInfo.apiVersion.empty() );
+        EXPECT_GT( g_vhDeviceInfo.totalVRAM, 0u );
+    }
 
     // Test shutdown
     vhShutdown( g_testInitQuiet );
@@ -286,6 +290,11 @@ UTEST( Device, HashingReflectionMembers )
 
 UTEST( Device, QueryFeatureSupport )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Feature queries not supported in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -309,6 +318,11 @@ UTEST( Device, QueryFeatureSupport )
 
 UTEST( Device, QueryFormatSupport )
 {
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Format queries not supported in Null RHI mode" );
+    }
+
     if ( !g_testInit )
     {
         vhInit( g_testInitQuiet );
@@ -358,6 +372,12 @@ UTEST( Device, StatsMemory )
     }
     vhMemoryStats stats = vhStatsMemory();
 
+    if ( g_vhInit.nullMode )
+    {
+        EXPECT_EQ( stats.heapCount, 0u );
+        return;
+    }
+
     // Basic properties should always be available
     EXPECT_GT( stats.heapCount, 0u );
     EXPECT_LE( stats.heapCount, 16u );
@@ -400,7 +420,11 @@ UTEST( Device, BasicDeviceInfo )
     // Verify global device info exists and is populated
     EXPECT_FALSE( g_vhDeviceInfo.name.empty() );
     EXPECT_FALSE( g_vhDeviceInfo.driver.empty() );
-    EXPECT_FALSE( g_vhDeviceInfo.apiVersion.empty() );
-    EXPECT_FALSE( g_vhDeviceInfo.queues.empty() );
-    EXPECT_GT( g_vhDeviceInfo.totalVRAM, 0u );
+
+    if ( !g_vhInit.nullMode )
+    {
+        EXPECT_FALSE( g_vhDeviceInfo.apiVersion.empty() );
+        EXPECT_FALSE( g_vhDeviceInfo.queues.empty() );
+        EXPECT_GT( g_vhDeviceInfo.totalVRAM, 0u );
+    }
 }
