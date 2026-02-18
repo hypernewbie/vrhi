@@ -150,8 +150,8 @@ endif()
 
 # Set up per-config library paths
 # vdeps.py builds to lib/${VRHI_PLATFORM_TAG}_debug and lib/${VRHI_PLATFORM_TAG}_release
-set( SPIRV_TOOLS_DEBUG_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_debug" )
-set( SPIRV_TOOLS_RELEASE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_release" )
+set( SPIRV_TOOLS_DEBUG_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_debug" CACHE PATH "Path to SPIRV-Tools debug libraries" )
+set( SPIRV_TOOLS_RELEASE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_release" CACHE PATH "Path to SPIRV-Tools release libraries" )
 
 if( WIN32 )
     # Windows: use .lib files with per-config IMPORTED_LOCATION
