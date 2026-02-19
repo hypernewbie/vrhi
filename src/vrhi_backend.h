@@ -82,6 +82,8 @@ struct vhStateResolveCache
 {
     bool init = false;
 
+    // Backend pointer caches. These vectors use clear() to preserve capacity across frames,
+    // avoiding repeated heap allocations. They grow to their high-water-mark and stay there.
     std::vector< vhBackendTexture* > btex;
     std::vector< vhBackendBuffer* > bbuf;
     std::vector< vhBackendShader* > bshaders;
@@ -126,13 +128,18 @@ struct vhStateResolveCache
         uint32_t globalUniformsSlot = UINT32_MAX; // UINT32_MAX = no GlobalUniforms
         uint32_t worldUniformsSlot = UINT32_MAX;  // UINT32_MAX = no WorldUniforms
     };
-    std::unordered_map< uint32_t, std::unique_ptr< ShaderStageBindingSlotState > > stageBinding; // stage flag -> binding slot state
+
+    // Flat pre-allocated storage for shader stage binding state, avoiding per-frame heap allocations.
+    // Stages are dense integer keys 1..VRHI_SHADER_STAGE_MAX.
+    ShaderStageBindingSlotState stageBindingStorage[ VRHI_SHADER_STAGE_MAX + 1 ];
+    bool stageBindingActive[ VRHI_SHADER_STAGE_MAX + 1 ] = {};
 
     struct UserGlobalUniformsBufferInfo
     {
         nvrhi::BufferHandle buffer;
         nvrhi::BufferRange range;
     };
+    // Cache for user global uniform buffers. Uses clear() to preserve bucket array capacity.
     std::unordered_map< uint64_t, UserGlobalUniformsBufferInfo > userGlobalUniformsBufferCache; // hash -> buffer
 
     inline void Clear()
@@ -142,7 +149,21 @@ struct vhStateResolveCache
         bbuf.clear();
         bshaders.clear();
         baccel.clear();
-        stageBinding.clear();
+        for ( int i = 1; i <= VRHI_SHADER_STAGE_MAX; i++ )
+        {
+            if ( stageBindingActive[i] )
+            {
+                stageBindingStorage[i].samplerTable.clear();
+                stageBindingStorage[i].textureTable.clear();
+                stageBindingStorage[i].bufferTable.clear();
+                stageBindingStorage[i].uavTable.clear();
+                stageBindingStorage[i].userGlobalsSlot    = UINT32_MAX;
+                stageBindingStorage[i].userGlobalsHash    = 0;
+                stageBindingStorage[i].globalUniformsSlot = UINT32_MAX;
+                stageBindingStorage[i].worldUniformsSlot  = UINT32_MAX;
+                stageBindingActive[i] = false;
+            }
+        }
         userGlobalUniformsBufferCache.clear();
     }
 };
@@ -270,7 +291,7 @@ class vhCmdBackendState : public VIDLHandler
 
     bool BE_PresubmitCommon_PipelineDesc(
         vhState& state,
-        vhBackendShader* shaders,
+        vhBackendShader* const* shaders,
         int shaderCount,
         nvrhi::ComputePipelineDesc* computePipelineDesc, // set to nullptr if not using compute.
         nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc // set to nullptr if not using graphics.
@@ -278,7 +299,7 @@ class vhCmdBackendState : public VIDLHandler
 
     void BE_PreSubmitCommon_ResolveStateCache(
         const vhState& state,
-        vhBackendShader* shaders,
+        vhBackendShader* const* shaders,
         int shaderCount,
         vhStateResolveCache& scache
     );
@@ -295,7 +316,7 @@ class vhCmdBackendState : public VIDLHandler
     bool BE_PreSubmitCommon_State(
         nvrhi::CommandListHandle cmdList,
         vhState& state,
-        vhBackendShader* shaders,
+        vhBackendShader* const* shaders,
         int shaderCount,
         nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
         nvrhi::GraphicsState* graphicsState, // set to nullptr if not using graphics.
@@ -308,7 +329,7 @@ class vhCmdBackendState : public VIDLHandler
 
     void BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset );
 
-    void BE_Submit( vhState& state, vhBackendShader* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount );
+    void BE_Submit( vhState& state, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount );
 
     void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size );
 
@@ -316,12 +337,13 @@ class vhCmdBackendState : public VIDLHandler
 
 protected:
     // Static caches to avoid reallocation overhead, explicitly cleared in shutdown()
+    // Using pointer storage for s_shaders to avoid deep-copy overhead on the hot path.
     static std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
     static vhStateResolveCache s_resolveCache;
     static std::unordered_map< uint32_t, vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
     static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
-    static std::vector< vhBackendShader > s_shaders;
+    static std::vector< vhBackendShader* > s_shaders;
 
 public:
 

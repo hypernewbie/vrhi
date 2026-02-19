@@ -1452,6 +1452,7 @@ struct vhShaderReflectionResource
     uint32_t arraySize = 0;
     uint32_t sizeInBytes = 0; // Validation
     std::vector< vhReflectionMember > members;
+    uint64_t membersHash = 0; // Cached hash of members, computed at shader load time
 };
 
 struct vhPushConstantRange

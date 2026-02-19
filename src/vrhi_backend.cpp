@@ -33,7 +33,7 @@ vhStateResolveCache vhCmdBackendState::s_resolveCache;
 std::unordered_map< uint32_t, vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
-std::vector< vhBackendShader > vhCmdBackendState::s_shaders;
+std::vector< vhBackendShader* > vhCmdBackendState::s_shaders;
 
 // --------------------------------------------------------------------------
 // Backend :: Utils & Helpers
@@ -419,7 +419,7 @@ nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector
 
 bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     vhState& state,
-    vhBackendShader* shaders,
+    vhBackendShader* const* shaders,
     int shaderCount,
     nvrhi::ComputePipelineDesc* computePipelineDesc, // set to nullptr if not using compute.
     nvrhi::GraphicsPipelineDesc* graphicsPipelineDesc // set to nullptr if not using graphics.
@@ -434,7 +434,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     int maxSetIndex = 0;
     for ( int idx = 0; idx < shaderCount; ++idx )
     {
-        const auto& shader = shaders[idx];
+        const auto& shader = *shaders[idx];
         if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
             continue;
         int setIdx = ( int ) vhGetDescriptorSetForStage( shader.flags );
@@ -449,7 +449,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
  
         for ( int idx = 0; idx < shaderCount; ++idx )
         {
-            const auto& shader = shaders[idx];
+            const auto& shader = *shaders[idx];
             if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
                 continue;
             
@@ -469,7 +469,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     // Set Shader Handles
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
-        auto& shader = shaders[shaderIdx];
+        auto& shader = *shaders[shaderIdx];
         if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
             continue;
 
@@ -481,7 +481,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         else if ( stage == VRHI_SHADER_STAGE_VERTEX && graphicsPipelineDesc )
         {
             graphicsPipelineDesc->setVertexShader( shader.handle );
-            vertexShader = &shader;
+            vertexShader = shaders[shaderIdx];
         }
         else if ( stage == VRHI_SHADER_STAGE_HULL && graphicsPipelineDesc )
         {
@@ -519,10 +519,13 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         // - patchControlPoints: tessellation is only supported if we add it.
 
         vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", true );
+        // Reuse pool for parsed vertex layouts. Inner vectors are cleared but not destroyed,
+        // preserving their internal buffer capacity across calls.
         static std::vector< std::vector< vhVertexLayoutDef > > s_parsedLayouts;
+        static size_t s_parsedLayoutsUsed = 0;
         s_layoutLocationTable.clear();
         s_attributes.clear();
-        s_parsedLayouts.clear();
+        s_parsedLayoutsUsed = 0;
 
         for ( size_t i = 0; i < state.vertexBindings.size(); ++i )
         {
@@ -540,13 +543,17 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
             
             if ( !binding.layoutOverride.empty() )
             {
-                s_parsedLayouts.emplace_back();
-                if ( !vhParseVertexLayoutInternal( binding.layoutOverride, s_parsedLayouts.back() ) )
+                // Reuse pool pattern: grow only if needed, otherwise reuse existing slot
+                if ( s_parsedLayoutsUsed >= s_parsedLayouts.size() )
+                    s_parsedLayouts.emplace_back();
+                auto& slot = s_parsedLayouts[s_parsedLayoutsUsed++];
+                slot.clear();
+                if ( !vhParseVertexLayoutInternal( binding.layoutOverride, slot ) )
                 {
                     VRHI_ERR( "Failed to parse vertex layout override: %s\n", binding.layoutOverride.c_str() );
                     return false;
                 }
-                pLayout = &s_parsedLayouts.back();
+                pLayout = &slot;
                 stride = 0;
                 for ( const auto& def : *pLayout ) stride += vhVertexLayoutDefSize( def );
             }
@@ -596,7 +603,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
 
 void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
     const vhState& state,
-    vhBackendShader* shaders,
+    vhBackendShader* const* shaders,
     int shaderCount,
     vhStateResolveCache& scache
 )
@@ -626,7 +633,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
     if ( shaders && shaderCount > 0 )
     {
         for ( int i = 0; i < shaderCount; ++i )
-            scache.bshaders.push_back( &shaders[i] );
+            scache.bshaders.push_back( shaders[i] );
     }
     else if ( !state.program.empty() )
     {
@@ -664,12 +671,22 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
     }
     vhProfile( "BE_PreSubmitCommon_ResolveStateCache_AccelStructs", false );
 
-    // Build slot maps.
-
-    scache.stageBinding.clear();
+    // Build slot maps. Initialise stage binding storage.
+    // Pre-reserve inner maps on first-ever use (check capacity to avoid re-reserving every frame).
     for ( int i = 1; i <= VRHI_SHADER_STAGE_MAX; i++ )
     {
-        scache.stageBinding[i] = std::make_unique< vhStateResolveCache::ShaderStageBindingSlotState >();
+        if ( !scache.stageBindingActive[i] )
+        {
+            auto& slot = scache.stageBindingStorage[i];
+            if ( slot.samplerTable.bucket_count() == 0 )
+            {
+                slot.samplerTable.reserve( 16 );
+                slot.textureTable.reserve( 32 );
+                slot.bufferTable.reserve( 16 );
+                slot.uavTable.reserve( 8 );
+            }
+        }
+        scache.stageBindingActive[i] = true;
     }
 
     auto fnResolveSlot = [&]( const char* name, int32_t fallbackSlot, nvrhi::ResourceType type, vhBackendShader& shader ) -> int32_t
@@ -682,14 +699,14 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         const auto& s = state.samplers[i];
         for ( int j = 0; j < shaderCount; j++ )
         {
-            const int32_t slot = fnResolveSlot( s.name, s.slot, nvrhi::ResourceType::Sampler, shaders[j] );
+            const int32_t slot = fnResolveSlot( s.name, s.slot, nvrhi::ResourceType::Sampler, *shaders[j] );
             if ( slot < 0 )
                 continue; // Having extra resources bound that the shader doesn't use is fair dinkum.
 
-            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
             assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
-            assert( scache.stageBinding[stage].get() );
-            if ( scache.stageBinding[stage]->samplerTable.find( slot ) != scache.stageBinding[stage]->samplerTable.end() )
+            assert( scache.stageBindingActive[stage] );
+            if ( scache.stageBindingStorage[stage].samplerTable.find( slot ) != scache.stageBindingStorage[stage].samplerTable.end() )
             {
                 // Duplicate binding slots is not fair dinkum.
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Sampler Binding Slot Collision: Slot %d already bound by previous shader\n", slot );
@@ -702,7 +719,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                 VRHI_ERR( "vhSetState(): Failed to get sampler handle for sampler at index %zu\n", i );
                 return;
             }
-            scache.stageBinding[stage]->samplerTable[slot] = shandle;
+            scache.stageBindingStorage[stage].samplerTable[slot] = shandle;
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Sampler 0x%llx bound to slot %d '%s'\n", s.flags, slot, s.name ? s.name : "" );
         }
     }
@@ -716,13 +733,13 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         for ( int j = 0; j < shaderCount; j++ )
         {
             const nvrhi::ResourceType bindingType = t.computeUAV ? nvrhi::ResourceType::Texture_UAV : nvrhi::ResourceType::Texture_SRV;
-            const int32_t slot = fnResolveSlot( t.name, t.slot, bindingType, shaders[j] );
+            const int32_t slot = fnResolveSlot( t.name, t.slot, bindingType, *shaders[j] );
             if ( slot < 0 )
                 continue; // Having extra resources bound that the shader doesn't use is fair dinkum.
 
-            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
             assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
-            auto& stageTable = *scache.stageBinding[stage];
+            auto& stageTable = scache.stageBindingStorage[stage];
 
             if ( t.computeUAV )
             {
@@ -774,13 +791,13 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             {
                 bindingType = b.computeUAV ? nvrhi::ResourceType::RawBuffer_UAV : nvrhi::ResourceType::RawBuffer_SRV;
             }
-            const int32_t slot = fnResolveSlot( b.name, b.slot, bindingType, shaders[j] );
+            const int32_t slot = fnResolveSlot( b.name, b.slot, bindingType, *shaders[j] );
             if ( slot < 0 )
                 continue; // Having extra resources bound that the shader doesn't use is fair dinkum.
 
-            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+            const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
             assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
-            auto& stageTable = *scache.stageBinding[stage];
+            auto& stageTable = scache.stageBindingStorage[stage];
 
             if ( b.computeUAV )
             {
@@ -811,9 +828,9 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
     for ( int j = 0; j < shaderCount; j++ )
     {
-        const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
+        const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
         assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
-        auto& stageTable = *scache.stageBinding[stage];
+        auto& stageTable = scache.stageBindingStorage[stage];
 
         if ( stageTable.userGlobalsSlot != UINT32_MAX )
         {
@@ -822,19 +839,18 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             continue;
         }
 
-        for ( const auto& res : shaders[j].reflection )
+        for ( const auto& res : shaders[j]->reflection )
         {
             if ( res.type == nvrhi::ResourceType::ConstantBuffer )
             {
                 if ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" )
                 {
-                    uint64_t hash = vhHashReflectionMembers( res.members );
                     stageTable.userGlobalsSlot = res.slot;
-                    stageTable.userGlobalsHash = hash;
+                    stageTable.userGlobalsHash = res.membersHash;
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
                     {
                         VRHI_LOG( "ResolveCache: Found User Globals '%s' at slot %u for stage %u. Hash: 0x%llx\n",
-                            res.name.c_str(), res.slot, stage, hash );
+                            res.name.c_str(), res.slot, stage, res.membersHash );
                     }
                 }
                 else if ( res.name == "GlobalUniforms" )
@@ -857,11 +873,15 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         }
     }
 
+    // Static buffer for packing user globals. Resizes only upward, preserving capacity across frames.
     static std::vector< uint8_t > s_userGlobalsPackBuffer;
 
-    for ( const auto& stagePair : scache.stageBinding )
+    for ( int stageIdx = 1; stageIdx <= VRHI_SHADER_STAGE_MAX; stageIdx++ )
     {
-        const auto& stageTable = *stagePair.second;
+        if ( !scache.stageBindingActive[stageIdx] )
+            continue;
+
+        const auto& stageTable = scache.stageBindingStorage[stageIdx];
 
         if ( stageTable.userGlobalsSlot == UINT32_MAX )
             continue;
@@ -875,10 +895,10 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         const vhShaderReflectionResource* res = nullptr;
         for ( int j = 0; j < shaderCount; j++ )
         {
-            const uint32_t stage = ( uint32_t ) ( shaders[j].flags & VRHI_SHADER_STAGE_MASK );
-            if ( stagePair.first == stage )
+            const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
+            if ( stageIdx == ( int ) stage )
             {
-                for ( const auto& r : shaders[j].reflection )
+                for ( const auto& r : shaders[j]->reflection )
                 {
                     if ( r.type == nvrhi::ResourceType::ConstantBuffer &&
                          ( r.name == "$Globals" || r.name == "_Globals" || r.name == "globalParams" ) )
@@ -933,12 +953,12 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
     assert( scache.btex.size() == state.textures.size() );
     assert( scache.bbuf.size() == state.buffers.size() );
 
-    if ( scache.stageBinding.find( stage ) == scache.stageBinding.end() )
+    if ( stage == 0 || stage > VRHI_SHADER_STAGE_MAX || !scache.stageBindingActive[stage] )
     {
         if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Stage %d not found in cache.\n", stage );
         return false;
     }
-    const auto& stageTable = *scache.stageBinding.at( stage );
+    const auto& stageTable = scache.stageBindingStorage[stage];
 
     switch ( item.type )
     {
@@ -1198,7 +1218,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
 bool vhCmdBackendState::BE_PreSubmitCommon_State(
     nvrhi::CommandListHandle cmdList,
     vhState& state,
-    vhBackendShader* shaders,
+    vhBackendShader* const* shaders,
     int shaderCount,
     nvrhi::ComputeState* computeState,
     nvrhi::GraphicsState* graphicsState,
@@ -1221,7 +1241,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
     const nvrhi::BindingLayoutVector& layouts = *psoLayouts;
 
-    // Build map of hash --> psoLayouts.
+    // Build map of hash --> psoLayouts. Static map uses clear() to preserve bucket array capacity.
     vhProfile( "BE_PreSubmitCommon_State_PSOLayoutHash", true );
     static std::unordered_map< uint64_t, const nvrhi::BindingLayoutHandle* > s_hashToPSOlayout;
     s_hashToPSOlayout.clear();
@@ -1240,11 +1260,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     s_layoutToShader.clear();
     for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
     {
-        auto& shader = shaders[shaderIdx];
-        if ( !BE_Util_ShaderStageMatches( shader.flags, computeState != nullptr, graphicsState != nullptr ) )
+        auto shader = shaders[shaderIdx];
+        if ( !BE_Util_ShaderStageMatches( shader->flags, computeState != nullptr, graphicsState != nullptr ) )
             continue;
 
-        if ( !shader.layout )
+        if ( !shader->layout )
         {
             VRHI_ERR( "vhSetState(): NULL shader layout. Stripped spirv-reflection?" );
             assert( !"NULL shader layout" );
@@ -1252,8 +1272,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
 
         // Match shader.layout to equivalent state->pipeline->getDesc().bindingLayouts->layout.
-        assert( shader.layout->getDesc() );
-        auto hash = vhHashBindingLayout( *shader.layout->getDesc() );
+        assert( shader->layout->getDesc() );
+        auto hash = vhHashBindingLayout( *shader->layout->getDesc() );
         if ( s_hashToPSOlayout.find( hash ) == s_hashToPSOlayout.end() || !s_hashToPSOlayout[hash] )
         {
             VRHI_ERR( "vhSetState(): Mismatch between shader layout and PSO layout. This is likely a Vrhi bug." );
@@ -1262,7 +1282,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
         const auto& tempPSOLayout = *s_hashToPSOlayout[hash];
         assert( s_layoutToShader.find( tempPSOLayout ) == s_layoutToShader.end() ); // Duplicate layouts should be impossible.
-        s_layoutToShader[ tempPSOLayout ] = &shader;
+        s_layoutToShader[ tempPSOLayout ] = shader;
     }
     s_hashToPSOlayout.clear();
     vhProfile( "BE_PreSubmitCommon_State_ShaderLayoutMatch", false );
@@ -1501,9 +1521,10 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
 
+    vhBackendShader* shaderPtr = &computeShader;
     nvrhi::ComputePipelineDesc desc;
     vhProfile( "BE_Dispatch_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, &computeShader, 1, &desc, nullptr ) )
+    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &desc, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1523,7 +1544,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     cstate.setPipeline( pso.Get() );
     vhProfile( "BE_Dispatch_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr, nullptr, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &cstate, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1561,9 +1582,10 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     }
     vhProfile( "BE_DispatchIndirect_Validation", false );
 
+    vhBackendShader* shaderPtr = &computeShader;
     nvrhi::ComputePipelineDesc desc;
     vhProfile( "BE_DispatchIndirect_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, &computeShader, 1, &desc, nullptr ) )
+    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &desc, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1584,7 +1606,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     nvrhi::ComputeState cstate;
     cstate.setPipeline( pso.Get() );
     vhProfile( "BE_DispatchIndirect_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &computeShader, 1, &cstate, nullptr, nullptr, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &cstate, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1612,7 +1634,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     }
 }
 
-void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
+void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
 {
     VRHI_PROFILE_FUNCTION();
     nvrhi::GraphicsPipelineDesc pipelineDesc;
@@ -1662,7 +1684,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* shaders, int
             vhProfile( "BE_Submit_PushConstants", true );
             for ( int i = 0; i < shaderCount; ++i )
             {
-                if ( !shaders[i].pushConstants.empty() )
+                if ( !shaders[i]->pushConstants.empty() )
                 {
                     vhSetPushConstant_DeviceStateLocked( cmdlist, state );
                     break;
@@ -1716,7 +1738,7 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
 void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args )
 {
     VRHI_PROFILE_FUNCTION();
-    vhBackendShader rtShaders[VRHI_SHADER_STAGE_MAX];
+    vhBackendShader* rtShaders[VRHI_SHADER_STAGE_MAX];
     int rtShaderCount = 0;
     vhProfile( "BE_DispatchRays_ShaderSetup", true );
     for ( auto h : state.program )
@@ -1725,7 +1747,7 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
         if ( it != backendShaders.end() && it->second )
         {
             assert( rtShaderCount < VRHI_SHADER_STAGE_MAX );
-            rtShaders[rtShaderCount++] = *it->second;
+            rtShaders[rtShaderCount++] = it->second.get();
         }
     }
     vhProfile( "BE_DispatchRays_ShaderSetup", false );
@@ -2700,6 +2722,15 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
     // Perform reflection
     vhReflectSpirv( cmd->spirv, layoutDesc, resources, groupSize, pushConstants, &inputLayout );
 
+    // Cache member hashes for resources that have members (avoids per-frame recomputation)
+    for ( auto& res : resources )
+    {
+        if ( !res.members.empty() )
+        {
+            res.membersHash = vhHashReflectionMembers( res.members );
+        }
+    }
+
     // Set visibility based on shader stage.
     layoutDesc.visibility = type;
 
@@ -3331,13 +3362,12 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
     vhState& state = itState->second;
 
     s_shaders.clear();
-    s_shaders.reserve( 16 );
 
     for ( vhShader shaderHandle : state.program )
     {
         auto it = backendShaders.find( shaderHandle );
         if ( it != backendShaders.end() )
-            s_shaders.push_back( *it->second );
+            s_shaders.push_back( it->second.get() );
     }
 
     if ( s_shaders.empty() )

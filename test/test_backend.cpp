@@ -76,7 +76,7 @@ public:
     // Test access for Pipeline Validation
     static bool PreSubmitCommon_PipelineDesc(
         vhState& state,
-        vhBackendShader* shaders,
+        vhBackendShader* const* shaders,
         int shaderCount,
         nvrhi::ComputePipelineDesc* compute,
         nvrhi::GraphicsPipelineDesc* graphics
@@ -87,7 +87,7 @@ public:
 
     static bool PreSubmitCommon_State(
         vhState& state,
-        vhBackendShader* shaders,
+        vhBackendShader* const* shaders,
         int shaderCount,
         nvrhi::ComputeState* compute,
         nvrhi::GraphicsState* graphics,
@@ -246,11 +246,12 @@ UTEST( BackendInternal, PipelineValidation )
     shader.flags = VRHI_SHADER_STAGE_VERTEX; // Must be vertex to trigger input layout check
 
     // We must pass a valid shader pointer and count > 0 to satisfy assertions.
-    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, nullptr, &graphicsDesc ) );
+    vhBackendShader* shaderPtr = &shader;
+    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shaderPtr, 1, nullptr, &graphicsDesc ) );
 
     // Case 2: Valid shader, no pipeline desc
     // Returns true (success) because it simply matches no stages and exits cleanly.
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, nullptr, nullptr ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shaderPtr, 1, nullptr, nullptr ) );
 
     vhFlush();
     {
@@ -283,23 +284,27 @@ UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
     nvrhi::ComputePipelineDesc computeDesc;
 
     // Happy Path
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shader, 1, &computeDesc, nullptr ) );
+    vhBackendShader* shaderPtr = &shader;
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, &shaderPtr, 1, &computeDesc, nullptr ) );
     EXPECT_EQ( computeDesc.CS.Get(), shader.handle.Get() );
     EXPECT_EQ( computeDesc.bindingLayouts.size(), 2u );
     EXPECT_EQ( computeDesc.bindingLayouts[1].Get(), shader.layout.Get() );
 
     // Mixed Shaders - Only compute should be picked up
     vhBackendShader shaders[2];
+    vhBackendShader* shaderPtrs[2];
     shaders[0] = shader;
     shaders[1].handle = nullptr;
     shaders[1].flags = VRHI_SHADER_STAGE_VERTEX;
+    shaderPtrs[0] = &shaders[0];
+    shaderPtrs[1] = &shaders[1];
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         shaders[1].layout = g_vhDevice->createBindingLayout( layoutDesc );
     }
 
     nvrhi::ComputePipelineDesc computeDesc2;
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, shaders, 2, &computeDesc2, nullptr ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, shaderPtrs, 2, &computeDesc2, nullptr ) );
     EXPECT_EQ( computeDesc2.CS.Get(), shaders[0].handle.Get() );
     EXPECT_EQ( computeDesc2.bindingLayouts.size(), 2u );
     EXPECT_EQ( computeDesc2.bindingLayouts[1].Get(), shaders[0].layout.Get() );
@@ -392,10 +397,12 @@ UTEST( BackendInternal, PreSubmitCommon_State_Compute )
     nvrhi::ComputeState computeStateFail;
     computeStateFail.pipeline = mockPipelineFail;
 
-    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderFail, 1, &computeStateFail, nullptr ) );
+    vhBackendShader* shaderFailPtr = &shaderFail;
+    EXPECT_FALSE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderFailPtr, 1, &computeStateFail, nullptr ) );
 
     // CASE: Happy Path
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, &computeState, nullptr ) );
+    vhBackendShader* shaderPtr = &shader;
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderPtr, 1, &computeState, nullptr ) );
 
     vhFlush();
     {
@@ -590,8 +597,8 @@ UTEST( BackendInternal, FindResource )
 
     // Mock Stage Binding
     uint32_t stage = VRHI_SHADER_STAGE_COMPUTE;
-    scache.stageBinding[stage] = std::make_unique< vhStateResolveCache::ShaderStageBindingSlotState >();
-    auto& stageTable = *scache.stageBinding[stage];
+    scache.stageBindingActive[stage] = true;
+    auto& stageTable = scache.stageBindingStorage[stage];
 
     stageTable.textureTable[0] = { hTex, &texBind };
     stageTable.bufferTable[1] = { hBuf, &bufBind };
@@ -846,6 +853,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     // Dummy shader required for PreSubmitCommon_State
     vhBackendShader shader;
     shader.flags = VRHI_SHADER_STAGE_VERTEX;
+    vhBackendShader* shaderPtr = &shader;
     
     nvrhi::BindingLayoutDesc layoutDesc = {};
     layoutDesc.visibility = nvrhi::ShaderType::All;
@@ -872,7 +880,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     auto mgp = std::make_unique< MockGraphicsPipeline >( layouts );
     gstate.pipeline = mgp.get();
     
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderPtr, 1, nullptr, &gstate ) );
     
     EXPECT_EQ( gstate.vertexBuffers.size(), 1u );
     if ( gstate.vertexBuffers.size() > 0 )
@@ -907,7 +915,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     state.SetVertexBuffer( vb3, 2, 128 );
 
     gstate.vertexBuffers = {}; // Reset
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderPtr, 1, nullptr, &gstate ) );
     EXPECT_EQ( gstate.vertexBuffers.size(), 3u );
     for( auto& v : gstate.vertexBuffers )
     {
@@ -928,7 +936,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     }
 
     state.SetIndexBuffer( ib32, 256 );
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderPtr, 1, nullptr, &gstate ) );
     
     EXPECT_NE( gstate.indexBuffer.buffer, nullptr );
     EXPECT_EQ( gstate.indexBuffer.offset, 256u );
@@ -946,7 +954,7 @@ UTEST( Backend, VertexIndexBufferBinding )
     }
 
     state.SetIndexBuffer( ib16, 128 );
-    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shader, 1, nullptr, &gstate ) );
+    EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_State( state, &shaderPtr, 1, nullptr, &gstate ) );
 
     EXPECT_NE( gstate.indexBuffer.buffer, nullptr );
     EXPECT_EQ( gstate.indexBuffer.offset, 128u );
