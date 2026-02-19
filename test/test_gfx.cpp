@@ -23,6 +23,7 @@
 #include <vrhi.h>
 #include <vector>
 #include <string>
+#include <chrono>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -59,6 +60,40 @@ static const char* g_solidPS = R"(
 float4 main( float4 colour : COLOUR ) : SV_Target
 {
     return colour;
+}
+)";
+
+static const char* g_benchmarkPS = R"(
+Texture2D t0 : register( t0, VRHI_STAGE_SPACE );
+Texture2D t1 : register( t1, VRHI_STAGE_SPACE );
+Texture2D t2 : register( t2, VRHI_STAGE_SPACE );
+Texture2D t3 : register( t3, VRHI_STAGE_SPACE );
+Texture2D u0 : register( t4, VRHI_STAGE_SPACE );
+Texture2D u1 : register( t5, VRHI_STAGE_SPACE );
+SamplerState s0 : register( s0, VRHI_STAGE_SPACE );
+
+StructuredBuffer<float4> sb0 : register( t6, VRHI_STAGE_SPACE );
+StructuredBuffer<float4> sb1 : register( t7, VRHI_STAGE_SPACE );
+StructuredBuffer<float4> rwsb0 : register( t8, VRHI_STAGE_SPACE );
+
+cbuffer cb0 : register( b0, VRHI_STAGE_SPACE )
+{
+    float4 cb_tint;
+};
+
+[shader("pixel")]
+float4 main( float4 colour : COLOUR, float4 pos : SV_Position ) : SV_Target
+{
+    float4 c0 = t0.SampleLevel( s0, float2( 0.5, 0.5 ), 0 );
+    float4 c1 = t1.SampleLevel( s0, float2( 0.5, 0.5 ), 0 );
+    float4 c2 = t2.SampleLevel( s0, float2( 0.5, 0.5 ), 0 );
+    float4 c3 = t3.SampleLevel( s0, float2( 0.5, 0.5 ), 0 );
+    float4 sbVal0 = sb0[0];
+    float4 sbVal1 = sb1[0];
+    float4 uVal0 = u0.Load( int3( pos.xy, 0 ) );
+    float4 uVal1 = u1.Load( int3( pos.xy, 0 ) );
+    float4 rwsbVal = rwsb0[0];
+    return colour * cb_tint + c0 + c1 + c2 + c3 + sbVal0 + sbVal1 + uVal0 + uVal1 + rwsbVal;
 }
 )";
 
@@ -2105,4 +2140,136 @@ VSOutput main(VSInput input, uint id : SV_VulkanVertexID) {
     vhDestroyBuffer( vb );
     vhDestroyShader( vs );
     vhDestroyShader( ps );
+}
+
+// --------------------------------------------------------------------------
+// Benchmark: 2000 Draw Calls
+// Measures CPU-side overhead for draw call submission (backend processing)
+// --------------------------------------------------------------------------
+
+UTEST_F( Graphics, Benchmark_2000DrawCalls )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    
+    // Create SRV textures
+    vhTexture t0 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    vhTexture t1 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    vhTexture t2 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    vhTexture t3 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    
+    // Create textures for u0, u1 slots (read-only now)
+    vhTexture u0 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    vhTexture u1 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    
+    // Create structured buffers (SRV)
+    vhBuffer sb0 = vhAllocBuffer();
+    vhBuffer sb1 = vhAllocBuffer();
+    vhMem* sbData = vhAllocMem( 4 * sizeof( glm::vec4 ) );
+    glm::vec4* sbPtr = reinterpret_cast< glm::vec4* >( sbData->data() );
+    sbPtr[0] = glm::vec4( 1, 0, 0, 1 );
+    sbPtr[1] = glm::vec4( 0, 1, 0, 1 );
+    sbPtr[2] = glm::vec4( 0, 0, 1, 1 );
+    sbPtr[3] = glm::vec4( 1, 1, 0, 1 );
+    vhCreateStorageStructuredBuffer( sb0, "sb0", sbData, 4 * sizeof( glm::vec4 ), sizeof( glm::vec4 ), VRHI_BUFFER_COMPUTE_READ );
+    vhMem* sbData2 = vhAllocMem( 4 * sizeof( glm::vec4 ) );
+    memcpy( sbData2->data(), sbData->data(), 4 * sizeof( glm::vec4 ) );
+    vhCreateStorageStructuredBuffer( sb1, "sb1", sbData2, 4 * sizeof( glm::vec4 ), sizeof( glm::vec4 ), VRHI_BUFFER_COMPUTE_READ );
+    
+    // Create structured buffer for rwsb0 slot (read-only now)
+    vhBuffer rwsb0 = vhAllocBuffer();
+    vhMem* sbData3 = vhAllocMem( 4 * sizeof( glm::vec4 ) );
+    memcpy( sbData3->data(), sbPtr, 4 * sizeof( glm::vec4 ) );
+    vhCreateStorageStructuredBuffer( rwsb0, "rwsb0", sbData3, 4 * sizeof( glm::vec4 ), sizeof( glm::vec4 ), VRHI_BUFFER_COMPUTE_READ );
+    
+    // Create constant buffer
+    vhBuffer cb0 = vhAllocBuffer();
+    vhMem* cbData = vhAllocMem( 16 );
+    float* cbPtr = reinterpret_cast< float* >( cbData->data() );
+    cbPtr[0] = 1.0f; cbPtr[1] = 1.0f; cbPtr[2] = 1.0f; cbPtr[3] = 1.0f;
+    vhCreateUniformBuffer( cb0, "cb0", cbData, 16 );
+    
+    struct Vertex { glm::vec3 pos; glm::vec4 colour; };
+    Vertex verts[3] = 
+    {
+        { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { 3.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -1.0f, 3.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+    };
+
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_benchmarkPS, VRHI_SHADER_STAGE_PIXEL );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb, 0 )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) )
+         .SetTexture( 0, { "t0", -1, t0 } )
+         .SetTexture( 1, { "t1", -1, t1 } )
+         .SetTexture( 2, { "t2", -1, t2 } )
+         .SetTexture( 3, { "t3", -1, t3 } )
+         .SetTexture( 4, { "u0", -1, u0 } )
+         .SetTexture( 5, { "u1", -1, u1 } )
+         .SetSampler( 0, { "s0", -1, VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP } )
+         .SetBuffer( 0, { "sb0", -1, sb0 } )
+         .SetBuffer( 1, { "sb1", -1, sb1 } )
+         .SetBuffer( 2, { "rwsb0", -1, rwsb0 } )
+         .SetBuffer( 3, { "cb0", -1, cb0 } );
+
+    vhStateId sid = 1500;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhFinish();
+
+    // Warm up (ensures PSO is compiled, caches are primed)
+    for ( int i = 0; i < 10; i++ )
+    {
+        vhDraw( sid, 3 );
+    }
+    vhFinish();
+
+    // Benchmark: measure draw calls (submission only, no finish)
+    int iterations = 2000;
+    // iterations = 2000000;
+
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    for ( int i = 0; i < iterations; i++ )
+    {
+        vhDraw( sid, 3 );
+    }
+    
+    vhFlush( true ); // Wait for backend thread to process all commands
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto duration = std::chrono::duration_cast< std::chrono::microseconds >( end - start );
+    
+    UTEST_PRINTF( "Benchmark: %d draw calls took %.3f ms (%.6f ms/draw)\n", 
+                  iterations,
+                  duration.count() / 1000.0, 
+                  duration.count() / (iterations * 1000.0) );
+
+    vhDestroyTexture( rt );
+    vhDestroyTexture( t0 );
+    vhDestroyTexture( t1 );
+    vhDestroyTexture( t2 );
+    vhDestroyTexture( t3 );
+    vhDestroyTexture( u0 );
+    vhDestroyTexture( u1 );
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( sb0 );
+    vhDestroyBuffer( sb1 );
+    vhDestroyBuffer( rwsb0 );
+    vhDestroyBuffer( cb0 );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
 }

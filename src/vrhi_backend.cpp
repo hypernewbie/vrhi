@@ -28,12 +28,62 @@
 vhCmdBackendState g_vhCmdBackendState;
 void vhCmdListFlushAll_DeviceStateLocked();
 
-std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
+robin_hood::unordered_flat_map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
 vhStateResolveCache vhCmdBackendState::s_resolveCache;
-std::unordered_map< uint32_t, vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
+std::vector< vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
 std::vector< vhBackendShader* > vhCmdBackendState::s_shaders;
+std::vector< vhBackendShader* > vhCmdBackendState::s_lastLayoutMapShaders;
+nvrhi::GraphicsPipelineDesc vhCmdBackendState::s_submitPipelineDesc;
+nvrhi::GraphicsState        vhCmdBackendState::s_submitGState;
+nvrhi::ComputePipelineDesc  vhCmdBackendState::s_dispatchDesc;
+nvrhi::ComputeState         vhCmdBackendState::s_dispatchCState;
+nvrhi::IGraphicsPipeline*   vhCmdBackendState::s_lastGraphicsPSO = nullptr;
+nvrhi::IComputePipeline*    vhCmdBackendState::s_lastComputePSO = nullptr;
+
+static void vhResetGraphicsPipelineDesc( nvrhi::GraphicsPipelineDesc& desc )
+{
+    desc.VS = nullptr;
+    desc.HS = nullptr;
+    desc.DS = nullptr;
+    desc.GS = nullptr;
+    desc.PS = nullptr;
+    desc.inputLayout = nullptr;
+    desc.bindingLayouts.resize( 0 );
+    desc.primType = nvrhi::PrimitiveType::TriangleList;
+    desc.patchControlPoints = 0;
+    desc.renderState = nvrhi::RenderState{};
+    desc.shadingRateState = nvrhi::VariableRateShadingState{};
+}
+
+static void vhResetGraphicsState( nvrhi::GraphicsState& state )
+{
+    state.pipeline = nullptr;
+    state.framebuffer = nullptr;
+    state.viewport.viewports.resize( 0 );
+    state.viewport.scissorRects.resize( 0 );
+    state.shadingRateState = nvrhi::VariableRateShadingState{};
+    state.blendConstantColor = nvrhi::Color{};
+    state.dynamicStencilRefValue = 0;
+    state.bindings.resize( 0 );
+    state.vertexBuffers.resize( 0 );
+    state.indexBuffer = nvrhi::IndexBufferBinding{};
+    state.indirectParams = nullptr;
+}
+
+static void vhResetComputePipelineDesc( nvrhi::ComputePipelineDesc& desc )
+{
+    desc.CS = nullptr;
+    desc.bindingLayouts.resize( 0 );
+}
+
+static void vhResetComputeState( nvrhi::ComputeState& state )
+{
+    state.pipeline = nullptr;
+    state.bindings.resize( 0 );
+    state.indirectParams = nullptr;
+}
 
 // --------------------------------------------------------------------------
 // Backend :: Utils & Helpers
@@ -367,7 +417,11 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
 
 nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment, vhTexture shadingRateImage )
 {
-    nvrhi::FramebufferDesc desc;
+    // Static desc so the colourAttachments vector retains its capacity across calls,
+    // avoiding a heap allocation on every framebuffer lookup.
+    static nvrhi::FramebufferDesc desc;
+    desc = nvrhi::FramebufferDesc{};
+
     for ( const auto& rt : colourAttachment )
     {
         if ( rt.texture == VRHI_INVALID_HANDLE ) continue;
@@ -403,9 +457,7 @@ nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector
     {
         auto it = backendTextures.find( shadingRateImage );
         if ( it != backendTextures.end() && it->second->handle )
-        {
-            desc.setShadingRateAttachment( it->second->handle ); 
-        }
+            desc.setShadingRateAttachment( it->second->handle );
     }
 
     if ( desc.colorAttachments.empty() && !desc.depthAttachment.valid() )
@@ -523,7 +575,19 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         // preserving their internal buffer capacity across calls.
         static std::vector< std::vector< vhVertexLayoutDef > > s_parsedLayouts;
         static size_t s_parsedLayoutsUsed = 0;
-        s_layoutLocationTable.clear();
+
+        // Flat table keyed by location index for fast O(1) collision detection and lookup.
+        // Vertex attribute locations are small non-negative integers, capped at 32 in practice.
+        constexpr int k_maxVertexLocations = 32;
+        static const vhVertexLayoutDef* s_locationTable[ k_maxVertexLocations ];
+        static int s_locationTableUsed[ k_maxVertexLocations ];
+        static int s_locationTableUsedCount = 0;
+
+        // Reset only the slots that were used last frame, avoiding a full memset each call.
+        for ( int _i = 0; _i < s_locationTableUsedCount; ++_i )
+            s_locationTable[ s_locationTableUsed[_i] ] = nullptr;
+        s_locationTableUsedCount = 0;
+
         s_attributes.clear();
         s_parsedLayoutsUsed = 0;
 
@@ -540,10 +604,10 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
             const auto& bbuf = *it->second;
             const std::vector< vhVertexLayoutDef >* pLayout = &bbuf.layout;
             uint32_t stride = bbuf.stride;
-            
+
             if ( !binding.layoutOverride.empty() )
             {
-                // Reuse pool pattern: grow only if needed, otherwise reuse existing slot
+                // Reuse pool pattern: grow only if needed, otherwise reuse existing slot.
                 if ( s_parsedLayoutsUsed >= s_parsedLayouts.size() )
                     s_parsedLayouts.emplace_back();
                 auto& slot = s_parsedLayouts[s_parsedLayoutsUsed++];
@@ -557,15 +621,21 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 stride = 0;
                 for ( const auto& def : *pLayout ) stride += vhVertexLayoutDefSize( def );
             }
-            
+
             for ( const auto& def : *pLayout )
             {
-                if ( s_layoutLocationTable.find( def.location ) != s_layoutLocationTable.end() )
+                if ( def.location < 0 || def.location >= k_maxVertexLocations )
+                {
+                    VRHI_ERR( "Vertex Attribute Location %d out of supported range [0, %d).\n", def.location, k_maxVertexLocations );
+                    return false;
+                }
+                if ( s_locationTable[ def.location ] != nullptr )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Collision: Location %d already bound by previous buffer\n", def.location );
                     return false;
                 }
-                s_layoutLocationTable[def.location] = &def;
+                s_locationTable[ def.location ] = &def;
+                s_locationTableUsed[ s_locationTableUsedCount++ ] = def.location;
                 nvrhi::VertexAttributeDesc attr = vhTranslateVertexAttribute( def, ( uint32_t ) i );
                 attr.elementStride = stride;
                 s_attributes.push_back( attr );
@@ -577,22 +647,50 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         {
             for ( const auto& vsAttribDef : vertexShader->inputLayout )
             {
-                auto it = s_layoutLocationTable.find( vsAttribDef.location );
-                if ( it == s_layoutLocationTable.end() )
+                const vhVertexLayoutDef* bound = ( vsAttribDef.location >= 0 && vsAttribDef.location < k_maxVertexLocations )
+                    ? s_locationTable[ vsAttribDef.location ] : nullptr;
+                if ( !bound )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Missing: Shader expects Location %d, but no bound buffer provides it.\n", vsAttribDef.location );
                     return false;
                 }
-                if ( !vhAreVertexFormatsCompatible( it->second->format, vsAttribDef.format ) )
+                if ( !vhAreVertexFormatsCompatible( bound->format, vsAttribDef.format ) )
                 {
-                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Incompatible at Location %d (Buffer: %d (%s), Shader: %d (%s))\n", vsAttribDef.location, ( int ) it->second->format, nvrhi::getFormatInfo( it->second->format ).name, ( int ) vsAttribDef.format, nvrhi::getFormatInfo( vsAttribDef.format ).name );
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Incompatible at Location %d (Buffer: %d (%s), Shader: %d (%s))\n", vsAttribDef.location, ( int ) bound->format, nvrhi::getFormatInfo( bound->format ).name, ( int ) vsAttribDef.format, nvrhi::getFormatInfo( vsAttribDef.format ).name );
                     return false;
                 }
             }
+
             if ( !s_attributes.empty() )
             {
-                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-                graphicsPipelineDesc->inputLayout = g_vhDevice->createInputLayout( s_attributes.data(), ( uint32_t ) s_attributes.size(), vertexShader->handle );
+                // Hash the attribute array to dedup InputLayout objects. Creating a new InputLayout
+                // on every draw call causes unnecessary driver allocations even when the layout is
+                // identical to a previous frame's.
+                static std::unordered_map< uint64_t, nvrhi::InputLayoutHandle > s_inputLayoutCache;
+                uint64_t attrHash = 0;
+                for ( const auto& a : s_attributes )
+                {
+                    attrHash = komihash( a.name.data(), a.name.size(), attrHash );
+                    attrHash = komihash( &a.format,        sizeof( a.format ),        attrHash );
+                    attrHash = komihash( &a.arraySize,     sizeof( a.arraySize ),     attrHash );
+                    attrHash = komihash( &a.bufferIndex,   sizeof( a.bufferIndex ),   attrHash );
+                    attrHash = komihash( &a.offset,        sizeof( a.offset ),        attrHash );
+                    attrHash = komihash( &a.elementStride, sizeof( a.elementStride ), attrHash );
+                    attrHash = komihash( &a.isInstanced,   sizeof( a.isInstanced ),   attrHash );
+                }
+
+                auto cacheIt = s_inputLayoutCache.find( attrHash );
+                if ( cacheIt != s_inputLayoutCache.end() )
+                {
+                    graphicsPipelineDesc->inputLayout = cacheIt->second;
+                }
+                else
+                {
+                    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                    nvrhi::InputLayoutHandle layout = g_vhDevice->createInputLayout( s_attributes.data(), ( uint32_t ) s_attributes.size(), vertexShader->handle );
+                    s_inputLayoutCache[ attrHash ] = layout;
+                    graphicsPipelineDesc->inputLayout = layout;
+                }
             }
         }
         vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
@@ -672,18 +770,18 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
     vhProfile( "BE_PreSubmitCommon_ResolveStateCache_AccelStructs", false );
 
     // Build slot maps. Initialise stage binding storage.
-    // Pre-reserve inner maps on first-ever use (check capacity to avoid re-reserving every frame).
+    // Pre-reserve vectors on first-ever use (check capacity to avoid re-reserving every frame).
     for ( int i = 1; i <= VRHI_SHADER_STAGE_MAX; i++ )
     {
         if ( !scache.stageBindingActive[i] )
         {
             auto& slot = scache.stageBindingStorage[i];
-            if ( slot.samplerTable.bucket_count() == 0 )
+            if ( slot.samplerTable.capacity() == 0 )
             {
-                slot.samplerTable.reserve( 16 );
-                slot.textureTable.reserve( 32 );
-                slot.bufferTable.reserve( 16 );
-                slot.uavTable.reserve( 8 );
+                slot.samplerTable.reserve( vhStateResolveCache::ShaderStageBindingSlotState::MAX_SAMPLERS );
+                slot.textureTable.reserve( vhStateResolveCache::ShaderStageBindingSlotState::MAX_TEXTURES );
+                slot.bufferTable.reserve( vhStateResolveCache::ShaderStageBindingSlotState::MAX_BUFFERS );
+                slot.uavTable.reserve( vhStateResolveCache::ShaderStageBindingSlotState::MAX_UAVS );
             }
         }
         scache.stageBindingActive[i] = true;
@@ -706,7 +804,8 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
             assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
             assert( scache.stageBindingActive[stage] );
-            if ( scache.stageBindingStorage[stage].samplerTable.find( slot ) != scache.stageBindingStorage[stage].samplerTable.end() )
+            auto& stageTable = scache.stageBindingStorage[stage];
+            if ( slot < stageTable.samplerTable.size() && stageTable.samplerTable[slot] )
             {
                 // Duplicate binding slots is not fair dinkum.
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Sampler Binding Slot Collision: Slot %d already bound by previous shader\n", slot );
@@ -719,7 +818,16 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                 VRHI_ERR( "vhSetState(): Failed to get sampler handle for sampler at index %zu\n", i );
                 return;
             }
-            scache.stageBindingStorage[stage].samplerTable[slot] = shandle;
+            if ( ( uint32_t ) slot < g_vhInit.shaderMake_sRegShift )
+            {
+                VRHI_ERR( "vhSetState(): Sampler slot %d is not shifted by sRegShift (%u) for '%s'\n", slot, g_vhInit.shaderMake_sRegShift, s.name ? s.name : "" );
+                return;
+            }
+            if ( slot >= stageTable.samplerTable.size() )
+                stageTable.samplerTable.resize( slot + 1, nullptr );
+            stageTable.samplerTable[slot] = shandle.Get();
+            //TEMP_PRINT
+            //printf( "DEBUG: Store sampler slot=%u\n", slot );
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Sampler 0x%llx bound to slot %d '%s'\n", s.flags, slot, s.name ? s.name : "" );
         }
     }
@@ -743,6 +851,13 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
             if ( t.computeUAV )
             {
+                if ( ( uint32_t ) slot < g_vhInit.shaderMake_uRegShift )
+                {
+                    VRHI_ERR( "vhSetState(): Texture UAV slot %d is not shifted by uRegShift (%u) for '%s'\n", slot, g_vhInit.shaderMake_uRegShift, t.name ? t.name : "" );
+                    return;
+                }
+                if ( slot >= stageTable.uavTable.size() )
+                    stageTable.uavTable.resize( slot + 1 );
                 auto& uavEntry = stageTable.uavTable[slot];
                 if ( uavEntry.first.handle || uavEntry.second.handle )
                 {
@@ -750,17 +865,23 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                uavEntry.first = { btex.handle, &t };
+                uavEntry.first = { btex.handle.Get(), &t };
+                //TEMP_PRINT
+                //printf( "DEBUG: Store texture UAV slot=%u\n", slot );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Texture UAV '%s' bound to slot %d '%s'\n", btex.name.c_str(), slot, t.name ? t.name : "" );
             }
             else
-            { 
-                if ( stageTable.textureTable.find( slot ) != stageTable.textureTable.end() )
+            {
+                if ( slot >= stageTable.textureTable.size() )
+                    stageTable.textureTable.resize( slot + 1, { nullptr, nullptr } );
+                if ( stageTable.textureTable[slot].handle || stageTable.textureTable[slot].binding )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                stageTable.textureTable[slot] = { btex.handle, &t };
+                stageTable.textureTable[slot] = { btex.handle.Get(), &t };
+                //TEMP_PRINT
+                //printf( "DEBUG: Store texture SRV slot=%u\n", slot );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Texture SRV '%s' bound to slot %d '%s'\n", btex.name.c_str(), slot, t.name ? t.name : "" );
             }
         }
@@ -801,6 +922,13 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
             if ( b.computeUAV )
             {
+                if ( ( uint32_t ) slot < g_vhInit.shaderMake_uRegShift )
+                {
+                    VRHI_ERR( "vhSetState(): Buffer UAV slot %d is not shifted by uRegShift (%u) for '%s'\n", slot, g_vhInit.shaderMake_uRegShift, b.name ? b.name : "" );
+                    return;
+                }
+                if ( slot >= stageTable.uavTable.size() )
+                    stageTable.uavTable.resize( slot + 1 );
                 auto& uavEntry = stageTable.uavTable[slot];
                 if ( uavEntry.first.handle || uavEntry.second.handle )
                 {
@@ -808,17 +936,23 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                uavEntry.second = { bbuf.handle, &b };
+                uavEntry.second = { bbuf.handle.Get(), &b };
+                //TEMP_PRINT
+                //printf( "DEBUG: Store buffer UAV slot=%u\n", slot );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Buffer UAV '%s' bound to slot %d '%s'\n", bbuf.name.c_str(), slot, b.name ? b.name : "" );
             }
             else
             {
-                if ( stageTable.bufferTable.find( slot ) != stageTable.bufferTable.end() )
+                if ( slot >= stageTable.bufferTable.size() )
+                    stageTable.bufferTable.resize( slot + 1, { nullptr, nullptr } );
+                if ( stageTable.bufferTable[slot].handle || stageTable.bufferTable[slot].binding )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                stageTable.bufferTable[slot] = { bbuf.handle, &b };
+                stageTable.bufferTable[slot] = { bbuf.handle.Get(), &b };
+                //TEMP_PRINT
+                //printf( "DEBUG: Store buf slot=%u isCB=%d\n", slot, bbuf.desc.isConstantBuffer );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Buffer SRV '%s' bound to slot %d '%s'\n", bbuf.name.c_str(), slot, b.name ? b.name : ""  );
             }
         }
@@ -976,6 +1110,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 nvrhi::BufferRange range( offset, sizeof( vhGlobalUniform ) );
                 outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_globalUniformBuffer.handle[ m_globalUniformBuffer.frameIdx ], range );
                 outItem.type = item.type;
+                outItem.unused = 0;
+                outItem.unused2 = 0;
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: GlobalUniforms bound to slot %d\n", item.slot );
                 return true;
             }
@@ -990,6 +1126,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 nvrhi::BufferRange range( offset, sizeof( vhWorldUniform ) );
                 outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_worldUniformBuffer.handle[ m_worldUniformBuffer.frameIdx ], range );
                 outItem.type = item.type;
+                outItem.unused = 0;
+                outItem.unused2 = 0;
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: WorldUniforms bound to slot %d\n", item.slot );
                 return true;
             }
@@ -1013,6 +1151,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 const auto& info = cacheIt->second;
                 outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, info.buffer, info.range );
                 outItem.type = item.type;
+                outItem.unused = 0;
+                outItem.unused2 = 0;
 
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
                     VRHI_LOG( "FindResource: Bound User Globals from cache (hash 0x%llx)\n", hash );
@@ -1020,13 +1160,12 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 return true;
             }
 
-            auto it = stageTable.bufferTable.find( item.slot );
-            if ( it == stageTable.bufferTable.end() )
+            if ( item.slot >= stageTable.bufferTable.size() || !stageTable.bufferTable[item.slot].handle )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: ConstantBuffer not found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
-            const auto result = &it->second;
+            const auto result = &stageTable.bufferTable[item.slot];
             assert( result );
             if ( !result->handle )
             {
@@ -1045,9 +1184,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             if ( result->handle->getDesc().isVolatile && item.type != nvrhi::ResourceType::VolatileConstantBuffer )
             {
                  if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Volatile Buffer bound to Static ConstantBuffer slot %d. This may be unsafe! ('%s')\n", item.slot, name ? name : "Unknown" );
-                return false;
+                 return false;
             }
             outItem.type = item.type;
+            outItem.unused = 0;
+            outItem.unused2 = 0;
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: ConstantBuffer found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
             return true;
         }
@@ -1060,13 +1201,19 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
 
             if ( isUAV )
             {
-                auto it = stageTable.uavTable.find( item.slot );
-                if ( it != stageTable.uavTable.end() ) result = &it->second.first;
+                if ( item.slot >= stageTable.uavTable.size() || !stageTable.uavTable[item.slot].first.handle )
+                    result = nullptr;
+                else
+                    result = &stageTable.uavTable[item.slot].first;
             }
             else
             {
-                auto it = stageTable.textureTable.find( item.slot );
-                if ( it != stageTable.textureTable.end() ) result = &it->second;
+                //TEMP_PRINT
+                //printf( "DEBUG: Lookup texture slot=%u\n", item.slot );
+                if ( item.slot >= stageTable.textureTable.size() || !stageTable.textureTable[item.slot].handle )
+                    result = nullptr;
+                else
+                    result = &stageTable.textureTable[item.slot];
             }
             if ( !result )
             {
@@ -1084,6 +1231,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             outItem.format = result->binding->formatOverride;
             outItem.subresources = result->binding->subresources;
             outItem.dimension = result->binding->dimensionOverride;
+            outItem.unused = 0;
+            outItem.unused2 = 0;
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Texture %s found in cache at slot %d ('%s')\n", isUAV ? "UAV" : "SRV", item.slot, name ? name : "Unknown" );
             return true;
         }
@@ -1100,13 +1249,19 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
 
             if ( isUAV )
             {
-                 auto it = stageTable.uavTable.find( item.slot );
-                 if ( it != stageTable.uavTable.end() ) result = &it->second.second;
+                if ( item.slot >= stageTable.uavTable.size() || !stageTable.uavTable[item.slot].second.handle )
+                    result = nullptr;
+                else
+                    result = &stageTable.uavTable[item.slot].second;
             }
             else
             {
-                 auto it = stageTable.bufferTable.find( item.slot );
-                 if ( it != stageTable.bufferTable.end() ) result = &it->second;
+                //TEMP_PRINT
+                //printf( "DEBUG: Lookup SRV buf slot=%u\n", item.slot );
+                if ( item.slot >= stageTable.bufferTable.size() || !stageTable.bufferTable[item.slot].handle )
+                    result = nullptr;
+                else
+                    result = &stageTable.bufferTable[item.slot];
             }
             if ( !result )
             {
@@ -1138,12 +1293,14 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 {
                     if ( format == nvrhi::Format::UNKNOWN )
                     {
-                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format %d (%s) for typed buffer ('%s').", ( int ) format, nvrhi::getFormatInfo( format ).name, name ? name : "Unknown" );
+                        if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown format %d (%s) for typed buffer ('%s').\n", ( int ) format, nvrhi::getFormatInfo( format ).name, name ? name : "Unknown" );
                         return false;
                     }
-                    outItem = ( item.type == nvrhi::ResourceType::TypedBuffer_UAV ) 
+                    outItem = ( item.type == nvrhi::ResourceType::TypedBuffer_UAV )
                         ? nvrhi::BindingSetItem::TypedBuffer_UAV( item.slot, result->handle, format, range )
                         : nvrhi::BindingSetItem::TypedBuffer_SRV( item.slot, result->handle, format, range );
+                    outItem.unused = 0;
+                    outItem.unused2 = 0;
                     break;
                 }
                 case nvrhi::ResourceType::StructuredBuffer_SRV:
@@ -1152,6 +1309,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                     outItem = ( item.type == nvrhi::ResourceType::StructuredBuffer_UAV )
                         ? nvrhi::BindingSetItem::StructuredBuffer_UAV( item.slot, result->handle, format, range )
                         : nvrhi::BindingSetItem::StructuredBuffer_SRV( item.slot, result->handle, format, range );
+                    outItem.unused = 0;
+                    outItem.unused2 = 0;
                     break;
                 }
                 case nvrhi::ResourceType::RawBuffer_SRV:
@@ -1160,9 +1319,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                     outItem = ( item.type == nvrhi::ResourceType::RawBuffer_UAV )
                         ? nvrhi::BindingSetItem::RawBuffer_UAV( item.slot, result->handle, range )
                         : nvrhi::BindingSetItem::RawBuffer_SRV( item.slot, result->handle, range );
+                    outItem.unused = 0;
+                    outItem.unused2 = 0;
                     break;
                 }
-                default: 
+                default:
                     assert( !"Invalid resource type. This is likely a Vrhi bug." );
                     return false;
             }
@@ -1177,19 +1338,20 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
         }
         case nvrhi::ResourceType::Sampler:
         {
-            auto it = stageTable.samplerTable.find( item.slot );
-            if ( it == stageTable.samplerTable.end() )
+            //TEMP_PRINT
+            //printf( "DEBUG: Lookup sampler slot=%u\n", item.slot );
+            if ( item.slot >= stageTable.samplerTable.size() || !stageTable.samplerTable[item.slot] )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler not found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
                 break;
             }
-            
-            if ( !it->second )
+            auto shandle = stageTable.samplerTable[item.slot];
+            if ( !shandle )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Sampler found in cache at slot %d but handle is null ('%s')\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
-            outItem = nvrhi::BindingSetItem::Sampler( item.slot, it->second );
+            outItem = nvrhi::BindingSetItem::Sampler( item.slot, shandle );
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: Sampler found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
             return true;
         }
@@ -1241,51 +1403,81 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
     const nvrhi::BindingLayoutVector& layouts = *psoLayouts;
 
-    // Build map of hash --> psoLayouts. Static map uses clear() to preserve bucket array capacity.
-    vhProfile( "BE_PreSubmitCommon_State_PSOLayoutHash", true );
-    static std::unordered_map< uint64_t, const nvrhi::BindingLayoutHandle* > s_hashToPSOlayout;
-    s_hashToPSOlayout.clear();
-    for ( int i = 0; i < layouts.size(); i++ )
+    // Build layout-to-shader map only when PSO changes. This avoids repeated hashing and map rebuilds.
+    nvrhi::IGraphicsPipeline* currentGraphicsPSO = graphicsState ? graphicsState->pipeline : nullptr;
+    nvrhi::IComputePipeline* currentComputePSO = computeState ? computeState->pipeline : nullptr;
+    const bool hasLayoutOverride = ( layoutOverride != nullptr );
+    bool shaderSetChanged = ( s_lastLayoutMapShaders.size() != ( size_t ) shaderCount );
+    if ( !shaderSetChanged )
     {
-        auto bdesc = layouts[i]->getDesc();
-        if ( !bdesc ) continue;
-        auto hash = vhHashBindingLayout( *bdesc );
-        s_hashToPSOlayout[hash] = &layouts[i];
+        for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
+        {
+            if ( s_lastLayoutMapShaders[shaderIdx] != shaders[shaderIdx] )
+            {
+                shaderSetChanged = true;
+                break;
+            }
+        }
     }
-    vhProfile( "BE_PreSubmitCommon_State_PSOLayoutHash", false );
+    const bool psoChanged = hasLayoutOverride ||
+        currentGraphicsPSO != s_lastGraphicsPSO ||
+        currentComputePSO != s_lastComputePSO ||
+        shaderSetChanged;
 
-    // Build map of layouts --> shader.
-    vhProfile( "BE_PreSubmitCommon_State_ShaderLayoutMatch", true );
-
-    s_layoutToShader.clear();
-    for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
+    static robin_hood::unordered_flat_map< uint64_t, const nvrhi::BindingLayoutHandle* > s_hashToPSOlayout;
+    if ( psoChanged )
     {
-        auto shader = shaders[shaderIdx];
-        if ( !BE_Util_ShaderStageMatches( shader->flags, computeState != nullptr, graphicsState != nullptr ) )
-            continue;
-
-        if ( !shader->layout )
+        // Build map of hash --> psoLayouts. Static map uses clear() to preserve bucket array capacity.
+        vhProfile( "BE_PreSubmitCommon_State_PSOLayoutHash", true );
+        s_hashToPSOlayout.clear();
+        for ( int i = 0; i < layouts.size(); i++ )
         {
-            VRHI_ERR( "vhSetState(): NULL shader layout. Stripped spirv-reflection?" );
-            assert( !"NULL shader layout" );
-            continue;
+            auto bdesc = layouts[i]->getDesc();
+            if ( !bdesc ) continue;
+            auto hash = vhHashBindingLayout( *bdesc );
+            s_hashToPSOlayout[hash] = &layouts[i];
         }
+        vhProfile( "BE_PreSubmitCommon_State_PSOLayoutHash", false );
 
-        // Match shader.layout to equivalent state->pipeline->getDesc().bindingLayouts->layout.
-        assert( shader->layout->getDesc() );
-        auto hash = vhHashBindingLayout( *shader->layout->getDesc() );
-        if ( s_hashToPSOlayout.find( hash ) == s_hashToPSOlayout.end() || !s_hashToPSOlayout[hash] )
+        // Build map of layouts --> shader.
+        vhProfile( "BE_PreSubmitCommon_State_ShaderLayoutMatch", true );
+
+        s_layoutToShader.clear();
+        for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
         {
-            VRHI_ERR( "vhSetState(): Mismatch between shader layout and PSO layout. This is likely a Vrhi bug." );
-            assert( !"Mismatch between shader layout and PSO layout" );
-            continue;
+            auto shader = shaders[shaderIdx];
+            if ( !BE_Util_ShaderStageMatches( shader->flags, computeState != nullptr, graphicsState != nullptr ) )
+                continue;
+
+            if ( !shader->layout )
+            {
+                VRHI_ERR( "vhSetState(): NULL shader layout. Stripped spirv-reflection?" );
+                assert( !"NULL shader layout" );
+                continue;
+            }
+
+            // Match shader.layout to equivalent state->pipeline->getDesc().bindingLayouts->layout.
+            assert( shader->layout->getDesc() );
+            auto hash = vhHashBindingLayout( *shader->layout->getDesc() );
+            if ( s_hashToPSOlayout.find( hash ) == s_hashToPSOlayout.end() || !s_hashToPSOlayout[hash] )
+            {
+                VRHI_ERR( "vhSetState(): Mismatch between shader layout and PSO layout. This is likely a Vrhi bug." );
+                assert( !"Mismatch between shader layout and PSO layout" );
+                continue;
+            }
+            const auto& tempPSOLayout = *s_hashToPSOlayout[hash];
+            assert( s_layoutToShader.find( tempPSOLayout ) == s_layoutToShader.end() ); // Duplicate layouts should be impossible.
+            s_layoutToShader[ tempPSOLayout ] = shader;
         }
-        const auto& tempPSOLayout = *s_hashToPSOlayout[hash];
-        assert( s_layoutToShader.find( tempPSOLayout ) == s_layoutToShader.end() ); // Duplicate layouts should be impossible.
-        s_layoutToShader[ tempPSOLayout ] = shader;
+        s_hashToPSOlayout.clear();
+        vhProfile( "BE_PreSubmitCommon_State_ShaderLayoutMatch", false );
+
+        s_lastGraphicsPSO = currentGraphicsPSO;
+        s_lastComputePSO = currentComputePSO;
+        s_lastLayoutMapShaders.resize( shaderCount );
+        for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
+            s_lastLayoutMapShaders[shaderIdx] = shaders[shaderIdx];
     }
-    s_hashToPSOlayout.clear();
-    vhProfile( "BE_PreSubmitCommon_State_ShaderLayoutMatch", false );
 
     // Resolve state resource cache
     s_resolveCache.Clear();
@@ -1299,10 +1491,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
 
     // Loop through the layouts and bind resources.
+
     vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", true );
+    static nvrhi::BindingSetDesc bsetDesc;
+    if ( bsetDesc.bindings.capacity() == 0 ) bsetDesc.bindings.reserve( 32 );
+
     for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
     {
-        nvrhi::BindingSetDesc bsetDesc;
+        auto savedBindings = std::move( bsetDesc.bindings );
+        bsetDesc = nvrhi::BindingSetDesc{};
+        bsetDesc.bindings = std::move( savedBindings );
+        bsetDesc.bindings.clear();
 
         auto layout = layouts[layoutIdx];
         assert( layout );
@@ -1317,7 +1516,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             continue;
         }
 
-        // Build a map of reflection slots --> reflection resources.
+        // Build a flat vector of reflection slot --> reflection resource.
+        // Reflection slots are small non-negative integers, so direct indexing is O(1).
 
         s_slotToReflection.clear();
         auto layoutItr = s_layoutToShader.find( layout );
@@ -1331,7 +1531,9 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         for ( uint32_t i = 0; i < ( uint32_t ) shader->reflection.size(); i++ )
         {
             auto& reflection = shader->reflection[i];
-            assert( s_slotToReflection.find( reflection.slot ) == s_slotToReflection.end() );
+            if ( reflection.slot >= s_slotToReflection.size() )
+                s_slotToReflection.resize( reflection.slot + 1, nullptr );
+            assert( s_slotToReflection[reflection.slot] == nullptr );
             s_slotToReflection[reflection.slot] = &reflection;
         }
         uint32_t stage = ( uint32_t ) ( shader->flags & VRHI_SHADER_STAGE_MASK );
@@ -1342,6 +1544,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         for ( uint32_t bindingIdx = 0; bindingIdx < layoutDesc->bindings.size(); bindingIdx++ )
         {
             auto binding = layoutDesc->bindings[bindingIdx];
+            //TEMP_PRINT
+            //printf( "DEBUG: Layout binding type=%d slot=%u\n", (int)binding.type, binding.slot );
 
             if ( binding.type == nvrhi::ResourceType::PushConstants )
             {
@@ -1355,14 +1559,13 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             }
 
             // Find the corresponding reflection resource.
-            auto reflectionItr = s_slotToReflection.find( binding.slot );
-            if ( reflectionItr == s_slotToReflection.end() )
+            const vhShaderReflectionResource* reflectionPtr = ( binding.slot < s_slotToReflection.size() ) ? s_slotToReflection[binding.slot] : nullptr;
+            if ( !reflectionPtr )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in shader reflection. Submit / Dispatch aborted.\n", binding.slot );
                 return false;
             }
-            assert( reflectionItr->second );
-            const auto& reflection = *reflectionItr->second;
+            const auto& reflection = *reflectionPtr;
 
             // Validate the reflection against the layout.
             if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
@@ -1522,16 +1725,18 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     assert( computeShader.handle );
 
     vhBackendShader* shaderPtr = &computeShader;
-    nvrhi::ComputePipelineDesc desc;
+    vhResetComputePipelineDesc( s_dispatchDesc );
+    vhResetComputeState( s_dispatchCState );
+
     vhProfile( "BE_Dispatch_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &desc, nullptr ) )
+    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
     vhProfile( "BE_Dispatch_PipelineDesc", false );
 
-    nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( desc );
+    nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( s_dispatchDesc );
     vhProfile( "BE_Dispatch_PSOCache", true );
     if ( !pso )
     {
@@ -1540,11 +1745,10 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     }
     vhProfile( "BE_Dispatch_PSOCache", false );
 
-    nvrhi::ComputeState cstate;
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
-    cstate.setPipeline( pso.Get() );
+    s_dispatchCState.setPipeline( pso.Get() );
     vhProfile( "BE_Dispatch_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &cstate, nullptr, nullptr, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1553,7 +1757,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        cmdlist->setComputeState( cstate );
+        cmdlist->setComputeState( s_dispatchCState );
         
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
         {
@@ -1583,16 +1787,18 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     vhProfile( "BE_DispatchIndirect_Validation", false );
 
     vhBackendShader* shaderPtr = &computeShader;
-    nvrhi::ComputePipelineDesc desc;
+    vhResetComputePipelineDesc( s_dispatchDesc );
+    vhResetComputeState( s_dispatchCState );
+
     vhProfile( "BE_DispatchIndirect_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &desc, nullptr ) )
+    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
     }
     vhProfile( "BE_DispatchIndirect_PipelineDesc", false );
 
-    nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( desc );
+    nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( s_dispatchDesc );
     vhProfile( "BE_DispatchIndirect_PSOCache", true );
     if ( !pso )
     {
@@ -1603,10 +1809,9 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
-    nvrhi::ComputeState cstate;
-    cstate.setPipeline( pso.Get() );
+    s_dispatchCState.setPipeline( pso.Get() );
     vhProfile( "BE_DispatchIndirect_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &cstate, nullptr, nullptr, nullptr ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
         return;
@@ -1614,12 +1819,12 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     vhProfile( "BE_DispatchIndirect_StateSetup", false );
 
     vhProfile( "BE_DispatchIndirect_SetParams", true );
-    cstate.setIndirectParams( indirectBuffer.handle );
+    s_dispatchCState.setIndirectParams( indirectBuffer.handle );
     vhProfile( "BE_DispatchIndirect_SetParams", false );
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        cmdlist->setComputeState( cstate );
+        cmdlist->setComputeState( s_dispatchCState );
         
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
         {
@@ -1637,9 +1842,11 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
 void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
 {
     VRHI_PROFILE_FUNCTION();
-    nvrhi::GraphicsPipelineDesc pipelineDesc;
+    vhResetGraphicsPipelineDesc( s_submitPipelineDesc );
+    vhResetGraphicsState( s_submitGState );
+
     vhProfile( "BE_Submit_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &pipelineDesc ) )
+    if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &s_submitPipelineDesc ) )
     {
         VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
         return;
@@ -1655,7 +1862,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
         return;
     }
 
-    nvrhi::GraphicsPipelineHandle pso = vhPSOCacheGet( pipelineDesc, fb->getFramebufferInfo() );
+    nvrhi::GraphicsPipelineHandle pso = vhPSOCacheGet( s_submitPipelineDesc, fb->getFramebufferInfo() );
     vhProfile( "BE_Submit_PSOCache", true );
     if ( !pso )
     {
@@ -1664,11 +1871,10 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
     }
     vhProfile( "BE_Submit_PSOCache", false );
 
-    nvrhi::GraphicsState gstate;
-    gstate.setPipeline( pso.Get() );
+    s_submitGState.setPipeline( pso.Get() );
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     vhProfile( "BE_Submit_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &gstate, nullptr, nullptr, fb ) )
+    if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
     {
         VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
         return;
@@ -1677,7 +1883,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        cmdlist->setGraphicsState( gstate );
+        cmdlist->setGraphicsState( s_submitGState );
 
         if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
         {
@@ -1848,13 +2054,20 @@ void vhCmdBackendState::shutdown()
     backendShaders.clear();
     backendTimerQueries.clear();
 
-    // Clear static caches
+    // Clear static caches and release all RefCountPtr members
     s_layoutToShader.clear();
     s_resolveCache.Clear();
     s_slotToReflection.clear();
     s_layoutLocationTable.clear();
     s_attributes.clear();
     s_shaders.clear();
+    s_lastLayoutMapShaders.clear();
+    s_lastGraphicsPSO = nullptr;
+    s_lastComputePSO = nullptr;
+    s_submitPipelineDesc = nvrhi::GraphicsPipelineDesc{};
+    s_submitGState       = nvrhi::GraphicsState{};
+    s_dispatchDesc       = nvrhi::ComputePipelineDesc{};
+    s_dispatchCState     = nvrhi::ComputeState{};
 }
 
 void vhCmdBackendState::HandleLogFunction( const char* str )
@@ -3246,6 +3459,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
 
 void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 {
+    VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
@@ -3273,7 +3487,9 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
     }
     if ( cmd->waitForGPU )
     {
+        vhProfile( "Handle_vhFlushInternal_WaitForGPU", true );
         g_vhDevice->waitForIdle();
+        vhProfile( "Handle_vhFlushInternal_WaitForGPU", false );
     }
     g_vhDevice->runGarbageCollection();
 
@@ -3929,5 +4145,4 @@ nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable tabl
 {
     return g_vhCmdBackendState.QueryShaderTableHandle( table );
 }
-
 

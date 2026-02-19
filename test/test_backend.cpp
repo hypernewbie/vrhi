@@ -600,6 +600,11 @@ UTEST( BackendInternal, FindResource )
     scache.stageBindingActive[stage] = true;
     auto& stageTable = scache.stageBindingStorage[stage];
 
+    // Resize vectors before indexing
+    stageTable.textureTable.resize( 1 );
+    stageTable.bufferTable.resize( 2 );
+    stageTable.uavTable.resize( 4 );
+
     stageTable.textureTable[0] = { hTex, &texBind };
     stageTable.bufferTable[1] = { hBuf, &bufBind };
     stageTable.uavTable[2].first = { hTex, &texBind };
@@ -668,6 +673,7 @@ UTEST( BackendInternal, FindResource )
     uint64_t samplerFlags = VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP;
     nvrhi::SamplerHandle hSampler = vhGetSamplerHandle( samplerFlags );
     EXPECT_TRUE( hSampler != nullptr );
+    stageTable.samplerTable.resize( 5 );
     stageTable.samplerTable[4] = hSampler;
 
     nvrhi::BindingLayoutItem layoutSampler = nvrhi::BindingLayoutItem::Sampler( 4 );

@@ -897,29 +897,35 @@ void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU )
 
 void vhFlush( bool wait )
 {
+    VRHI_PROFILE_FUNCTION();
     std::atomic<bool> fence = false;
     vhFlushInternal( wait ? &fence : nullptr, false );
 
     if ( wait )
     {
+        vhProfile( "vhFlush_Wait", true );
         // Wait for fence to be signaled
         while ( !fence.load() )
         {
             std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
         }
+        vhProfile( "vhFlush_Wait", false );
     }
 }
 
 void vhFinish()
 {
+    VRHI_PROFILE_FUNCTION();
     std::atomic<bool> fence = false;
     vhFlushInternal( &fence, true );
 
+    vhProfile( "vhFinish_Wait", true );
     // Wait for fence to be signaled
     while ( !fence.load() )
     {
         std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
     }
+    vhProfile( "vhFinish_Wait", false );
 }
 
 void vhBeginMarker( const std::string& name )
@@ -1386,27 +1392,26 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
 
 // -------------------------------------------------------- PSO Cache --------------------------------------------------------
 
+// Make komihash work faster in debug mode.
+#if defined(_MSC_VER)
+#pragma runtime_checks("", off)
+#endif // #if defined(_MSC_VER)
+
 uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
 {
     // static_assert( sizeof( nvrhi::BindingLayoutDesc ) == 64, "nvrhi::BindingLayoutDesc size mismatch" );
-    // static_assert( sizeof( nvrhi::BindingLayoutItem ) == 8, "nvrhi::BindingLayoutItem size mismatch" );
+    static_assert( sizeof( nvrhi::BindingLayoutItem ) == 8, "nvrhi::BindingLayoutItem size mismatch" );
 
     uint64_t h = 0;
-    h = komihash( &desc.visibility, sizeof( desc.visibility ), h );
-    h = komihash( &desc.registerSpace, sizeof( desc.registerSpace ), h );
+    h = komihash( &desc.visibility,                  sizeof( desc.visibility ),                  h );
+    h = komihash( &desc.registerSpace,               sizeof( desc.registerSpace ),               h );
     h = komihash( &desc.registerSpaceIsDescriptorSet, sizeof( desc.registerSpaceIsDescriptorSet ), h );
 
-    for ( const auto& binding : desc.bindings )
-    {
-        uint32_t slot = binding.slot;
-        h = komihash( &slot, sizeof( slot ), h );
+    // Bulk-hash all binding items in one call. BindingLayoutItem is an 8-byte POD with no
+    // pointer members, so the whole array is safe to treat as a flat byte span.
+    if ( !desc.bindings.empty() )
+        h = komihash( desc.bindings.data(), desc.bindings.size() * sizeof( nvrhi::BindingLayoutItem ), h );
 
-        nvrhi::ResourceType type = binding.type;
-        h = komihash( &type, sizeof( type ), h );
-
-        uint16_t sz = binding.size;
-        h = komihash( &sz, sizeof( sz ), h );
-    }
     return h;
 }
 
@@ -1457,76 +1462,9 @@ uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout )
 static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
 {
     static_assert( sizeof( nvrhi::RenderState ) == 144, "nvrhi::RenderState size mismatch" );
-    uint64_t h = 0;
-
-    // Blend State
-
-    h = komihash( &rs.blendState.alphaToCoverageEnable, sizeof( rs.blendState.alphaToCoverageEnable ), h );
-    for ( const auto& rt : rs.blendState.targets )
-    {
-        h = komihash( &rt.blendEnable, sizeof( rt.blendEnable ), h );
-        h = komihash( &rt.srcBlend, sizeof( rt.srcBlend ), h );
-        h = komihash( &rt.destBlend, sizeof( rt.destBlend ), h );
-        h = komihash( &rt.blendOp, sizeof( rt.blendOp ), h );
-        h = komihash( &rt.srcBlendAlpha, sizeof( rt.srcBlendAlpha ), h );
-        h = komihash( &rt.destBlendAlpha, sizeof( rt.destBlendAlpha ), h );
-        h = komihash( &rt.blendOpAlpha, sizeof( rt.blendOpAlpha ), h );
-        h = komihash( &rt.colorWriteMask, sizeof( rt.colorWriteMask ), h );
-    }
-
-    // Depth Stencil State
-
-    const auto& dss = rs.depthStencilState;
-    h = komihash( &dss.depthTestEnable, sizeof( dss.depthTestEnable ), h );
-    h = komihash( &dss.depthWriteEnable, sizeof( dss.depthWriteEnable ), h );
-    h = komihash( &dss.depthFunc, sizeof( dss.depthFunc ), h );
-    h = komihash( &dss.stencilEnable, sizeof( dss.stencilEnable ), h );
-    h = komihash( &dss.stencilReadMask, sizeof( dss.stencilReadMask ), h );
-    h = komihash( &dss.stencilWriteMask, sizeof( dss.stencilWriteMask ), h );
-    h = komihash( &dss.stencilRefValue, sizeof( dss.stencilRefValue ), h );
-    h = komihash( &dss.dynamicStencilRef, sizeof( dss.dynamicStencilRef ), h );
-
-    h = komihash( &dss.frontFaceStencil.failOp, sizeof( dss.frontFaceStencil.failOp ), h );
-    h = komihash( &dss.frontFaceStencil.depthFailOp, sizeof( dss.frontFaceStencil.depthFailOp ), h );
-    h = komihash( &dss.frontFaceStencil.passOp, sizeof( dss.frontFaceStencil.passOp ), h );
-    h = komihash( &dss.frontFaceStencil.stencilFunc, sizeof( dss.frontFaceStencil.stencilFunc ), h );
-
-    h = komihash( &dss.backFaceStencil.failOp, sizeof( dss.backFaceStencil.failOp ), h );
-    h = komihash( &dss.backFaceStencil.depthFailOp, sizeof( dss.backFaceStencil.depthFailOp ), h );
-    h = komihash( &dss.backFaceStencil.passOp, sizeof( dss.backFaceStencil.passOp ), h );
-    h = komihash( &dss.backFaceStencil.stencilFunc, sizeof( dss.backFaceStencil.stencilFunc ), h );
-
-    // Raster State
-
-    const auto& ras = rs.rasterState;
-    h = komihash( &ras.fillMode, sizeof( ras.fillMode ), h );
-    h = komihash( &ras.cullMode, sizeof( ras.cullMode ), h );
-    h = komihash( &ras.frontCounterClockwise, sizeof( ras.frontCounterClockwise ), h );
-    h = komihash( &ras.depthClipEnable, sizeof( ras.depthClipEnable ), h );
-    h = komihash( &ras.scissorEnable, sizeof( ras.scissorEnable ), h );
-    h = komihash( &ras.multisampleEnable, sizeof( ras.multisampleEnable ), h );
-    h = komihash( &ras.antialiasedLineEnable, sizeof( ras.antialiasedLineEnable ), h );
-    h = komihash( &ras.depthBias, sizeof( ras.depthBias ), h );
-    h = komihash( &ras.depthBiasClamp, sizeof( ras.depthBiasClamp ), h );
-    h = komihash( &ras.slopeScaledDepthBias, sizeof( ras.slopeScaledDepthBias ), h );
-    h = komihash( &ras.forcedSampleCount, sizeof( ras.forcedSampleCount ), h );
-    h = komihash( &ras.programmableSamplePositionsEnable, sizeof( ras.programmableSamplePositionsEnable ), h );
-    h = komihash( &ras.conservativeRasterEnable, sizeof( ras.conservativeRasterEnable ), h );
-    h = komihash( &ras.quadFillEnable, sizeof( ras.quadFillEnable ), h );
-
-    for ( int i = 0; i < 16; ++i )
-    {
-        h = komihash( &ras.samplePositionsX[i], sizeof( ras.samplePositionsX[i] ), h );
-        h = komihash( &ras.samplePositionsY[i], sizeof( ras.samplePositionsY[i] ), h );
-    }
-
-    // Single Pass Stereo
-
-    h = komihash( &rs.singlePassStereo.enabled, sizeof( rs.singlePassStereo.enabled ), h );
-    h = komihash( &rs.singlePassStereo.independentViewportMask, sizeof( rs.singlePassStereo.independentViewportMask ), h );
-    h = komihash( &rs.singlePassStereo.renderTargetIndexOffset, sizeof( rs.singlePassStereo.renderTargetIndexOffset ), h );
-
-    return h;
+    // Single bulk hash over the entire struct. Safe because GraphicsPipelineDesc is
+    // value-initialised (= {}) on every draw, so all padding bytes are deterministically zero.
+    return komihash( &rs, sizeof( rs ), 0 );
 }
 
 static uint64_t vhHashFramebufferInfo( const nvrhi::FramebufferInfo& fb )
@@ -1595,13 +1533,14 @@ uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const 
     return h;
 }
 
+#if defined(_MSC_VER)
+#pragma runtime_checks("", restore)
+#endif
+
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
 {
     static_assert( sizeof( nvrhi::ComputePipelineDesc ) == 80, "nvrhi::ComputePipelineDesc size mismatch" );
-    uint64_t h = 0;
-
-    uint64_t hCS = vhHashShaderDebugName( desc.CS );
-    h = komihash( &hCS, sizeof( hCS ), h );
+    uint64_t h = vhHashShaderDebugName( desc.CS );
 
     for ( const auto& layoutHandle : desc.bindingLayouts )
     {
@@ -1674,30 +1613,46 @@ nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& 
 uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout )
 {
     static_assert( sizeof( nvrhi::BindingSetItem ) == 40, "nvrhi::BindingSetItem size mismatch" );
-    uint64_t h = 0;
 
+    // We expect desc to be zero init.
     void* pLayout = layout.Get();
-    h = komihash( &pLayout, sizeof( pLayout ), h );
+    uint64_t h = komihash( &pLayout, sizeof( pLayout ), 0 );
     h = komihash( &desc.trackLiveness, sizeof( desc.trackLiveness ), h );
 
-    for ( const auto& item : desc.bindings )
+    if ( !desc.bindings.empty() )
     {
-        h = komihash( &item.slot, sizeof( item.slot ), h );
-        h = komihash( &item.arrayElement, sizeof( item.arrayElement ), h );
+        constexpr size_t kStackMax = 16;
+        nvrhi::BindingSetItem stackBuf[kStackMax];
+        std::vector< nvrhi::BindingSetItem > heapBuf;
 
-        uint32_t itemType = ( uint32_t ) item.type;
-        h = komihash( &itemType, sizeof( itemType ), h );
-        h = komihash( &item.resourceHandle, sizeof( item.resourceHandle ), h );
-
-        if ( item.resourceHandle )
+        nvrhi::BindingSetItem* canonical = stackBuf;
+        const size_t count = desc.bindings.size();
+        if ( count > kStackMax )
         {
-            uint32_t itemFormat = ( uint32_t ) item.format;
-            uint32_t itemDimension = ( uint32_t ) item.dimension;
-            h = komihash( &itemFormat, sizeof( itemFormat ), h );
-            h = komihash( &itemDimension, sizeof( itemDimension ), h );
-            h = komihash( &item.rawData[0], sizeof( item.rawData[0] ), h );
-            h = komihash( &item.rawData[1], sizeof( item.rawData[1] ), h );
+            heapBuf.resize( count );
+            canonical = heapBuf.data();
         }
+
+        for ( size_t i = 0; i < count; ++i )
+        {
+            canonical[i] = desc.bindings[i];
+
+            // Deterministic hash requires deterministic padding.
+            assert( canonical[i].unused == 0 );
+            assert( canonical[i].unused2 == 0 );
+
+            // For null handles, view parameters are meaningless — zero them so
+            // they don't pollute the hash.
+            if ( !canonical[i].resourceHandle )
+            {
+                canonical[i].format = nvrhi::Format::UNKNOWN;
+                canonical[i].dimension = nvrhi::TextureDimension::Unknown;
+                canonical[i].rawData[0] = 0;
+                canonical[i].rawData[1] = 0;
+            }
+        }
+
+        h = komihash( canonical, count * sizeof( nvrhi::BindingSetItem ), h );
     }
 
     return h;

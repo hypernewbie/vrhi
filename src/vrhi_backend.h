@@ -24,6 +24,7 @@
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
 #include <komihash/komihash.h>
+#include <robin_hood.h>
 
 // --------------------------------------------------------------------------
 // Backend Types
@@ -91,13 +92,13 @@ struct vhStateResolveCache
 
     struct ResolvedTexture
     {
-        nvrhi::TextureHandle handle = nullptr;
+        nvrhi::ITexture* handle = nullptr;
         const vhState::TextureBinding* binding = nullptr;
     };
 
     struct ResolvedBuffer
     {
-        nvrhi::BufferHandle handle = nullptr;
+        nvrhi::IBuffer* handle = nullptr;
         const vhState::BufferBinding* binding = nullptr;
     };
 
@@ -119,10 +120,18 @@ struct vhStateResolveCache
     //
     struct ShaderStageBindingSlotState
     {
-        std::unordered_map< uint32_t, nvrhi::SamplerHandle > samplerTable; // slot -> sampler
-        std::unordered_map< uint32_t, ResolvedTexture > textureTable; // slot -> texture
-        std::unordered_map< uint32_t, ResolvedBuffer > bufferTable; // slot -> buffer
-        std::unordered_map< uint32_t, std::pair< ResolvedTexture, ResolvedBuffer > > uavTable; // slot -> UAV. Either texture or buffer, but not both.
+        // Flat vectors for direct slot-indexed access. Slots are small non-negative integers,
+        // so O(1) direct indexing is strictly better than hash map lookup.
+        static constexpr uint32_t MAX_SAMPLERS = 64;
+        static constexpr uint32_t MAX_TEXTURES = 64;
+        static constexpr uint32_t MAX_BUFFERS  = 64;
+        static constexpr uint32_t MAX_UAVS     = 64;
+
+        std::vector< nvrhi::ISampler* > samplerTable; // slot -> sampler
+        std::vector< ResolvedTexture > textureTable; // slot -> texture
+        std::vector< ResolvedBuffer > bufferTable; // slot -> buffer
+        std::vector< std::pair< ResolvedTexture, ResolvedBuffer > > uavTable; // slot -> UAV
+
         uint32_t userGlobalsSlot = UINT32_MAX;  // UINT32_MAX = no User Globals
         uint64_t userGlobalsHash = 0;           // Hash of reflection members
         uint32_t globalUniformsSlot = UINT32_MAX; // UINT32_MAX = no GlobalUniforms
@@ -338,12 +347,21 @@ class vhCmdBackendState : public VIDLHandler
 protected:
     // Static caches to avoid reallocation overhead, explicitly cleared in shutdown()
     // Using pointer storage for s_shaders to avoid deep-copy overhead on the hot path.
-    static std::unordered_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
+    static robin_hood::unordered_flat_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
     static vhStateResolveCache s_resolveCache;
-    static std::unordered_map< uint32_t, vhShaderReflectionResource* > s_slotToReflection;
+    static std::vector< vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
     static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
     static std::vector< vhBackendShader* > s_shaders;
+    static std::vector< vhBackendShader* > s_lastLayoutMapShaders;
+    static nvrhi::IGraphicsPipeline* s_lastGraphicsPSO;
+    static nvrhi::IComputePipeline* s_lastComputePSO;
+
+    // Persistent descriptors for hot-path submission functions.
+    static nvrhi::GraphicsPipelineDesc s_submitPipelineDesc;
+    static nvrhi::GraphicsState        s_submitGState;
+    static nvrhi::ComputePipelineDesc  s_dispatchDesc;
+    static nvrhi::ComputeState         s_dispatchCState;
 
 public:
 
