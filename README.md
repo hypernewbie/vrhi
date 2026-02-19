@@ -6,7 +6,7 @@
  It aims to provide a DX11 / DX9 style immediate mode API on top of Vulkan, in a way that is not terribly slow.
  
  It is currently in development and is not yet feature complete.
- 
+
  ## Prerequisites
  
  - **Vulkan SDK**: Install from [vulkan.lunarg.com](https://vulkan.lunarg.com/sdk/home) (Tested on version `1.4.335.0`).
@@ -302,6 +302,12 @@
  
  Fast forward 10 years later, where is it?
  This library still doesn't exist. People are still raw-dogging Vulkan, often badly.
+
+ ## Performance
+
+Benchmarks for 2000 draw calls (`Graphics.Benchmark_2000DrawCalls`):
+- **Debug**: ~0.086 ms/draw
+- **Release**: ~0.003 ms/draw (2.8 µs)
  
  ### License
  
