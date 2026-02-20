@@ -25,6 +25,7 @@
 #include "utest.h"
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
+#include <string>
 
 extern bool g_captureActive;
 extern bool g_testInit;
@@ -80,4 +81,5 @@ template <> struct utest_type_deducer< std::string, false >
 };
 
 #endif // __clang__
+
 #endif defined(__cplusplus) && (__cplusplus >= 201103L)

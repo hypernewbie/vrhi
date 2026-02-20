@@ -122,6 +122,9 @@ endif()
 set(SPIRV_REFLECT_SOURCE "${SPIRV_REFLECT_DIR}/spirv_reflect.c")
 set(SPIRV_REFLECT_HEADER "${SPIRV_REFLECT_DIR}/spirv_reflect.h")
 
+# Derive Vulkan SDK lib dir for hints
+get_filename_component( VULKAN_SDK_LIB_DIR "${Vulkan_LIBRARY}" DIRECTORY )
+
 # Slang (from Vulkan SDK, fallback to bundled)
 find_path(SLANG_INCLUDE_DIR NAMES slang.h
     HINTS
@@ -131,9 +134,11 @@ find_path(SLANG_INCLUDE_DIR NAMES slang.h
 
 find_library(SLANG_LIBRARY NAMES slang slang.lib libslang.so libslang.dylib
     HINTS
+        "${VULKAN_SDK_LIB_DIR}"
         "$ENV{VULKAN_SDK}/lib"
         "$ENV{VULKAN_SDK}/Lib"
         "${VRHI_LIB_DIR}"
+    NO_DEFAULT_PATH
 )
 
 if(NOT SLANG_INCLUDE_DIR OR NOT SLANG_LIBRARY)
@@ -144,7 +149,6 @@ endif()
 
 # SPIRV-Tools (built by vdeps - for SPIRV optimisation)
 # Use per-config imported targets for multi-config generators (Visual Studio).
-get_filename_component( VULKAN_SDK_LIB_DIR "${Vulkan_LIBRARY}" DIRECTORY )
 
 # Determine platform tag for local lib paths
 if( WIN32 )
