@@ -907,7 +907,7 @@ void vhFlush( bool wait )
         // Wait for fence to be signaled
         while ( !fence.load() )
         {
-            std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
+            std::this_thread::sleep_for( std::chrono::nanoseconds( 20 ) );
         }
         vhProfile( "vhFlush_Wait", false );
     }
@@ -923,7 +923,7 @@ void vhFinish()
     // Wait for fence to be signaled
     while ( !fence.load() )
     {
-        std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
+        std::this_thread::sleep_for( std::chrono::nanoseconds( 20 ) );
     }
     vhProfile( "vhFinish_Wait", false );
 }
