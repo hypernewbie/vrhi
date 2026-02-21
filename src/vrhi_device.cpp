@@ -35,7 +35,7 @@
 
 #ifdef __APPLE__
 #include <vulkan/vulkan_metal.h>
-#include <vulkan/vulkan_macos.h>
+extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr );
 #endif
 
 std::unique_ptr< vkb::Device > g_vulkanBDevice;
@@ -196,7 +196,6 @@ void vhInit( bool quiet )
 #ifdef __APPLE__
         instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
         instBuilder.enable_extension( VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME );
-        instBuilder.enable_extension( VK_MVK_MACOS_SURFACE_EXTENSION_NAME );
 #endif
 
         auto instRet = instBuilder.build();
@@ -240,31 +239,25 @@ void vhInit( bool quiet )
                 exit( 1 );
             }
 #elif defined(__APPLE__)
-            VkResult res = VK_SUCCESS;
+            const CAMetalLayer* metalLayer = nullptr;
             
-            if ( !g_vhInit.macOSWindowIsNSView )
+            if ( g_vhInit.macOSWindowIsNSView )
             {
-                VkMetalSurfaceCreateInfoEXT sci = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
-                sci.pLayer = ( const CAMetalLayer* ) g_vhInit.windowHandle;
-                res = vkCreateMetalSurfaceEXT( g_vulkanInstance, &sci, nullptr, &surface );
+                void* layerPtr = vhGetMetalLayerFromNSView( g_vhInit.windowHandle );
+                metalLayer = ( const CAMetalLayer* )layerPtr;
+            }
+            else
+            {
+                metalLayer = ( const CAMetalLayer* )g_vhInit.windowHandle;
             }
             
-            if ( g_vhInit.macOSWindowIsNSView || res != VK_SUCCESS )
+            VkMetalSurfaceCreateInfoEXT sci = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
+            sci.pLayer = metalLayer;
+            auto res = vkCreateMetalSurfaceEXT( g_vulkanInstance, &sci, nullptr, &surface );
+            if ( res != VK_SUCCESS )
             {
-                if ( res != VK_SUCCESS )
-                {
-                    VRHI_LOG( "Failed to create Metal surface: %d. Falling back to MVK...\n", res );
-                }
-                
-                VkMacOSSurfaceCreateInfoMVK sci = { VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK };
-                sci.pView = g_vhInit.windowHandle;
-                res = vkCreateMacOSSurfaceMVK( g_vulkanInstance, &sci, nullptr, &surface );
-                
-                if ( res != VK_SUCCESS )
-                {
-                    VRHI_LOG( "Failed to create MacOS surface: %d\n", res );
-                    exit( 1 );
-                }
+                VRHI_LOG( "Failed to create Metal surface: %d\n", res );
+                exit( 1 );
             }
 #endif
         }

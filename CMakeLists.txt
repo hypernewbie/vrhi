@@ -243,6 +243,10 @@ endif()
      vdeps/OffsetAllocator/offsetAllocator.hpp
  )
  
+ if(APPLE)
+     list(APPEND VRHI_SOURCES src/vrhi_device.mm)
+ endif()
+ 
  add_library(vrhi STATIC ${VRHI_SOURCES})
  
  # Suppress warnings on vendored code
@@ -285,6 +289,10 @@ endif()
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(vrhi PUBLIC X11 Xi Xext)
+endif()
+
+if(APPLE)
+    target_link_libraries(vrhi PUBLIC "-framework QuartzCore")
 endif()
  
  if(WIN32)
