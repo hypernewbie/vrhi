@@ -196,6 +196,7 @@ void vhInit( bool quiet )
 #ifdef __APPLE__
         instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
         instBuilder.enable_extension( VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME );
+        instBuilder.enable_extension( VK_MVK_MACOS_SURFACE_EXTENSION_NAME );
 #endif
 
         auto instRet = instBuilder.build();
