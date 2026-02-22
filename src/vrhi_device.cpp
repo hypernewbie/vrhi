@@ -1000,27 +1000,27 @@ bool vhFrame()
     if ( g_vhSurface == VK_NULL_HANDLE )
         return false;
 
+    // Flush all pending background work for this frame and wait.
+    vhFlush( true );
+
     // Ensure we have an active command list for semaphore operations.
     auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    nvrhi::vulkan::IDevice* nvrhiDevice = g_vhVulkanDevice;
     {
         // Transition swapchain image to Present layout if it hasn't been touched.
         // This handles the "empty frame" case where nothing was rendered.
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         if ( !g_vhSwapchainNVRHIHandles.empty() && g_vhCurrentSwapchainIndex < g_vhSwapchainNVRHIHandles.size() )
         {
             nvrhi::TextureHandle backbufferHandle = g_vhSwapchainNVRHIHandles[g_vhCurrentSwapchainIndex];
             cmdList->setTextureState( backbufferHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::Present );
             cmdList->commitBarriers();
         }
-    }
-
-    nvrhi::vulkan::IDevice* nvrhiDevice = g_vhVulkanDevice;
-    {
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         nvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, g_vhAcquireSemaphores[g_vhFrameIndex], 0 );
         nvrhiDevice->queueSignalSemaphore( nvrhi::CommandQueue::Graphics, g_vhPresentSemaphores[g_vhCurrentSwapchainIndex], 0 );
     }
-    vhFlush();
+
+    // Flush this command list on the main thread to capture the instance ID for frame pacing.
     g_vhFrameInstances[g_vhFrameIndex] = vhCmdListFlush( nvrhi::CommandQueue::Graphics );
 
     VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
