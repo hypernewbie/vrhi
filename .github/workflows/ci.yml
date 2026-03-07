@@ -152,7 +152,8 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           $swiftShaderDll = "C:\hostedtoolcache\windows\swiftshader\5.0.0.1\x64\vk_swiftshader.dll"
-          $targetDll = "build\Debug\vulkan-1.dll"
+          $targetDir = if (Test-Path "build\Debug") { "build\Debug" } else { "build" }
+          $targetDll = Join-Path $targetDir "vulkan-1.dll"
           if (Test-Path $swiftShaderDll) {
             Copy-Item $swiftShaderDll $targetDll -Force
             echo "Copied SwiftShader to $targetDll to bypass elevated loader restrictions."
