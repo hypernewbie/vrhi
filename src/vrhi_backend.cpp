@@ -128,8 +128,18 @@ static bool vhAreVertexFormatsCompatible( nvrhi::Format bufferFmt, nvrhi::Format
 
 int32_t vhCmdBackendState::BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader, bool debugLog )
 {
-    for ( auto& resource : shader.reflection )
+    if ( !name || !name[0] )
+        return -1;
+
+    const size_t nameLen = strlen( name );
+    const uint64_t nameHash = komihash( name, nameLen, 0 );
+    const bool hasHashCache = shader.reflectionNameHashes.size() == shader.reflection.size();
+
+    for ( size_t i = 0; i < shader.reflection.size(); ++i )
     {
+        auto& resource = shader.reflection[i];
+        if ( hasHashCache && shader.reflectionNameHashes[i] != nameHash )
+            continue;
         if ( resource.name == name ) 
         {
             if ( resource.type != type )
@@ -417,10 +427,11 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
 
 nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment, vhTexture shadingRateImage )
 {
-    // Static desc so the colourAttachments vector retains its capacity across calls,
-    // avoiding a heap allocation on every framebuffer lookup.
+    // Reuse the descriptor storage across calls and only reset the mutable fields.
     static nvrhi::FramebufferDesc desc;
-    desc = nvrhi::FramebufferDesc{};
+    desc.colorAttachments.resize( 0 );
+    desc.depthAttachment = nvrhi::FramebufferAttachment{};
+    desc.shadingRateAttachment = nvrhi::FramebufferAttachment{};
 
     for ( const auto& rt : colourAttachment )
     {
@@ -582,6 +593,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         static const vhVertexLayoutDef* s_locationTable[ k_maxVertexLocations ];
         static int s_locationTableUsed[ k_maxVertexLocations ];
         static int s_locationTableUsedCount = 0;
+        uint64_t attrHash = 0;
 
         // Reset only the slots that were used last frame, avoiding a full memset each call.
         for ( int _i = 0; _i < s_locationTableUsedCount; ++_i )
@@ -619,11 +631,13 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 }
                 pLayout = &slot;
                 stride = 0;
-                for ( const auto& def : *pLayout ) stride += vhVertexLayoutDefSize( def );
+                for ( size_t defIdx = 0; defIdx < pLayout->size(); ++defIdx )
+                    stride += vhVertexLayoutDefSize( ( *pLayout )[ defIdx ] );
             }
 
-            for ( const auto& def : *pLayout )
+            for ( size_t defIdx = 0; defIdx < pLayout->size(); ++defIdx )
             {
+                const auto& def = ( *pLayout )[ defIdx ];
                 if ( def.location < 0 || def.location >= k_maxVertexLocations )
                 {
                     VRHI_ERR( "Vertex Attribute Location %d out of supported range [0, %d).\n", def.location, k_maxVertexLocations );
@@ -639,14 +653,22 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 nvrhi::VertexAttributeDesc attr = vhTranslateVertexAttribute( def, ( uint32_t ) i );
                 attr.elementStride = stride;
                 s_attributes.push_back( attr );
+                attrHash = komihash( &def.location,   sizeof( def.location ),   attrHash );
+                attrHash = komihash( &attr.format,    sizeof( attr.format ),    attrHash );
+                attrHash = komihash( &attr.arraySize, sizeof( attr.arraySize ), attrHash );
+                attrHash = komihash( &attr.bufferIndex, sizeof( attr.bufferIndex ), attrHash );
+                attrHash = komihash( &attr.offset,    sizeof( attr.offset ),    attrHash );
+                attrHash = komihash( &attr.elementStride, sizeof( attr.elementStride ), attrHash );
+                attrHash = komihash( &attr.isInstanced, sizeof( attr.isInstanced ), attrHash );
             }
         }
 
         // Strict validation of shader inputs to ensure every attribute is satisfied by a bound buffer.
         if ( vertexShader )
         {
-            for ( const auto& vsAttribDef : vertexShader->inputLayout )
+            for ( size_t attribIdx = 0; attribIdx < vertexShader->inputLayout.size(); ++attribIdx )
             {
+                const auto& vsAttribDef = vertexShader->inputLayout[ attribIdx ];
                 const vhVertexLayoutDef* bound = ( vsAttribDef.location >= 0 && vsAttribDef.location < k_maxVertexLocations )
                     ? s_locationTable[ vsAttribDef.location ] : nullptr;
                 if ( !bound )
@@ -667,18 +689,6 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 // on every draw call causes unnecessary driver allocations even when the layout is
                 // identical to a previous frame's.
                 static std::unordered_map< uint64_t, nvrhi::InputLayoutHandle > s_inputLayoutCache;
-                uint64_t attrHash = 0;
-                for ( const auto& a : s_attributes )
-                {
-                    attrHash = komihash( a.name.data(), a.name.size(), attrHash );
-                    attrHash = komihash( &a.format,        sizeof( a.format ),        attrHash );
-                    attrHash = komihash( &a.arraySize,     sizeof( a.arraySize ),     attrHash );
-                    attrHash = komihash( &a.bufferIndex,   sizeof( a.bufferIndex ),   attrHash );
-                    attrHash = komihash( &a.offset,        sizeof( a.offset ),        attrHash );
-                    attrHash = komihash( &a.elementStride, sizeof( a.elementStride ), attrHash );
-                    attrHash = komihash( &a.isInstanced,   sizeof( a.isInstanced ),   attrHash );
-                }
-
                 auto cacheIt = s_inputLayoutCache.find( attrHash );
                 if ( cacheIt != s_inputLayoutCache.end() )
                 {
@@ -973,14 +983,16 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             continue;
         }
 
-        for ( const auto& res : shaders[j]->reflection )
+        for ( size_t reflectionIdx = 0; reflectionIdx < shaders[j]->reflection.size(); ++reflectionIdx )
         {
+            const auto& res = shaders[j]->reflection[ reflectionIdx ];
             if ( res.type == nvrhi::ResourceType::ConstantBuffer )
             {
                 if ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" )
                 {
                     stageTable.userGlobalsSlot = res.slot;
                     stageTable.userGlobalsHash = res.membersHash;
+                    stageTable.userGlobalsReflection = &res;
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
                     {
                         VRHI_LOG( "ResolveCache: Found User Globals '%s' at slot %u for stage %u. Hash: 0x%llx\n",
@@ -1025,25 +1037,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         if ( scache.userGlobalUniformsBufferCache.find( hash ) != scache.userGlobalUniformsBufferCache.end() )
             continue;
 
-        // Find reflection data for this stage
-        const vhShaderReflectionResource* res = nullptr;
-        for ( int j = 0; j < shaderCount; j++ )
-        {
-            const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
-            if ( stageIdx == ( int ) stage )
-            {
-                for ( const auto& r : shaders[j]->reflection )
-                {
-                    if ( r.type == nvrhi::ResourceType::ConstantBuffer &&
-                         ( r.name == "$Globals" || r.name == "_Globals" || r.name == "globalParams" ) )
-                    {
-                        res = &r;
-                        break;
-                    }
-                }
-                if ( res ) break;
-            }
-        }
+        const vhShaderReflectionResource* res = stageTable.userGlobalsReflection;
 
         if ( !res || res->sizeInBytes == 0 )
             continue;
@@ -1642,8 +1636,9 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         graphicsState->framebuffer = fb ? fb : BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
 
         // Bind Vertex Buffers
-        for ( const auto& vb : state.vertexBindings )
+        for ( size_t vbIdx = 0; vbIdx < state.vertexBindings.size(); ++vbIdx )
         {
+            const auto& vb = state.vertexBindings[ vbIdx ];
             if ( vb.buffer == VRHI_INVALID_HANDLE ) continue;
             auto it = backendBuffers.find( vb.buffer );
             if ( it != backendBuffers.end() && it->second->handle )
@@ -2967,6 +2962,12 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
         backendShader->flags = cmd->flags;
         backendShader->entry = cmd->entry;
         backendShader->reflection = std::move( resources );
+        backendShader->reflectionNameHashes.reserve( backendShader->reflection.size() );
+        for ( size_t reflectionIdx = 0; reflectionIdx < backendShader->reflection.size(); ++reflectionIdx )
+        {
+            const auto& reflection = backendShader->reflection[ reflectionIdx ];
+            backendShader->reflectionNameHashes.push_back( reflection.name.empty() ? 0 : komihash( reflection.name.data(), reflection.name.size(), 0 ) );
+        }
         backendShader->inputLayout = std::move( inputLayout );
         backendShader->threadGroupSize = groupSize;
         backendShader->pushConstants = std::move( pushConstants );

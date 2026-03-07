@@ -528,8 +528,19 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags )
 
 nvrhi::VertexAttributeDesc vhTranslateVertexAttribute( const vhVertexLayoutDef& def, uint32_t bufferIndex )
 {
+    static const char* const s_attrNames[] =
+    {
+        "ATTR0",  "ATTR1",  "ATTR2",  "ATTR3",  "ATTR4",  "ATTR5",  "ATTR6",  "ATTR7",
+        "ATTR8",  "ATTR9",  "ATTR10", "ATTR11", "ATTR12", "ATTR13", "ATTR14", "ATTR15",
+        "ATTR16", "ATTR17", "ATTR18", "ATTR19", "ATTR20", "ATTR21", "ATTR22", "ATTR23",
+        "ATTR24", "ATTR25", "ATTR26", "ATTR27", "ATTR28", "ATTR29", "ATTR30", "ATTR31"
+    };
+
     nvrhi::VertexAttributeDesc attr;
-    attr.name = "ATTR" + std::to_string( def.location );
+    if ( def.location >= 0 && def.location < ( int32_t ) ( sizeof( s_attrNames ) / sizeof( s_attrNames[0] ) ) )
+        attr.name = s_attrNames[ def.location ];
+    else
+        attr.name = "ATTR" + std::to_string( def.location );
     attr.format = def.format;
     attr.arraySize = 1;
     attr.bufferIndex = bufferIndex;

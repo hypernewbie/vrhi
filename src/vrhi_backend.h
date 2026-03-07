@@ -68,6 +68,7 @@ struct vhBackendShader
 
     // Reflection Data
     std::vector< vhShaderReflectionResource > reflection;
+    std::vector< uint64_t > reflectionNameHashes;
     std::vector< vhVertexLayoutDef > inputLayout;
     nvrhi::BindingLayoutHandle layout;
     nvrhi::BindingLayoutDesc layoutDesc = { .bindingOffsets = { 0, 0, 0, 0 } };
@@ -134,6 +135,7 @@ struct vhStateResolveCache
 
         uint32_t userGlobalsSlot = UINT32_MAX;  // UINT32_MAX = no User Globals
         uint64_t userGlobalsHash = 0;           // Hash of reflection members
+        const vhShaderReflectionResource* userGlobalsReflection = nullptr;
         uint32_t globalUniformsSlot = UINT32_MAX; // UINT32_MAX = no GlobalUniforms
         uint32_t worldUniformsSlot = UINT32_MAX;  // UINT32_MAX = no WorldUniforms
     };
@@ -168,6 +170,7 @@ struct vhStateResolveCache
                 stageBindingStorage[i].uavTable.clear();
                 stageBindingStorage[i].userGlobalsSlot    = UINT32_MAX;
                 stageBindingStorage[i].userGlobalsHash    = 0;
+                stageBindingStorage[i].userGlobalsReflection = nullptr;
                 stageBindingStorage[i].globalUniformsSlot = UINT32_MAX;
                 stageBindingStorage[i].worldUniformsSlot  = UINT32_MAX;
                 stageBindingActive[i] = false;

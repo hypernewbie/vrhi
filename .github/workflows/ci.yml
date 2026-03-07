@@ -23,6 +23,14 @@ jobs:
             # CMakeLists.txt handles MSVC specific flags.
             cmake_extra_args: ""
             install_swiftshader: true
+            install_llvm: false
+
+          - name: Windows LLVM
+            os: windows-latest
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang.exe -DCMAKE_CXX_COMPILER=clang++.exe"
+            install_swiftshader: true
+            install_llvm: true
 
           - name: Linux
             os: ubuntu-latest
@@ -30,6 +38,7 @@ jobs:
             # Installing Clang 21 as per user's environment
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21"
             install_swiftshader: false
+            install_llvm: false
 
           - name: macOS
             os: macos-14 # Apple Silicon (M1/M2)
@@ -37,6 +46,7 @@ jobs:
             # Explicitly using Homebrew Clang 17
             cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
             install_swiftshader: false
+            install_llvm: false
 
     steps:
       - name: Checkout
@@ -50,6 +60,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install LLVM (Windows)
+        if: matrix.install_llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "21"
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'

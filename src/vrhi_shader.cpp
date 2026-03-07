@@ -809,11 +809,15 @@ void vhPackUserGlobals(
 
     memset( outData, 0, dataSize );
 
-    for ( const auto& member : members )
+    for ( size_t memberIdx = 0; memberIdx < members.size(); ++memberIdx )
     {
+        const auto& member = members[ memberIdx ];
         const vhState::UniformBufferValue* match = nullptr;
-        for ( const auto& u : uniforms )
+        for ( size_t uniformIdx = 0; uniformIdx < uniforms.size(); ++uniformIdx )
         {
+            const auto& u = uniforms[ uniformIdx ];
+            if ( !u.name )
+                continue;
             if ( u.name == member.name )
             {
                 match = &u;
