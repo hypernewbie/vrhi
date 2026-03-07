@@ -28,7 +28,7 @@ jobs:
           - name: Windows LLVM
             os: windows-latest
             cmake_gen: "-G Ninja"
-            cmake_extra_args: "-DCMAKE_C_COMPILER=clang.exe -DCMAKE_CXX_COMPILER=clang++.exe"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe"
             install_swiftshader: true
             install_llvm: true
 
