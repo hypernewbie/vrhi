@@ -885,3 +885,142 @@ UTEST_F( Compute, MultipleStageSpaceBindings )
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
+
+UTEST_F( Compute, RawUniforms_Exhaustive )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+    int32_t startPSOs = g_vhPSOCompileCounter.load();
+
+    // Resources
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "ComputeRawUniformsOut", { 1, 1 }, 1, nvrhi::Format::RGBA32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    // Exhaustive Shader with "raw dog" uniforms
+    const char* csSource = R"(
+        uniform float g_f;
+        uniform float2 g_f2;
+        uniform float3 g_f3;
+        uniform float4 g_f4;
+        uniform int g_i;
+        uniform uint g_u;
+        uniform bool g_b;
+        uniform float4x4 g_m44;
+        uniform float g_array[4];
+
+        [[vk::image_format("rgba32f")]] RWTexture2D<float4> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            float4 res = float4(0, 0, 0, 0);
+            
+            // Channel 0: Sum of float types (expecting 1.1 + 2.2 + 4.4 + 7.7 = 15.4)
+            res.x = g_f + g_f2.x + g_f3.x + g_f4.x;
+            
+            // Channel 1: Sum of int types (expecting -42 + 123 + (1.0 if true) = 82)
+            res.y = float(g_i) + float(g_u) + (g_b ? 1.0f : 0.0f);
+
+            // Channel 2: Matrix check (expecting g_m44[0][3] which is 7.0)
+            res.z = g_m44[0][3];
+            
+            // Channel 3: Array check (expecting g_array[3] which is 40.0)
+            res.w = g_array[3];
+
+            g_Out[id.xy] = res;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string err;
+    // Note: VRHI_SHADER_ROW_MAJOR is used to match how we set matrix data usually.
+    // VRHI_SHADER_PATCH_DSET0 is REQUIRED for raw uniforms to move them from set 0 to the stage set.
+    bool res = vhCompileShader( "CS_RawUniforms", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0 | VRHI_SHADER_ROW_MAJOR | VRHI_SHADER_PATCH_DSET0, spirv, "main", {}, {}, &err );
+    if ( !res ) printf( "Shader Compile Error: %s\n", err.c_str() );
+    ASSERT_TRUE( res );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_RawUniforms", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    // State
+    vhState state = g_state0;
+    state.SetDebugFlags( VRHI_STATE_DEBUG_ALL );
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+
+    // Set Uniforms
+    state.SetUniform( 0, { "g_f", { glm::vec4( 1.1f, 0, 0, 0 ) } } );
+    state.SetUniform( 1, { "g_f2", { glm::vec4( 2.2f, 3.3f, 0, 0 ) } } );
+    state.SetUniform( 2, { "g_f3", { glm::vec4( 4.4f, 5.5f, 6.6f, 0 ) } } );
+    state.SetUniform( 3, { "g_f4", { glm::vec4( 7.7f, 8.8f, 9.9f, 10.1f ) } } );
+    
+    int iVal = -42;
+    uint32_t uVal = 123;
+    uint32_t bVal = 1; // bool is usually 4 bytes in HLSL CBs
+    state.SetUniform( 4, { "g_i", { glm::vec4( *(float*)&iVal, 0, 0, 0 ) } } );
+    state.SetUniform( 5, { "g_u", { glm::vec4( *(float*)&uVal, 0, 0, 0 ) } } );
+    state.SetUniform( 6, { "g_b", { glm::vec4( *(float*)&bVal, 0, 0, 0 ) } } );
+
+    glm::mat4 m44 = glm::mat4( 1.0f );
+    m44[3][0] = 7.0f; // Row-major translation X if using row-major storage
+    // HLSL float4x4 row-major:
+    // row0: [0][0], [0][1], [0][2], [0][3]
+    // ...
+    // row3: [3][0], [3][1], [3][2], [3][3]
+    // glm::mat4 is column-major:
+    // col0: [0][0], [0][1], [0][2], [0][3]
+    // col3: [3][0], [3][1], [3][2], [3][3]
+    // If we pass col-major glm matrix to row-major HLSL, it will be transposed.
+    // So we transpose it here to compensate.
+    glm::mat4 m44_row = glm::transpose( m44 );
+    state.SetUniform( 7, { "g_m44", { m44_row[0], m44_row[1], m44_row[2], m44_row[3] } } );
+
+    state.SetUniform( 8, { "g_array", { 
+        glm::vec4( 10.0f, 0, 0, 0 ), 
+        glm::vec4( 20.0f, 0, 0, 0 ), 
+        glm::vec4( 30.0f, 0, 0, 0 ), 
+        glm::vec4( 40.0f, 0, 0, 0 ) 
+    } } );
+
+    // Setup Output
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = outTex;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::RGBA32_FLOAT;
+    state.SetTexture( 0, tbOut );
+
+    // Dispatch
+    vhStateId sid = 129;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    // Verify
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_GT( g_vhPSOCompileCounter.load(), startPSOs );
+    ASSERT_EQ( readData.size(), sizeof(float) * 4 );
+    if ( !g_vhInit.nullMode )
+    {
+        float* fData = reinterpret_cast< float* >( readData.data() );
+        
+        // Channel 0: 1.1 + 2.2 + 4.4 + 7.7 = 15.4
+        EXPECT_NEAR( 15.4f, fData[0], 0.0001f );
+        // Channel 1: -42 + 123 + 1 = 82
+        EXPECT_NEAR( 82.0f, fData[1], 0.0001f );
+        // Channel 2: 7.0 (Row 0, Col 3 in row-major storage)
+        EXPECT_NEAR( 7.0f, fData[2], 0.0001f );
+        // Channel 3: 40.0
+        EXPECT_NEAR( 40.0f, fData[3], 0.0001f );
+    }
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
