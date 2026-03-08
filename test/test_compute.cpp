@@ -1120,7 +1120,8 @@ UTEST_F( Compute, StaleUniformReproduction_MultiShader )
         uniform float g_val;
         void main(uint v : SV_VertexID, out float4 p : SV_Position)
         {
-            p = float4(0, 0, 0, 1);
+            float2 uv = float2((v << 1) & 2, v & 2);
+            p = float4(uv * 2.0f - 1.0f, 0.0f, 1.0f);
         }
     )";
 
@@ -1145,6 +1146,8 @@ UTEST_F( Compute, StaleUniformReproduction_MultiShader )
 
     vhState state = g_state0;
     state.SetProgram( { vs, ps } );
+    state.SetViewRect( glm::vec4( 0, 0, 1, 1 ) );
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK );
     
     vhState::RenderTarget rt;
     rt.texture = outTex;
