@@ -1024,3 +1024,159 @@ UTEST_F( Compute, RawUniforms_Exhaustive )
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
+
+UTEST_F( Compute, StaleUniformReproduction )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+    
+    // Output Texture: 1x1 R32F
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "StaleUniformOut", { 1, 1 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    // Simple shader using a raw uniform
+    const char* csSource = R"(
+        uniform float g_val;
+        [[vk::image_format("r32f")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(1, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = g_val;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "CS_StaleRepro", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0 | VRHI_SHADER_PATCH_DSET0, spirv, "main", {}, {}, &err ) );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_StaleRepro", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    // Duplicate shader with same layout but different name
+    vhShader cs2 = vhAllocShader();
+    vhCreateShader( cs2, "CS_StaleRepro2", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    vhState::TextureBinding tb;
+    tb.name = "g_Out";
+    tb.texture = outTex;
+    tb.computeUAV = true;
+    tb.formatOverride = nvrhi::Format::R32_FLOAT;
+    state.SetTexture( 0, tb );
+
+    vhStateId sid = 200;
+
+    // First Dispatch: g_val = 1.0, Shader 1
+    state.SetUniform( 0, { "g_val", { glm::vec4( 1.0f, 0, 0, 0 ) } } );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    // Second Dispatch: g_val = 2.0, Shader 2 (same layout hash!)
+    state.SetProgram( vhCreateComputeProgram( cs2 ) );
+    state.SetUniform( 0, { "g_val", { glm::vec4( 2.0f, 0, 0, 0 ) } } );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    // Readback
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    if ( !g_vhInit.nullMode )
+    {
+        float result = *reinterpret_cast< float* >( readData.data() );
+        printf( "RESULT: %f\n", result );
+        // THIS SHOULD FAIL IF THE BUG IS PRESENT (it will likely return 1.0 instead of 2.0)
+        EXPECT_EQ( 2.0f, result );
+    }
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhDestroyShader( cs2 );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, StaleUniformReproduction_MultiShader )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+    
+    // Output Texture: 1x1 RGBA32F
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "StaleUniformOutMS", { 1, 1 }, 1, nvrhi::Format::RGBA32_FLOAT, VRHI_TEXTURE_RT );
+
+    // Vertex Shader
+    const char* vsSource = R"(
+        uniform float g_val;
+        void main(uint v : SV_VertexID, out float4 p : SV_Position)
+        {
+            p = float4(0, 0, 0, 1);
+        }
+    )";
+
+    // Pixel Shader using SAME uniform
+    const char* psSource = R"(
+        uniform float g_val;
+        void main(out float4 c : SV_Target0)
+        {
+            c = float4(g_val, 0, 0, 1);
+        }
+    )";
+
+    std::vector< uint32_t > vsSpirv, psSpirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "VS_StaleRepro", vsSource, VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_0 | VRHI_SHADER_PATCH_DSET0, vsSpirv, "main", {}, {}, &err ) );
+    ASSERT_TRUE( vhCompileShader( "PS_StaleRepro", psSource, VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0 | VRHI_SHADER_PATCH_DSET0, psSpirv, "main", {}, {}, &err ) );
+
+    vhShader vs = vhAllocShader();
+    vhCreateShader( vs, "VS_StaleRepro", VRHI_SHADER_STAGE_VERTEX, vsSpirv, "main" );
+    vhShader ps = vhAllocShader();
+    vhCreateShader( ps, "PS_StaleRepro", VRHI_SHADER_STAGE_PIXEL, psSpirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( { vs, ps } );
+    
+    vhState::RenderTarget rt;
+    rt.texture = outTex;
+    state.colourAttachment.push_back( rt );
+
+    vhStateId sid = 201;
+
+    // First Draw: g_val = 1.0
+    state.SetUniform( 0, { "g_val", { glm::vec4( 1.0f, 0, 0, 0 ) } } );
+    vhSetState( sid, state, VRHI_DIRTY_ALL );
+    vhDraw( sid, 3 );
+
+    // Second Draw: g_val = 2.0
+    state.SetUniform( 0, { "g_val", { glm::vec4( 2.0f, 0, 0, 0 ) } } );
+    vhSetState( sid, state, VRHI_DIRTY_ALL );
+    vhDraw( sid, 3 );
+
+    // Readback
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    if ( !g_vhInit.nullMode )
+    {
+        float* fData = reinterpret_cast< float* >( readData.data() );
+        printf( "RESULT MS: %f\n", fData[0] );
+        EXPECT_EQ( 2.0f, fData[0] );
+    }
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
