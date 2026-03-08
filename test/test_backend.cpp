@@ -97,6 +97,16 @@ public:
         return Get().BE_PreSubmitCommon_State( cmdList, state, shaders, shaderCount, compute, graphics );
     }
 
+    static void PreSubmitCommon_ResolveStateCache(
+        const vhState& state,
+        vhBackendShader* const* shaders,
+        int shaderCount,
+        vhStateResolveCache& scache
+    )
+    {
+        Get().BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, scache );
+    }
+
     static bool GetFrameBuffer( const std::vector< vhState::RenderTarget >& colors, const vhState::RenderTarget& depth )
     {
         auto fb1 = Get().BE_GetFrameBuffer( colors, depth, VRHI_INVALID_HANDLE );
@@ -692,6 +702,141 @@ UTEST( BackendInternal, FindResource )
 
     vhDestroyTexture( tex );
     vhDestroyBuffer( buf );
+    vhFinish();
+}
+
+UTEST( BackendInternal, ResolveStateCacheFallbackSlots )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhCmdBackendStateTest::Init();
+
+    vhTexture texSrv = vhAllocTexture();
+    vhCreateTexture2D( texSrv, "FallbackSlotSRV", { 16, 16 }, 1, nvrhi::Format::RGBA8_UNORM );
+
+    vhTexture texUav = vhAllocTexture();
+    vhCreateTexture2D( texUav, "FallbackSlotUAV", { 16, 16 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhBuffer cbuf = vhAllocBuffer();
+    vhCreateUniformBuffer( cbuf, "FallbackSlotCB", nullptr, 256 );
+
+    vhFinish();
+
+    nvrhi::TextureHandle hTexSrv = vhGetTextureNvrhiHandle( texSrv );
+    nvrhi::TextureHandle hTexUav = vhGetTextureNvrhiHandle( texUav );
+    nvrhi::BufferHandle hCbuf = vhGetBufferNvrhiHandle( cbuf );
+    nvrhi::SamplerHandle hSampler = vhGetSamplerHandle( VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP );
+
+    ASSERT_TRUE( hTexSrv != nullptr );
+    ASSERT_TRUE( hTexUav != nullptr );
+    ASSERT_TRUE( hCbuf != nullptr );
+    ASSERT_TRUE( hSampler != nullptr );
+
+    {
+        auto btex = new vhBackendTexture();
+        btex->name = "FallbackSlotSRV";
+        btex->handle = hTexSrv;
+        auto desc = hTexSrv->getDesc();
+        btex->info.format = desc.format;
+        btex->info.mipLevels = desc.mipLevels;
+        btex->info.arrayLayers = desc.arraySize;
+        btex->info.dimensions = { ( int ) desc.width, ( int ) desc.height, ( int ) desc.depth };
+        vhCmdBackendStateTest::InsertDummyTexture( texSrv, btex );
+    }
+    {
+        auto btex = new vhBackendTexture();
+        btex->name = "FallbackSlotUAV";
+        btex->handle = hTexUav;
+        auto desc = hTexUav->getDesc();
+        btex->info.format = desc.format;
+        btex->info.mipLevels = desc.mipLevels;
+        btex->info.arrayLayers = desc.arraySize;
+        btex->info.dimensions = { ( int ) desc.width, ( int ) desc.height, ( int ) desc.depth };
+        vhCmdBackendStateTest::InsertDummyTexture( texUav, btex );
+    }
+    {
+        auto bbuf = new vhBackendBuffer();
+        bbuf->name = "FallbackSlotCB";
+        bbuf->handle = hCbuf;
+        bbuf->desc = hCbuf->getDesc();
+        vhCmdBackendStateTest::InsertDummyBuffer( cbuf, bbuf );
+    }
+
+    vhBackendShader shader;
+    shader.flags = VRHI_SHADER_STAGE_COMPUTE;
+    vhBackendShader* shaderPtr = &shader;
+    const uint32_t stage = VRHI_SHADER_STAGE_COMPUTE;
+
+    {
+        vhState state;
+        state.SetTexture( 0, texSrv, 0, nullptr, false );
+        state.SetBuffer( 0, cbuf, 0, nullptr, 0, 0, false );
+
+        vhStateResolveCache scache;
+        int32_t startErrors = g_vhErrorCounter.load();
+        vhCmdBackendStateTest::PreSubmitCommon_ResolveStateCache( state, &shaderPtr, 1, scache );
+        EXPECT_TRUE( scache.init );
+        EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+        if ( scache.init )
+        {
+            nvrhi::BindingSetItem outItem;
+            EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, nvrhi::BindingLayoutItem::Texture_SRV( g_vhInit.shaderMake_tRegShift + 0 ), outItem ) );
+            EXPECT_EQ( outItem.resourceHandle, hTexSrv );
+            EXPECT_EQ( outItem.type, nvrhi::ResourceType::Texture_SRV );
+
+            EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, nvrhi::BindingLayoutItem::ConstantBuffer( g_vhInit.shaderMake_bRegShift + 0 ), outItem ) );
+            EXPECT_EQ( outItem.resourceHandle, hCbuf );
+            EXPECT_EQ( outItem.type, nvrhi::ResourceType::ConstantBuffer );
+        }
+    }
+
+    {
+        vhState state;
+        state.SetSampler( 0, VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP, 0, nullptr );
+
+        vhStateResolveCache scache;
+        int32_t startErrors = g_vhErrorCounter.load();
+        vhCmdBackendStateTest::PreSubmitCommon_ResolveStateCache( state, &shaderPtr, 1, scache );
+        EXPECT_TRUE( scache.init );
+        EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+        if ( scache.init )
+        {
+            nvrhi::BindingSetItem outItem;
+            EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, nvrhi::BindingLayoutItem::Sampler( g_vhInit.shaderMake_sRegShift + 0 ), outItem ) );
+            EXPECT_EQ( outItem.resourceHandle, hSampler );
+            EXPECT_EQ( outItem.type, nvrhi::ResourceType::Sampler );
+        }
+    }
+
+    {
+        vhState state;
+        state.SetTexture( 0, texUav, 0, nullptr, true );
+
+        vhStateResolveCache scache;
+        int32_t startErrors = g_vhErrorCounter.load();
+        vhCmdBackendStateTest::PreSubmitCommon_ResolveStateCache( state, &shaderPtr, 1, scache );
+        EXPECT_TRUE( scache.init );
+        EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+        if ( scache.init )
+        {
+            nvrhi::BindingSetItem outItem;
+            EXPECT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_FindResource( state, stage, scache, nvrhi::BindingLayoutItem::Texture_UAV( g_vhInit.shaderMake_uRegShift + 0 ), outItem ) );
+            EXPECT_EQ( outItem.resourceHandle, hTexUav );
+            EXPECT_EQ( outItem.type, nvrhi::ResourceType::Texture_UAV );
+        }
+    }
+
+    vhCmdBackendStateTest::Shutdown();
+
+    vhDestroyTexture( texSrv );
+    vhDestroyTexture( texUav );
+    vhDestroyBuffer( cbuf );
     vhFinish();
 }
 

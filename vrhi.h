@@ -89,6 +89,7 @@ struct vhInitData
     // * UAVs (u registers): Default shift is 400.
     //
     // The range values can be customised, the separation pattern cannot.
+    // Do not shift manual slots yourself; vhCompileShader applies these ranges automatically.
     // Must be s < t < b < u shifts, with uRegShift having highest value.
     //
     uint32_t shaderMake_sRegShift = 100;

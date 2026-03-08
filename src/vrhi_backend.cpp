@@ -799,7 +799,33 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
 
     auto fnResolveSlot = [&]( const char* name, int32_t fallbackSlot, nvrhi::ResourceType type, vhBackendShader& shader ) -> int32_t
     {
-        return ( name && name[0] ) ? BE_Util_ResolveBindingSlot( name, type, shader, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) ) : fallbackSlot;
+        if ( name && name[0] )
+        {
+            // Reflected slots are already shifted by vhCompileShader / Slang.
+            return BE_Util_ResolveBindingSlot( name, type, shader, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) );
+        }
+
+        switch ( type )
+        {
+            case nvrhi::ResourceType::Sampler:
+                return fallbackSlot + ( int32_t ) g_vhInit.shaderMake_sRegShift;
+            case nvrhi::ResourceType::Texture_SRV:
+            case nvrhi::ResourceType::TypedBuffer_SRV:
+            case nvrhi::ResourceType::StructuredBuffer_SRV:
+            case nvrhi::ResourceType::RawBuffer_SRV:
+                return fallbackSlot + ( int32_t ) g_vhInit.shaderMake_tRegShift;
+            case nvrhi::ResourceType::ConstantBuffer:
+            case nvrhi::ResourceType::VolatileConstantBuffer:
+                return fallbackSlot + ( int32_t ) g_vhInit.shaderMake_bRegShift;
+            case nvrhi::ResourceType::Texture_UAV:
+            case nvrhi::ResourceType::TypedBuffer_UAV:
+            case nvrhi::ResourceType::StructuredBuffer_UAV:
+            case nvrhi::ResourceType::RawBuffer_UAV:
+            case nvrhi::ResourceType::RayTracingAccelStruct:
+                return fallbackSlot + ( int32_t ) g_vhInit.shaderMake_uRegShift;
+            default:
+                return fallbackSlot;
+        }
     };
 
     for ( size_t i = 0; i < state.samplers.size(); i++ )
