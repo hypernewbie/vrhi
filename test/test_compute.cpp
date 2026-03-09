@@ -1118,7 +1118,7 @@ UTEST_F( Compute, StaleUniformReproduction_MultiShader )
     // Vertex Shader
     const char* vsSource = R"(
         uniform float g_val;
-        void main(uint v : SV_VertexID, out float4 p : SV_Position)
+        void main(uint v : SV_VulkanVertexID, out float4 p : SV_Position)
         {
             float2 uv = float2((v << 1) & 2, v & 2);
             p = float4(uv * 2.0f - 1.0f, 0.0f, 1.0f);
