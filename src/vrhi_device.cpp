@@ -83,7 +83,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vhVKDebugCallback(
     if ( s >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT )
     {
         bool isLoaderNoise = strstr( pData->pMessage, "loader_icd_scan" ) != nullptr || strstr( pData->pMessage, "dlopen" ) != nullptr;
-        if ( isLoaderNoise )
+        bool isVertexNoise = strstr( pData->pMessage, "Vertex attribute is not consumed by vertex shader" ) != nullptr;
+        if ( isLoaderNoise || isVertexNoise )
             VRHI_LOG( "[VULKAN] %s\n", pData->pMessage );
         else
             VRHI_ERR( "[VULKAN] %s\n", pData->pMessage );
