@@ -1848,6 +1848,31 @@ struct vhState
         dirty |= VRHI_DIRTY_VERTEX_INDEX;
         return *this;
     }
+    vhState& ClearVertexBindings()
+    {
+        vertexBindings.clear();
+        dirty |= VRHI_DIRTY_VERTEX_INDEX;
+        return *this;
+    }
+
+    // WARNING: This clears all resource bindings and forces a full re-upload of lots of state 
+    // to the GPU on the next draw. Use this sparingly, mostly when transitioning between 
+    // entirely different rendering sub-systems. For performance, prefer targeted clears 
+    // or simply overwriting specific bindings.
+    vhState& ClearAllBindings()
+    {
+        vertexBindings.clear();
+        indexBinding = {};
+        textures.clear();
+        samplers.clear();
+        buffers.clear();
+        constants.clear();
+        uniforms.clear();
+        accelStructs.clear();
+        
+        dirty |= ( VRHI_DIRTY_VERTEX_INDEX | VRHI_DIRTY_TEXTURE_SAMPLERS | VRHI_DIRTY_BUFFERS | VRHI_DIRTY_CONSTANTS | VRHI_DIRTY_UNIFORMS | VRHI_DIRTY_ACCEL_STRUCT );
+        return *this;
+    }
     vhState& SetIndexBuffer( vhBuffer buffer, uint64_t offset = 0, uint32_t firstIndex = 0, uint32_t numIndices = UINT32_MAX )
     {
         indexBinding = { buffer, firstIndex, numIndices, offset };

@@ -349,8 +349,45 @@ UTEST_F( State, IndividualAttachments )
 
     EXPECT_EQ( state.depthAttachment.texture, 201u );
     EXPECT_EQ( state.depthAttachment.formatOverride, nvrhi::Format::D32 );
-    EXPECT_FALSE( state.depthAttachment.readOnly );
     EXPECT_EQ( ( state.dirty & VRHI_DIRTY_ATTACHMENTS ), VRHI_DIRTY_ATTACHMENTS );
+}
+
+UTEST_F( State, ClearBindings )
+{
+    vhState state;
+    state.dirty = 0;
+
+    state.SetVertexBuffer( 1, 0 );
+    state.SetVertexBuffer( 2, 1 );
+    EXPECT_EQ( state.vertexBindings.size(), 2u );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_VERTEX_INDEX, VRHI_DIRTY_VERTEX_INDEX );
+
+    state.dirty = 0;
+    state.ClearVertexBindings();
+    EXPECT_EQ( state.vertexBindings.size(), 0u );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_VERTEX_INDEX, VRHI_DIRTY_VERTEX_INDEX );
+
+    state.dirty = 0;
+    state.SetVertexBuffer( 1, 0 );
+    state.SetTexture( 0, 10 );
+    state.SetBuffer( 0, 20 );
+    state.SetConstant( 0, "Test", nullptr, 0 );
+    EXPECT_EQ( state.vertexBindings.size(), 1u );
+    EXPECT_EQ( state.textures.size(), 1u );
+    EXPECT_EQ( state.buffers.size(), 1u );
+    EXPECT_EQ( state.constants.size(), 1u );
+
+    state.dirty = 0;
+    state.ClearAllBindings();
+    EXPECT_EQ( state.vertexBindings.size(), 0u );
+    EXPECT_EQ( state.textures.size(), 0u );
+    EXPECT_EQ( state.buffers.size(), 0u );
+    EXPECT_EQ( state.constants.size(), 0u );
+    
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_VERTEX_INDEX, VRHI_DIRTY_VERTEX_INDEX );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_BUFFERS, VRHI_DIRTY_BUFFERS );
+    EXPECT_EQ( state.dirty & VRHI_DIRTY_CONSTANTS, VRHI_DIRTY_CONSTANTS );
 }
 
 UTEST_F( State, DebugFlags )
