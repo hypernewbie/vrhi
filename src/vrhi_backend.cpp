@@ -627,6 +627,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 if ( !vhParseVertexLayoutInternal( binding.layoutOverride, slot ) )
                 {
                     VRHI_ERR( "Failed to parse vertex layout override: %s\n", binding.layoutOverride.c_str() );
+                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 pLayout = &slot;
@@ -641,11 +642,13 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 if ( def.location < 0 || def.location >= k_maxVertexLocations )
                 {
                     VRHI_ERR( "Vertex Attribute Location %d out of supported range [0, %d).\n", def.location, k_maxVertexLocations );
+                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 if ( s_locationTable[ def.location ] != nullptr )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Collision: Location %d already bound by previous buffer\n", def.location );
+                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 s_locationTable[ def.location ] = &def;
@@ -674,11 +677,13 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 if ( !bound )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Missing: Shader expects Location %d, but no bound buffer provides it.\n", vsAttribDef.location );
+                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 if ( !vhAreVertexFormatsCompatible( bound->format, vsAttribDef.format ) )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Incompatible at Location %d (Buffer: %d (%s), Shader: %d (%s))\n", vsAttribDef.location, ( int ) bound->format, nvrhi::getFormatInfo( bound->format ).name, ( int ) vsAttribDef.format, nvrhi::getFormatInfo( vsAttribDef.format ).name );
+                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
             }
@@ -1583,13 +1588,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( !reflectionPtr )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in shader reflection. Submit / Dispatch aborted.\n", binding.slot );
+                vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
                 return false;
             }
             const auto& reflection = *reflectionPtr;
 
             // Validate the reflection against the layout.
             if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
+            {
+                vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
                 return false;
+            }
 
             nvrhi::BindingSetItem item;
             if ( !BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item, reflection.name.c_str() ) )
@@ -1605,6 +1614,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( !bset )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
+            vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
             return false;
         }
 
@@ -1753,6 +1763,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        vhProfile( "BE_Dispatch_PipelineDesc", false );
         return;
     }
     vhProfile( "BE_Dispatch_PipelineDesc", false );
@@ -1762,6 +1773,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     if ( !pso )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        vhProfile( "BE_Dispatch_PSOCache", false );
         return;
     }
     vhProfile( "BE_Dispatch_PSOCache", false );
@@ -1772,6 +1784,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        vhProfile( "BE_Dispatch_StateSetup", false );
         return;
     }
     vhProfile( "BE_Dispatch_StateSetup", false );
@@ -1803,6 +1816,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     if ( !( indirectBuffer.flags & VRHI_BUFFER_DRAW_INDIRECT ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Indirect buffer %s was not created with VRHI_BUFFER_DRAW_INDIRECT! SKIPPING COMPUTE DISPATCH.\n", indirectBuffer.name.c_str() );
+        vhProfile( "BE_DispatchIndirect_Validation", false );
         return;
     }
     vhProfile( "BE_DispatchIndirect_Validation", false );
@@ -1815,6 +1829,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        vhProfile( "BE_DispatchIndirect_PipelineDesc", false );
         return;
     }
     vhProfile( "BE_DispatchIndirect_PipelineDesc", false );
@@ -1824,6 +1839,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     if ( !pso )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        vhProfile( "BE_DispatchIndirect_PSOCache", false );
         return;
     }
     vhProfile( "BE_DispatchIndirect_PSOCache", false );
@@ -1835,6 +1851,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
     {
         VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+        vhProfile( "BE_DispatchIndirect_StateSetup", false );
         return;
     }
     vhProfile( "BE_DispatchIndirect_StateSetup", false );
@@ -1870,6 +1887,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
     if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &s_submitPipelineDesc ) )
     {
         VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
+        vhProfile( "BE_Submit_PipelineDesc", false );
         return;
     }
     vhProfile( "BE_Submit_PipelineDesc", false );
@@ -1888,6 +1906,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
     if ( !pso )
     {
         VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
+        vhProfile( "BE_Submit_PSOCache", false );
         return;
     }
     vhProfile( "BE_Submit_PSOCache", false );
@@ -1898,6 +1917,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
     if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
     {
         VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
+        vhProfile( "BE_Submit_StateSetup", false );
         return;
     }
     vhProfile( "BE_Submit_StateSetup", false );
@@ -1991,6 +2011,7 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
         &rtState, &pipeline.desc.globalBindingLayouts ) )
     {
         VRHI_ERR( "BE_DispatchRays(): Failed to set RT state.\n" );
+        vhProfile( "BE_DispatchRays_StateSetup", false );
         return;
     }
     vhProfile( "BE_DispatchRays_StateSetup", false );
@@ -3274,14 +3295,14 @@ void vhCmdBackendState::Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd )
     auto stateIt = backendStates.find( cmd->stateID );
     if ( stateIt == backendStates.end() )
     {
-        VRHI_ERR( "vhDispatchRays() : State %llu not found!\n", cmd->stateID );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchRays() : State %llu not found!\n", cmd->stateID );
         return;
     }
 
     auto tableIt = backendShaderTables.find( cmd->table );
     if ( tableIt == backendShaderTables.end() )
     {
-        VRHI_ERR( "vhDispatchRays() : ShaderTable %d not found!\n", cmd->table );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchRays() : ShaderTable %d not found!\n", cmd->table );
         return;
     }
 
@@ -3290,7 +3311,7 @@ void vhCmdBackendState::Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd )
     auto pipelineIt = backendRTPipelines.find( table->pipeline );
     if ( pipelineIt == backendRTPipelines.end() )
     {
-        VRHI_ERR( "vhDispatchRays() : Pipeline for ShaderTable %d not found!\n", cmd->table );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchRays() : Pipeline for ShaderTable %d not found!\n", cmd->table );
         return;
     }
     auto pipeline = pipelineIt->second.get();
@@ -3529,27 +3550,31 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 void vhCmdBackendState::Handle_vhDispatch( VIDL_vhDispatch* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->workGroupCount.x == 0 || cmd->workGroupCount.y == 0 || cmd->workGroupCount.z == 0 ) return;
+    if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->workGroupCount.x == 0 || cmd->workGroupCount.y == 0 || cmd->workGroupCount.z == 0 )
+    {
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatch() skipped: Invalid state ID or zero work group count.\n" );
+        return;
+    }
 
     // Ensure state exists
     auto itState = backendStates.find( cmd->stateID );
     if ( itState == backendStates.end() )
     {
-        VRHI_ERR( "vhDispatch: State %llu not found!\n", cmd->stateID );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatch: State %llu not found!\n", cmd->stateID );
         return;
     }
     auto& state = itState->second;
 
     if ( state.program.empty() )
     {
-        VRHI_ERR( "vhDispatch: State %llu has no program set!\n", cmd->stateID );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatch: State %llu has no program set!\n", cmd->stateID );
         return;
     }
 
     auto itShader = backendShaders.find( state.program[0] );
     if ( itShader == backendShaders.end() )
     {
-        VRHI_ERR( "vhDispatch: Shader %llu not found for state %llu!\n", state.program[0], cmd->stateID );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatch: Shader %llu not found for state %llu!\n", state.program[0], cmd->stateID );
         return;
     }
 
@@ -3559,33 +3584,37 @@ void vhCmdBackendState::Handle_vhDispatch( VIDL_vhDispatch* cmd )
 void vhCmdBackendState::Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->indirectBuffer == VRHI_INVALID_HANDLE ) return;
+    if ( cmd->stateID == VRHI_INVALID_HANDLE || cmd->indirectBuffer == VRHI_INVALID_HANDLE )
+    {
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchIndirect() skipped: Invalid state ID or indirect buffer.\n" );
+        return;
+    }
 
     auto itBuf = backendBuffers.find( cmd->indirectBuffer );
     if ( itBuf == backendBuffers.end() )
     {
-        VRHI_ERR( "vhDispatchIndirect: Indirect buffer %d not found!\n", cmd->indirectBuffer );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchIndirect: Indirect buffer %d not found!\n", cmd->indirectBuffer );
         return;
     }
 
     auto itState = backendStates.find( cmd->stateID );
     if ( itState == backendStates.end() )
     {
-        VRHI_ERR( "vhDispatchIndirect: State %llu not found!\n", cmd->stateID );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchIndirect: State %llu not found!\n", cmd->stateID );
         return;
     }
     auto& state = itState->second;
 
     if ( state.program.empty() )
     {
-        VRHI_ERR( "vhDispatchIndirect: State %llu has no program set!\n", cmd->stateID );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchIndirect: State %llu has no program set!\n", cmd->stateID );
         return;
     }
 
     auto itShader = backendShaders.find( state.program[0] );
     if ( itShader == backendShaders.end() )
     {
-        VRHI_ERR( "vhDispatchIndirect: Shader %llu not found for state %llu!\n", state.program[0], cmd->stateID );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDispatchIndirect: Shader %llu not found for state %llu!\n", state.program[0], cmd->stateID );
         return;
     }
 
@@ -3599,7 +3628,7 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
     auto itState = backendStates.find( cmd->state );
     if ( itState == backendStates.end() )
     {
-        VRHI_ERR( "Draw with invalid state ID %llu\n", cmd->state );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "Draw with invalid state ID %llu\n", cmd->state );
         return;
     }
     vhState& state = itState->second;
@@ -3615,7 +3644,7 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
 
     if ( s_shaders.empty() )
     {
-        VRHI_ERR( "vhDraw(): No valid shaders in program!\n" );
+        if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDraw(): No valid shaders in program!\n" );
         return;
     }
 

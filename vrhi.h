@@ -59,6 +59,7 @@ struct vhInitData
     bool logBackendCmds = false;
     bool logPSOCache = false;
     bool debugBlockWaitForBackend = false;
+    bool errorOnSkippedDraw = false;
 
     // Platform Window Handles
     // On Windows, set windowHandle to (void*)HWND.
