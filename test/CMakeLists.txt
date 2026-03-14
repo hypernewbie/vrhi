@@ -35,6 +35,27 @@ find_library( SPIRV_TOOLS_PKG NAMES SPIRV-Tools
         "${VULKAN_LIB_DIR_PKG}" 
 )
 
+# Slang (from Vulkan SDK, fallback to package)
+find_path(SLANG_INCLUDE_DIR NAMES slang.h
+    HINTS
+        "$ENV{VULKAN_SDK}/include/slang"
+        "${Vulkan_INCLUDE_DIR}/slang"
+        "${VRHI_PACKAGE_PATH}/include"
+)
+
+find_library(SLANG_LIBRARY NAMES slang slang.lib libslang.so libslang.dylib
+    HINTS
+        "${VULKAN_LIB_DIR_PKG}"
+        "$ENV{VULKAN_SDK}/lib"
+        "$ENV{VULKAN_SDK}/Lib"
+        "${VRHI_PACKAGE_PATH}/lib"
+    NO_DEFAULT_PATH
+)
+
+if(NOT SLANG_INCLUDE_DIR OR NOT SLANG_LIBRARY)
+    message(FATAL_ERROR "Slang not found. Package validation requires Slang from Vulkan SDK or package.")
+endif()
+
 # VRHI Package path (passed from driver script)
 if(NOT VRHI_PACKAGE_PATH)
     message(FATAL_ERROR "VRHI_PACKAGE_PATH not specified")
@@ -46,6 +67,7 @@ add_executable(test_package_exe test_package.cpp)
 # Include paths
 target_include_directories(test_package_exe PRIVATE
     "${VRHI_PACKAGE_PATH}/include"
+    "${SLANG_INCLUDE_DIR}"
 )
 
 # Library paths
@@ -60,7 +82,7 @@ target_link_libraries(test_package_exe PRIVATE
     nvrhi
     vk-bootstrap
     rtxmu
-    slang
+    ${SLANG_LIBRARY}
     Vulkan::Vulkan
     ${SPIRV_TOOLS_OPT_PKG}
     ${SPIRV_TOOLS_PKG}
