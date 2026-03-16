@@ -117,12 +117,20 @@ nvrhi::Format vhGetFormatFromTypeString( const std::string& type, int count )
 
 // Parses a vertex layout string.
 // Vertex layouts are defined as standard strings.
-// Format: "TYPE[COUNT] [ATTRn]"
+// Format: "TYPE[COUNT][:i] [ATTRn][:i]"
 // Supported types: float, half, int, uint, short, ushort, byte, ubyte, unorm, snorm.
+// The :i suffix marks an attribute as instanced (per-instance rate).
 // Examples: 
-//   "float3" -> Location 0 (Implicit)
-//   "float3 ATTR5" -> Location 5 (Explicit)
-//   "float3 float2" -> Loc 0, Loc 1
+//   "float3" -> Location 0 (Implicit), per-vertex
+//   "float3 ATTR5" -> Location 5 (Explicit), per-vertex
+//   "float3 float2" -> Loc 0, Loc 1, per-vertex
+//   "float4:i" -> Location 0 (Implicit), per-instance
+//   "mat4 ATTR5:i" -> Location 5 (Explicit), per-instance
+//
+// Note: All attributes in a buffer must have consistent instancing rates.
+// Use vhState::VertexBinding::isInstanced to override at bind time.
+// If both layout string and VertexBinding specify isInstanced, they must match.
+//
 //
 template < bool EMIT_OUTPUT >
 bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayoutDef>* outDefs )
@@ -155,25 +163,34 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
         std::string baseType;
         int componentCount = 1;
         bool typeValid = false;
+        bool isInstanced = false;
+
+        // Check for :i suffix (instanced) - avoid string allocation
+        size_t typeLen = typeStr.size();
+        if ( typeLen >= 2 && typeStr[typeLen - 2] == ':' && typeStr[typeLen - 1] == 'i' )
+        {
+            isInstanced = true;
+            typeLen -= 2;
+        }
 
         for ( const char** bt = baseTypes; *bt; ++bt )
         {
             std::string base = *bt;
-            if ( typeStr.size() >= base.size() && typeStr.compare( 0, base.size(), base ) == 0 )
+            if ( ( int ) typeLen >= ( int ) base.size() && typeStr.compare( 0, base.size(), base ) == 0 )
             {
-                std::string suffix = typeStr.substr( base.size() );
-                if ( suffix.empty() )
+                int suffixLen = ( int ) typeLen - ( int ) base.size();
+                if ( suffixLen == 0 )
                 {
                     typeValid = true;
                     baseType = base;
                     componentCount = 1;
                     break;
                 }
-                else if ( suffix.size() == 1 && suffix[0] >= '2' && suffix[0] <= '4' )
+                else if ( suffixLen == 1 && typeStr[base.size()] >= '2' && typeStr[base.size()] <= '4' )
                 {
                     typeValid = true;
                     baseType = base;
-                    componentCount = suffix[0] - '0';
+                    componentCount = typeStr[base.size()] - '0';
                     break;
                 }
             }
@@ -230,6 +247,7 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
                 def.format = format;
                 def.location = resolvedLocation;
                 def.offset = currentOffset;
+                def.isInstanced = isInstanced;
                 outDefs->push_back( def );
             }
         }

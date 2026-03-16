@@ -64,6 +64,7 @@ UTEST( Translate, VertexAttribute )
     def.format = nvrhi::Format::RGB32_FLOAT;
     def.location = 5;
     def.offset = 12;
+    def.isInstanced = false;
 
     nvrhi::VertexAttributeDesc attr = vhTranslateVertexAttribute( def, 2 );
 
@@ -73,6 +74,24 @@ UTEST( Translate, VertexAttribute )
     EXPECT_EQ( attr.offset, 12 );
     EXPECT_EQ( attr.elementStride, 0 ); // Default
     EXPECT_FALSE( attr.isInstanced );
+}
+
+UTEST( Translate, VertexAttributeInstanced )
+{
+    vhVertexLayoutDef def;
+    def.format = nvrhi::Format::RGBA32_FLOAT;
+    def.location = 7;
+    def.offset = 64;
+    def.isInstanced = true;
+
+    nvrhi::VertexAttributeDesc attr = vhTranslateVertexAttribute( def, 1 );
+
+    EXPECT_EQ( attr.format, nvrhi::Format::RGBA32_FLOAT );
+    EXPECT_STREQ( attr.name.c_str(), "ATTR7" );
+    EXPECT_EQ( attr.bufferIndex, 1 );
+    EXPECT_EQ( attr.offset, 64 );
+    EXPECT_EQ( attr.elementStride, 0 ); // Default
+    EXPECT_TRUE( attr.isInstanced ); // Was always FALSE before fix
 }
 
 UTEST_F( State, MultipleSlots )

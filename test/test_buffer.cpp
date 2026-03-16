@@ -221,6 +221,49 @@ UTEST_F( Buffer, VertexLayoutInternals )
     }
 }
 
+UTEST_F( Buffer, VertexLayoutInstanced )
+{
+    // Test 1: Per-vertex layout (no :i)
+    {
+        std::vector< vhVertexLayoutDef > defs;
+        bool res = vhParseVertexLayoutInternal( "float3 float4", defs );
+        EXPECT_TRUE( res );
+        EXPECT_EQ( defs.size(), 2 );
+        EXPECT_FALSE( defs[0].isInstanced );
+        EXPECT_FALSE( defs[1].isInstanced );
+    }
+
+    // Test 2: Instanced layout with :i suffix
+    {
+        std::vector< vhVertexLayoutDef > defs;
+        bool res = vhParseVertexLayoutInternal( "float3:i float4:i", defs );
+        EXPECT_TRUE( res );
+        EXPECT_EQ( defs.size(), 2 );
+        EXPECT_TRUE( defs[0].isInstanced );
+        EXPECT_TRUE( defs[1].isInstanced );
+    }
+
+    // Test 3: Mixed (not recommended but should parse)
+    {
+        std::vector< vhVertexLayoutDef > defs;
+        bool res = vhParseVertexLayoutInternal( "float3 float4:i", defs );
+        EXPECT_TRUE( res );
+        EXPECT_EQ( defs.size(), 2 );
+        EXPECT_FALSE( defs[0].isInstanced ); // per-vertex
+        EXPECT_TRUE( defs[1].isInstanced );  // per-instance
+    }
+
+    // Test 4: Explicit location with instanced
+    {
+        std::vector< vhVertexLayoutDef > defs;
+        bool res = vhParseVertexLayoutInternal( "mat4 ATTR5:i", defs );
+        EXPECT_TRUE( res );
+        EXPECT_EQ( defs.size(), 1 );
+        EXPECT_EQ( defs[0].location, 5 );
+        EXPECT_TRUE( defs[0].isInstanced );
+    }
+}
+
 UTEST_F( Buffer, VertexLayout8Bit )
 {
     // Valid 8-bit formats

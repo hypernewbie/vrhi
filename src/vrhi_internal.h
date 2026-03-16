@@ -270,6 +270,7 @@ struct vhVertexLayoutDef
     nvrhi::Format format = nvrhi::Format::UNKNOWN;
     int location = 0;
     int offset = 0;
+    bool isInstanced = false;
 };
 const std::vector< vhVertexLayoutDef >* vhBackendQueryBufferLayout( vhBuffer buffer );
 nvrhi::VertexAttributeDesc vhTranslateVertexAttribute( const vhVertexLayoutDef& def, uint32_t bufferIndex );

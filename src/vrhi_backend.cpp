@@ -655,6 +655,16 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 s_locationTableUsed[ s_locationTableUsedCount++ ] = def.location;
                 nvrhi::VertexAttributeDesc attr = vhTranslateVertexAttribute( def, ( uint32_t ) i );
                 attr.elementStride = stride;
+
+                // Validate instancing consistency between layout string and VertexBinding
+                bool bindingInstanced = binding.isInstanced;
+                if ( attr.isInstanced != bindingInstanced )
+                {
+                    VRHI_ERR( "Vertex Attribute Instancing Mismatch at Location %d: Layout %s, Binding %s. Must match.\n", def.location, attr.isInstanced ? "instanced" : "per-vertex", bindingInstanced ? "instanced" : "per-vertex" );
+                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
+                    return false;
+                }
+
                 s_attributes.push_back( attr );
                 attrHash = komihash( &def.location,   sizeof( def.location ),   attrHash );
                 attrHash = komihash( &attr.format,    sizeof( attr.format ),    attrHash );

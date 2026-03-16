@@ -546,7 +546,7 @@ nvrhi::VertexAttributeDesc vhTranslateVertexAttribute( const vhVertexLayoutDef& 
     attr.bufferIndex = bufferIndex;
     attr.offset = def.offset;
     attr.elementStride = 0; // Set by caller
-    attr.isInstanced = false;
+    attr.isInstanced = def.isInstanced;
     return attr;
 }
 

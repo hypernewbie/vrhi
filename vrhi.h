@@ -1670,6 +1670,11 @@ struct vhState
         // but you must manage stride and memory layout yourself. The buffer's original stride is ignored;
         // ensure your data matches the override layout.
         vhVertexLayout layoutOverride = "";
+
+        // Set to true if this buffer contains per-instance data (VK_VERTEX_INPUT_RATE_INSTANCE).
+        // All attributes in this buffer slot will be treated as instanced.
+        // Must match the :i suffix in the layout string if both are specified.
+        bool isInstanced = false;
     };
     std::vector< VertexBinding > vertexBindings;
 
