@@ -117,15 +117,16 @@ nvrhi::Format vhGetFormatFromTypeString( const std::string& type, int count )
 
 // Parses a vertex layout string.
 // Vertex layouts are defined as standard strings.
-// Format: "TYPE[COUNT][:i] [ATTRn][:i]"
+// Format: "TYPE[COUNT][:i] [ATTRn[:i]]"
 // Supported types: float, half, int, uint, short, ushort, byte, ubyte, unorm, snorm.
 // The :i suffix marks an attribute as instanced (per-instance rate).
+// It may be attached to either the type token or the explicit ATTRn token.
 // Examples: 
 //   "float3" -> Location 0 (Implicit), per-vertex
 //   "float3 ATTR5" -> Location 5 (Explicit), per-vertex
 //   "float3 float2" -> Loc 0, Loc 1, per-vertex
 //   "float4:i" -> Location 0 (Implicit), per-instance
-//   "mat4 ATTR5:i" -> Location 5 (Explicit), per-instance
+//   "float4 ATTR5:i" -> Location 5 (Explicit), per-instance
 //
 // Note: All attributes in a buffer must have consistent instancing rates.
 // Use vhState::VertexBinding::isInstanced to override at bind time.
@@ -219,6 +220,14 @@ bool vhParseVertexLayout( const vhVertexLayout& layout, std::vector<vhVertexLayo
 
                 if ( numStr.empty() ) return false; // "ATTR" without number
                 resolvedLocation = std::stoi( numStr );
+
+                if ( *ptr == ':' )
+                {
+                    if ( ptr[1] != 'i' ) return false;
+                    if ( ptr[2] && !isspace( ( unsigned char ) ptr[2] ) ) return false;
+                    isInstanced = true;
+                    ptr += 2;
+                }
 
                 // Update implicit counter to next
                 currentLocation = resolvedLocation + 1;
@@ -710,4 +719,3 @@ uint64_t vhSubAllocator::GetAvailableSpace() const
     OffsetAllocator::StorageReport report = static_cast< OffsetAllocator::Allocator* >( m_allocator )->storageReport();
     return report.totalFreeSpace;
 }
-

@@ -256,7 +256,7 @@ UTEST_F( Buffer, VertexLayoutInstanced )
     // Test 4: Explicit location with instanced
     {
         std::vector< vhVertexLayoutDef > defs;
-        bool res = vhParseVertexLayoutInternal( "mat4 ATTR5:i", defs );
+        bool res = vhParseVertexLayoutInternal( "float4 ATTR5:i", defs );
         EXPECT_TRUE( res );
         EXPECT_EQ( defs.size(), 1 );
         EXPECT_EQ( defs[0].location, 5 );
@@ -923,5 +923,4 @@ UTEST_F( Buffer, SubAllocator )
     EXPECT_LE( available, 1024 * 1024 );
     EXPECT_EQ( used + available, 1024 * 1024 );
 }
-
 
