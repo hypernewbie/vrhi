@@ -2,6 +2,8 @@
 build/
 build_debug/
 build_release/
+build_llvm_debug/
+build_llvm_release/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
@@ -12,6 +14,7 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps/
+.vdeps-state.json
 
 # MSVC
 .vs/

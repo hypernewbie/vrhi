@@ -105,6 +105,9 @@
  # Python (optional - for code generation)
  find_package(Python3 COMPONENTS Interpreter)
  
+ # vdeps (dependency manager)
+ add_subdirectory(vdeps)
+ 
 # SPIRV-Reflect (from Vulkan SDK)
 find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
     HINTS 
@@ -248,6 +251,8 @@ endif()
  endif()
  
  add_library(vrhi STATIC ${VRHI_SOURCES})
+ 
+ add_dependencies(vrhi vdeps_all)
  
  # Suppress warnings on vendored code
  vrhi_suppress_vendor_warnings(
