@@ -26,7 +26,6 @@ cmake_options = [
     "-DVK_BOOTSTRAP_TEST=OFF",
     "-DVK_BOOTSTRAP_DISABLE_WARNINGS=ON",
     "-DVK_BOOTSTRAP_INSTALL=OFF",
-    "-DUSE_MSVC_RUNTIME_LIBRARY_DLL=OFF"
 ]
 
 [[dependency]]

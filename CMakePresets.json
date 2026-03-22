@@ -1,0 +1,356 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 20,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "windows-msvc-debug",
+            "displayName": "Windows MSVC Debug",
+            "description": "Windows MSVC with static runtime (/MTd), Debug",
+            "inherits": [
+                "env-msvc"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "toolchainFile": null,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CONFIGURATION_TYPES": null,
+                "VRHI_DYNAMIC_RUNTIME": "OFF"
+            }
+        },
+        {
+            "name": "windows-msvc-release",
+            "displayName": "Windows MSVC Release",
+            "description": "Windows MSVC with static runtime (/MT), Release (RelWithDebInfo for PDBs)",
+            "inherits": [
+                "env-msvc"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "toolchainFile": null,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_CONFIGURATION_TYPES": null,
+                "VRHI_DYNAMIC_RUNTIME": "OFF"
+            }
+        },
+        {
+            "name": "windows-msvc-md-debug",
+            "displayName": "Windows MSVC MD Debug",
+            "description": "Windows MSVC with dynamic runtime (/MDd), Debug",
+            "inherits": [
+                "env-msvc"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "toolchainFile": null,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CONFIGURATION_TYPES": null,
+                "VRHI_DYNAMIC_RUNTIME": "ON"
+            }
+        },
+        {
+            "name": "windows-msvc-md-release",
+            "displayName": "Windows MSVC MD Release",
+            "description": "Windows MSVC with dynamic runtime (/MD), Release (RelWithDebInfo for PDBs)",
+            "inherits": [
+                "env-msvc"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "toolchainFile": null,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_CONFIGURATION_TYPES": null,
+                "VRHI_DYNAMIC_RUNTIME": "ON"
+            }
+        },
+        {
+            "name": "windows-llvm-debug",
+            "displayName": "Windows LLVM Debug",
+            "description": "Windows with Clang-CL, Ninja, static runtime (/MTd), Debug",
+            "inherits": [
+                "env-msvc",
+                "env-ninja",
+                "env-win-llvm"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VRHI_DYNAMIC_RUNTIME": "OFF"
+            }
+        },
+        {
+            "name": "windows-llvm-release",
+            "displayName": "Windows LLVM Release",
+            "description": "Windows with Clang-CL, Ninja, static runtime (/MT), Release (RelWithDebInfo for PDBs)",
+            "inherits": [
+                "env-msvc",
+                "env-ninja",
+                "env-win-llvm"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "VRHI_DYNAMIC_RUNTIME": "OFF"
+            }
+        },
+        {
+            "name": "windows-llvm-md-debug",
+            "displayName": "Windows LLVM MD Debug",
+            "description": "Windows with Clang-CL, Ninja, dynamic runtime (/MDd), Debug",
+            "inherits": [
+                "env-msvc",
+                "env-ninja",
+                "env-win-llvm"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VRHI_DYNAMIC_RUNTIME": "ON"
+            }
+        },
+        {
+            "name": "windows-llvm-md-release",
+            "displayName": "Windows LLVM MD Release",
+            "description": "Windows with Clang-CL, Ninja, dynamic runtime (/MD), Release (RelWithDebInfo for PDBs)",
+            "inherits": [
+                "env-msvc",
+                "env-ninja",
+                "env-win-llvm"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "VRHI_DYNAMIC_RUNTIME": "ON"
+            }
+        },
+        {
+            "name": "linux-debug",
+            "displayName": "Linux Debug",
+            "description": "Linux with Clang 21, Ninja, Debug",
+            "inherits": [
+                "env-clang",
+                "env-ninja"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "clang-21",
+                "CMAKE_CXX_COMPILER": "clang++-21"
+            }
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux Release",
+            "description": "Linux with Clang 21, Ninja, Release",
+            "inherits": [
+                "env-clang",
+                "env-ninja"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "clang-21",
+                "CMAKE_CXX_COMPILER": "clang++-21"
+            }
+        },
+        {
+            "name": "macos-debug",
+            "displayName": "macOS Debug",
+            "description": "macOS with LLVM 17, Ninja, Debug",
+            "inherits": [
+                "env-clang",
+                "env-ninja",
+                "env-apple"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm@17/bin/clang",
+                "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm@17/bin/clang++"
+            }
+        },
+        {
+            "name": "macos-release",
+            "displayName": "macOS Release",
+            "description": "macOS with LLVM 17, Ninja, Release",
+            "inherits": [
+                "env-clang",
+                "env-ninja",
+                "env-apple"
+            ],
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm@17/bin/clang",
+                "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm@17/bin/clang++"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "windows-msvc-debug",
+            "configurePreset": "windows-msvc-debug"
+        },
+        {
+            "name": "windows-msvc-release",
+            "configurePreset": "windows-msvc-release"
+        },
+        {
+            "name": "windows-msvc-md-debug",
+            "configurePreset": "windows-msvc-md-debug"
+        },
+        {
+            "name": "windows-msvc-md-release",
+            "configurePreset": "windows-msvc-md-release"
+        },
+        {
+            "name": "windows-llvm-debug",
+            "configurePreset": "windows-llvm-debug"
+        },
+        {
+            "name": "windows-llvm-release",
+            "configurePreset": "windows-llvm-release"
+        },
+        {
+            "name": "windows-llvm-md-debug",
+            "configurePreset": "windows-llvm-md-debug"
+        },
+        {
+            "name": "windows-llvm-md-release",
+            "configurePreset": "windows-llvm-md-release"
+        },
+        {
+            "name": "linux-debug",
+            "configurePreset": "linux-debug"
+        },
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release"
+        },
+        {
+            "name": "macos-debug",
+            "configurePreset": "macos-debug"
+        },
+        {
+            "name": "macos-release",
+            "configurePreset": "macos-release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "windows-msvc-debug",
+            "configurePreset": "windows-msvc-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "windows-msvc-release",
+            "configurePreset": "windows-msvc-release",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "windows-msvc-md-debug",
+            "configurePreset": "windows-msvc-md-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "windows-msvc-md-release",
+            "configurePreset": "windows-msvc-md-release",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "windows-llvm-debug",
+            "configurePreset": "windows-llvm-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "windows-llvm-release",
+            "configurePreset": "windows-llvm-release",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "windows-llvm-md-debug",
+            "configurePreset": "windows-llvm-md-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "windows-llvm-md-release",
+            "configurePreset": "windows-llvm-md-release",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "linux-debug",
+            "configurePreset": "linux-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release",
+            "configuration": "Release"
+        },
+        {
+            "name": "macos-debug",
+            "configurePreset": "macos-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "macos-release",
+            "configurePreset": "macos-release",
+            "configuration": "Release"
+        }
+    ],
+    "hiddenPresets": [
+        {
+            "name": "env-msvc",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "23",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON"
+            }
+        },
+        {
+            "name": "env-ninja",
+            "hidden": true,
+            "generator": "Ninja"
+        },
+        {
+            "name": "env-clang",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "23",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+                "CMAKE_C_FLAGS": "-w",
+                "CMAKE_CXX_FLAGS": "-w"
+            }
+        },
+        {
+            "name": "env-win-llvm",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang-cl",
+                "CMAKE_CXX_COMPILER": "clang-cl",
+                "CMAKE_C_FLAGS": "/W0",
+                "CMAKE_CXX_FLAGS": "/W0 /EHsc"
+            }
+        },
+        {
+            "name": "env-apple",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++",
+                "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++",
+                "CMAKE_CXX_FLAGS": "-w -stdlib=libc++"
+            },
+            "environment": {
+                "SDKROOT": "macOS",
+                "MACOSX_DEPLOYMENT_TARGET": "14.0"
+            }
+        }
+    ]
+}

@@ -215,25 +215,37 @@ jobs:
             os: windows-latest
             cmake_gen: ""
             cmake_extra_args: ""
-            zip_name_release: vrhi-${{ github.ref_name }}-windows-x64
-            zip_name_debug: vrhi-${{ github.ref_name }}-windows-x64-debug
-            install_swiftshader: true
+            zip_name: vrhi-${{ github.ref_name }}-windows-x64
+            platform_lib_subdir: "win"
+            is_windows: true
+            install_llvm: false
+
+          - name: Windows LLVM
+            os: windows-latest
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe"
+            zip_name: vrhi-${{ github.ref_name }}-windows-llvm-x64
+            platform_lib_subdir: "win"
+            is_windows: true
+            install_llvm: true
 
           - name: Linux
             os: ubuntu-latest
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21"
-            zip_name_release: vrhi-${{ github.ref_name }}-linux-x64
-            zip_name_debug: vrhi-${{ github.ref_name }}-linux-x64-debug
-            install_swiftshader: false
+            zip_name: vrhi-${{ github.ref_name }}-linux-x64
+            platform_lib_subdir: "linux"
+            is_windows: false
+            install_llvm: false
 
           - name: macOS
             os: macos-14
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
-            zip_name_release: vrhi-${{ github.ref_name }}-macos-arm64
-            zip_name_debug: vrhi-${{ github.ref_name }}-macos-arm64-debug
-            install_swiftshader: false
+            zip_name: vrhi-${{ github.ref_name }}-macos-arm64
+            platform_lib_subdir: "mac"
+            is_windows: false
+            install_llvm: false
 
     steps:
       - name: Checkout
@@ -247,6 +259,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install LLVM (Windows)
+        if: matrix.install_llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "21"
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -276,7 +294,40 @@ jobs:
       - name: Capture submodule status
         run: git submodule status --recursive > .submodules.status
 
+      # =========================================================================
+      # Windows: Build both MT and MD variants
+      # =========================================================================
+      - name: Cache dependencies (MT)
+        if: matrix.is_windows
+        id: deps-cache-mt
+        uses: actions/cache@v4
+        with:
+          path: |
+            lib
+            tools
+          key: ${{ runner.os }}-vdeps--${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+
+      - name: Cache dependencies (MD)
+        if: matrix.is_windows
+        id: deps-cache-md
+        uses: actions/cache@v4
+        with:
+          path: |
+            lib
+            tools
+          key: ${{ runner.os }}-vdeps---md-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+
+      - name: Build Dependencies (MT)
+        if: matrix.is_windows && steps.deps-cache-mt.outputs.cache-hit != 'true'
+        run: python vdeps.py
+
+      - name: Build Dependencies (MD)
+        if: matrix.is_windows && steps.deps-cache-md.outputs.cache-hit != 'true'
+        run: python vdeps.py --md
+
+      # Non-Windows: single dependency build
       - name: Cache dependencies
+        if: '!matrix.is_windows'
         id: deps-cache
         uses: actions/cache@v4
         with:
@@ -284,6 +335,10 @@ jobs:
             lib
             tools
           key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+
+      - name: Build Dependencies
+        if: '!matrix.is_windows && steps.deps-cache.outputs.cache-hit != ''true'''
+        run: python vdeps.py
 
       - name: Cache ccache (Linux/macOS)
         if: runner.os != 'Windows'
@@ -294,44 +349,268 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
 
-      - name: Build Dependencies
-        if: steps.deps-cache.outputs.cache-hit != 'true'
-        run: python vdeps.py
-
       - name: Setup Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
           vulkan_version: 1.4.335.0
           cache: true
-          install_swiftshader: ${{ matrix.install_swiftshader }}
+          install_swiftshader: ${{ matrix.is_windows }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # =========================================================================
+      # Windows: Build all four vrhi variants (MT Debug/Release, MD Debug/Release)
+      # =========================================================================
+      - name: Configure CMake (MT Debug)
+        if: matrix.is_windows
+        run: |
+          cmake -S . -B build_mt_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVRHI_DYNAMIC_RUNTIME=OFF
+
+      - name: Build (MT Debug)
+        if: matrix.is_windows
+        run: cmake --build build_mt_debug --config Debug
+
+      - name: Configure CMake (MT Release)
+        if: matrix.is_windows
+        run: |
+          cmake -S . -B build_mt_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVRHI_DYNAMIC_RUNTIME=OFF
+
+      - name: Build (MT Release)
+        if: matrix.is_windows
+        run: cmake --build build_mt_release --config RelWithDebInfo
+
+      - name: Configure CMake (MD Debug)
+        if: matrix.is_windows
+        run: |
+          cmake -S . -B build_md_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVRHI_DYNAMIC_RUNTIME=ON
+
+      - name: Build (MD Debug)
+        if: matrix.is_windows
+        run: cmake --build build_md_debug --config Debug
+
+      - name: Configure CMake (MD Release)
+        if: matrix.is_windows
+        run: |
+          cmake -S . -B build_md_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVRHI_DYNAMIC_RUNTIME=ON
+
+      - name: Build (MD Release)
+        if: matrix.is_windows
+        run: cmake --build build_md_release --config RelWithDebInfo
+
+      # =========================================================================
+      # Non-Windows: Build Debug and Release
+      # =========================================================================
       - name: Configure CMake (Release)
+        if: '!matrix.is_windows'
         run: |
           cmake -S . -B build_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Release
 
       - name: Build (Release)
+        if: '!matrix.is_windows'
         run: cmake --build build_release --config Release
 
-      - name: Package (Release)
-        run: cmake --build build_release --config Release --target package_vrhi
-
       - name: Configure CMake (Debug)
+        if: '!matrix.is_windows'
         run: |
           cmake -S . -B build_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build (Debug)
+        if: '!matrix.is_windows'
         run: cmake --build build_debug --config Debug
 
-      - name: Package (Debug)
-        run: cmake --build build_debug --config Debug --target package_vrhi
+      # =========================================================================
+      # Package Creation
+      # =========================================================================
+      - name: Create Package Directory (Windows)
+        if: matrix.is_windows
+        run: |
+          New-Item -ItemType Directory -Force -Path package/lib
+
+      - name: Copy vrhi Libraries (Windows MT)
+        if: matrix.is_windows
+        shell: pwsh
+        run: |
+          # MT Release: vrhi.lib -> vrhi.lib
+          Copy-Item "build_mt_release/RelWithDebInfo/vrhi.lib" "package/lib/vrhi.lib" -Force
+          # MT Release PDB
+          Copy-Item "build_mt_release/RelWithDebInfo/vrhi.pdb" "package/lib/vrhi.pdb" -Force -ErrorAction SilentlyContinue
+          # MT Debug: vrhid.lib -> vrhid.lib
+          Copy-Item "build_mt_debug/Debug/vrhid.lib" "package/lib/vrhid.lib" -Force
+          # MT Debug PDB
+          Copy-Item "build_mt_debug/Debug/vrhid.pdb" "package/lib/vrhid.pdb" -Force -ErrorAction SilentlyContinue
+
+      - name: Copy vrhi Libraries (Windows MD)
+        if: matrix.is_windows
+        shell: pwsh
+        run: |
+          # MD Release: vrhi_md.lib -> vrhi_md.lib
+          Copy-Item "build_md_release/RelWithDebInfo/vrhi_md.lib" "package/lib/vrhi_md.lib" -Force
+          # MD Release PDB
+          Copy-Item "build_md_release/RelWithDebInfo/vrhi_md.pdb" "package/lib/vrhi_md.pdb" -Force -ErrorAction SilentlyContinue
+          # MD Debug: vrhi_md_d.lib -> vrhi_md_d.lib
+          Copy-Item "build_md_debug/Debug/vrhi_md_d.lib" "package/lib/vrhi_md_d.lib" -Force
+          # MD Debug PDB
+          Copy-Item "build_md_debug/Debug/vrhi_md_d.pdb" "package/lib/vrhi_md_d.pdb" -Force -ErrorAction SilentlyContinue
+
+      - name: Copy Dependency Libraries (Windows MT)
+        if: matrix.is_windows
+        shell: pwsh
+        run: |
+          $mtReleaseDir = "lib/win_release"
+          $mtDebugDir = "lib/win_debug"
+          
+          # MT Release libs: copy as-is (no suffix)
+          Get-ChildItem -Path $mtReleaseDir -Filter "*.lib" | ForEach-Object {
+            $destPath = "package/lib/$($_.Name)"
+            if (-not (Test-Path $destPath)) {
+              Copy-Item $_.FullName $destPath -Force
+            }
+          }
+          # MT Release PDBs
+          Get-ChildItem -Path $mtReleaseDir -Filter "*.pdb" | ForEach-Object {
+            Copy-Item $_.FullName "package/lib/$($_.Name)" -Force -ErrorAction SilentlyContinue
+          }
+          
+          # MT Debug libs: add _d suffix
+          Get-ChildItem -Path $mtDebugDir -Filter "*.lib" | ForEach-Object {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+            $ext = $_.Extension
+            $destName = "${baseName}_d$ext"
+            if (-not (Test-Path "package/lib/$destName")) {
+              Copy-Item $_.FullName "package/lib/$destName" -Force
+            }
+          }
+          # MT Debug PDBs: add _d suffix
+          Get-ChildItem -Path $mtDebugDir -Filter "*.pdb" | ForEach-Object {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+            Copy-Item $_.FullName "package/lib/${baseName}_d.pdb" -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Copy Dependency Libraries (Windows MD)
+        if: matrix.is_windows
+        shell: pwsh
+        run: |
+          $mdReleaseDir = "lib/win_md_release"
+          $mdDebugDir = "lib/win_md_debug"
+          
+          # MD Release libs: add _md suffix
+          Get-ChildItem -Path $mdReleaseDir -Filter "*.lib" | ForEach-Object {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+            $ext = $_.Extension
+            $destName = "${baseName}_md$ext"
+            if (-not (Test-Path "package/lib/$destName")) {
+              Copy-Item $_.FullName "package/lib/$destName" -Force
+            }
+          }
+          # MD Release PDBs: add _md suffix
+          Get-ChildItem -Path $mdReleaseDir -Filter "*.pdb" | ForEach-Object {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+            Copy-Item $_.FullName "package/lib/${baseName}_md.pdb" -Force -ErrorAction SilentlyContinue
+          }
+          
+          # MD Debug libs: add _md_d suffix
+          Get-ChildItem -Path $mdDebugDir -Filter "*.lib" | ForEach-Object {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+            $ext = $_.Extension
+            $destName = "${baseName}_md_d$ext"
+            if (-not (Test-Path "package/lib/$destName")) {
+              Copy-Item $_.FullName "package/lib/$destName" -Force
+            }
+          }
+          # MD Debug PDBs: add _md_d suffix
+          Get-ChildItem -Path $mdDebugDir -Filter "*.pdb" | ForEach-Object {
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+            Copy-Item $_.FullName "package/lib/${baseName}_md_d.pdb" -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Create Package Directory (Non-Windows)
+        if: '!matrix.is_windows'
+        run: |
+          mkdir -p package/lib
+
+      - name: Copy vrhi Libraries (Non-Windows)
+        if: '!matrix.is_windows'
+        run: |
+          # Release
+          cp build_release/Release/vrhi.a package/lib/libvrhi.a 2>/dev/null || \
+          cp build_release/Release/libvrhi.a package/lib/ 2>/dev/null || \
+          cp build_release/Release/libvrhi.a package/lib/libvrhi.a
+          
+          # Debug
+          cp build_debug/Debug/vrhid.a package/lib/libvrhid.a 2>/dev/null || \
+          cp build_debug/Debug/libvrhid.a package/lib/ 2>/dev/null || \
+          cp build_debug/Debug/libvrhid.a package/lib/libvrhid.a
+
+      - name: Copy Dependency Libraries (Non-Windows)
+        if: '!matrix.is_windows'
+        run: |
+          LIB_DIR="lib/${{ matrix.platform_lib_subdir }}_release"
+          DEBUG_DIR="lib/${{ matrix.platform_lib_subdir }}_debug"
+          
+          # Release libs: copy as-is with lib prefix
+          for lib in "$LIB_DIR"/*.a; do
+            if [ -f "$lib" ]; then
+              base=$(basename "$lib")
+              if [ ! -f "package/lib/$base" ]; then
+                cp "$lib" "package/lib/$base"
+              fi
+            fi
+          done
+          
+          # Debug libs: add _d suffix
+          for lib in "$DEBUG_DIR"/*.a; do
+            if [ -f "$lib" ]; then
+              base=$(basename "$lib")
+              name="${base%.a}"
+              ext=".a"
+              # Skip if already has _d suffix
+              if [[ "$name" != *"_d" ]]; then
+                dest="${name}_d${ext}"
+                if [ ! -f "package/lib/$dest" ]; then
+                  cp "$lib" "package/lib/$dest"
+                fi
+              else
+                if [ ! -f "package/lib/$base" ]; then
+                  cp "$lib" "package/lib/$base"
+                fi
+              fi
+            fi
+          done
+
+      - name: Copy Headers
+        run: |
+          New-Item -ItemType Directory -Force -Path package/include
+          # Main headers
+          cp vrhi.h package/include/
+          cp src/vrhi_generated.h package/include/
+          
+          # Dependency headers
+          cp -r include/glm package/include/ 2>/dev/null || true
+          cp -r include/nvrhi package/include/ 2>/dev/null || true
+          cp -r include/vk-bootstrap package/include/ 2>/dev/null || true
+          cp -r include/rtxmu package/include/ 2>/dev/null || true
+          cp include/renderdoc_app.h package/include/ 2>/dev/null || true
+
+      - name: Copy Tools
+        run: |
+          # Copy slangc and other tools if they exist
+          TOOLS_DIR="tools/${{ matrix.platform_lib_subdir }}_release"
+          if [ -d "$TOOLS_DIR" ]; then
+            New-Item -ItemType Directory -Force -Path package/tools
+            cp -r "$TOOLS_DIR"/* package/tools/ 2>/dev/null || true
+          fi
+
+      - name: Copy Documentation
+        run: |
+          cp README.md package/
+          cp LICENSE package/
 
       - name: Configure Environment (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.is_windows
+        shell: pwsh
         run: |
           $swiftShaderDll = "C:\hostedtoolcache\windows\swiftshader\5.0.0.1\x64\vk_swiftshader.dll"
-          $targetDll = "build_release\Release\vulkan-1.dll"
+          $targetDll = "package\lib\vulkan-1.dll"
           if (Test-Path $swiftShaderDll) {
             Copy-Item $swiftShaderDll $targetDll -Force
             echo "Copied SwiftShader to $targetDll"
@@ -351,26 +630,44 @@ jobs:
             echo "VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
           fi
 
-      - name: Test Package
-        run: cmake --build build_release --config Release --target test_package_vrhi
-
-      - name: Zip Packages (Windows)
-        if: runner.os == 'Windows'
+      - name: Test Package (Windows MT)
+        if: matrix.is_windows
+        shell: pwsh
         run: |
-          Compress-Archive -Path build_release\vrhi_Release\* -DestinationPath ${{ matrix.zip_name_release }}.zip
-          Compress-Archive -Path build_debug\vrhi_Debug\* -DestinationPath ${{ matrix.zip_name_debug }}.zip
+          $env:VRHI_PACKAGE_PATH = "$PWD/package"
+          cmake --build build_mt_release --config RelWithDebInfo --target test_package_vrhi
 
-      - name: Zip Packages (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Test Package (Non-Windows)
+        if: '!matrix.is_windows'
         run: |
-          cd build_release/vrhi_Release && zip -r ../../${{ matrix.zip_name_release }}.zip .
-          cd ../../build_debug/vrhi_Debug && zip -r ../../${{ matrix.zip_name_debug }}.zip .
+          export VRHI_PACKAGE_PATH="$PWD/package"
+          cmake --build build_release --config Release --target test_package_vrhi
+
+      - name: List Package Contents
+        run: |
+          echo "Package contents:"
+          ls -la package/
+          echo ""
+          echo "Library contents:"
+          ls -la package/lib/
+
+      - name: Create ZIP (Windows)
+        if: matrix.is_windows
+        shell: pwsh
+        run: |
+          Compress-Archive -Path package\* -DestinationPath ${{ matrix.zip_name }}.zip -Force
+          Write-Host "Created ${{ matrix.zip_name }}.zip"
+
+      - name: Create ZIP (Non-Windows)
+        if: '!matrix.is_windows'
+        run: |
+          cd package && zip -r ../${{ matrix.zip_name }}.zip . && cd ..
+          ls -la ${{ matrix.zip_name }}.zip
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ matrix.zip_name_release }}.zip
-            ${{ matrix.zip_name_debug }}.zip
+            ${{ matrix.zip_name }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

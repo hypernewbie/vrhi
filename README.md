@@ -56,35 +56,107 @@
  ```
  
  ## Packages
- 
- VRHI provides self-contained release packages for easy integration into your projects.
- 
- Just add `vrhi_release/include` to your include path and link against:
- - `vrhi_release/lib/vrhi.lib`
- - `vrhi_release/lib/nvrhi.lib`
- - `vrhi_release/lib/nvrhi_vk.lib`
- - `vrhi_release/lib/vk-bootstrap.lib`
- - `vrhi_release/lib/rtxmu.lib`
- - And Vulkan libraries from SDK
- 
- You'll still need:
- - Vulkan SDK (https://vulkan.lunarg.com/sdk/home)
- - C++23 compiler
- - Static C runtime (/MT for MSVC) (rebuild yourself if you want dynamic)
- 
- ### Building Your Own Package
- 
- ```powershell
- # Debug package (includes .pdb files)
- cmake --build build --config Debug --target package_vrhi
- 
- # Release package (no debug symbols)
- cmake --build build --config Release --target package_vrhi
- ```
- 
- This creates:
- - `build/vrhi_Debug/` - Debug package with symbols
- - `build/vrhi_Release/` - Release package
+
+  VRHI provides self-contained release packages for easy integration into your projects.
+
+  ### Package Contents
+
+  Each release package contains both runtime variants and debug/release builds:
+
+  ```
+  vrhi-VERSION/
+  ├── include/
+  │   ├── vrhi.h
+  │   ├── vrhi_generated.h
+  │   ├── glm/
+  │   ├── nvrhi/
+  │   ├── vk-bootstrap/
+  │   └── rtxmu/
+  ├── lib/
+  │   ├── vrhi.lib              # MSVC: Static runtime (/MT), Release
+  │   ├── vrhi.pdb              # Debug symbols
+  │   ├── vrhid.lib             # MSVC: Static runtime (/MTd), Debug
+  │   ├── vrhid.pdb
+  │   ├── vrhi_md.lib           # MSVC: Dynamic runtime (/MD), Release
+  │   ├── vrhi_md.pdb
+  │   ├── vrhi_md_d.lib        # MSVC: Dynamic runtime (/MDd), Debug
+  │   ├── vrhi_md_d.pdb
+  │   └── *.lib, *.pdb          # Dependencies with same naming pattern
+  ├── tools/                    # slangc.exe and utilities
+  ├── README.md
+  └── LICENSE
+  ```
+
+  ### Library Naming Convention
+
+  | Suffix | Meaning |
+  |--------|---------|
+  | (none) | Static runtime, Release (RelWithDebInfo) |
+  | `_d` | Static runtime, Debug |
+  | `_md` | Dynamic runtime, Release (RelWithDebInfo) |
+  | `_md_d` | Dynamic runtime, Debug |
+
+  ### CMake Integration
+
+  ```cmake
+  # Add package to your project
+  target_include_directories(your_app PRIVATE path/to/vrhi/include)
+  target_link_directories(your_app PRIVATE path/to/vrhi/lib)
+  
+  # Choose your configuration:
+  # Static runtime, Release:
+  target_link_libraries(your_app PRIVATE vrhi nvrhi_vk nvrhi vk-bootstrap rtxmu Vulkan::Vulkan)
+  
+  # Static runtime, Debug:
+  target_link_libraries(your_app PRIVATE vrhid nvrhid_vk nvrhid vk-bootstrapd rtxmud Vulkan::Vulkan)
+  
+  # Dynamic runtime, Release:
+  target_link_libraries(your_app PRIVATE vrhi_md nvrhi_md_vk nvrhi_md vk-bootstrap_md rtxmu_md Vulkan::Vulkan)
+  
+  # Dynamic runtime, Debug:
+  target_link_libraries(your_app PRIVATE vrhi_md_d nvrhi_md_d_vk nvrhi_md_d vk-bootstrap_md_d rtxmu_md_d Vulkan::Vulkan)
+  ```
+
+  ### Requirements
+
+  - Vulkan SDK (https://vulkan.lunarg.com/sdk/home)
+  - C++23 compiler
+  - MSVC runtime must match package (static `/MT` or dynamic `/MD`)
+
+  ### Using CMake Presets
+
+  VRHI provides CMake presets for common configurations:
+
+  ```powershell
+  # List available presets
+  cmake --list-presets=all
+  
+  # Configure with a preset
+  cmake --preset windows-msvc-release
+  cmake --build --preset windows-msvc-release
+  
+  # Windows with dynamic runtime:
+  cmake --preset windows-msvc-md-release
+  cmake --build --preset windows-msvc-md-release
+  
+  # Windows with LLVM:
+  cmake --preset windows-llvm-release
+  cmake --build --preset windows-llvm-release
+  ```
+
+  ### Building Your Own Package
+
+  ```powershell
+  # Debug package (includes .pdb files)
+  cmake --build build --config Debug --target package_vrhi
+
+  # Release package (RelWithDebInfo - includes PDBs for debugging)
+  cmake --build build --config RelWithDebInfo --target package_vrhi
+  ```
+
+  This creates:
+  - `build/vrhi_Debug/` - Debug package with symbols
+  - `build/vrhi_RelWithDebInfo/` - Release package with debug symbols
  
  ### Testing Your Package
  
@@ -100,31 +172,11 @@
  
  The `test_package_vrhi` target will:
  - Configure and build a standalone test using the packaged VRHI
- - Run tests for initialisation, resource creation, and cleanup
- - **FAIL the build** if tests fail (ensures package integrity)
- - Report specific failure reasons (init, buffer, texture, shader)
- 
- ### CMake Integration
- 
- ```cmake
- # Manual integration
- target_include_directories(your_app PRIVATE path/to/vrhi_release/include)
- target_link_directories(your_app PRIVATE path/to/vrhi_release/lib)
- target_link_libraries(your_app
-     vrhi
-     nvrhi_vk
-     nvrhi
-     vk-bootstrap
-     rtxmu
-     Vulkan::Vulkan
- )
- 
- # Use CMake's find_package (not supported yet)
- find_package(vrhi REQUIRED)
- target_link_libraries(your_app vrhi::vrhi)
- ```
- 
- ## Examples
+  - Run tests for initialisation, resource creation, and cleanup
+  - **FAIL the build** if tests fail (ensures package integrity)
+  - Report specific failure reasons (init, buffer, texture, shader)
+
+  ## Examples
  
  To build the included examples, enable the `VRHI_BUILD_EXAMPLES` CMake option:
  

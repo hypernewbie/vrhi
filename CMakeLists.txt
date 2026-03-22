@@ -40,26 +40,40 @@
      message(STATUS "Build type not specified, defaulting to Debug")
  endif()
  
- # -----------------------------------------------------------------------------
- # Platform Detection
- # -----------------------------------------------------------------------------
- if(WIN32)
-     set(VRHI_LIB_PLATFORM "win")
- elseif(APPLE)
-     set(VRHI_LIB_PLATFORM "mac")
- else()
-     set(VRHI_LIB_PLATFORM "linux")
- endif()
+  # -----------------------------------------------------------------------------
+  # Options (must be declared before dependent variables)
+  # -----------------------------------------------------------------------------
+  option(VRHI_DYNAMIC_RUNTIME "Use dynamic MSVC runtime (/MD) instead of static (/MT)" OFF)
+
+  # -----------------------------------------------------------------------------
+  # Platform Detection
+  # -----------------------------------------------------------------------------
+  if(WIN32)
+      set(VRHI_LIB_PLATFORM "win")
+  elseif(APPLE)
+      set(VRHI_LIB_PLATFORM "mac")
+  else()
+      set(VRHI_LIB_PLATFORM "linux")
+  endif()
+  
+  # Library directory with config-aware path (debug/release)
+  # Include _md suffix in platform subdir for dynamic runtime builds
+  set(_vrhi_lib_platform "${VRHI_LIB_PLATFORM}")
+  if(MSVC AND VRHI_DYNAMIC_RUNTIME)
+      set(_vrhi_lib_platform "${_vrhi_lib_platform}_md")
+  endif()
+  set(VRHI_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_vrhi_lib_platform}_$<LOWER_CASE:$<CONFIG>>")
  
- # Library directory with config-aware path (debug/release)
- set(VRHI_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_LIB_PLATFORM}_$<LOWER_CASE:$<CONFIG>>")
- 
- # -----------------------------------------------------------------------------
- # Compiler Options
- # -----------------------------------------------------------------------------
- if(MSVC)
-     # Static C Runtime (/MT for Release, /MTd for Debug)
-     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+   # -----------------------------------------------------------------------------
+   # Compiler Options
+   # -----------------------------------------------------------------------------
+   if(MSVC)
+      # MSVC C Runtime: /MT or /MTd for static, /MD or /MDd for dynamic
+      if(VRHI_DYNAMIC_RUNTIME)
+          set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+      else()
+          set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      endif()
     # Remove default RTC flags from Debug configuration
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
@@ -167,8 +181,13 @@ endif()
 
 # Set up per-config library paths
 # vdeps.py builds to lib/${VRHI_PLATFORM_TAG}_debug and lib/${VRHI_PLATFORM_TAG}_release
-set( SPIRV_TOOLS_DEBUG_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_debug" CACHE PATH "Path to SPIRV-Tools debug libraries" )
-set( SPIRV_TOOLS_RELEASE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${VRHI_PLATFORM_TAG}_release" CACHE PATH "Path to SPIRV-Tools release libraries" )
+# For MD builds, use lib/${VRHI_PLATFORM_TAG}_md_debug and lib/${VRHI_PLATFORM_TAG}_md_release
+set(_spirv_lib_platform "${VRHI_PLATFORM_TAG}")
+if(MSVC AND VRHI_DYNAMIC_RUNTIME)
+    set(_spirv_lib_platform "${_spirv_lib_platform}_md")
+endif()
+set( SPIRV_TOOLS_DEBUG_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_spirv_lib_platform}_debug" CACHE PATH "Path to SPIRV-Tools debug libraries" )
+set( SPIRV_TOOLS_RELEASE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_spirv_lib_platform}_release" CACHE PATH "Path to SPIRV-Tools release libraries" )
 
 if( WIN32 )
     # Windows: use .lib files with per-config IMPORTED_LOCATION
@@ -253,9 +272,20 @@ endif()
      list(APPEND VRHI_SOURCES src/vrhi_device.mm)
  endif()
  
- add_library(vrhi STATIC ${VRHI_SOURCES})
- 
- add_dependencies(vrhi vdeps_all)
+  add_library(vrhi STATIC ${VRHI_SOURCES})
+  
+  # Set output name based on runtime and config for combined packages
+  # Format: vrhi[_md][_d] where _md = dynamic runtime, _d = debug
+  set(_vrhi_output_name "vrhi")
+  if(MSVC AND VRHI_DYNAMIC_RUNTIME)
+      set(_vrhi_output_name "${_vrhi_output_name}_md")
+  endif()
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      set(_vrhi_output_name "${_vrhi_output_name}d")
+  endif()
+  set_target_properties(vrhi PROPERTIES OUTPUT_NAME "${_vrhi_output_name}")
+  
+  add_dependencies(vrhi vdeps_all)
  
  # Suppress warnings on vendored code
  vrhi_suppress_vendor_warnings(
