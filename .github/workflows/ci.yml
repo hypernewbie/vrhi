@@ -18,9 +18,7 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            cmake_gen: ""
-            # Windows defaults to MSVC, which is what we want.
-            # CMakeLists.txt handles MSVC specific flags.
+            cmake_gen: "-G Ninja"
             cmake_extra_args: ""
             install_swiftshader: true
             install_llvm: false
@@ -213,7 +211,7 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            cmake_gen: ""
+            cmake_gen: "-G Ninja"
             cmake_extra_args: ""
             zip_name: vrhi-${{ github.ref_name }}-windows-x64
             platform_lib_subdir: "win"
@@ -295,50 +293,32 @@ jobs:
         run: git submodule status --recursive > .submodules.status
 
       # =========================================================================
-      # Windows: Build both MT and MD variants
+      # Build Dependencies using vdeps CMake (Windows: MT + MD in one pass)
       # =========================================================================
-      - name: Cache dependencies (MT)
-        if: matrix.is_windows
-        id: deps-cache-mt
-        uses: actions/cache@v4
-        with:
-          path: |
-            lib
-            tools
-          key: ${{ runner.os }}-vdeps--${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
-
-      - name: Cache dependencies (MD)
-        if: matrix.is_windows
-        id: deps-cache-md
-        uses: actions/cache@v4
-        with:
-          path: |
-            lib
-            tools
-          key: ${{ runner.os }}-vdeps---md-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
-
-      - name: Build Dependencies (MT)
-        if: matrix.is_windows && steps.deps-cache-mt.outputs.cache-hit != 'true'
-        run: python vdeps.py
-
-      - name: Build Dependencies (MD)
-        if: matrix.is_windows && steps.deps-cache-md.outputs.cache-hit != 'true'
-        run: python vdeps.py --md
-
-      # Non-Windows: single dependency build
       - name: Cache dependencies
-        if: '!matrix.is_windows'
-        id: deps-cache
         uses: actions/cache@v4
         with:
           path: |
             lib
             tools
           key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+          restore-keys: |
+            ${{ runner.os }}-vdeps-
+
+      - name: Configure Dependencies (Windows)
+        if: matrix.is_windows
+        run: |
+          cmake -S vdeps -B build_deps -G "${{ matrix.cmake_gen || 'Visual Studio 17 2022' }}"
+            -DVDEPS_STATIC_RUNTIME=ON -DVDEPS_DYNAMIC_RUNTIME=ON
+            -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
+
+      - name: Configure Dependencies (Non-Windows)
+        if: '!matrix.is_windows'
+        run: |
+          cmake -S vdeps -B build_deps -G Ninja
 
       - name: Build Dependencies
-        if: '!matrix.is_windows && steps.deps-cache.outputs.cache-hit != ''true'''
-        run: python vdeps.py
+        run: cmake --build build_deps --target vdeps_all
 
       - name: Cache ccache (Linux/macOS)
         if: runner.os != 'Windows'
@@ -364,7 +344,7 @@ jobs:
       - name: Configure CMake (MT Debug)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_mt_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVRHI_DYNAMIC_RUNTIME=OFF
+          cmake -S . -B build_mt_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVDEPS_DYNAMIC_RUNTIME=OFF
 
       - name: Build (MT Debug)
         if: matrix.is_windows
@@ -373,7 +353,7 @@ jobs:
       - name: Configure CMake (MT Release)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_mt_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVRHI_DYNAMIC_RUNTIME=OFF
+          cmake -S . -B build_mt_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVDEPS_DYNAMIC_RUNTIME=OFF
 
       - name: Build (MT Release)
         if: matrix.is_windows
@@ -382,7 +362,7 @@ jobs:
       - name: Configure CMake (MD Debug)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_md_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVRHI_DYNAMIC_RUNTIME=ON
+          cmake -S . -B build_md_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVDEPS_DYNAMIC_RUNTIME=ON
 
       - name: Build (MD Debug)
         if: matrix.is_windows
@@ -391,7 +371,7 @@ jobs:
       - name: Configure CMake (MD Release)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_md_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVRHI_DYNAMIC_RUNTIME=ON
+          cmake -S . -B build_md_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVDEPS_DYNAMIC_RUNTIME=ON
 
       - name: Build (MD Release)
         if: matrix.is_windows

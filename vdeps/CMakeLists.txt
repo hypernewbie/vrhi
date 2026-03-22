@@ -6,37 +6,79 @@
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-option(VDEPS_USE_LLVM "Pass --llvm to vdeps.py on Windows" OFF)
+option(VDEPS_USE_LLVM "Use Clang/LLVM compiler on Windows" OFF)
+option(VDEPS_STATIC_RUNTIME "Build with static MSVC runtime (/MT, /MTd)" OFF)
+option(VDEPS_DYNAMIC_RUNTIME "Build with dynamic MSVC runtime (/MD, /MDd)" OFF)
 
-set(_vdeps_extra_args)
-if(WIN32 AND VDEPS_USE_LLVM)
-    list(APPEND _vdeps_extra_args --llvm)
+# Default to static if neither runtime is specified
+if(NOT VDEPS_STATIC_RUNTIME AND NOT VDEPS_DYNAMIC_RUNTIME)
+    set(VDEPS_STATIC_RUNTIME ON)
 endif()
 
-add_custom_target(vdeps_nvrhi
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py" --build --auto-skip ${_vdeps_extra_args} "nvrhi"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."
-    USES_TERMINAL
-    COMMENT "Building vdeps dependency: nvrhi"
-)
+# Helper macro for building a single dependency
+macro(vdeps_build_dep DEP_NAME TARGET_SUFFIX EXTRA_ARGS)
+    add_custom_target(${DEP_NAME}_${TARGET_SUFFIX}
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py"
+                --build --auto-skip ${EXTRA_ARGS} "${DEP_NAME}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."
+        USES_TERMINAL
+        COMMENT "Building vdeps dependency: ${DEP_NAME} (${TARGET_SUFFIX})"
+    )
+endmacro()
 
-add_custom_target(vdeps_vk_bootstrap
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py" --build --auto-skip ${_vdeps_extra_args} "vk-bootstrap"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."
-    USES_TERMINAL
-    COMMENT "Building vdeps dependency: vk-bootstrap"
-)
+# Static runtime variants (/MT)
+if(VDEPS_STATIC_RUNTIME)
+    vdeps_build_dep(vdeps_nvrhi mt "")
+    vdeps_build_dep(vdeps_vk_bootstrap mt "")
+    vdeps_build_dep(vdeps_spirv_tools mt "")
+    add_custom_target(vdeps_all_mt)
+    add_dependencies(vdeps_all_mt vdeps_nvrhi_mt vdeps_vk_bootstrap_mt vdeps_spirv_tools_mt)
+endif()
 
-add_custom_target(vdeps_spirv_tools
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py" --build --auto-skip ${_vdeps_extra_args} "SPIRV-Tools"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."
-    USES_TERMINAL
-    COMMENT "Building vdeps dependency: SPIRV-Tools"
-)
+# LLVM + Static runtime variants (/MT)
+if(VDEPS_STATIC_RUNTIME)
+    if(VDEPS_USE_LLVM)
+        vdeps_build_dep(vdeps_nvrhi llvm_mt "--llvm")
+        vdeps_build_dep(vdeps_vk_bootstrap llvm_mt "--llvm")
+        vdeps_build_dep(vdeps_spirv_tools llvm_mt "--llvm")
+        add_custom_target(vdeps_all_llvm_mt)
+        add_dependencies(vdeps_all_llvm_mt vdeps_nvrhi_llvm_mt vdeps_vk_bootstrap_llvm_mt vdeps_spirv_tools_llvm_mt)
+    endif()
+endif()
 
+# Dynamic runtime variants (/MD)
+if(VDEPS_DYNAMIC_RUNTIME)
+    vdeps_build_dep(vdeps_nvrhi md "--md")
+    vdeps_build_dep(vdeps_vk_bootstrap md "--md")
+    vdeps_build_dep(vdeps_spirv_tools md "--md")
+    add_custom_target(vdeps_all_md)
+    add_dependencies(vdeps_all_md vdeps_nvrhi_md vdeps_vk_bootstrap_md vdeps_spirv_tools_md)
+endif()
+
+# LLVM + Dynamic runtime variants (/MD)
+if(VDEPS_DYNAMIC_RUNTIME)
+    if(VDEPS_USE_LLVM)
+        vdeps_build_dep(vdeps_nvrhi llvm_md "--llvm --md")
+        vdeps_build_dep(vdeps_vk_bootstrap llvm_md "--llvm --md")
+        vdeps_build_dep(vdeps_spirv_tools llvm_md "--llvm --md")
+        add_custom_target(vdeps_all_llvm_md)
+        add_dependencies(vdeps_all_llvm_md vdeps_nvrhi_llvm_md vdeps_vk_bootstrap_llvm_md vdeps_spirv_tools_llvm_md)
+    endif()
+endif()
+
+# Top-level aggregate target
 add_custom_target(vdeps_all)
-add_dependencies(vdeps_all
-    vdeps_nvrhi
-    vdeps_vk_bootstrap
-    vdeps_spirv_tools
-)
+if(VDEPS_STATIC_RUNTIME)
+    if(VDEPS_USE_LLVM)
+        add_dependencies(vdeps_all vdeps_all_llvm_mt)
+    else()
+        add_dependencies(vdeps_all vdeps_all_mt)
+    endif()
+endif()
+if(VDEPS_DYNAMIC_RUNTIME)
+    if(VDEPS_USE_LLVM)
+        add_dependencies(vdeps_all vdeps_all_llvm_md)
+    else()
+        add_dependencies(vdeps_all vdeps_all_md)
+    endif()
+endif()

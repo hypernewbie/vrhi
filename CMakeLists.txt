@@ -43,7 +43,7 @@
   # -----------------------------------------------------------------------------
   # Options (must be declared before dependent variables)
   # -----------------------------------------------------------------------------
-  option(VRHI_DYNAMIC_RUNTIME "Use dynamic MSVC runtime (/MD) instead of static (/MT)" OFF)
+  option(VDEPS_DYNAMIC_RUNTIME "Use dynamic MSVC runtime (/MD) instead of static (/MT)" OFF)
 
   # -----------------------------------------------------------------------------
   # Platform Detection
@@ -59,17 +59,17 @@
   # Library directory with config-aware path (debug/release)
   # Include _md suffix in platform subdir for dynamic runtime builds
   set(_vrhi_lib_platform "${VRHI_LIB_PLATFORM}")
-  if(MSVC AND VRHI_DYNAMIC_RUNTIME)
-      set(_vrhi_lib_platform "${_vrhi_lib_platform}_md")
-  endif()
+if(MSVC AND VDEPS_DYNAMIC_RUNTIME)
+       set(_vrhi_lib_platform "${_vrhi_lib_platform}_md")
+   endif()
   set(VRHI_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_vrhi_lib_platform}_$<LOWER_CASE:$<CONFIG>>")
  
    # -----------------------------------------------------------------------------
    # Compiler Options
    # -----------------------------------------------------------------------------
-   if(MSVC)
-      # MSVC C Runtime: /MT or /MTd for static, /MD or /MDd for dynamic
-      if(VRHI_DYNAMIC_RUNTIME)
+if(MSVC)
+       # MSVC C Runtime: /MT or /MTd for static, /MD or /MDd for dynamic
+       if(VDEPS_DYNAMIC_RUNTIME)
           set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
       else()
           set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -183,7 +183,7 @@ endif()
 # vdeps.py builds to lib/${VRHI_PLATFORM_TAG}_debug and lib/${VRHI_PLATFORM_TAG}_release
 # For MD builds, use lib/${VRHI_PLATFORM_TAG}_md_debug and lib/${VRHI_PLATFORM_TAG}_md_release
 set(_spirv_lib_platform "${VRHI_PLATFORM_TAG}")
-if(MSVC AND VRHI_DYNAMIC_RUNTIME)
+if(MSVC AND VDEPS_DYNAMIC_RUNTIME)
     set(_spirv_lib_platform "${_spirv_lib_platform}_md")
 endif()
 set( SPIRV_TOOLS_DEBUG_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_spirv_lib_platform}_debug" CACHE PATH "Path to SPIRV-Tools debug libraries" )
@@ -276,10 +276,10 @@ endif()
   
   # Set output name based on runtime and config for combined packages
   # Format: vrhi[_md][_d] where _md = dynamic runtime, _d = debug
-  set(_vrhi_output_name "vrhi")
-  if(MSVC AND VRHI_DYNAMIC_RUNTIME)
-      set(_vrhi_output_name "${_vrhi_output_name}_md")
-  endif()
+set(_vrhi_output_name "vrhi")
+   if(MSVC AND VDEPS_DYNAMIC_RUNTIME)
+       set(_vrhi_output_name "${_vrhi_output_name}_md")
+   endif()
   if(CMAKE_BUILD_TYPE STREQUAL "Debug")
       set(_vrhi_output_name "${_vrhi_output_name}d")
   endif()

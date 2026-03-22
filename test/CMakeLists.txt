@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Compiler options
 if(MSVC)
     # MSVC C Runtime: /MT or /MTd for static, /MD or /MDd for dynamic
-    if(VRHI_DYNAMIC_RUNTIME)
+    if(VDEPS_DYNAMIC_RUNTIME)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     elseif(NOT CMAKE_MSVC_RUNTIME_LIBRARY)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

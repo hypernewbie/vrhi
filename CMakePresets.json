@@ -21,7 +21,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_CONFIGURATION_TYPES": null,
-                "VRHI_DYNAMIC_RUNTIME": "OFF"
+                "VDEPS_DYNAMIC_RUNTIME": "OFF"
             }
         },
         {
@@ -39,7 +39,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "CMAKE_CONFIGURATION_TYPES": null,
-                "VRHI_DYNAMIC_RUNTIME": "OFF"
+                "VDEPS_DYNAMIC_RUNTIME": "OFF"
             }
         },
         {
@@ -57,7 +57,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_CONFIGURATION_TYPES": null,
-                "VRHI_DYNAMIC_RUNTIME": "ON"
+                "VDEPS_DYNAMIC_RUNTIME": "ON"
             }
         },
         {
@@ -75,7 +75,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "CMAKE_CONFIGURATION_TYPES": null,
-                "VRHI_DYNAMIC_RUNTIME": "ON"
+                "VDEPS_DYNAMIC_RUNTIME": "ON"
             }
         },
         {
@@ -89,7 +89,7 @@
             ],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "VRHI_DYNAMIC_RUNTIME": "OFF"
+                "VDEPS_DYNAMIC_RUNTIME": "OFF"
             }
         },
         {
@@ -103,7 +103,7 @@
             ],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "VRHI_DYNAMIC_RUNTIME": "OFF"
+                "VDEPS_DYNAMIC_RUNTIME": "OFF"
             }
         },
         {
@@ -117,7 +117,7 @@
             ],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "VRHI_DYNAMIC_RUNTIME": "ON"
+                "VDEPS_DYNAMIC_RUNTIME": "ON"
             }
         },
         {
@@ -131,7 +131,7 @@
             ],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "VRHI_DYNAMIC_RUNTIME": "ON"
+                "VDEPS_DYNAMIC_RUNTIME": "ON"
             }
         },
         {
