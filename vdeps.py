@@ -397,20 +397,30 @@ def render_generated_cmake(dependencies):
         "",
         "find_package(Python3 REQUIRED COMPONENTS Interpreter)",
         "",
-        'option(VDEPS_USE_LLVM "Pass --llvm to vdeps.py on Windows" OFF)',
-        'option(VDEPS_DYNAMIC_RUNTIME "Pass --md to vdeps.py for dynamic MSVC runtime (/MD, /MDd)" OFF)',
+        'option(VDEPS_USE_LLVM "Use Clang/LLVM compiler on Windows" OFF)',
+        'option(VDEPS_STATIC_RUNTIME "Build with static MSVC runtime (/MT, /MTd)" OFF)',
+        'option(VDEPS_DYNAMIC_RUNTIME "Build with dynamic MSVC runtime (/MD, /MDd)" OFF)',
         "",
-        "set(_vdeps_extra_args)",
-        "if(WIN32 AND VDEPS_USE_LLVM)",
-        "    list(APPEND _vdeps_extra_args --llvm)",
+        "# Default to static if neither runtime is specified",
+        "if(NOT VDEPS_STATIC_RUNTIME AND NOT VDEPS_DYNAMIC_RUNTIME)",
+        "    set(VDEPS_STATIC_RUNTIME ON)",
         "endif()",
-        "if(WIN32 AND VDEPS_DYNAMIC_RUNTIME)",
-        "    list(APPEND _vdeps_extra_args --md)",
-        "endif()",
+        "",
+        "# Helper macro for building a single dependency",
+        "macro(vdeps_build_dep DEP_NAME TARGET_SUFFIX EXTRA_ARGS)",
+        "    add_custom_target(${DEP_NAME}_${TARGET_SUFFIX}",
+        '        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py"',
+        '                --build --auto-skip ${EXTRA_ARGS} "${DEP_NAME}"',
+        '        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."',
+        "        USES_TERMINAL",
+        '        COMMENT "Building vdeps dependency: ${DEP_NAME} (${TARGET_SUFFIX})"',
+        "    )",
+        "endmacro()",
     ]
 
     seen_targets = {}
-    generated_targets = []
+    dep_names = []
+    escaped_names = []
 
     for dep in dependencies:
         target_name = sanitize_cmake_target_name(dep.name)
@@ -422,27 +432,83 @@ def render_generated_cmake(dependencies):
             )
 
         seen_targets[target_name] = dep.name
-        generated_targets.append(target_name)
-        escaped_name = escape_cmake_string(dep.name)
+        dep_names.append(target_name)
+        escaped_names.append(escape_cmake_string(dep.name))
 
-        lines.extend(
-            [
-                "",
-                f"add_custom_target({target_name}",
-                f'    COMMAND ${{Python3_EXECUTABLE}} "${{CMAKE_CURRENT_LIST_DIR}}/../vdeps.py" --build --auto-skip ${{_vdeps_extra_args}} "{escaped_name}"',
-                '    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."',
-                "    USES_TERMINAL",
-                f'    COMMENT "Building vdeps dependency: {escaped_name}"',
-                ")",
-            ]
+    def generate_variant_lines(runtime_flag, llvm_flag, suffix, extra_args, comment):
+        result = []
+        result.append("")
+        result.append(f"# {comment}")
+        result.append(f"if({runtime_flag})")
+        if llvm_flag:
+            result.append("    if(VDEPS_USE_LLVM)")
+            for name in dep_names:
+                result.append(
+                    f'        vdeps_build_dep({name} {suffix} "{extra_args}")'
+                )
+            result.append(f"        add_custom_target(vdeps_all_{suffix})")
+            result.append(
+                f"        add_dependencies(vdeps_all_{suffix} {' '.join(f'{n}_{suffix}' for n in dep_names)})"
+            )
+            result.append("    endif()")
+        else:
+            for name in dep_names:
+                result.append(f'    vdeps_build_dep({name} {suffix} "{extra_args}")')
+            result.append(f"    add_custom_target(vdeps_all_{suffix})")
+            result.append(
+                f"    add_dependencies(vdeps_all_{suffix} {' '.join(f'{n}_{suffix}' for n in dep_names)})"
+            )
+        result.append("endif()")
+        return result
+
+    lines.extend(
+        generate_variant_lines(
+            "VDEPS_STATIC_RUNTIME", False, "mt", "", "Static runtime variants (/MT)"
         )
+    )
+    lines.extend(
+        generate_variant_lines(
+            "VDEPS_STATIC_RUNTIME",
+            True,
+            "llvm_mt",
+            "--llvm",
+            "LLVM + Static runtime variants (/MT)",
+        )
+    )
+    lines.extend(
+        generate_variant_lines(
+            "VDEPS_DYNAMIC_RUNTIME",
+            False,
+            "md",
+            "--md",
+            "Dynamic runtime variants (/MD)",
+        )
+    )
+    lines.extend(
+        generate_variant_lines(
+            "VDEPS_DYNAMIC_RUNTIME",
+            True,
+            "llvm_md",
+            "--llvm --md",
+            "LLVM + Dynamic runtime variants (/MD)",
+        )
+    )
 
-    lines.extend(["", "add_custom_target(vdeps_all)"])
-    if generated_targets:
-        lines.append("add_dependencies(vdeps_all")
-        for target_name in generated_targets:
-            lines.append(f"    {target_name}")
-        lines.append(")")
+    lines.extend(["", "# Top-level aggregate target", "add_custom_target(vdeps_all)"])
+    lines.append("if(VDEPS_STATIC_RUNTIME)")
+    lines.append("    if(VDEPS_USE_LLVM)")
+    lines.append("        add_dependencies(vdeps_all vdeps_all_llvm_mt)")
+    lines.append("    else()")
+    lines.append("        add_dependencies(vdeps_all vdeps_all_mt)")
+    lines.append("    endif()")
+    lines.append("endif()")
+    lines.append("if(VDEPS_DYNAMIC_RUNTIME)")
+    lines.append("    if(VDEPS_USE_LLVM)")
+    lines.append("        add_dependencies(vdeps_all vdeps_all_llvm_md)")
+    lines.append("    else()")
+    lines.append("        add_dependencies(vdeps_all vdeps_all_md)")
+    lines.append("    endif()")
+    lines.append("endif()")
 
     lines.append("")
     return "\n".join(lines)
