@@ -141,13 +141,13 @@ def apply_patches(dep_dir, patches):
         if not os.path.exists(target_file):
             print(f"Warning: Patch target not found: {target_file}")
             continue
-        with open(target_file, "r", encoding="utf-8") as f:
+        with open(target_file, "r", encoding="utf-8", newline="") as f:
             content = f.read()
         if patch["search"] not in content:
             print(f"Warning: Patch search string not found in {target_file}")
             continue
         content = content.replace(patch["search"], patch["replace"], 1)
-        with open(target_file, "w", encoding="utf-8") as f:
+        with open(target_file, "w", encoding="utf-8", newline="") as f:
             f.write(content)
         print(f"Patched: {patch['file']}")
 
@@ -157,10 +157,10 @@ def revert_patches(dep_dir, patches):
         target_file = os.path.join(dep_dir, patch["file"])
         if not os.path.exists(target_file):
             continue
-        with open(target_file, "r", encoding="utf-8") as f:
+        with open(target_file, "r", encoding="utf-8", newline="") as f:
             content = f.read()
         content = content.replace(patch["replace"], patch["search"], 1)
-        with open(target_file, "w", encoding="utf-8") as f:
+        with open(target_file, "w", encoding="utf-8", newline="") as f:
             f.write(content)
         print(f"Reverted patch: {patch['file']}")
 
@@ -198,7 +198,7 @@ def get_llvm_tool_path(name):
     return path if path else name
 
 
-def get_platform_cmake_args(cxx_standard=20, use_llvm=False):
+def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime=False):
     """Returns CMake arguments specific to the current operating system."""
     common_args = [
         f"-DCMAKE_CXX_STANDARD={cxx_standard}",
@@ -207,10 +207,11 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False):
 
     if IS_WINDOWS:
         # Windows-specific flags (Common for both MSVC and Clang-cl)
+        runtime_suffix = "DLL" if use_dynamic_runtime else ""
         win_common = [
             "-DVK_USE_PLATFORM_WIN32_KHR=ON",
             "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
-            "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>",
+            f"-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>{runtime_suffix}",
         ]
 
         if use_llvm:
@@ -397,10 +398,14 @@ def render_generated_cmake(dependencies):
         "find_package(Python3 REQUIRED COMPONENTS Interpreter)",
         "",
         'option(VDEPS_USE_LLVM "Pass --llvm to vdeps.py on Windows" OFF)',
+        'option(VDEPS_DYNAMIC_RUNTIME "Pass --md to vdeps.py for dynamic MSVC runtime (/MD, /MDd)" OFF)',
         "",
         "set(_vdeps_extra_args)",
         "if(WIN32 AND VDEPS_USE_LLVM)",
         "    list(APPEND _vdeps_extra_args --llvm)",
+        "endif()",
+        "if(WIN32 AND VDEPS_DYNAMIC_RUNTIME)",
+        "    list(APPEND _vdeps_extra_args --md)",
         "endif()",
     ]
 
@@ -470,8 +475,11 @@ def get_state_file_path(root_dir):
     return os.path.join(root_dir, STATE_FILE_NAME)
 
 
-def get_state_record_key(dep_name, rel_path, platform_subdir, config_name):
-    return f"{dep_name}|{rel_path}|{platform_subdir}|{config_name}"
+def get_state_record_key(
+    dep_name, rel_path, platform_subdir, config_name, use_dynamic_runtime=False
+):
+    runtime_tag = "md" if use_dynamic_runtime else "mt"
+    return f"{dep_name}|{rel_path}|{platform_subdir}|{config_name}|{runtime_tag}"
 
 
 def normalize_relative_path(path):
@@ -523,8 +531,17 @@ def load_state_data(root_dir):
     return {"schema_version": STATE_SCHEMA_VERSION, "records": dict(records)}
 
 
-def get_state_record(state_data, dep_name, rel_path, platform_subdir, config_name):
-    key = get_state_record_key(dep_name, rel_path, platform_subdir, config_name)
+def get_state_record(
+    state_data,
+    dep_name,
+    rel_path,
+    platform_subdir,
+    config_name,
+    use_dynamic_runtime=False,
+):
+    key = get_state_record_key(
+        dep_name, rel_path, platform_subdir, config_name, use_dynamic_runtime
+    )
     record = state_data["records"].get(key)
     if not isinstance(record, dict):
         return None
@@ -534,14 +551,24 @@ def get_state_record(state_data, dep_name, rel_path, platform_subdir, config_nam
 
 
 def update_state_record(
-    state_data, dep_name, rel_path, platform_subdir, config_name, head, outputs
+    state_data,
+    dep_name,
+    rel_path,
+    platform_subdir,
+    config_name,
+    head,
+    outputs,
+    use_dynamic_runtime=False,
 ):
-    key = get_state_record_key(dep_name, rel_path, platform_subdir, config_name)
+    key = get_state_record_key(
+        dep_name, rel_path, platform_subdir, config_name, use_dynamic_runtime
+    )
     state_data["records"][key] = {
         "dep_name": dep_name,
         "rel_path": rel_path,
         "platform_subdir": platform_subdir,
         "config_name": config_name,
+        "use_dynamic_runtime": use_dynamic_runtime,
         "head": head,
         "outputs": dedupe_paths(outputs),
         "updated_at": datetime.now(timezone.utc)
@@ -634,6 +661,7 @@ def evaluate_auto_skip(
     config_name,
     git_head,
     git_reason,
+    use_dynamic_runtime=False,
 ):
     if not dep.build:
         return False, "dependency build=false"
@@ -643,7 +671,12 @@ def evaluate_auto_skip(
         return False, git_reason
 
     record = get_state_record(
-        state_data, dep.name, dep.rel_path, platform_subdir, config_name
+        state_data,
+        dep.name,
+        dep.rel_path,
+        platform_subdir,
+        config_name,
+        use_dynamic_runtime,
     )
     if record is None:
         return False, "no cached state"
@@ -686,6 +719,11 @@ def main():
         "--llvm",
         action="store_true",
         help="Use Clang+Ninja on Windows with MSVC ABI compatibility",
+    )
+    parser.add_argument(
+        "--md",
+        action="store_true",
+        help="Use dynamic MSVC runtime (/MD, /MDd) instead of static (/MT, /MTd) on Windows",
     )
     parser.add_argument(
         "--clean",
@@ -787,8 +825,14 @@ def main():
         ACTIVE_PLATFORM_TAGS = {PLATFORM_TAG}
 
     platform_subdir = PLATFORM_TAG
-    if IS_WINDOWS and args.llvm:
-        platform_subdir = "win_llvm"
+    if IS_WINDOWS:
+        suffixes = []
+        if args.llvm:
+            suffixes.append("llvm")
+        if args.md:
+            suffixes.append("md")
+        if suffixes:
+            platform_subdir = "win_" + "_".join(suffixes)
 
     state_data = load_state_data(root_dir)
 
@@ -903,6 +947,7 @@ def main():
                         config["name"],
                         git_head,
                         git_reason,
+                        args.md,
                     )
                     if should_skip:
                         print(
@@ -938,7 +983,9 @@ def main():
                     cmake_args = (
                         ["cmake", "-S", ".", "-B", build_dir]
                         + get_platform_cmake_args(
-                            cxx_standard=dep.cxx_standard, use_llvm=args.llvm
+                            cxx_standard=dep.cxx_standard,
+                            use_llvm=args.llvm,
+                            use_dynamic_runtime=args.md,
                         )
                         + [f"-DCMAKE_BUILD_TYPE={build_type}"]
                         + final_cmake_options
@@ -1201,6 +1248,7 @@ def main():
                             config["name"],
                             git_head,
                             copied_outputs,
+                            args.md,
                         )
                         write_state_data(root_dir, state_data)
         finally:
