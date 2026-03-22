@@ -213,21 +213,24 @@ jobs:
             os: windows-latest
             cmake_gen: ""
             cmake_extra_args: ""
-            zip_name: vrhi-windows
+            zip_name_release: vrhi-${{ github.ref_name }}-windows-x64
+            zip_name_debug: vrhi-${{ github.ref_name }}-windows-x64-debug
             install_swiftshader: true
 
           - name: Linux
             os: ubuntu-latest
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21"
-            zip_name: vrhi-linux
+            zip_name_release: vrhi-${{ github.ref_name }}-linux-x64
+            zip_name_debug: vrhi-${{ github.ref_name }}-linux-x64-debug
             install_swiftshader: false
 
           - name: macOS
             os: macos-14
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
-            zip_name: vrhi-macos
+            zip_name_release: vrhi-${{ github.ref_name }}-macos-arm64
+            zip_name_debug: vrhi-${{ github.ref_name }}-macos-arm64-debug
             install_swiftshader: false
 
     steps:
@@ -304,19 +307,29 @@ jobs:
 
       - name: Configure CMake (Release)
         run: |
-          cmake -S . -B build ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Release
 
       - name: Build (Release)
-        run: cmake --build build --config Release
+        run: cmake --build build_release --config Release
 
-      - name: Package
-        run: cmake --build build --config Release --target package_vrhi
+      - name: Package (Release)
+        run: cmake --build build_release --config Release --target package_vrhi
+
+      - name: Configure CMake (Debug)
+        run: |
+          cmake -S . -B build_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build (Debug)
+        run: cmake --build build_debug --config Debug
+
+      - name: Package (Debug)
+        run: cmake --build build_debug --config Debug --target package_vrhi
 
       - name: Configure Environment (Windows)
         if: runner.os == 'Windows'
         run: |
           $swiftShaderDll = "C:\hostedtoolcache\windows\swiftshader\5.0.0.1\x64\vk_swiftshader.dll"
-          $targetDll = "build\Release\vulkan-1.dll"
+          $targetDll = "build_release\Release\vulkan-1.dll"
           if (Test-Path $swiftShaderDll) {
             Copy-Item $swiftShaderDll $targetDll -Force
             echo "Copied SwiftShader to $targetDll"
@@ -337,21 +350,25 @@ jobs:
           fi
 
       - name: Test Package
-        run: cmake --build build --config Release --target test_package_vrhi
+        run: cmake --build build_release --config Release --target test_package_vrhi
 
-      - name: Zip Package (Windows)
+      - name: Zip Packages (Windows)
         if: runner.os == 'Windows'
         run: |
-          Compress-Archive -Path build\vrhi_Release\* -DestinationPath ${{ matrix.zip_name }}.zip
+          Compress-Archive -Path build_release\vrhi_Release\* -DestinationPath ${{ matrix.zip_name_release }}.zip
+          Compress-Archive -Path build_debug\vrhi_Debug\* -DestinationPath ${{ matrix.zip_name_debug }}.zip
 
-      - name: Zip Package (Linux/macOS)
+      - name: Zip Packages (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          cd build/vrhi_Release && zip -r ../../${{ matrix.zip_name }}.zip .
+          cd build_release/vrhi_Release && zip -r ../../${{ matrix.zip_name_release }}.zip .
+          cd ../../build_debug/vrhi_Debug && zip -r ../../${{ matrix.zip_name_debug }}.zip .
 
-      - name: Upload Release Asset
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.zip_name }}.zip
+          files: |
+            ${{ matrix.zip_name_release }}.zip
+            ${{ matrix.zip_name_debug }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
