@@ -102,6 +102,7 @@ elseif(APPLE)
         "-framework CoreGraphics"
         "-framework Foundation"
         "-framework AppKit"
+        "-framework QuartzCore"
     )
 else()
     # Linux
@@ -119,3 +120,5 @@ if(WIN32)
         NOMINMAX
     )
 endif()
+
+target_compile_definitions(test_package_exe PRIVATE RGFW_NO_X11_CURSOR RGFW_NO_DPI)
