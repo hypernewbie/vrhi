@@ -18,7 +18,7 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            cmake_gen: "-G Ninja"
+            cmake_gen: "-G \"Visual Studio 17 2022\""
             cmake_extra_args: ""
             install_swiftshader: true
             install_llvm: false
@@ -211,7 +211,7 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            cmake_gen: "-G Ninja"
+            cmake_gen: "-G \"Visual Studio 17 2022\""
             cmake_extra_args: ""
             zip_name: vrhi-${{ github.ref_name }}-windows-x64
             platform_lib_subdir: "win"
@@ -308,7 +308,7 @@ jobs:
       - name: Configure Dependencies (Windows)
         if: matrix.is_windows
         run: |
-          cmake -S vdeps -B build_deps -G "${{ matrix.cmake_gen || 'Visual Studio 17 2022' }}"
+          cmake -S vdeps -B build_deps ${{ matrix.cmake_gen || '-G "Visual Studio 17 2022"' }}
             -DVDEPS_STATIC_RUNTIME=ON -DVDEPS_DYNAMIC_RUNTIME=ON
             -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
 
