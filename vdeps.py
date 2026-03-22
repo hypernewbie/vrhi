@@ -407,8 +407,8 @@ def render_generated_cmake(dependencies):
         "endif()",
         "",
         "# Helper macro for building a single dependency",
-        "macro(vdeps_build_dep DEP_NAME TARGET_SUFFIX EXTRA_ARGS)",
-        "    add_custom_target(${DEP_NAME}_${TARGET_SUFFIX}",
+        "macro(vdeps_build_dep TARGET_NAME DEP_NAME TARGET_SUFFIX EXTRA_ARGS)",
+        "    add_custom_target(${TARGET_NAME}_${TARGET_SUFFIX}",
         '        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py"',
         '                --build --auto-skip ${EXTRA_ARGS} "${DEP_NAME}"',
         '        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."',
@@ -442,9 +442,9 @@ def render_generated_cmake(dependencies):
         result.append(f"if({runtime_flag})")
         if llvm_flag:
             result.append("    if(VDEPS_USE_LLVM)")
-            for name in dep_names:
+            for target_name, dep_name in zip(dep_names, escaped_names):
                 result.append(
-                    f'        vdeps_build_dep({name} {suffix} "{extra_args}")'
+                    f'        vdeps_build_dep({target_name} {dep_name} {suffix} "{extra_args}")'
                 )
             result.append(f"        add_custom_target(vdeps_all_{suffix})")
             result.append(
@@ -452,8 +452,10 @@ def render_generated_cmake(dependencies):
             )
             result.append("    endif()")
         else:
-            for name in dep_names:
-                result.append(f'    vdeps_build_dep({name} {suffix} "{extra_args}")')
+            for target_name, dep_name in zip(dep_names, escaped_names):
+                result.append(
+                    f'    vdeps_build_dep({target_name} {dep_name} {suffix} "{extra_args}")'
+                )
             result.append(f"    add_custom_target(vdeps_all_{suffix})")
             result.append(
                 f"    add_dependencies(vdeps_all_{suffix} {' '.join(f'{n}_{suffix}' for n in dep_names)})"
