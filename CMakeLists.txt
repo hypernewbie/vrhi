@@ -441,18 +441,21 @@ endif()
      VERBATIM
  )
  
- # Package validation target
- add_custom_target(test_package_vrhi
-     DEPENDS package_vrhi
-     COMMAND ${CMAKE_COMMAND}
-         -DCONFIG=$<CONFIG>
-         -DBINARY_DIR=${CMAKE_BINARY_DIR}
-         -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
-         -P ${CMAKE_SOURCE_DIR}/test/run_test_package.cmake
-     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-     COMMENT "Testing packaged VRHI library..."
-     VERBATIM
- )
+  # Package validation target
+  add_custom_target(test_package_vrhi
+      DEPENDS package_vrhi
+      COMMAND ${CMAKE_COMMAND}
+          -DCONFIG=$<CONFIG>
+          -DBINARY_DIR=${CMAKE_BINARY_DIR}
+          -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+          -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
+          -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+          -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+          -P ${CMAKE_SOURCE_DIR}/test/run_test_package.cmake
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      COMMENT "Testing packaged VRHI library..."
+      VERBATIM
+  )
  
  message(STATUS "")
  message(STATUS "VRHI Build Configuration:")

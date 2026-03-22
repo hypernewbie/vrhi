@@ -44,16 +44,16 @@ set(CONFIGURE_ARGS
     -DCMAKE_MSVC_RUNTIME_LIBRARY:STRING=${MSVC_RUNTIME}
 )
 
-# Pass through generator if specified
-if(DEFINED CMAKE_GENERATOR)
+# Pass through generator if specified (check for non-empty)
+if(CMAKE_GENERATOR)
     list(APPEND CONFIGURE_ARGS -G "${CMAKE_GENERATOR}")
 endif()
 
-# Pass through C/C++ compilers if specified
-if(DEFINED CMAKE_C_COMPILER)
+# Pass through C/C++ compilers if specified (check for non-empty)
+if(CMAKE_C_COMPILER)
     list(APPEND CONFIGURE_ARGS -DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER})
 endif()
-if(DEFINED CMAKE_CXX_COMPILER)
+if(CMAKE_CXX_COMPILER)
     list(APPEND CONFIGURE_ARGS -DCMAKE_CXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER})
 endif()
 
