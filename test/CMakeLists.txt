@@ -10,10 +10,12 @@ if(MSVC)
     if(NOT CMAKE_MSVC_RUNTIME_LIBRARY)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
-else()
-    # Clang/GCC: use libc++
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # Clang: use libc++
     add_compile_options(-stdlib=libc++)
     add_link_options(-stdlib=libc++ -lc++abi)
+else()
+    # GCC or other: no special options needed
 endif()
 
 # Find Vulkan

@@ -67,13 +67,16 @@
     string(REPLACE "/RTCs" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
     string(REPLACE "/RTCu" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     string(REPLACE "/RTCu" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
-     # W3: Standard warnings, wd4100: Ignore unused params, MP: Multi-processor
-     add_compile_options(/W3 /wd4100 /MP)
- else()
-     # Suppress warnings and use libc++
-     add_compile_options(-w -stdlib=libc++)
-     add_link_options(-stdlib=libc++ -lc++abi)
- endif()
+      # W3: Standard warnings, wd4100: Ignore unused params, MP: Multi-processor
+      add_compile_options(/W3 /wd4100 /MP)
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+      # Clang: suppress warnings and use libc++
+      add_compile_options(-w -stdlib=libc++)
+      add_link_options(-stdlib=libc++ -lc++abi)
+  else()
+      # GCC or other: suppress warnings only
+      add_compile_options(-w)
+  endif()
  
  # -----------------------------------------------------------------------------
  # Helper Functions
