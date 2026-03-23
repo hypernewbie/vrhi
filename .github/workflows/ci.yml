@@ -100,14 +100,16 @@ jobs:
           path: |
             lib
             tools
-          key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+          key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
+          restore-keys: |
+            ${{ runner.os }}-vdeps-
 
       - name: Cache ccache (Linux/macOS)
         if: runner.os != 'Windows'
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+          key: ${{ runner.os }}-ccache-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
           restore-keys: |
             ${{ runner.os }}-ccache-
 
@@ -301,7 +303,7 @@ jobs:
           path: |
             lib
             tools
-          key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+          key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
           restore-keys: |
             ${{ runner.os }}-vdeps-
 
@@ -325,7 +327,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ hashFiles('vdeps.py', 'vdeps.toml', '.gitmodules', '.submodules.status') }}
+          key: ${{ runner.os }}-ccache-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
           restore-keys: |
             ${{ runner.os }}-ccache-
 
