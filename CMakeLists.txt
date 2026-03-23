@@ -44,6 +44,7 @@
   # Options (must be declared before dependent variables)
   # -----------------------------------------------------------------------------
   option(VDEPS_DYNAMIC_RUNTIME "Use dynamic MSVC runtime (/MD) instead of static (/MT)" OFF)
+  option(VRHI_BUILD_VDEPS "Build vdeps as part of VRHI configure" OFF)
 
   # -----------------------------------------------------------------------------
   # Platform Detection
@@ -122,8 +123,10 @@ if(MSVC)
  # Python (optional - for code generation)
  find_package(Python3 COMPONENTS Interpreter)
  
- # vdeps (dependency manager)
- add_subdirectory(vdeps)
+  # vdeps (dependency manager) - only when VRHI_BUILD_VDEPS is ON
+  if(VRHI_BUILD_VDEPS)
+      add_subdirectory(vdeps)
+  endif()
  
 # SPIRV-Reflect (from Vulkan SDK)
 find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
@@ -285,7 +288,9 @@ set(_vrhi_output_name "vrhi")
   endif()
   set_target_properties(vrhi PROPERTIES OUTPUT_NAME "${_vrhi_output_name}")
   
-  add_dependencies(vrhi vdeps_all)
+  if(VRHI_BUILD_VDEPS)
+      add_dependencies(vrhi vdeps_all)
+  endif()
  
  # Suppress warnings on vendored code
  vrhi_suppress_vendor_warnings(

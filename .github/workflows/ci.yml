@@ -315,7 +315,7 @@ jobs:
       - name: Configure Dependencies (Non-Windows)
         if: '!matrix.is_windows'
         run: |
-          cmake -S vdeps -B build_deps -G Ninja
+          cmake -S vdeps -B build_deps -G Ninja ${{ matrix.cmake_extra_args }}
 
       - name: Build Dependencies
         run: cmake --build build_deps --target vdeps_all

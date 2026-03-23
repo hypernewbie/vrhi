@@ -206,12 +206,10 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
     ]
 
     if IS_WINDOWS:
-        # Windows-specific flags (Common for both MSVC and Clang-cl)
-        runtime_suffix = "DLL" if use_dynamic_runtime else ""
+        runtime_flag = "MD" if use_dynamic_runtime else "MT"
         win_common = [
             "-DVK_USE_PLATFORM_WIN32_KHR=ON",
             "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
-            f'-DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>{runtime_suffix}"',
         ]
 
         if use_llvm:
@@ -233,8 +231,8 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
                     f"-DCMAKE_NM={llvm_nm}",
                     f"-DCMAKE_AR={llvm_lib}",
                     f"-DCMAKE_RANLIB={llvm_ranlib}",
-                    "-DCMAKE_C_FLAGS=/W0 -w",
-                    "-DCMAKE_CXX_FLAGS=/W0 /EHsc -w",
+                    f"-DCMAKE_C_FLAGS=/W0 -w /{runtime_flag}",
+                    f"-DCMAKE_CXX_FLAGS=/W0 /EHsc -w /{runtime_flag}",
                 ]
             )
 
@@ -242,8 +240,8 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
             common_args
             + win_common
             + [
-                "-DCMAKE_C_FLAGS=/W0",
-                "-DCMAKE_CXX_FLAGS=/W0 /EHsc /MP",
+                f"-DCMAKE_C_FLAGS=/W0 /{runtime_flag}",
+                f"-DCMAKE_CXX_FLAGS=/W0 /EHsc /MP /{runtime_flag}",
             ]
         )
     else:
