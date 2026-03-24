@@ -309,10 +309,9 @@ jobs:
 
       - name: Configure Dependencies (Windows)
         if: matrix.is_windows
-        run: |
-          cmake -S vdeps -B build_deps ${{ matrix.cmake_gen || '-G "Visual Studio 17 2022"' }}
-            -DVDEPS_STATIC_RUNTIME=ON -DVDEPS_DYNAMIC_RUNTIME=ON
-            -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
+        run: >
+          cmake -S vdeps -B build_deps ${{ matrix.cmake_gen }}
+            -DVDEPS_STATIC_RUNTIME=ON -DVDEPS_DYNAMIC_RUNTIME=ON -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
 
       - name: Configure Dependencies (Non-Windows)
         if: '!matrix.is_windows'
@@ -514,14 +513,14 @@ jobs:
         if: '!matrix.is_windows'
         run: |
           # Release
-          cp build_release/Release/vrhi.a package/lib/libvrhi.a 2>/dev/null || \
-          cp build_release/Release/libvrhi.a package/lib/ 2>/dev/null || \
-          cp build_release/Release/libvrhi.a package/lib/libvrhi.a
-          
+          cp build_release/vrhi.a package/lib/libvrhi.a 2>/dev/null || \
+          cp build_release/libvrhi.a package/lib/ 2>/dev/null || \
+          cp build_release/libvrhi.a package/lib/libvrhi.a
+
           # Debug
-          cp build_debug/Debug/vrhid.a package/lib/libvrhid.a 2>/dev/null || \
-          cp build_debug/Debug/libvrhid.a package/lib/ 2>/dev/null || \
-          cp build_debug/Debug/libvrhid.a package/lib/libvrhid.a
+          cp build_debug/vrhid.a package/lib/libvrhid.a 2>/dev/null || \
+          cp build_debug/libvrhid.a package/lib/ 2>/dev/null || \
+          cp build_debug/libvrhid.a package/lib/libvrhid.a
 
       - name: Copy Dependency Libraries (Non-Windows)
         if: '!matrix.is_windows'
