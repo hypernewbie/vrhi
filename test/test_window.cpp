@@ -291,3 +291,52 @@ UTEST( Window, FrameNumber )
         EXPECT_EQ( vhGetFrameNumber(), i + 1 );
     }
 }
+
+UTEST( Window, HeadlessBackbuffer )
+{
+    TestEnsureShutdown();
+
+    g_vhInit = vhInitData{};
+    g_vhInit.headless = true;
+    g_vhInit.nullMode = false;
+    vhInit( true );
+
+    vhResize( 1280, 720 );
+    EXPECT_NE( vhGetBackbuffer(), VRHI_INVALID_HANDLE );
+    EXPECT_EQ( vhGetWindowSize(), glm::uvec2( 1280, 720 ) );
+
+    vhResize( 800, 600 );
+    EXPECT_NE( vhGetBackbuffer(), VRHI_INVALID_HANDLE );
+    EXPECT_EQ( vhGetWindowSize(), glm::uvec2( 800, 600 ) );
+
+    vhShutdown( true );
+}
+
+UTEST( Window, HeadlessBackbufferRender )
+{
+    TestEnsureShutdown();
+
+    g_vhInit = vhInitData{};
+    g_vhInit.headless = true;
+    g_vhInit.nullMode = false;
+    vhInit( true );
+
+    vhResize( 640, 480 );
+
+    vhTexture backbuffer = vhGetBackbuffer();
+    EXPECT_NE( backbuffer, VRHI_INVALID_HANDLE );
+
+    vhState state;
+    state.SetColourAttachment( 0, backbuffer, 0, 0, nvrhi::Format::UNKNOWN, false )
+        .SetViewRect( glm::vec4( 0, 0, 640, 480 ) )
+        .SetViewScissor( glm::vec4( 0, 0, 640, 480 ) )
+        .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 1.0f, 0.0f, 1.0f, 1.0f ) );
+
+    bool ok = vhSetState( 0, state );
+    EXPECT_TRUE( ok );
+
+    vhClear( 0, VRHI_CLEAR_COLOR );
+    vhFlush();
+
+    vhShutdown( true );
+}

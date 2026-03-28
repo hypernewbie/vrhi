@@ -51,6 +51,9 @@ std::vector< nvrhi::TextureHandle > g_vhSwapchainNVRHIHandles;
 uint32_t g_vhCurrentSwapchainIndex = 0;
 glm::uvec2 g_vhWindowSize = glm::uvec2( 0, 0 );
 
+static vhTexture g_vhHeadlessBackbuffer = VRHI_INVALID_HANDLE;
+static nvrhi::TextureHandle g_vhHeadlessBackbufferHandle;
+
 bool g_vhMemoryBudgetEnabled = false;
 std::atomic<uint64_t> g_vhDrawCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhDispatchCallsAccumulator = 0;
@@ -668,6 +671,9 @@ void vhShutdown( bool quiet )
         g_vhSwapchainTextures.clear();
     }
 
+    g_vhHeadlessBackbufferHandle = nullptr;
+    g_vhHeadlessBackbuffer = VRHI_INVALID_HANDLE;
+
     if ( !quiet ) VRHI_LOG( "    Destroying NVRHI Device...\n" );
     for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ ) g_vhDevice->runGarbageCollection();
     g_vhDevice = nullptr;
@@ -1084,6 +1090,8 @@ bool vhFrame()
 
 vhTexture vhGetBackbuffer()
 {
+    if ( g_vhSurface == VK_NULL_HANDLE )
+        return g_vhHeadlessBackbuffer;
     if ( g_vhSwapchainTextures.empty() ) return VRHI_INVALID_HANDLE;
     return g_vhSwapchainTextures[g_vhCurrentSwapchainIndex];
 }
@@ -1201,6 +1209,28 @@ void vhSwapchainCreate_Internal( int width, int height )
     }
 }
 
+static void vhResizeHeadlessBackbuffer( int width, int height )
+{
+    g_vhHeadlessBackbufferHandle = nullptr;
+
+    nvrhi::TextureDesc desc;
+    desc.width = width;
+    desc.height = height;
+    desc.format = nvrhi::Format::BGRA8_UNORM;
+    desc.initialState = nvrhi::ResourceStates::RenderTarget;
+    desc.keepInitialState = true;
+    desc.setIsRenderTarget( true );
+    desc.debugName = "HeadlessBackbuffer";
+
+    g_vhHeadlessBackbufferHandle = g_vhDevice->createTexture( desc );
+
+    if ( g_vhHeadlessBackbuffer == VRHI_INVALID_HANDLE )
+        g_vhHeadlessBackbuffer = vhAllocTexture();
+
+    g_vhCmdBackendState.RegisterInternalTexture( g_vhHeadlessBackbuffer, g_vhHeadlessBackbufferHandle, desc );
+    g_vhWindowSize = glm::uvec2( width, height );
+}
+
 void vhResize( int width, int height )
 {
     if ( !g_vhDevice )
@@ -1223,7 +1253,7 @@ void vhResize( int width, int height )
 
     if ( g_vhSurface == VK_NULL_HANDLE )
     {
-        VRHI_ERR( "vhResize(): No surface available (headless mode).\n" );
+        vhResizeHeadlessBackbuffer( width, height );
         return;
     }
 

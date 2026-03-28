@@ -43,6 +43,15 @@ template <> struct utest_type_deducer< glm::ivec3, false >
     }
 };
 
+// Specialisation for GLM vec2 (uint)
+template <> struct utest_type_deducer< glm::uvec2, false >
+{
+    static void _( const glm::uvec2& v )
+    {
+        UTEST_PRINTF( "(%u, %u)", v.x, v.y );
+    }
+};
+
 // Specialisation for GLM vec4 (float)
 template <> struct utest_type_deducer< glm::vec4, false >
 {
