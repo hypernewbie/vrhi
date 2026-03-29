@@ -61,6 +61,8 @@ std::atomic<uint64_t> g_vhFrameCount = 0;
 vhRenderStats g_vhLastFrameStats = {};
 vhDeviceInfo g_vhDeviceInfo = {};
 
+static void vhResizeHeadlessBackbuffer( int width, int height );
+
 class vhVK_MessageCallback : public nvrhi::IMessageCallback
 {
 public:
@@ -158,6 +160,8 @@ void vhInit( bool quiet )
         if ( !quiet ) VRHI_LOG( "vhInit() : RHI already initialised!\n" );
         return;
     }
+
+    g_vhCmdArena.Init();
 
     // Temporarily disable debugBlockWaitForBackend to avoid deadlock during initialisation
     bool originalDebugBlockWaitForBackend = g_vhInit.debugBlockWaitForBackend;
@@ -604,6 +608,11 @@ vrhi_init_post_device:
     g_vhFrameIndex = 0;
     g_vhCurrentSwapchainIndex = 0;
 
+    if ( g_vhSurface == VK_NULL_HANDLE && g_vhInit.headless && !g_vhNullMode )
+    {
+        vhResizeHeadlessBackbuffer( g_vhInit.resolution.x, g_vhInit.resolution.y );
+    }
+
     vhInitDummyResources();
 
     // Create RHI Command Buffer Thread
@@ -632,6 +641,7 @@ void vhShutdown( bool quiet )
     g_vhCmdThreadReady = false;
     vhBackendShutdown();
     vhCmdListFlushAll();
+    g_vhCmdArena.Shutdown();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {

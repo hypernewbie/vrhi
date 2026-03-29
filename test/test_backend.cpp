@@ -27,6 +27,8 @@
 #include <vrhi_internal.h>
 #include <vrhi_backend.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <atomic>
+#include <thread>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -1840,26 +1842,138 @@ UTEST( Backend, CommandArenaTripleBufferRotation )
 
 UTEST( Backend, CommandArenaVhCmdAllocRelease )
 {
-    if ( !g_testInit )
-    {
-        vhInit( g_testInitQuiet );
-        g_testInit = true;
-    }
-
-    vhCommandArena backup = g_vhCmdArena;
-    g_vhCmdArena.Init();
+    vhCommandArena arena;
+    arena.Init();
 
     bool destroyed = false;
+    auto* cmd = static_cast< TestAllocDestructionMarker* >( arena.Allocate( sizeof( TestAllocDestructionMarker ), alignof( TestAllocDestructionMarker ) ) );
+    ASSERT_TRUE( cmd != nullptr );
+
+    new ( cmd ) TestAllocDestructionMarker( &destroyed );
+    ASSERT_FALSE( destroyed );
+    ASSERT_EQ( cmd->MAGIC, TestAllocDestructionMarker::kMagic );
+
+    vhCmdRelease( cmd );
+    ASSERT_TRUE( destroyed );
+
+    arena.Shutdown();
+}
+
+UTEST( Backend, CommandArenaConcurrentAllocateRotate )
+{
+    vhCommandArena arena;
+    arena.Init();
+
+    std::atomic< bool > start = false;
+    std::atomic< bool > producerDone = false;
+    std::atomic< bool > failed = false;
+    std::atomic< int > allocationCount = 0;
+
+    std::thread producer( [&]() {
+        while ( !start.load() ) std::this_thread::yield();
+
+        for ( int i = 0; i < 50000; ++i )
+        {
+            size_t size = 32 + ( ( i % 8 ) * 16 );
+            void* mem = arena.Allocate( size, 16 );
+            if ( mem == nullptr )
+            {
+                failed.store( true );
+                break;
+            }
+
+            uintptr_t addr = reinterpret_cast< uintptr_t >( mem );
+            if ( addr % 16 != 0 )
+            {
+                failed.store( true );
+                break;
+            }
+
+            uint8_t* bytes = static_cast< uint8_t* >( mem );
+            bytes[0] = static_cast< uint8_t >( i & 0xFF );
+            bytes[size - 1] = static_cast< uint8_t >( ( i * 7 ) & 0xFF );
+            allocationCount.fetch_add( 1 );
+
+            if ( ( i % 256 ) == 0 ) std::this_thread::yield();
+        }
+
+        producerDone.store( true );
+    } );
+
+    std::thread rotator( [&]() {
+        while ( !start.load() ) std::this_thread::yield();
+
+        for ( int i = 0; i < 6000; ++i )
+        {
+            arena.Rotate();
+            if ( producerDone.load() ) break;
+            if ( ( i % 16 ) == 0 ) std::this_thread::yield();
+        }
+
+        while ( !producerDone.load() )
+        {
+            arena.Rotate();
+            std::this_thread::yield();
+        }
+    } );
+
+    start.store( true );
+    producer.join();
+    rotator.join();
+
+    EXPECT_FALSE( failed.load() );
+    EXPECT_EQ( allocationCount.load(), 50000 );
+
+    arena.Shutdown();
+}
+
+UTEST( Backend, CommandArenaInitShutdownChurn )
+{
+    for ( int cycle = 0; cycle < 64; ++cycle )
     {
-        auto* cmd = vhCmdAlloc< TestAllocDestructionMarker >( &destroyed );
-        ASSERT_FALSE( destroyed );
-        ASSERT_EQ( cmd->MAGIC, TestAllocDestructionMarker::kMagic );
-        vhCmdRelease( cmd );
-        ASSERT_TRUE( destroyed );
+        vhCommandArena arena;
+        arena.Init();
+
+        for ( int rot = 0; rot < 8; ++rot )
+        {
+            for ( int i = 0; i < 256; ++i )
+            {
+                void* mem = arena.Allocate( 128 + ( ( i % 4 ) * 32 ), 16 );
+                ASSERT_TRUE( mem != nullptr );
+            }
+
+            arena.Rotate();
+        }
+
+        arena.Shutdown();
+    }
+}
+
+UTEST( Backend, CommandArenaBoundaryPressure )
+{
+    vhCommandArena arena;
+    arena.Init();
+
+    constexpr size_t kChunkSize = 256 * 1024;
+    for ( int rot = 0; rot < 6; ++rot )
+    {
+        for ( int i = 0; i < 16; ++i )
+        {
+            void* mem = arena.Allocate( kChunkSize, 64 );
+            ASSERT_TRUE( mem != nullptr );
+
+            uintptr_t addr = reinterpret_cast< uintptr_t >( mem );
+            EXPECT_EQ( addr % 64, 0ull );
+
+            uint8_t* bytes = static_cast< uint8_t* >( mem );
+            bytes[0] = static_cast< uint8_t >( rot );
+            bytes[kChunkSize - 1] = static_cast< uint8_t >( i );
+        }
+
+        arena.Rotate();
     }
 
-    g_vhCmdArena = backup;
-    vhFinish();
+    arena.Shutdown();
 }
 
 UTEST( Backend, CommandArenaOverflowFallback )
@@ -1867,7 +1981,7 @@ UTEST( Backend, CommandArenaOverflowFallback )
     vhCommandArena arena;
     arena.Init();
 
-    void* largeAlloc = arena.Allocate( 1024 * 1024, 8 );
+    void* largeAlloc = arena.Allocate( ( 4 * 1024 * 1024 ) + 64, 8 );
     ASSERT_TRUE( largeAlloc != nullptr );
 
     arena.Shutdown();

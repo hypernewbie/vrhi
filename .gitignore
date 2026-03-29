@@ -4,6 +4,7 @@ build_debug/
 build_release/
 build_llvm_debug/
 build_llvm_release/
+build_llvm/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/

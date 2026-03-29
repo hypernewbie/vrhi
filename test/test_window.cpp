@@ -299,9 +299,9 @@ UTEST( Window, HeadlessBackbuffer )
     g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
+    g_vhInit.resolution = glm::ivec2( 1280, 720 );
     vhInit( true );
 
-    vhResize( 1280, 720 );
     EXPECT_NE( vhGetBackbuffer(), VRHI_INVALID_HANDLE );
     EXPECT_EQ( vhGetWindowSize(), glm::uvec2( 1280, 720 ) );
 
@@ -319,9 +319,8 @@ UTEST( Window, HeadlessBackbufferRender )
     g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
+    g_vhInit.resolution = glm::ivec2( 640, 480 );
     vhInit( true );
-
-    vhResize( 640, 480 );
 
     vhTexture backbuffer = vhGetBackbuffer();
     EXPECT_NE( backbuffer, VRHI_INVALID_HANDLE );
@@ -339,4 +338,35 @@ UTEST( Window, HeadlessBackbufferRender )
     vhFlush();
 
     vhShutdown( true );
+}
+
+UTEST( Window, HeadlessBackbufferInitShutdownChurn )
+{
+    for ( int i = 0; i < 8; ++i )
+    {
+        TestEnsureShutdown();
+
+        g_vhInit = vhInitData{};
+        g_vhInit.headless = true;
+        g_vhInit.nullMode = false;
+        g_vhInit.resolution = glm::ivec2( 320 + ( i * 32 ), 240 + ( i * 16 ) );
+        vhInit( true );
+
+        vhTexture backbuffer = vhGetBackbuffer();
+        EXPECT_NE( backbuffer, VRHI_INVALID_HANDLE );
+        EXPECT_EQ( vhGetWindowSize(), glm::uvec2( g_vhInit.resolution ) );
+
+        vhState state;
+        state.SetColourAttachment( 0, backbuffer, 0, 0, nvrhi::Format::UNKNOWN, false )
+            .SetViewRect( glm::vec4( 0, 0, g_vhInit.resolution.x, g_vhInit.resolution.y ) )
+            .SetViewScissor( glm::vec4( 0, 0, g_vhInit.resolution.x, g_vhInit.resolution.y ) )
+            .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.25f * i, 1.0f, 1.0f ) );
+
+        bool ok = vhSetState( 0, state );
+        EXPECT_TRUE( ok );
+
+        vhClear( 0, VRHI_CLEAR_COLOR );
+        vhFlush();
+        vhShutdown( true );
+    }
 }

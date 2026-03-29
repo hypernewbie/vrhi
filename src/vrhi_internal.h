@@ -62,10 +62,13 @@
     #if !defined( WIN32_LEAN_AND_MEAN ) || !defined( NOMINMAX )
         #error "VRHI requires WIN32_LEAN_AND_MEAN and NOMINMAX to be defined before including windows.h"
     #endif
+    #include <malloc.h>
     #include <windows.h>
     #include <vulkan/vulkan_win32.h>
 #endif
 
+#include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <cstdarg>
@@ -243,6 +246,7 @@ class vhCommandArena
 {
     static constexpr int kNumBuffers = 3;
     static constexpr size_t kBufferSize = 4 * 1024 * 1024;
+    static constexpr size_t kBufferAlignment = 64;
 
     struct Buffer
     {
@@ -252,31 +256,69 @@ class vhCommandArena
 
     Buffer m_buffers[kNumBuffers];
     int m_writeIndex = 0;
+    bool m_initialised = false;
+    mutable std::mutex m_mutex;
+
+    static void* AllocAligned( size_t size, size_t alignment )
+    {
+        alignment = std::max( alignment, alignof( std::max_align_t ) );
+
+#if defined( _WIN32 )
+        return _aligned_malloc( size, alignment );
+#else
+        void* mem = nullptr;
+        if ( posix_memalign( &mem, alignment, size ) != 0 ) return nullptr;
+        return mem;
+#endif
+    }
+
+    static void FreeAligned( void* memory )
+    {
+#if defined( _WIN32 )
+        _aligned_free( memory );
+#else
+        free( memory );
+#endif
+    }
 
 public:
     void Init()
     {
+        std::lock_guard< std::mutex > lock( m_mutex );
+        if ( m_initialised ) return;
+
         for ( int i = 0; i < kNumBuffers; i++ )
         {
-            m_buffers[i].memory = static_cast< uint8_t* >( malloc( kBufferSize ) );
+            m_buffers[i].memory = static_cast< uint8_t* >( AllocAligned( kBufferSize, kBufferAlignment ) );
+            assert( m_buffers[i].memory );
+            m_buffers[i].offset = 0;
+        }
+        m_writeIndex = 0;
+        m_initialised = true;
+    }
+
+    void Shutdown()
+    {
+        std::lock_guard< std::mutex > lock( m_mutex );
+        if ( !m_initialised ) return;
+
+        m_initialised = false;
+        for ( int i = 0; i < kNumBuffers; i++ )
+        {
+            FreeAligned( m_buffers[i].memory );
+            m_buffers[i].memory = nullptr;
             m_buffers[i].offset = 0;
         }
         m_writeIndex = 0;
     }
 
-    void Shutdown()
-    {
-        for ( int i = 0; i < kNumBuffers; i++ )
-        {
-            free( m_buffers[i].memory );
-            m_buffers[i].memory = nullptr;
-            m_buffers[i].offset = 0;
-        }
-    }
-
     void* Allocate( size_t size, size_t alignment )
     {
+        std::lock_guard< std::mutex > lock( m_mutex );
+        if ( !m_initialised ) return nullptr;
+
         Buffer& current = m_buffers[m_writeIndex];
+        if ( current.memory == nullptr ) return nullptr;
 
         size_t alignMask = alignment - 1;
         size_t alignedOffset = ( current.offset + alignMask ) & ~alignMask;
@@ -288,12 +330,15 @@ public:
         }
 
         VRHI_LOG( "vhCommandArena: allocation of %zu bytes (alignment %zu) overflowed, using malloc\n", size, alignment );
-        void* mem = malloc( size );
+        void* mem = AllocAligned( size, alignment );
         return mem;
     }
 
     void Rotate()
     {
+        std::lock_guard< std::mutex > lock( m_mutex );
+        if ( !m_initialised ) return;
+
         int oldIndex = ( m_writeIndex + 1 ) % kNumBuffers;
         m_buffers[oldIndex].offset = 0;
         m_writeIndex = ( m_writeIndex + 1 ) % kNumBuffers;
@@ -306,6 +351,7 @@ template< typename T, typename... Args >
 T* vhCmdAlloc( Args&&... args )
 {
     void* mem = g_vhCmdArena.Allocate( sizeof( T ), alignof( T ) );
+    assert( mem );
     return new ( mem ) T( std::forward<Args>( args )... );
 }
 
@@ -444,5 +490,3 @@ nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
 nvrhi::VariableShadingRate vhTranslateShadingRate( uint32_t rate );
 nvrhi::ShadingRateCombiner vhTranslateShadingRateCombiner( uint32_t combiner );
 void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state );
-
-

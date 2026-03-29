@@ -4120,14 +4120,12 @@ nvrhi::rt::ShaderTableHandle vhCmdBackendState::QueryShaderTableHandle( vhShader
 
 void vhBackendInit()
 {
-    g_vhCmdArena.Init();
     g_vhCmdBackendState.init();
 }
 
 void vhBackendShutdown()
 {
     g_vhCmdBackendState.shutdown();
-    g_vhCmdArena.Shutdown();
 }
 
 void vhBackendThreadEntry( std::function<void()> initCallback )
