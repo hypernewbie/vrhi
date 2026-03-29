@@ -1734,3 +1734,141 @@ UTEST( Backend, VertexLayoutOverrideTransmission )
     vhDestroyBuffer( buf );
     vhFlush();
 }
+
+struct TestAllocDestructionMarker
+{
+    static constexpr uint64_t kMagic = 0xDEADBEEF;
+    uint64_t MAGIC = kMagic;
+    bool* destructorCalled;
+
+    TestAllocDestructionMarker() = default;
+
+    TestAllocDestructionMarker( bool* flag )
+        : destructorCalled( flag )
+    {
+        *destructorCalled = false;
+    }
+
+    ~TestAllocDestructionMarker()
+    {
+        if ( destructorCalled )
+            *destructorCalled = true;
+    }
+};
+
+struct TestAllocOverflow
+{
+    static constexpr uint64_t kMagic = 0xCAFEBABE;
+    uint64_t MAGIC = kMagic;
+    uint8_t data[256];
+
+    TestAllocOverflow() = default;
+};
+
+UTEST( Backend, CommandArenaInitShutdown )
+{
+    vhCommandArena arena;
+    arena.Init();
+    arena.Shutdown();
+}
+
+UTEST( Backend, CommandArenaBasicAllocRelease )
+{
+    vhCommandArena arena;
+    arena.Init();
+
+    for ( int i = 0; i < 1000; i++ )
+    {
+        void* mem = arena.Allocate( 64, 8 );
+        ASSERT_TRUE( mem != nullptr );
+    }
+
+    arena.Shutdown();
+}
+
+UTEST( Backend, CommandArenaDestructorCalled )
+{
+    vhCommandArena arena;
+    arena.Init();
+
+    bool destroyed = false;
+    {
+        TestAllocDestructionMarker* cmd = static_cast< TestAllocDestructionMarker* >( arena.Allocate( sizeof( TestAllocDestructionMarker ), alignof( TestAllocDestructionMarker ) ) );
+        new ( cmd ) TestAllocDestructionMarker( &destroyed );
+        ASSERT_FALSE( destroyed );
+        cmd->~TestAllocDestructionMarker();
+        ASSERT_TRUE( destroyed );
+    }
+
+    arena.Shutdown();
+}
+
+UTEST( Backend, CommandArenaAlignment )
+{
+    vhCommandArena arena;
+    arena.Init();
+
+    for ( int i = 0; i < 1000; i++ )
+    {
+        void* mem = arena.Allocate( 31, 8 );
+        ASSERT_TRUE( mem != nullptr );
+        uintptr_t addr = reinterpret_cast< uintptr_t >( mem );
+        EXPECT_EQ( addr % 8, 0ull );
+    }
+
+    arena.Shutdown();
+}
+
+UTEST( Backend, CommandArenaTripleBufferRotation )
+{
+    vhCommandArena arena;
+    arena.Init();
+
+    std::vector< void* > ptrs;
+    for ( int rot = 0; rot < 5; rot++ )
+    {
+        for ( int i = 0; i < 100; i++ )
+        {
+            void* mem = arena.Allocate( 128, 8 );
+            ptrs.push_back( mem );
+        }
+        arena.Rotate();
+    }
+
+    arena.Shutdown();
+}
+
+UTEST( Backend, CommandArenaVhCmdAllocRelease )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhCommandArena backup = g_vhCmdArena;
+    g_vhCmdArena.Init();
+
+    bool destroyed = false;
+    {
+        auto* cmd = vhCmdAlloc< TestAllocDestructionMarker >( &destroyed );
+        ASSERT_FALSE( destroyed );
+        ASSERT_EQ( cmd->MAGIC, TestAllocDestructionMarker::kMagic );
+        vhCmdRelease( cmd );
+        ASSERT_TRUE( destroyed );
+    }
+
+    g_vhCmdArena = backup;
+    vhFinish();
+}
+
+UTEST( Backend, CommandArenaOverflowFallback )
+{
+    vhCommandArena arena;
+    arena.Init();
+
+    void* largeAlloc = arena.Allocate( 1024 * 1024, 8 );
+    ASSERT_TRUE( largeAlloc != nullptr );
+
+    arena.Shutdown();
+}

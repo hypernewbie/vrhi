@@ -239,12 +239,81 @@ struct vhProfileScope
 #define VRHI_PROFILE_FUNCTION() VRHI_PROFILE_SCOPE( __func__ )
 #endif
 
-// Command function templates
+class vhCommandArena
+{
+    static constexpr int kNumBuffers = 3;
+    static constexpr size_t kBufferSize = 4 * 1024 * 1024;
+
+    struct Buffer
+    {
+        uint8_t* memory = nullptr;
+        size_t offset = 0;
+    };
+
+    Buffer m_buffers[kNumBuffers];
+    int m_writeIndex = 0;
+
+public:
+    void Init()
+    {
+        for ( int i = 0; i < kNumBuffers; i++ )
+        {
+            m_buffers[i].memory = static_cast< uint8_t* >( malloc( kBufferSize ) );
+            m_buffers[i].offset = 0;
+        }
+        m_writeIndex = 0;
+    }
+
+    void Shutdown()
+    {
+        for ( int i = 0; i < kNumBuffers; i++ )
+        {
+            free( m_buffers[i].memory );
+            m_buffers[i].memory = nullptr;
+            m_buffers[i].offset = 0;
+        }
+    }
+
+    void* Allocate( size_t size, size_t alignment )
+    {
+        Buffer& current = m_buffers[m_writeIndex];
+
+        size_t alignMask = alignment - 1;
+        size_t alignedOffset = ( current.offset + alignMask ) & ~alignMask;
+
+        if ( alignedOffset + size <= kBufferSize )
+        {
+            current.offset = alignedOffset + size;
+            return current.memory + alignedOffset;
+        }
+
+        VRHI_LOG( "vhCommandArena: allocation of %zu bytes (alignment %zu) overflowed, using malloc\n", size, alignment );
+        void* mem = malloc( size );
+        return mem;
+    }
+
+    void Rotate()
+    {
+        int oldIndex = ( m_writeIndex + 1 ) % kNumBuffers;
+        m_buffers[oldIndex].offset = 0;
+        m_writeIndex = ( m_writeIndex + 1 ) % kNumBuffers;
+    }
+};
+
+extern vhCommandArena g_vhCmdArena;
+
 template< typename T, typename... Args >
-T* vhCmdAlloc( Args&&... args ) { return new T( std::forward<Args>( args )... ); }
+T* vhCmdAlloc( Args&&... args )
+{
+    void* mem = g_vhCmdArena.Allocate( sizeof( T ), alignof( T ) );
+    return new ( mem ) T( std::forward<Args>( args )... );
+}
 
 template< typename T >
-void vhCmdRelease( T* cmd ) { if ( cmd ) delete cmd; }
+void vhCmdRelease( T* cmd )
+{
+    if ( cmd ) cmd->~T();
+}
 
 void vhCmdEnqueue( void* cmd, bool wait = true );
 void vhCmdListFlushAll();

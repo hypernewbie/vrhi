@@ -91,6 +91,8 @@ std::atomic<bool> g_vhCmdThreadReady = false;
 std::vector< vhMem* > g_vhMemList;
 std::mutex g_vhMemListMutex;
 
+vhCommandArena g_vhCmdArena;
+
 // Vulkan HPP Storage
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
