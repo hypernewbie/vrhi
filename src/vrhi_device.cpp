@@ -1048,10 +1048,12 @@ bool vhFrame()
     presentInfo.pImageIndices = &g_vhCurrentSwapchainIndex;
 
     VkResult res;
+    vhProfile( "vhFrame_Present", true );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         res = vkQueuePresentKHR( g_vulkanGraphicsQueue, &presentInfo );
     }
+    vhProfile( "vhFrame_Present", false );
 
     if ( res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR )
     {
@@ -1083,11 +1085,13 @@ bool vhFrame()
     // We use a frame-indexed acquire semaphore because we don't know the image index yet.
     // The present semaphore is indexed by image because we know that after rendering.
     uint32_t idx = 0;
+    vhProfile( "vhFrame_AcquireNextImage", true );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         res = vkAcquireNextImageKHR( g_vulkanDevice, g_vhSwapchain, UINT64_MAX, 
             g_vhAcquireSemaphores[g_vhFrameIndex], VK_NULL_HANDLE, &idx );
     }
+    vhProfile( "vhFrame_AcquireNextImage", false );
     if ( res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR )
     {
         return false;

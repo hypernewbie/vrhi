@@ -209,20 +209,29 @@ uint64_t vhCmdListFlush( nvrhi::CommandQueue type )
 {
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
+    vhProfile( "vhFlush", true );
+
     // Both queues depend on copy; flush copy first
     if ( type == nvrhi::CommandQueue::Graphics || type == nvrhi::CommandQueue::Compute )
     {
+        vhProfile( "vhFlush_Copy", true );
         vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue::Copy );
+        vhProfile( "vhFlush_Copy", false );
     }
 
     // Graphics depends on compute; flush compute first
     if ( type == nvrhi::CommandQueue::Graphics )
     {
+        vhProfile( "vhFlush_Compute", true );
         vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue::Compute );
+        vhProfile( "vhFlush_Compute", false );
     }
 
     // Flush the requested queue
-    return vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( type );
+    uint64_t instance = vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( type );
+
+    vhProfile( "vhFlush", false );
+    return instance;
 }
 
 void vhCmdListFlushTransferIfNeeded()
