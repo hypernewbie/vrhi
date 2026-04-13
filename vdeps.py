@@ -408,9 +408,10 @@ def render_generated_cmake(dependencies):
         "",
         "# Helper macro for building a single dependency",
         "macro(vdeps_build_dep TARGET_NAME DEP_NAME TARGET_SUFFIX EXTRA_ARGS)",
+        '    separate_arguments(_VDEPS_EXTRA_ARGS NATIVE_COMMAND "${EXTRA_ARGS}")',
         "    add_custom_target(${TARGET_NAME}_${TARGET_SUFFIX}",
         '        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py"',
-        '                --build --auto-skip ${EXTRA_ARGS} "${DEP_NAME}"',
+        '                --build --auto-skip ${_VDEPS_EXTRA_ARGS} "${DEP_NAME}"',
         '        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."',
         "        USES_TERMINAL",
         '        COMMENT "Building vdeps dependency: ${DEP_NAME} (${TARGET_SUFFIX})"',
@@ -983,14 +984,21 @@ def main():
                 print(f"\n--- Building {dep.name} [{build_type}] ---")
 
                 if temp_dir and temp_dir.strip():
-                    build_dir_name = f"{dep.name}_{config['name']}"
+                    build_dir_name = dep.name
                     if IS_WINDOWS and args.llvm:
-                        build_dir_name = f"{dep.name}_llvm_{config['name']}"
+                        build_dir_name += "_llvm"
+                    if IS_WINDOWS and args.md:
+                        build_dir_name += "_md"
+                    build_dir_name += f"_{config['name']}"
                     build_dir = os.path.join(root_dir, temp_dir.strip(), build_dir_name)
                     # Ensure temp_dir parent directory exists
                     os.makedirs(os.path.dirname(build_dir), exist_ok=True)
                 else:
-                    prefix = "build_llvm" if IS_WINDOWS and args.llvm else "build"
+                    prefix = "build"
+                    if IS_WINDOWS and args.llvm:
+                        prefix += "_llvm"
+                    if IS_WINDOWS and args.md:
+                        prefix += "_md"
                     build_dir = os.path.join(dep_dir, f"{prefix}_{config['name']}")
 
                 output_lib_dir = os.path.join(
