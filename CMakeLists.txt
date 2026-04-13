@@ -50,7 +50,11 @@
   # Platform Detection
   # -----------------------------------------------------------------------------
   if(WIN32)
-      set(VRHI_LIB_PLATFORM "win")
+      if(VDEPS_USE_LLVM)
+          set(VRHI_LIB_PLATFORM "win_llvm")
+      else()
+          set(VRHI_LIB_PLATFORM "win")
+      endif()
   elseif(APPLE)
       set(VRHI_LIB_PLATFORM "mac")
   else()
