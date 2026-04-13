@@ -235,7 +235,7 @@ jobs:
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe"
             zip_name: vrhi-${{ github.ref_name }}-windows-llvm-x64
-            platform_lib_subdir: "win"
+            platform_lib_subdir: "win_llvm"
             is_windows: true
             install_llvm: true
 
@@ -452,8 +452,8 @@ jobs:
         if: matrix.is_windows
         shell: pwsh
         run: |
-          $mtReleaseDir = "lib/win_release"
-          $mtDebugDir = "lib/win_debug"
+          $mtReleaseDir = "lib/${{ matrix.platform_lib_subdir }}_release"
+          $mtDebugDir = "lib/${{ matrix.platform_lib_subdir }}_debug"
           
           # MT Release libs: copy as-is (no suffix)
           Get-ChildItem -Path $mtReleaseDir -Filter "*.lib" | ForEach-Object {
@@ -486,8 +486,8 @@ jobs:
         if: matrix.is_windows
         shell: pwsh
         run: |
-          $mdReleaseDir = "lib/win_md_release"
-          $mdDebugDir = "lib/win_md_debug"
+          $mdReleaseDir = "lib/${{ matrix.platform_lib_subdir }}_md_release"
+          $mdDebugDir = "lib/${{ matrix.platform_lib_subdir }}_md_debug"
           
           # MD Release libs: add _md suffix
           Get-ChildItem -Path $mdReleaseDir -Filter "*.lib" | ForEach-Object {
