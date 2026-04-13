@@ -2387,7 +2387,7 @@ void vhCmdSetStateStencil( vhStateId id, uint64_t stencilState );
 // VIDL_GENERATE
 void vhCmdSetStateDepthBias( vhStateId id, int bias, float clamp, float slopeScaled );
 // VIDL_GENERATE
-void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num, const vhVertexLayout& layoutOverride );
+void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num, const vhVertexLayout& layoutOverride, bool isInstanced );
 // VIDL_GENERATE
 void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint64_t offset, uint32_t first, uint32_t num );
 // VIDL_GENERATE

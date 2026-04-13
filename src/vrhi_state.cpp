@@ -80,9 +80,9 @@ void vhCmdSetStateDepthBias( vhStateId id, int bias, float clamp, float slopeSca
     vhCmdEnqueue( new VIDL_vhCmdSetStateDepthBias( id, bias, clamp, slopeScaled ) );
 }
 
-void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num, const vhVertexLayout& layoutOverride )
+void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num, const vhVertexLayout& layoutOverride, bool isInstanced )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, offset, start, num, layoutOverride ) );
+    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, offset, start, num, layoutOverride, isInstanced ) );
 }
 
 void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint64_t offset, uint32_t first, uint32_t num )
@@ -189,7 +189,7 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
         for ( uint8_t i = 0; i < ( uint8_t ) state.vertexBindings.size(); ++i )
         {
             const auto& b = state.vertexBindings[i];
-            vhCmdSetStateVertexBuffer( id, i, b.buffer, b.byteOffset, b.startVertex, b.numVertices, b.layoutOverride );
+            vhCmdSetStateVertexBuffer( id, i, b.buffer, b.byteOffset, b.startVertex, b.numVertices, b.layoutOverride, b.isInstanced );
         }
         vhCmdSetStateIndexBuffer( id, state.indexBinding.buffer, state.indexBinding.byteOffset, state.indexBinding.firstIndex, state.indexBinding.numIndices );
     }

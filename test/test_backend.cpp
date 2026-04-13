@@ -166,6 +166,18 @@ public:
         }
         return "";
     }
+
+    static bool GetVertexBindingIsInstanced( vhStateId id, uint8_t stream )
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto it = g_vhCmdBackendState.backendStates.find( id );
+        if ( it != g_vhCmdBackendState.backendStates.end() )
+        {
+            if ( stream < it->second.vertexBindings.size() )
+                return it->second.vertexBindings[stream].isInstanced;
+        }
+        return false;
+    }
 };
 
 
@@ -1731,6 +1743,44 @@ UTEST( Backend, VertexLayoutOverrideTransmission )
     EXPECT_TRUE( layoutOverride2.empty() );
 
     // Cleanup
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid2, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
+UTEST( Backend, VertexBindingInstancedTransmission )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "TestVBInstanced", vhAllocMem( 1024 ), "float4:i ATTR8 float4:i ATTR9" );
+    vhFlush();
+
+    vhState state;
+    vhStateId sid = 9998;
+    state.SetVertexBuffer( buf, 0, 0, 0, 100, "float4:i ATTR8 float4:i ATTR9" );
+    state.vertexBindings[0].isInstanced = true;
+
+    vhSetState( sid, state );
+    vhFlush();
+
+    bool isInstanced = vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid, 0 );
+    EXPECT_TRUE( isInstanced );
+
+    vhState state2;
+    vhStateId sid2 = 9997;
+    state2.SetVertexBuffer( buf, 0 );
+    vhSetState( sid2, state2 );
+    vhFlush();
+
+    bool isInstanced2 = vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid2, 0 );
+    EXPECT_FALSE( isInstanced2 );
+
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhSetState( sid2, g_state0, VRHI_DIRTY_ALL );
     vhDestroyBuffer( buf );

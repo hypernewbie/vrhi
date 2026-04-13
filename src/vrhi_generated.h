@@ -772,11 +772,12 @@ struct VIDL_vhCmdSetStateVertexBuffer
     uint32_t start;
     uint32_t num;
     const vhVertexLayout layoutOverride;
+    bool isInstanced;
 
     VIDL_vhCmdSetStateVertexBuffer() = default;
 
-    VIDL_vhCmdSetStateVertexBuffer(vhStateId _id, uint8_t _stream, vhBuffer _buffer, uint64_t _offset, uint32_t _start, uint32_t _num, const vhVertexLayout& _layoutOverride)
-        : id(_id), stream(_stream), buffer(_buffer), offset(_offset), start(_start), num(_num), layoutOverride(_layoutOverride) {}
+    VIDL_vhCmdSetStateVertexBuffer(vhStateId _id, uint8_t _stream, vhBuffer _buffer, uint64_t _offset, uint32_t _start, uint32_t _num, const vhVertexLayout& _layoutOverride, bool _isInstanced)
+        : id(_id), stream(_stream), buffer(_buffer), offset(_offset), start(_start), num(_num), layoutOverride(_layoutOverride), isInstanced(_isInstanced) {}
 };
 
 struct VIDL_vhCmdSetStateIndexBuffer
