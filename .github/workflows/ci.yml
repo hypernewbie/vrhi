@@ -319,9 +319,9 @@ jobs:
 
       - name: Configure Dependencies (Windows)
         if: matrix.is_windows
-        run: >
-          cmake -S vdeps -B build_deps ${{ matrix.cmake_gen }}
-            -DVDEPS_STATIC_RUNTIME=ON -DVDEPS_DYNAMIC_RUNTIME=ON -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
+        shell: pwsh
+        run: |
+          cmake -S vdeps -B build_deps ${{ matrix.cmake_gen }} -DVDEPS_STATIC_RUNTIME=ON -DVDEPS_DYNAMIC_RUNTIME=ON -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
 
       - name: Configure Dependencies (Non-Windows)
         if: '!matrix.is_windows'
@@ -414,6 +414,7 @@ jobs:
       # =========================================================================
       - name: Create Package Directory (Windows)
         if: matrix.is_windows
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path package/lib
 
@@ -568,13 +569,28 @@ jobs:
             fi
           done
 
-      - name: Copy Headers
+      - name: Copy Headers (Windows)
+        if: matrix.is_windows
+        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path package/include
+          New-Item -ItemType Directory -Force -Path package/include | Out-Null
+          # Main headers
+          Copy-Item "vrhi.h" "package/include/" -Force
+          Copy-Item "src/vrhi_generated.h" "package/include/" -Force
+          # Dependency headers
+          if (Test-Path "include/glm")        { Copy-Item "include/glm"            "package/include/" -Recurse -Force }
+          if (Test-Path "include/nvrhi")      { Copy-Item "include/nvrhi"          "package/include/" -Recurse -Force }
+          if (Test-Path "include/vk-bootstrap") { Copy-Item "include/vk-bootstrap" "package/include/" -Recurse -Force }
+          if (Test-Path "include/rtxmu")      { Copy-Item "include/rtxmu"          "package/include/" -Recurse -Force }
+          if (Test-Path "include/renderdoc_app.h") { Copy-Item "include/renderdoc_app.h" "package/include/" -Force }
+
+      - name: Copy Headers (Non-Windows)
+        if: '!matrix.is_windows'
+        run: |
+          mkdir -p package/include
           # Main headers
           cp vrhi.h package/include/
           cp src/vrhi_generated.h package/include/
-          
           # Dependency headers
           cp -r include/glm package/include/ 2>/dev/null || true
           cp -r include/nvrhi package/include/ 2>/dev/null || true
@@ -582,12 +598,22 @@ jobs:
           cp -r include/rtxmu package/include/ 2>/dev/null || true
           cp include/renderdoc_app.h package/include/ 2>/dev/null || true
 
-      - name: Copy Tools
+      - name: Copy Tools (Windows)
+        if: matrix.is_windows
+        shell: pwsh
         run: |
-          # Copy slangc and other tools if they exist
+          $toolsDir = "tools/${{ matrix.platform_lib_subdir }}_release"
+          if (Test-Path $toolsDir) {
+            New-Item -ItemType Directory -Force -Path package/tools | Out-Null
+            Copy-Item "$toolsDir/*" "package/tools/" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Copy Tools (Non-Windows)
+        if: '!matrix.is_windows'
+        run: |
           TOOLS_DIR="tools/${{ matrix.platform_lib_subdir }}_release"
           if [ -d "$TOOLS_DIR" ]; then
-            New-Item -ItemType Directory -Force -Path package/tools
+            mkdir -p package/tools
             cp -r "$TOOLS_DIR"/* package/tools/ 2>/dev/null || true
           fi
 
@@ -634,7 +660,18 @@ jobs:
           export VRHI_PACKAGE_PATH="$PWD/package"
           cmake --build build_release --config Release --target test_package_vrhi
 
-      - name: List Package Contents
+      - name: List Package Contents (Windows)
+        if: matrix.is_windows
+        shell: pwsh
+        run: |
+          Write-Host "Package contents:"
+          Get-ChildItem package/
+          Write-Host ""
+          Write-Host "Library contents:"
+          Get-ChildItem package/lib/
+
+      - name: List Package Contents (Non-Windows)
+        if: '!matrix.is_windows'
         run: |
           echo "Package contents:"
           ls -la package/
