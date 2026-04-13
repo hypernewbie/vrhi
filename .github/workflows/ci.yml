@@ -422,27 +422,31 @@ jobs:
         if: matrix.is_windows
         shell: pwsh
         run: |
-          # MT Release: vrhi.lib -> vrhi.lib
-          Copy-Item "build_mt_release/RelWithDebInfo/vrhi.lib" "package/lib/vrhi.lib" -Force
-          # MT Release PDB
-          Copy-Item "build_mt_release/RelWithDebInfo/vrhi.pdb" "package/lib/vrhi.pdb" -Force -ErrorAction SilentlyContinue
-          # MT Debug: vrhid.lib -> vrhid.lib
-          Copy-Item "build_mt_debug/Debug/vrhid.lib" "package/lib/vrhid.lib" -Force
-          # MT Debug PDB
-          Copy-Item "build_mt_debug/Debug/vrhid.pdb" "package/lib/vrhid.pdb" -Force -ErrorAction SilentlyContinue
+          # Use recursive search so both VS (RelWithDebInfo/ subdir) and Ninja (no subdir) work
+          $f = Get-ChildItem -Path "build_mt_release" -Filter "vrhi.lib" -Recurse | Select-Object -First 1
+          Copy-Item $f.FullName "package/lib/vrhi.lib" -Force
+          $p = Get-ChildItem -Path "build_mt_release" -Filter "vrhi.pdb" -Recurse | Select-Object -First 1
+          if ($p) { Copy-Item $p.FullName "package/lib/vrhi.pdb" -Force }
+
+          $f = Get-ChildItem -Path "build_mt_debug" -Filter "vrhid.lib" -Recurse | Select-Object -First 1
+          Copy-Item $f.FullName "package/lib/vrhid.lib" -Force
+          $p = Get-ChildItem -Path "build_mt_debug" -Filter "vrhid.pdb" -Recurse | Select-Object -First 1
+          if ($p) { Copy-Item $p.FullName "package/lib/vrhid.pdb" -Force }
 
       - name: Copy vrhi Libraries (Windows MD)
         if: matrix.is_windows
         shell: pwsh
         run: |
-          # MD Release: vrhi_md.lib -> vrhi_md.lib
-          Copy-Item "build_md_release/RelWithDebInfo/vrhi_md.lib" "package/lib/vrhi_md.lib" -Force
-          # MD Release PDB
-          Copy-Item "build_md_release/RelWithDebInfo/vrhi_md.pdb" "package/lib/vrhi_md.pdb" -Force -ErrorAction SilentlyContinue
-          # MD Debug: vrhi_mdd.lib -> vrhi_mdd.lib
-          Copy-Item "build_md_debug/Debug/vrhi_mdd.lib" "package/lib/vrhi_mdd.lib" -Force
-          # MD Debug PDB
-          Copy-Item "build_md_debug/Debug/vrhi_mdd.pdb" "package/lib/vrhi_mdd.pdb" -Force -ErrorAction SilentlyContinue
+          # Use recursive search so both VS (RelWithDebInfo/ subdir) and Ninja (no subdir) work
+          $f = Get-ChildItem -Path "build_md_release" -Filter "vrhi_md.lib" -Recurse | Select-Object -First 1
+          Copy-Item $f.FullName "package/lib/vrhi_md.lib" -Force
+          $p = Get-ChildItem -Path "build_md_release" -Filter "vrhi_md.pdb" -Recurse | Select-Object -First 1
+          if ($p) { Copy-Item $p.FullName "package/lib/vrhi_md.pdb" -Force }
+
+          $f = Get-ChildItem -Path "build_md_debug" -Filter "vrhi_mdd.lib" -Recurse | Select-Object -First 1
+          Copy-Item $f.FullName "package/lib/vrhi_mdd.lib" -Force
+          $p = Get-ChildItem -Path "build_md_debug" -Filter "vrhi_mdd.pdb" -Recurse | Select-Object -First 1
+          if ($p) { Copy-Item $p.FullName "package/lib/vrhi_mdd.pdb" -Force }
 
       - name: Copy Dependency Libraries (Windows MT)
         if: matrix.is_windows
