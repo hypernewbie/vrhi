@@ -395,6 +395,9 @@ def render_generated_cmake(dependencies):
         "# Generated targets always run vdeps.py --build --auto-skip.",
         "# Run vdeps.py manually if you need a forced rebuild or troubleshooting.",
         "",
+        "cmake_minimum_required(VERSION 3.20)",
+        "project(vdeps NONE)",
+        "",
         "find_package(Python3 REQUIRED COMPONENTS Interpreter)",
         "",
         'option(VDEPS_USE_LLVM "Use Clang/LLVM compiler on Windows" OFF)',
@@ -858,7 +861,7 @@ def main():
                     dep_dir = os.path.join(deps_root_dir, dep_data.get("rel_path", ""))
                     if os.path.exists(dep_dir):
                         for config in CONFIGS:
-                            for prefix in ["build", "build_llvm"]:
+                            for prefix in ["build", "build_llvm", "build_md", "build_llvm_md"]:
                                 build_dir = os.path.join(
                                     dep_dir, f"{prefix}_{config['name']}"
                                 )
