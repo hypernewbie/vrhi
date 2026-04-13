@@ -439,10 +439,10 @@ jobs:
           Copy-Item "build_md_release/RelWithDebInfo/vrhi_md.lib" "package/lib/vrhi_md.lib" -Force
           # MD Release PDB
           Copy-Item "build_md_release/RelWithDebInfo/vrhi_md.pdb" "package/lib/vrhi_md.pdb" -Force -ErrorAction SilentlyContinue
-          # MD Debug: vrhi_md_d.lib -> vrhi_md_d.lib
-          Copy-Item "build_md_debug/Debug/vrhi_md_d.lib" "package/lib/vrhi_md_d.lib" -Force
+          # MD Debug: vrhi_mdd.lib -> vrhi_mdd.lib
+          Copy-Item "build_md_debug/Debug/vrhi_mdd.lib" "package/lib/vrhi_mdd.lib" -Force
           # MD Debug PDB
-          Copy-Item "build_md_debug/Debug/vrhi_md_d.pdb" "package/lib/vrhi_md_d.pdb" -Force -ErrorAction SilentlyContinue
+          Copy-Item "build_md_debug/Debug/vrhi_mdd.pdb" "package/lib/vrhi_mdd.pdb" -Force -ErrorAction SilentlyContinue
 
       - name: Copy Dependency Libraries (Windows MT)
         if: matrix.is_windows
