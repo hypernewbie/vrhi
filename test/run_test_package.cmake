@@ -92,7 +92,12 @@ message(STATUS "[test_package] Running test for ${CONFIG}...")
 # Multi-config generators (MSVC) put exe in CONFIG subdir
 # Single-config generators (Ninja, Make) put it at top level
 if(WIN32)
-    set(TEST_EXE "${TEST_BUILD_DIR}/${CONFIG}/test_package_exe.exe")
+    # Try single-config (Ninja) first, fall back to multi-config (VS)
+    if(EXISTS "${TEST_BUILD_DIR}/test_package_exe.exe")
+        set(TEST_EXE "${TEST_BUILD_DIR}/test_package_exe.exe")
+    else()
+        set(TEST_EXE "${TEST_BUILD_DIR}/${CONFIG}/test_package_exe.exe")
+    endif()
 else()
     # Try single-config first, fall back to multi-config
     if(EXISTS "${TEST_BUILD_DIR}/test_package_exe")
