@@ -63,7 +63,7 @@
 if(MSVC AND VDEPS_DYNAMIC_RUNTIME)
        set(_vrhi_lib_platform "${_vrhi_lib_platform}_md")
    endif()
-  set(VRHI_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_vrhi_lib_platform}_$<LOWER_CASE:$<CONFIG>>")
+  set(VRHI_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_vrhi_lib_platform}_$<IF:$<CONFIG:RelWithDebInfo>,release,$<LOWER_CASE:$<CONFIG>>>")
  
    # -----------------------------------------------------------------------------
    # Compiler Options
