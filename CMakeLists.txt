@@ -175,7 +175,11 @@ endif()
 
 # Determine platform tag for local lib paths
 if( WIN32 )
-    set( VRHI_PLATFORM_TAG "win" )
+    if( VDEPS_USE_LLVM )
+        set( VRHI_PLATFORM_TAG "win_llvm" )
+    else()
+        set( VRHI_PLATFORM_TAG "win" )
+    endif()
 elseif( UNIX AND NOT APPLE )
     set( VRHI_PLATFORM_TAG "linux" )
 else()

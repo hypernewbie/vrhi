@@ -355,7 +355,7 @@ jobs:
       - name: Configure CMake (MT Debug)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_mt_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVDEPS_DYNAMIC_RUNTIME=OFF
+          cmake -S . -B build_mt_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVDEPS_DYNAMIC_RUNTIME=OFF -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
 
       - name: Build (MT Debug)
         if: matrix.is_windows
@@ -364,7 +364,7 @@ jobs:
       - name: Configure CMake (MT Release)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_mt_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVDEPS_DYNAMIC_RUNTIME=OFF
+          cmake -S . -B build_mt_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVDEPS_DYNAMIC_RUNTIME=OFF -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
 
       - name: Build (MT Release)
         if: matrix.is_windows
@@ -373,7 +373,7 @@ jobs:
       - name: Configure CMake (MD Debug)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_md_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVDEPS_DYNAMIC_RUNTIME=ON
+          cmake -S . -B build_md_debug ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug -DVDEPS_DYNAMIC_RUNTIME=ON -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
 
       - name: Build (MD Debug)
         if: matrix.is_windows
@@ -382,7 +382,7 @@ jobs:
       - name: Configure CMake (MD Release)
         if: matrix.is_windows
         run: |
-          cmake -S . -B build_md_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVDEPS_DYNAMIC_RUNTIME=ON
+          cmake -S . -B build_md_release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVDEPS_DYNAMIC_RUNTIME=ON -DVDEPS_USE_LLVM=${{ matrix.install_llvm }}
 
       - name: Build (MD Release)
         if: matrix.is_windows
