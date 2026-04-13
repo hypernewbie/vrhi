@@ -20,9 +20,10 @@ endif()
 
 # Helper macro for building a single dependency
 macro(vdeps_build_dep TARGET_NAME DEP_NAME TARGET_SUFFIX EXTRA_ARGS)
+    separate_arguments(_VDEPS_EXTRA_ARGS NATIVE_COMMAND "${EXTRA_ARGS}")
     add_custom_target(${TARGET_NAME}_${TARGET_SUFFIX}
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_LIST_DIR}/../vdeps.py"
-                --build --auto-skip ${EXTRA_ARGS} "${DEP_NAME}"
+                --build --auto-skip ${_VDEPS_EXTRA_ARGS} "${DEP_NAME}"
         WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."
         USES_TERMINAL
         COMMENT "Building vdeps dependency: ${DEP_NAME} (${TARGET_SUFFIX})"
