@@ -1509,6 +1509,18 @@ uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout )
     return h;
 }
 
+uint64_t vhHashVertexAttributeDesc( int location, const nvrhi::VertexAttributeDesc& attr, uint64_t h )
+{
+    h = komihash( &location,           sizeof( location ),           h );
+    h = komihash( &attr.format,        sizeof( attr.format ),        h );
+    h = komihash( &attr.arraySize,     sizeof( attr.arraySize ),     h );
+    h = komihash( &attr.bufferIndex,   sizeof( attr.bufferIndex ),   h );
+    h = komihash( &attr.offset,        sizeof( attr.offset ),        h );
+    h = komihash( &attr.elementStride, sizeof( attr.elementStride ), h );
+    h = komihash( &attr.isInstanced,   sizeof( attr.isInstanced ),   h );
+    return h;
+}
+
 static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
 {
     static_assert( sizeof( nvrhi::RenderState ) == 144, "nvrhi::RenderState size mismatch" );

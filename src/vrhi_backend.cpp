@@ -666,13 +666,42 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 }
 
                 s_attributes.push_back( attr );
-                attrHash = komihash( &def.location,   sizeof( def.location ),   attrHash );
-                attrHash = komihash( &attr.format,    sizeof( attr.format ),    attrHash );
-                attrHash = komihash( &attr.arraySize, sizeof( attr.arraySize ), attrHash );
-                attrHash = komihash( &attr.bufferIndex, sizeof( attr.bufferIndex ), attrHash );
-                attrHash = komihash( &attr.offset,    sizeof( attr.offset ),    attrHash );
-                attrHash = komihash( &attr.elementStride, sizeof( attr.elementStride ), attrHash );
-                attrHash = komihash( &attr.isInstanced, sizeof( attr.isInstanced ), attrHash );
+                attrHash = vhHashVertexAttributeDesc( def.location, attr, attrHash );
+            }
+        }
+
+        // nvrhi's createInputLayout assigns Vulkan locations sequentially (0,1,2,...) by array index.
+        // If the bound attributes use sparse locations (e.g. 0-5, 8-11), expand s_attributes into a
+        // dense array of size maxLocation+1 so that array index equals Vulkan location.
+        {
+            int maxLocation = 0;
+            for ( int i = 0; i < s_locationTableUsedCount; ++i )
+                maxLocation = std::max( maxLocation, s_locationTableUsed[i] );
+
+            if ( !s_attributes.empty() && ( int ) s_attributes.size() < maxLocation + 1 )
+            {
+                static std::vector< nvrhi::VertexAttributeDesc > s_denseAttributes;
+                s_denseAttributes.assign( maxLocation + 1, {} );
+
+                for ( int i = 0; i < s_locationTableUsedCount; ++i )
+                    s_denseAttributes[ s_locationTableUsed[i] ] = s_attributes[i];
+
+                const uint32_t binding0Stride = s_attributes[0].elementStride;
+                for ( int loc = 0; loc <= maxLocation; ++loc )
+                {
+                    if ( s_locationTable[loc] )
+                        continue;
+                    auto& pad         = s_denseAttributes[loc];
+                    pad.name          = "PAD";
+                    pad.format        = nvrhi::Format::R8_UINT;
+                    pad.elementStride = binding0Stride;
+                }
+
+                s_attributes.swap( s_denseAttributes );
+
+                attrHash = 0;
+                for ( int loc = 0; loc <= maxLocation; ++loc )
+                    attrHash = vhHashVertexAttributeDesc( loc, s_attributes[loc], attrHash );
             }
         }
 

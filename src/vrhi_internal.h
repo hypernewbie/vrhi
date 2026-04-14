@@ -476,6 +476,7 @@ uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayo
 uint64_t vhHashShaderDebugName( nvrhi::ShaderHandle shader );
 uint64_t vhHashShaderSPIRV( const std::vector< uint32_t >& spirv );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );
+uint64_t vhHashVertexAttributeDesc( int location, const nvrhi::VertexAttributeDesc& attr, uint64_t h );
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc );
 uint64_t vhHashGlobalUniform( const vhGlobalUniform& u );
 uint64_t vhHashWorldUniform( const vhWorldUniform& u );

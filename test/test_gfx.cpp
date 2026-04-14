@@ -2142,6 +2142,73 @@ VSOutput main(VSInput input, uint id : SV_VulkanVertexID) {
     vhDestroyShader( ps );
 }
 
+// -------------------------------------------------------------------------------------------------
+// Sparse Vertex Location Test
+// -------------------------------------------------------------------------------------------------
+
+UTEST_F( Graphics, SparseVertexLocations )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+    }
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    static const char* vsSource = R"(
+struct VSInput {
+    [vk::location(0)] float3 pos;
+    [vk::location(3)] float4 col;
+};
+struct VSOutput {
+    float4 pos : SV_Position;
+    float4 col : COLOR;
+};
+VSOutput main(VSInput input) {
+    VSOutput output;
+    output.pos = float4(input.pos, 1.0);
+    output.col = input.col;
+    return output;
+}
+)";
+
+    // Two buffers with a gap in locations: ATTR0 on binding 0, ATTR3 on binding 1 (gap at 1, 2).
+    float positions[] = { -1.0f, -1.0f, 0.0f,  1.0f, -1.0f, 0.0f,  -1.0f, 1.0f, 0.0f };
+    float colours[]   = { 0.0f, 1.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f, 1.0f };
+
+    vhBuffer vb0 = CreateTestVB( "float3 ATTR0", positions, sizeof( positions ) );
+    vhBuffer vb1 = CreateTestVB( "float4 ATTR3", colours,   sizeof( colours ) );
+
+    vhShader vs = CreateTestShader( vsSource, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    vhProgram program = vhCreateGfxProgram( vs, ps );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb0, 0 )
+         .SetVertexBuffer( vb1, 1 )
+         .SetDebugFlags( VRHI_STATE_DEBUG_ALL )
+         .SetProgram( program );
+
+    vhStateId sid = 1450;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    vhFinish();
+
+    EXPECT_TRUE( VerifyPixel( rt, 4, 16, 0xFF00FF00 ) ); // Green
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb0 );
+    vhDestroyBuffer( vb1 );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+}
+
 // --------------------------------------------------------------------------
 // Benchmark: 2000 Draw Calls
 // Measures CPU-side overhead for draw call submission (backend processing)
