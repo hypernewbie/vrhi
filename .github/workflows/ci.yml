@@ -210,6 +210,43 @@ jobs:
   # ==========================================================================
   # Release Job - runs on tag pushes only
   # ==========================================================================
+  #
+  # IMPORTANT NOTES FOR FUTURE MAINTAINERS:
+  #
+  # 1. SHELL COMPATIBILITY: Steps that run on ALL platforms (no `if:`) must
+  #    only use commands that work in both bash and pwsh. Windows default
+  #    shell is pwsh, Linux/macOS is bash. Use explicit `shell: pwsh` or
+  #    `shell: bash` when mixing. Do NOT use PowerShell cmdlets (New-Item,
+  #    Copy-Item, Get-ChildItem, Test-Path, Write-Host) without `shell: pwsh`.
+  #    Do NOT use bash syntax (mkdir -p, [ -d ], 2>/dev/null, ls -la)
+  #    without an `if:` guard or `shell: bash`.
+  #
+  # 2. NINJA vs VISUAL STUDIO OUTPUT LAYOUT: VS (multi-config) puts build
+  #    outputs in <build_dir>/<Config>/ subdirs (e.g. build_mt_release/
+  #    RelWithDebInfo/vrhi.lib). Ninja (single-config) puts them directly
+  #    in <build_dir>/ (e.g. build_mt_release/vrhi.lib). Any step that
+  #    copies build outputs MUST handle both layouts. Use Get-ChildItem
+  #    -Recurse to find files regardless of subdir structure. See also
+  #    test/run_test_package.cmake which has the same try-both logic.
+  #
+  # 3. PLATFORM LIB SUBDIRS: vdeps.py outputs libraries to directories
+  #    like lib/win_release, lib/win_llvm_debug, lib/win_md_release, etc.
+  #    The platform prefix MUST match between vdeps.py, CMakeLists.txt,
+  #    and this workflow. Use matrix.platform_lib_subdir (not hardcoded
+  #    "win") to construct lib paths. Windows LLVM uses "win_llvm", not "win".
+  #
+  # 4. RELWITHDEBINFO vs RELEASE: On Windows, "release" builds use CMake
+  #    config type RelWithDebInfo (for PDB generation). But vdeps.py names
+  #    output dirs with "release" (e.g. lib/win_release). CMakeLists.txt
+  #    maps RelWithDebInfo -> "release" via a $<IF:> generator expression.
+  #    Do NOT assume $<LOWER_CASE:$<CONFIG>> produces "release" -- it
+  #    produces "relwithdebinfo" which doesn't match vdeps output dirs.
+  #
+  # 5. VDEPS_USE_LLVM: Must be passed to ALL Windows CMake configure steps
+  #    so CMakeLists.txt can set VRHI_LIB_PLATFORM and VRHI_PLATFORM_TAG
+  #    to "win_llvm" instead of "win". Without this, the linker looks for
+  #    dependency libs in lib/win_* instead of lib/win_llvm_*.
+  #
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/')
@@ -235,6 +272,7 @@ jobs:
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe"
             zip_name: vrhi-${{ github.ref_name }}-windows-llvm-x64
+            # MUST be "win_llvm" not "win" -- vdeps.py outputs to lib/win_llvm_*
             platform_lib_subdir: "win_llvm"
             is_windows: true
             install_llvm: true
@@ -351,6 +389,8 @@ jobs:
 
       # =========================================================================
       # Windows: Build all four vrhi variants (MT Debug/Release, MD Debug/Release)
+      # NOTE: -DVDEPS_USE_LLVM is required on every configure step so
+      # CMakeLists.txt resolves lib paths to win_llvm_* for LLVM builds.
       # =========================================================================
       - name: Configure CMake (MT Debug)
         if: matrix.is_windows
@@ -418,6 +458,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path package/lib
 
+      # NOTE: vrhi lib names are: vrhi.lib (MT release), vrhid.lib (MT debug),
+      # vrhi_md.lib (MD release), vrhi_mdd.lib (MD debug). No underscore
+      # before the trailing 'd' -- it's vrhi_mdd not vrhi_md_d.
       - name: Copy vrhi Libraries (Windows MT)
         if: matrix.is_windows
         shell: pwsh
@@ -448,6 +491,8 @@ jobs:
           $p = Get-ChildItem -Path "build_md_debug" -Filter "vrhi_mdd.pdb" -Recurse | Select-Object -First 1
           if ($p) { Copy-Item $p.FullName "package/lib/vrhi_mdd.pdb" -Force }
 
+      # NOTE: Use matrix.platform_lib_subdir for lib paths, NOT hardcoded "win".
+      # Windows MSVC uses "win", Windows LLVM uses "win_llvm".
       - name: Copy Dependency Libraries (Windows MT)
         if: matrix.is_windows
         shell: pwsh
