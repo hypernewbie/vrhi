@@ -109,7 +109,6 @@ void vhEnableRenderDoc()
 
 #ifdef _WIN32
     HMODULE mod = GetModuleHandleA( "renderdoc.dll" );
-    if ( !mod ) mod = LoadLibraryA( "renderdoc.dll" );
 
     if ( !mod )
     {
