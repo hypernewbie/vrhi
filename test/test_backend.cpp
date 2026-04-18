@@ -1787,6 +1787,90 @@ UTEST( Backend, VertexBindingInstancedTransmission )
     vhFlush();
 }
 
+UTEST( Backend, VertexBindingInstancedAutoDetectFromLayout )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // 1) Auto-detect on: :i in layout string sets isInstanced without manual assignment
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateVertexBuffer( buf, "TestVBAutoDetect", vhAllocMem( 1024 ), "float4 ATTR0" );
+    vhFlush();
+
+    vhState state;
+    vhStateId sid = 9990;
+    state.SetVertexBuffer( buf, 1, 0, 0, 100, "float4:i ATTR8 float4:i ATTR9" );
+
+    vhSetState( sid, state );
+    vhFlush();
+
+    EXPECT_TRUE( vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid, 1 ) );
+
+    // 2) Auto-detect off: no :i in layout string keeps isInstanced false
+    vhState state2;
+    vhStateId sid2 = 9991;
+    state2.SetVertexBuffer( buf, 0, 0, 0, 100, "float3 float2" );
+
+    vhSetState( sid2, state2 );
+    vhFlush();
+
+    EXPECT_FALSE( vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid2, 0 ) );
+
+    // 3) Null / empty layout: no crash, isInstanced stays false
+    vhState state3;
+    vhStateId sid3 = 9992;
+    state3.SetVertexBuffer( buf, 2, 0, 0, 100, nullptr );
+
+    vhSetState( sid3, state3 );
+    vhFlush();
+
+    EXPECT_FALSE( vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid3, 2 ) );
+
+    vhState state4;
+    vhStateId sid4 = 9993;
+    state4.SetVertexBuffer( buf, 3, 0, 0, 100, "" );
+
+    vhSetState( sid4, state4 );
+    vhFlush();
+
+    EXPECT_FALSE( vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid4, 3 ) );
+
+    // 4) Sticky-state flip: :i then no :i on same state + same stream flips isInstanced back
+    vhState state5;
+    vhStateId sid5 = 9994;
+    state5.SetVertexBuffer( buf, 0, 0, 0, 100, "float4:i ATTR8" );
+    EXPECT_TRUE( state5.vertexBindings[0].isInstanced );
+    state5.SetVertexBuffer( buf, 0, 0, 0, 100, "float3 ATTR0" );
+    EXPECT_FALSE( state5.vertexBindings[0].isInstanced );
+
+    vhSetState( sid5, state5 );
+    vhFlush();
+
+    EXPECT_FALSE( vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid5, 0 ) );
+
+    // 5) Mixed-rate layout: any :i present sets isInstanced = true
+    vhState state6;
+    vhStateId sid6 = 9995;
+    state6.SetVertexBuffer( buf, 0, 0, 0, 100, "float4:i ATTR8 float4 ATTR9" );
+
+    vhSetState( sid6, state6 );
+    vhFlush();
+
+    EXPECT_TRUE( vhCmdBackendStateTest::GetVertexBindingIsInstanced( sid6, 0 ) );
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid2, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid3, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid4, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid5, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid6, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
 struct TestAllocDestructionMarker
 {
     static constexpr uint64_t kMagic = 0xDEADBEEF;

@@ -24,6 +24,7 @@
 // Define this if you have these in PCH already.
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <functional>
@@ -1853,6 +1854,7 @@ struct vhState
         if ( stream >= vertexBindings.size() ) vertexBindings.resize( stream + 1 );
         vertexBindings[stream] = { buffer, stream, startVertex, numVertices, offset };
         vertexBindings[stream].layoutOverride = layoutOverride ? layoutOverride : "";
+        vertexBindings[stream].isInstanced = ( layoutOverride && strstr( layoutOverride, ":i" ) ) ? true : false;
         dirty |= VRHI_DIRTY_VERTEX_INDEX;
         return *this;
     }
