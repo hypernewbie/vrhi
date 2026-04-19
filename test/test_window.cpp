@@ -42,9 +42,9 @@
 
 UTEST( Window, SwapchainClear )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.headless )
     {
-        UTEST_SKIP( "Window tests not supported in Null RHI mode" );
+        UTEST_SKIP( "Window tests not supported in null/headless mode" );
     }
 #if defined(__linux__)
     if ( std::getenv( "DISPLAY" ) == nullptr )
@@ -137,9 +137,9 @@ UTEST( Window, SwapchainClear )
 
 UTEST( Window, ResizeSwapchain )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.headless )
     {
-        UTEST_SKIP( "Window tests not supported in Null RHI mode" );
+        UTEST_SKIP( "Window tests not supported in null/headless mode" );
     }
 #if defined(__linux__)
     if ( std::getenv( "DISPLAY" ) == nullptr )

@@ -761,6 +761,19 @@ struct VIDL_vhCmdSetStateDepthBias
         : id(_id), bias(_bias), clamp(_clamp), slopeScaled(_slopeScaled) {}
 };
 
+struct VIDL_vhCmdSetStateVertexBindings
+{
+    static constexpr uint64_t kMagic = 0xF0CC7FE0;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    const std::vector< vhState::VertexBinding > bindings;
+
+    VIDL_vhCmdSetStateVertexBindings() = default;
+
+    VIDL_vhCmdSetStateVertexBindings(vhStateId _id, const std::vector< vhState::VertexBinding >& _bindings)
+        : id(_id), bindings(_bindings) {}
+};
+
 struct VIDL_vhCmdSetStateVertexBuffer
 {
     static constexpr uint64_t kMagic = 0xF0E68F37;
@@ -1033,6 +1046,7 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateVertexBindings( VIDL_vhCmdSetStateVertexBindings* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) { (void) cmd; };
@@ -1279,6 +1293,10 @@ struct VIDLHandler
         case 0x3290E5BB:
             HandleLogFunction("Handle_vhCmdSetStateDepthBias");
             Handle_vhCmdSetStateDepthBias( (VIDL_vhCmdSetStateDepthBias*) cmd );
+            break;
+        case 0xF0CC7FE0:
+            HandleLogFunction("Handle_vhCmdSetStateVertexBindings");
+            Handle_vhCmdSetStateVertexBindings( (VIDL_vhCmdSetStateVertexBindings*) cmd );
             break;
         case 0xF0E68F37:
             HandleLogFunction("Handle_vhCmdSetStateVertexBuffer");

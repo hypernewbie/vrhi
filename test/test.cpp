@@ -71,6 +71,10 @@ int main( int argc, const char* const argv[] )
             g_vhInit.nullMode = true;
             g_vhInit.headless = true;
         }
+        else if ( strcmp( argv[i], "--headless" ) == 0 )
+        {
+            g_vhInit.headless = true;
+        }
     }
 
 #ifndef NDEBUG

@@ -80,6 +80,11 @@ void vhCmdSetStateDepthBias( vhStateId id, int bias, float clamp, float slopeSca
     vhCmdEnqueue( new VIDL_vhCmdSetStateDepthBias( id, bias, clamp, slopeScaled ) );
 }
 
+void vhCmdSetStateVertexBindings( vhStateId id, const std::vector< vhState::VertexBinding >& bindings )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBindings( id, bindings ) );
+}
+
 void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num, const vhVertexLayout& layoutOverride, bool isInstanced )
 {
     vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, offset, start, num, layoutOverride, isInstanced ) );
@@ -186,11 +191,7 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
 
     if ( dirty & VRHI_DIRTY_VERTEX_INDEX )
     {
-        for ( uint8_t i = 0; i < ( uint8_t ) state.vertexBindings.size(); ++i )
-        {
-            const auto& b = state.vertexBindings[i];
-            vhCmdSetStateVertexBuffer( id, i, b.buffer, b.byteOffset, b.startVertex, b.numVertices, b.layoutOverride, b.isInstanced );
-        }
+        vhCmdSetStateVertexBindings( id, state.vertexBindings );
         vhCmdSetStateIndexBuffer( id, state.indexBinding.buffer, state.indexBinding.byteOffset, state.indexBinding.firstIndex, state.indexBinding.numIndices );
     }
 

@@ -3431,6 +3431,12 @@ void vhCmdBackendState::Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBi
     state.slopeScaledDepthBias = cmd->slopeScaled;
 }
 
+void vhCmdBackendState::Handle_vhCmdSetStateVertexBindings( VIDL_vhCmdSetStateVertexBindings* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    backendStates[cmd->id].vertexBindings = cmd->bindings;
+}
+
 void vhCmdBackendState::Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );

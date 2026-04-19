@@ -436,6 +436,7 @@ public:
     void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) override;
     void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override;
     void Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd ) override;
+    void Handle_vhCmdSetStateVertexBindings( VIDL_vhCmdSetStateVertexBindings* cmd ) override;
     void Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd ) override;
     void Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd ) override;
     void Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd ) override;

@@ -178,6 +178,15 @@ public:
         }
         return false;
     }
+
+    static size_t GetVertexBindingsSize( vhStateId id )
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto it = g_vhCmdBackendState.backendStates.find( id );
+        if ( it != g_vhCmdBackendState.backendStates.end() )
+            return it->second.vertexBindings.size();
+        return 0;
+    }
 };
 
 
@@ -2119,4 +2128,189 @@ UTEST( Backend, CommandArenaOverflowFallback )
     ASSERT_TRUE( largeAlloc != nullptr );
 
     arena.Shutdown();
+}
+
+UTEST( Backend, VertexBindingSnapshotFlushShrinks )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    vhCmdBackendStateTest::Init();
+
+    // Phase A: Bind 3 vertex streams, flush via vhSetState
+    vhBuffer vb0 = vhAllocBuffer();
+    vhBuffer vb1 = vhAllocBuffer();
+    vhBuffer vb2 = vhAllocBuffer();
+
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb0, bbuf );
+    }
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb1, bbuf );
+    }
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb2, bbuf );
+    }
+
+    vhStateId sid = 42;
+    vhState state;
+    state.SetVertexBuffer( vb0, 0, 0, 0, 256 );
+    state.SetVertexBuffer( vb1, 1, 0, 0, 128 );
+    state.SetVertexBuffer( vb2, 2, 0, 0, 64 );
+    vhSetState( sid, state );
+    vhFlush();
+
+    // Backend should have exactly 3 bindings
+    EXPECT_EQ( vhCmdBackendStateTest::GetVertexBindingsSize( sid ), 3u );
+
+    // Phase B: Shrink to 1 binding via vhSetState with VRHI_DIRTY_VERTEX_INDEX
+    state.vertexBindings.clear();
+    state.vertexBindings.resize( 1 );
+    state.vertexBindings[0] = { vb0, 0, 0, 0, 0, {}, false };
+    state.dirty |= VRHI_DIRTY_VERTEX_INDEX;
+
+    vhSetState( sid, state );
+    vhFlush();
+
+    // The bug: backend vertexBindings vector should shrink to 1, not retain 3
+    EXPECT_EQ( vhCmdBackendStateTest::GetVertexBindingsSize( sid ), 1u );
+
+    // Cleanup
+    vhDestroyBuffer( vb0 );
+    vhDestroyBuffer( vb1 );
+    vhDestroyBuffer( vb2 );
+    vhCmdBackendStateTest::Shutdown();
+    vhFinish();
+}
+
+UTEST( Backend, VertexBindingSnapshotFlushEmpty )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    vhCmdBackendStateTest::Init();
+
+    // Bind 2 vertex streams
+    vhBuffer vb0 = vhAllocBuffer();
+    vhBuffer vb1 = vhAllocBuffer();
+
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb0, bbuf );
+    }
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb1, bbuf );
+    }
+
+    vhStateId sid = 43;
+    vhState state;
+    state.SetVertexBuffer( vb0, 0, 0, 0, 256 );
+    state.SetVertexBuffer( vb1, 1, 0, 0, 128 );
+    vhSetState( sid, state );
+    vhFlush();
+
+    EXPECT_EQ( vhCmdBackendStateTest::GetVertexBindingsSize( sid ), 2u );
+
+    // Clear all vertex bindings
+    state.vertexBindings.clear();
+    state.dirty |= VRHI_DIRTY_VERTEX_INDEX;
+    vhSetState( sid, state );
+    vhFlush();
+
+    EXPECT_EQ( vhCmdBackendStateTest::GetVertexBindingsSize( sid ), 0u );
+
+    vhDestroyBuffer( vb0 );
+    vhDestroyBuffer( vb1 );
+    vhCmdBackendStateTest::Shutdown();
+    vhFinish();
+}
+
+UTEST( Backend, VertexBindingSnapshotFlushGrows )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    vhCmdBackendStateTest::Init();
+
+    // Start with 1 binding
+    vhBuffer vb0 = vhAllocBuffer();
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb0, bbuf );
+    }
+
+    vhStateId sid = 44;
+    vhState state;
+    state.SetVertexBuffer( vb0, 0, 0, 0, 256 );
+    vhSetState( sid, state );
+    vhFlush();
+
+    EXPECT_EQ( vhCmdBackendStateTest::GetVertexBindingsSize( sid ), 1u );
+
+    // Grow to 3 bindings
+    vhBuffer vb1 = vhAllocBuffer();
+    vhBuffer vb2 = vhAllocBuffer();
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb1, bbuf );
+    }
+    {
+        auto bbuf = new vhBackendBuffer();
+        nvrhi::BufferDesc desc; desc.setByteSize( 1024 ); desc.setIsVertexBuffer( true );
+        { std::lock_guard< std::mutex > lock( g_nvRHIStateMutex ); bbuf->handle = g_vhDevice->createBuffer( desc ); }
+        bbuf->stride = 12;
+        vhCmdBackendStateTest::InsertDummyBuffer( vb2, bbuf );
+    }
+
+    state.vertexBindings.clear();
+    state.vertexBindings.resize( 3 );
+    state.vertexBindings[0] = { vb0, 0, 0, 0, 0, {}, false };
+    state.vertexBindings[1] = { vb1, 1, 0, 0, 0, {}, false };
+    state.vertexBindings[2] = { vb2, 2, 0, 0, 0, {}, false };
+    state.dirty |= VRHI_DIRTY_VERTEX_INDEX;
+
+    vhSetState( sid, state );
+    vhFlush();
+
+    EXPECT_EQ( vhCmdBackendStateTest::GetVertexBindingsSize( sid ), 3u );
+
+    vhDestroyBuffer( vb0 );
+    vhDestroyBuffer( vb1 );
+    vhDestroyBuffer( vb2 );
+    vhCmdBackendStateTest::Shutdown();
+    vhFinish();
 }
