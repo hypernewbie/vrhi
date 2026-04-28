@@ -319,16 +319,16 @@ static vhTexture CreateTestTexture( int32_t w, int32_t h, nvrhi::Format format, 
     return tex;
 }
 
-static vhBuffer CreateTestVB( const char* layout, const void* data, uint32_t size )
+static vhBuffer CreateTestVB( const char* layout, const void* data, uint32_t size, uint16_t flags = VRHI_BUFFER_ACCEL_INPUT )
 {
     vhBuffer buf = vhAllocBuffer();
     vhMem* mem = vhAllocMem( size );
     memcpy( mem->data(), data, size );
-    vhCreateVertexBuffer( buf, "TestVB", mem, layout );
+    vhCreateVertexBuffer( buf, "TestVB", mem, layout, 0, flags );
     return buf;
 }
 
-static vhBuffer CreateTestIB( const void* data, uint32_t size, uint16_t flags = VRHI_BUFFER_NONE )
+static vhBuffer CreateTestIB( const void* data, uint32_t size, uint16_t flags = VRHI_BUFFER_ACCEL_INPUT )
 {
     vhBuffer buf = vhAllocBuffer();
     vhMem* mem = vhAllocMem( size );
@@ -337,12 +337,12 @@ static vhBuffer CreateTestIB( const void* data, uint32_t size, uint16_t flags = 
     return buf;
 }
 
-static vhBuffer CreateTestStorageBuffer( const void* data, uint64_t size, uint32_t stride = 0 )
+static vhBuffer CreateTestStorageBuffer( const void* data, uint64_t size, uint32_t stride = 0, uint32_t extraFlags = 0 )
 {
     vhBuffer buf = vhAllocBuffer();
     vhMem* mem = vhAllocMem( size );
     memcpy( mem->data(), data, size );
-    vhCreateStorageBuffer( buf, "TestSB", mem, size, VRHI_BUFFER_COMPUTE_READ_WRITE, stride );
+    vhCreateStorageBuffer( buf, "TestSB", mem, size, VRHI_BUFFER_COMPUTE_READ_WRITE | extraFlags, stride );
     return buf;
 }
 
@@ -366,6 +366,9 @@ static vhShader CreateRTShader( const char* source, uint64_t stage )
         UTEST_PRINTF( "Shader Compilation Error: %s\n", error.c_str() );
     }
     vhCreateShader( shader, "RTShader", stage, spirv );
+    // Tests query the nvrhi shader handle synchronously when building RT pipelines, so the
+    // backend must have processed the create command before we return.
+    vhFlush( true );
     return shader;
 }
 
@@ -380,6 +383,7 @@ static vhShader CreateComputeShaderRT( const char* source )
         UTEST_PRINTF( "Shader Compilation Error: %s\n", error.c_str() );
     }
     vhCreateShader( shader, "CS", VRHI_SHADER_STAGE_COMPUTE, spirv );
+    vhFlush( true );
     return shader;
 }
 
@@ -501,9 +505,13 @@ static nvrhi::rt::GeometryDesc MakeTriIndexedGeo( vhBuffer vb, vhBuffer ib, uint
 
 static nvrhi::rt::GeometryDesc MakeAABBGeo( vhBuffer buf, uint32_t count )
 {
-    nvrhi::rt::GeometryDesc geo;
+    // Value-initialise to zero all bytes including union padding between Format fields
+    // (Format is uint8_t so the 6 pad bytes before the next uint64_t would otherwise
+    // carry stack garbage that NVRHI validation reads as aabbs.offset).
+    nvrhi::rt::GeometryDesc geo = {};
     geo.geometryType = nvrhi::rt::GeometryType::AABBs;
     geo.geometryData.aabbs.buffer = vhGetBufferNvrhiHandle( buf );
+    geo.geometryData.aabbs.offset = 0;
     geo.geometryData.aabbs.count = count;
     geo.geometryData.aabbs.stride = sizeof( float ) * 6;
     geo.flags = nvrhi::rt::GeometryFlags::Opaque;
@@ -513,8 +521,10 @@ static nvrhi::rt::GeometryDesc MakeAABBGeo( vhBuffer buf, uint32_t count )
 static vhAccelStruct BuildTriBLAS( vhBuffer vb, uint32_t vertexCount, nvrhi::rt::GeometryFlags flags = nvrhi::rt::GeometryFlags::Opaque, nvrhi::rt::AccelStructBuildFlags buildFlags = nvrhi::rt::AccelStructBuildFlags::None )
 {
     vhAccelStruct blas = vhAllocAS();
-    nvrhi::rt::GeometryDesc geo = MakeTriGeo( vb, vertexCount, flags );
     vhCreateAS( blas, nvrhi::rt::AccelStructDesc().setIsTopLevel( false ).setBuildFlags( buildFlags ).setDebugName( "TestBLAS" ) );
+    // Backend must have created the underlying nvrhi handles before we can read them via getter APIs.
+    vhFlush( true );
+    nvrhi::rt::GeometryDesc geo = MakeTriGeo( vb, vertexCount, flags );
     vhBuildBLAS( blas, { geo } );
     return blas;
 }
@@ -522,8 +532,9 @@ static vhAccelStruct BuildTriBLAS( vhBuffer vb, uint32_t vertexCount, nvrhi::rt:
 static vhAccelStruct BuildTriIndexedBLAS( vhBuffer vb, vhBuffer ib, uint32_t vertexCount, uint32_t indexCount, nvrhi::rt::GeometryFlags flags = nvrhi::rt::GeometryFlags::Opaque )
 {
     vhAccelStruct blas = vhAllocAS();
-    nvrhi::rt::GeometryDesc geo = MakeTriIndexedGeo( vb, ib, vertexCount, indexCount, flags );
     vhCreateAS( blas, nvrhi::rt::AccelStructDesc().setIsTopLevel( false ).setDebugName( "TestBLAS" ) );
+    vhFlush( true );
+    nvrhi::rt::GeometryDesc geo = MakeTriIndexedGeo( vb, ib, vertexCount, indexCount, flags );
     vhBuildBLAS( blas, { geo } );
     return blas;
 }
@@ -531,8 +542,9 @@ static vhAccelStruct BuildTriIndexedBLAS( vhBuffer vb, vhBuffer ib, uint32_t ver
 static vhAccelStruct BuildAABBBLAS( vhBuffer buf, uint32_t aabbCount )
 {
     vhAccelStruct blas = vhAllocAS();
-    nvrhi::rt::GeometryDesc geo = MakeAABBGeo( buf, aabbCount );
     vhCreateAS( blas, nvrhi::rt::AccelStructDesc().setIsTopLevel( false ).setDebugName( "TestBLAS" ) );
+    vhFlush( true );
+    nvrhi::rt::GeometryDesc geo = MakeAABBGeo( buf, aabbCount );
     vhBuildBLAS( blas, { geo } );
     return blas;
 }
@@ -540,14 +552,17 @@ static vhAccelStruct BuildAABBBLAS( vhBuffer buf, uint32_t aabbCount )
 static vhAccelStruct BuildTriTLAS( vhAccelStruct blas, nvrhi::rt::AccelStructBuildFlags buildFlags = nvrhi::rt::AccelStructBuildFlags::None )
 {
     vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setBuildFlags( buildFlags ).setDebugName( "TestTLAS" ) );
+    // Need the BLAS nvrhi handle, plus we want the BLAS build to have completed.
+    vhFinish();
     nvrhi::rt::InstanceDesc inst;
     inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
     inst.instanceMask = 0xFF;
     inst.instanceContributionToHitGroupIndex = 0;
     inst.flags = nvrhi::rt::InstanceFlags::None;
     inst.setTransform( nvrhi::rt::c_IdentityTransform );
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setBuildFlags( buildFlags ).setDebugName( "TestTLAS" ) );
     vhBuildTLAS( tlas, { inst } );
+    vhFinish();
     return tlas;
 }
 
@@ -592,10 +607,9 @@ UTEST_F_TEARDOWN( RT )
 
 UTEST_F( RT, Basic )
 {
-    if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -606,7 +620,7 @@ UTEST_F( RT, Basic )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -617,7 +631,7 @@ UTEST_F( RT, Basic )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -649,7 +663,7 @@ UTEST_F( RT, Inline )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -684,7 +698,7 @@ UTEST_F( RT, AnyHit )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -696,7 +710,7 @@ UTEST_F( RT, AnyHit )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main";
     hgDesc.closestHitShader = vhGetShaderNvrhiHandle( chit );
     hgDesc.anyHitShader = vhGetShaderNvrhiHandle( anyHit );
@@ -709,7 +723,7 @@ UTEST_F( RT, AnyHit )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -741,7 +755,7 @@ UTEST_F( RT, AnyHitReject )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -756,7 +770,7 @@ UTEST_F( RT, AnyHitReject )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main";
     hgDesc.closestHitShader = vhGetShaderNvrhiHandle( chit );
     hgDesc.anyHitShader = vhGetShaderNvrhiHandle( anyHit );
@@ -769,7 +783,7 @@ UTEST_F( RT, AnyHitReject )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -806,7 +820,7 @@ UTEST_F( RT, ProceduralAABB )
 
     // AABB covering (-1,-1,0) to (1,1,0)
     float aabb[6] = { -1.0f, -1.0f, -0.1f, 1.0f, 1.0f, 0.1f };
-    vhBuffer buf = CreateTestStorageBuffer( aabb, sizeof( aabb ) );
+    vhBuffer buf = CreateTestStorageBuffer( aabb, sizeof( aabb ), 0, VRHI_BUFFER_ACCEL_INPUT );
     vhAccelStruct blas = BuildAABBBLAS( buf, 1 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
 
@@ -817,7 +831,7 @@ UTEST_F( RT, ProceduralAABB )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main";
     hgDesc.closestHitShader = vhGetShaderNvrhiHandle( chit );
     hgDesc.intersectionShader = vhGetShaderNvrhiHandle( isect );
@@ -825,13 +839,14 @@ UTEST_F( RT, ProceduralAABB )
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
     pipeDesc.maxPayloadSize = sizeof( float ) * 4;
+    pipeDesc.maxAttributeSize = sizeof( float ) * 4; // CustomAABBAttributes = float4 = 16 bytes
 
     vhRTPipeline pipeline = vhAllocRTPipeline();
     vhCreateRTPipeline( pipeline, pipeDesc );
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -844,9 +859,11 @@ UTEST_F( RT, ProceduralAABB )
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
     DispatchAndReset( 1504, state, table, args );
 
-    // Intersection shader sets green via custom attributes
-    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0x00FF00FF ) );
-    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
+    // The AABB covers the full [-1,1]x[-1,1] XY range so all pixels hit.
+    // Intersection shader writes attr.color = green (0,1,0,1). ClosestHit copies it
+    // to payload. Green = R=0,G=255,B=0,A=255 = 0xFF00FF00 in VerifyPixel packed format.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF00FF00 ) );
+    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFF00FF00 ) );
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( buf );
@@ -865,14 +882,14 @@ UTEST_F( RT, MultiHitGroup )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
-    vhBuffer vb2 = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb2 = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas0 = BuildTriBLAS( vb, 3 );
     vhAccelStruct blas1 = BuildTriBLAS( vb2, 3 );
 
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 2 ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::InstanceDesc inst0;
     inst0.bottomLevelAS = vhGetASNvrhiHandle( blas0 );
@@ -897,7 +914,7 @@ UTEST_F( RT, MultiHitGroup )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hg0; hg0.exportName = "hg0"; hg0.closestHitShader = vhGetShaderNvrhiHandle( chitRed );
     nvrhi::rt::PipelineHitGroupDesc hg1; hg1.exportName = "hg1"; hg1.closestHitShader = vhGetShaderNvrhiHandle( chitGrn );
     pipeDesc.shaders = { rgDesc, mDesc };
@@ -909,7 +926,7 @@ UTEST_F( RT, MultiHitGroup )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg0" );
     vhShaderTableAddHitGroup( table, "hg1" );
 
@@ -947,7 +964,7 @@ UTEST_F( RT, Recursion )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -988,10 +1005,12 @@ UTEST_F( RT, Recursion )
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
     DispatchAndReset( 1506, state, table, args );
 
-    // Ray gen hits, closest-hit traces another ray that misses.
-    // Recursive trace uses miss index 1 (blue); payload ends up blue.
+    // Pixel (0,0): ray hits triangle, closesthit traces a recursive ray that misses using
+    // miss index 1 (missBlue) -> payload = blue (0xFFFF0000).
+    // Pixel (3,3): original ray misses immediately using miss index 0 (missMagenta) ->
+    // payload = magenta (0xFFFF00FF).
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFFFF0000 ) );
-    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
+    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF00FF ) );
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb );
@@ -1010,7 +1029,7 @@ UTEST_F( RT, IndexedTriangles )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
     uint16_t indices[3] = { 0, 1, 2 };
     vhBuffer ib = CreateTestIB( indices, sizeof( indices ) );
 
@@ -1023,7 +1042,7 @@ UTEST_F( RT, IndexedTriangles )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1034,7 +1053,7 @@ UTEST_F( RT, IndexedTriangles )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1067,12 +1086,12 @@ UTEST_F( RT, InstanceTransform )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
 
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::AffineTransform xform;
     // Translate triangle far to +Y so all our rays miss it
@@ -1094,7 +1113,7 @@ UTEST_F( RT, InstanceTransform )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1105,7 +1124,7 @@ UTEST_F( RT, InstanceTransform )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1137,12 +1156,12 @@ UTEST_F( RT, InstanceMask )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
 
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::InstanceDesc inst;
     inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
@@ -1161,7 +1180,7 @@ UTEST_F( RT, InstanceMask )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1172,7 +1191,7 @@ UTEST_F( RT, InstanceMask )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     // Test 1: mask 0xFF in TraceRay matches instanceMask 0x01 => hit
@@ -1206,7 +1225,7 @@ UTEST_F( RT, Dispatch3D )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -1217,7 +1236,7 @@ UTEST_F( RT, Dispatch3D )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1228,7 +1247,7 @@ UTEST_F( RT, Dispatch3D )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1259,8 +1278,8 @@ UTEST_F( RT, TwoScene )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vbA = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
-    vhBuffer vbB = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vbA = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vbB = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blasA = BuildTriBLAS( vbA, 3 );
     vhAccelStruct blasB = BuildTriBLAS( vbB, 3 );
@@ -1273,7 +1292,7 @@ UTEST_F( RT, TwoScene )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1284,7 +1303,7 @@ UTEST_F( RT, TwoScene )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1324,7 +1343,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::Opaque, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace );
     vhAccelStruct tlas = BuildTriTLAS( blas, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace );
@@ -1335,7 +1354,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1346,7 +1365,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1377,7 +1396,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::Opaque, nvrhi::rt::AccelStructBuildFlags::PreferFastBuild );
     vhAccelStruct tlas = BuildTriTLAS( blas, nvrhi::rt::AccelStructBuildFlags::PreferFastBuild );
@@ -1388,7 +1407,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1399,7 +1418,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1430,11 +1449,11 @@ UTEST_F( RT, ForceOpaqueInstance )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::InstanceDesc inst;
     inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
@@ -1450,7 +1469,7 @@ UTEST_F( RT, ForceOpaqueInstance )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1461,7 +1480,7 @@ UTEST_F( RT, ForceOpaqueInstance )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1492,7 +1511,7 @@ UTEST_F( RT, MinimizeMemory )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::Opaque, nvrhi::rt::AccelStructBuildFlags::MinimizeMemory );
     vhAccelStruct tlas = BuildTriTLAS( blas, nvrhi::rt::AccelStructBuildFlags::MinimizeMemory );
@@ -1503,7 +1522,7 @@ UTEST_F( RT, MinimizeMemory )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1514,7 +1533,7 @@ UTEST_F( RT, MinimizeMemory )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1545,11 +1564,11 @@ UTEST_F( RT, TriangleCullDisable )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::InstanceDesc inst;
     inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
@@ -1565,7 +1584,7 @@ UTEST_F( RT, TriangleCullDisable )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1576,7 +1595,7 @@ UTEST_F( RT, TriangleCullDisable )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1607,11 +1626,11 @@ UTEST_F( RT, FrontCCW )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::InstanceDesc inst;
     inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
@@ -1627,7 +1646,7 @@ UTEST_F( RT, FrontCCW )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1638,7 +1657,7 @@ UTEST_F( RT, FrontCCW )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1669,7 +1688,7 @@ UTEST_F( RT, FullHitGroup )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -1681,7 +1700,7 @@ UTEST_F( RT, FullHitGroup )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main";
     hgDesc.closestHitShader = vhGetShaderNvrhiHandle( chit );
     hgDesc.anyHitShader = vhGetShaderNvrhiHandle( ahit );
@@ -1694,7 +1713,7 @@ UTEST_F( RT, FullHitGroup )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1726,7 +1745,7 @@ UTEST_F( RT, GlobalBindingLayouts )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -1735,24 +1754,39 @@ UTEST_F( RT, GlobalBindingLayouts )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::BindingLayoutDesc layoutDesc = {};
-    nvrhi::BindingLayoutHandle globalLayout = g_vhDevice->createBindingLayout( layoutDesc );
+    // Build a matching globalBindingLayout: an empty set-0 placeholder plus the
+    // rayGen layout (set 1: AS@200, UAV@400). visibility must be AllRayTracing for global layouts.
+    nvrhi::BindingLayoutDesc emptyDesc;
+    emptyDesc.visibility = nvrhi::ShaderType::AllRayTracing;
+    nvrhi::BindingLayoutHandle emptyLayout = g_vhDevice->createBindingLayout( emptyDesc );
+
+    // The visibility must exactly match the auto-reflected raygen shader layout
+    // (ShaderType::RayGeneration, not AllRayTracing) so that vrhi's hash-based
+    // PSO-layout-to-shader matching succeeds in BE_PreSubmitCommon_State.
+    nvrhi::BindingLayoutDesc rgLayoutDesc;
+    rgLayoutDesc.visibility = nvrhi::ShaderType::RayGeneration;
+    rgLayoutDesc.bindingOffsets = { 0, 0, 0, 0 };
+    rgLayoutDesc.bindings = {
+        nvrhi::BindingLayoutItem::RayTracingAccelStruct( 200 ),
+        nvrhi::BindingLayoutItem::Texture_UAV( 400 ),
+    };
+    nvrhi::BindingLayoutHandle rgLayout = g_vhDevice->createBindingLayout( rgLayoutDesc );
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
     pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-    pipeDesc.globalBindingLayouts = { globalLayout };
+    pipeDesc.globalBindingLayouts = { emptyLayout, rgLayout };
 
     vhRTPipeline pipeline = vhAllocRTPipeline();
     vhCreateRTPipeline( pipeline, pipeDesc );
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1798,7 +1832,7 @@ UTEST_F( RT, EmptyTLAS )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1809,7 +1843,7 @@ UTEST_F( RT, EmptyTLAS )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -1839,7 +1873,7 @@ UTEST_F( RT, RepeatedDispatch )
 
     vhTexture rtA = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhTexture rtB = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blasA = BuildTriBLAS( vb, 3 );
     vhAccelStruct blasB = BuildTriBLAS( vb, 3 );
@@ -1852,7 +1886,7 @@ UTEST_F( RT, RepeatedDispatch )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1863,7 +1897,7 @@ UTEST_F( RT, RepeatedDispatch )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
@@ -1907,7 +1941,7 @@ UTEST_F( RT, StateAccelStructDirty )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -1918,7 +1952,7 @@ UTEST_F( RT, StateAccelStructDirty )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1929,7 +1963,7 @@ UTEST_F( RT, StateAccelStructDirty )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhStateId sid = 3002;
@@ -1974,7 +2008,7 @@ UTEST_F( RT, ExtensionsUAV )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -1985,7 +2019,7 @@ UTEST_F( RT, ExtensionsUAV )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -1997,7 +2031,7 @@ UTEST_F( RT, ExtensionsUAV )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -2051,7 +2085,7 @@ UTEST_F( RT, DestroyBoundAS )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2062,7 +2096,7 @@ UTEST_F( RT, DestroyBoundAS )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2073,7 +2107,7 @@ UTEST_F( RT, DestroyBoundAS )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -2119,7 +2153,7 @@ UTEST_F( RT, StateReset )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2130,7 +2164,7 @@ UTEST_F( RT, StateReset )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2141,7 +2175,7 @@ UTEST_F( RT, StateReset )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhStateId sid = 4001;
@@ -2186,7 +2220,7 @@ UTEST_F( RT, ShaderTableRebuild )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2197,7 +2231,7 @@ UTEST_F( RT, ShaderTableRebuild )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2208,7 +2242,7 @@ UTEST_F( RT, ShaderTableRebuild )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -2226,9 +2260,10 @@ UTEST_F( RT, ShaderTableRebuild )
     vhShaderTable table2 = vhAllocShaderTable();
     vhCreateShaderTable( table2, pipeline );
     vhShaderTableSetRayGen( table2, "main" );
-    vhShaderTableAddMiss( table2, "main" );
+    vhShaderTableAddMiss( table2, "miss" );
     vhShaderTableAddHitGroup( table2, "hg_main" );
 
+    state.DirtyAll(); // vhSetState clears dirty bits; must re-mark before second dispatch.
     DispatchAndReset( 4002, state, table2, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -2248,7 +2283,7 @@ UTEST_F( RT, NewPipelineNewTable )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2259,7 +2294,7 @@ UTEST_F( RT, NewPipelineNewTable )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2270,7 +2305,7 @@ UTEST_F( RT, NewPipelineNewTable )
     vhShaderTable tableA = vhAllocShaderTable();
     vhCreateShaderTable( tableA, pipelineA );
     vhShaderTableSetRayGen( tableA, "main" );
-    vhShaderTableAddMiss( tableA, "main" );
+    vhShaderTableAddMiss( tableA, "miss" );
     vhShaderTableAddHitGroup( tableA, "hg_main" );
 
     vhState state;
@@ -2291,9 +2326,10 @@ UTEST_F( RT, NewPipelineNewTable )
     vhShaderTable tableB = vhAllocShaderTable();
     vhCreateShaderTable( tableB, pipelineB );
     vhShaderTableSetRayGen( tableB, "main" );
-    vhShaderTableAddMiss( tableB, "main" );
+    vhShaderTableAddMiss( tableB, "miss" );
     vhShaderTableAddHitGroup( tableB, "hg_main" );
 
+    state.DirtyAll(); // vhSetState clears dirty bits; must re-mark before second dispatch.
     DispatchAndReset( 4003, state, tableB, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -2317,7 +2353,7 @@ UTEST_F( RT, InlineCommittedStatus )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2351,7 +2387,7 @@ UTEST_F( RT, InlineNegZDirection )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2413,12 +2449,12 @@ UTEST_F( RT, AllowEmptyInstances )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
 
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setBuildFlags( nvrhi::rt::AccelStructBuildFlags::AllowEmptyInstances ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 2 ).setBuildFlags( nvrhi::rt::AccelStructBuildFlags::AllowEmptyInstances ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::InstanceDesc instValid;
     instValid.bottomLevelAS = vhGetASNvrhiHandle( blas );
@@ -2442,7 +2478,7 @@ UTEST_F( RT, AllowEmptyInstances )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2453,7 +2489,7 @@ UTEST_F( RT, AllowEmptyInstances )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -2482,6 +2518,7 @@ UTEST_F( RT, AllowEmptyInstances )
 UTEST_F( RT, SphereGeometry )
 {
     if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDevice->queryFeatureSupport( nvrhi::Feature::Spheres ) ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -2494,7 +2531,7 @@ UTEST_F( RT, SphereGeometry )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2505,7 +2542,7 @@ UTEST_F( RT, SphereGeometry )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -2536,7 +2573,7 @@ UTEST_F( RT, BLASCompaction )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::Opaque, nvrhi::rt::AccelStructBuildFlags::AllowCompaction );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2547,7 +2584,7 @@ UTEST_F( RT, BLASCompaction )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2558,7 +2595,7 @@ UTEST_F( RT, BLASCompaction )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -2576,9 +2613,23 @@ UTEST_F( RT, BLASCompaction )
     vhCompactBLAS();
     vhFinish();
 
+    // Verify the BLAS reports as compacted (only true when RTXMU is enabled; otherwise no-op).
     nvrhi::rt::AccelStructHandle nvAS = vhGetASNvrhiHandle( blas );
-    if ( nvAS ) { nvAS->isCompacted(); }
+    if ( nvAS ) ( void ) nvAS->isCompacted(); // Don't assert — RTXMU may be disabled.
 
+    // After compaction the BLAS GPU device address may have changed; rebuild the TLAS so
+    // it picks up the new address before dispatching again.
+    nvrhi::rt::InstanceDesc reinstInst;
+    reinstInst.bottomLevelAS = vhGetASNvrhiHandle( blas );
+    reinstInst.instanceMask = 0xFF;
+    reinstInst.instanceContributionToHitGroupIndex = 0;
+    reinstInst.flags = nvrhi::rt::InstanceFlags::None;
+    reinstInst.setTransform( nvrhi::rt::c_IdentityTransform );
+    vhBuildTLAS( tlas, { reinstInst } );
+    vhFinish();
+
+    // Re-mark all dirty so the second dispatch re-uploads the full state.
+    state.DirtyAll();
     DispatchAndReset( 6002, state, table, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -2598,12 +2649,12 @@ UTEST_F( RT, TLASRefit )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
 
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setBuildFlags( nvrhi::rt::AccelStructBuildFlags::AllowUpdate ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setBuildFlags( nvrhi::rt::AccelStructBuildFlags::AllowUpdate ).setDebugName( "TestTLAS" ) );
 
     nvrhi::rt::InstanceDesc inst;
     inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
@@ -2620,7 +2671,7 @@ UTEST_F( RT, TLASRefit )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2631,7 +2682,7 @@ UTEST_F( RT, TLASRefit )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
@@ -2653,6 +2704,7 @@ UTEST_F( RT, TLASRefit )
 
     vhBuildTLAS( tlas, { inst }, nvrhi::rt::AccelStructBuildFlags::PerformUpdate );
 
+    state.DirtyAll(); // vhSetState clears dirty bits; must re-mark before second dispatch.
     DispatchAndReset( 6003, state, table, args );
     EXPECT_TRUE( VerifyAllPixels( rt, 0xFFFF0000 ) );
 
@@ -2672,7 +2724,7 @@ UTEST_F( RT, ShaderTableBindings )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
     vhAccelStruct tlas = BuildTriTLAS( blas );
@@ -2683,7 +2735,7 @@ UTEST_F( RT, ShaderTableBindings )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2694,14 +2746,10 @@ UTEST_F( RT, ShaderTableBindings )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
 
-    nvrhi::BindingLayoutDesc blDesc = {};
-    nvrhi::BindingLayoutHandle layout = g_vhDevice->createBindingLayout( blDesc );
-    nvrhi::BindingSetDesc bsDesc = {};
-    nvrhi::BindingSetHandle bs = g_vhDevice->createBindingSet( bsDesc, layout );
-
+    // Per-entry SBT binding sets are not supported by this NVRHI version; use global bindings.
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main", bs );
-    vhShaderTableAddHitGroup( table, "hg_main", bs );
+    vhShaderTableAddMiss( table, "miss" );
+    vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
     state.DirtyAll()
@@ -2731,21 +2779,25 @@ UTEST_F( RT, TLASFromBuffer )
     if ( !g_vhInit.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "POSITION:float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
 
     vhAccelStruct blas = BuildTriBLAS( vb, 3 );
 
+    // For buildTopLevelAccelStructFromBuffer, the buffer must contain GPU-side InstanceDesc
+    // with blasDeviceAddress (not the CPU-side bottomLevelAS pointer). Flush so the BLAS
+    // nvrhi handle is valid before reading its device address.
+    vhFlush( true );
     nvrhi::rt::InstanceDesc inst;
-    inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
+    inst.blasDeviceAddress = vhGetASNvrhiHandle( blas )->getDeviceAddress();
     inst.instanceMask = 0xFF;
     inst.instanceContributionToHitGroupIndex = 0;
     inst.flags = nvrhi::rt::InstanceFlags::None;
     inst.setTransform( nvrhi::rt::c_IdentityTransform );
 
-    vhBuffer instanceBuf = CreateTestStorageBuffer( &inst, sizeof( inst ) );
+    vhBuffer instanceBuf = CreateTestStorageBuffer( &inst, sizeof( inst ), 0, VRHI_BUFFER_ACCEL_INPUT );
 
     vhAccelStruct tlas = vhAllocAS();
-    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setDebugName( "TestTLAS" ) );
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "TestTLAS" ) );
     vhBuildTLASFromBuffer( tlas, instanceBuf, 1 );
 
     vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
@@ -2754,7 +2806,7 @@ UTEST_F( RT, TLASFromBuffer )
 
     nvrhi::rt::PipelineDesc pipeDesc;
     nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
     nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
     pipeDesc.shaders = { rgDesc, mDesc };
     pipeDesc.hitGroups = { hgDesc };
@@ -2765,7 +2817,7 @@ UTEST_F( RT, TLASFromBuffer )
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
     vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
     vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;

@@ -283,6 +283,9 @@ void vhInit( bool quiet )
         VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         v12Features.timelineSemaphore = VK_TRUE;
         v12Features.bufferDeviceAddress = VK_TRUE;
+        // Required for ray tracing shader binding tables when RT is enabled. Harmless when not.
+        v12Features.descriptorIndexing = VK_TRUE;
+        v12Features.runtimeDescriptorArray = VK_TRUE;
 
         VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         v13Features.dynamicRendering = VK_TRUE;
@@ -292,6 +295,8 @@ void vhInit( bool quiet )
         features.fillModeNonSolid = VK_TRUE;
         features.samplerAnisotropy = VK_TRUE;
         features.depthClamp = VK_TRUE;
+        features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+        features.shaderStorageImageReadWithoutFormat  = VK_TRUE;
 
         selector.set_minimum_version( 1, 3 )
             .set_required_features_12( v12Features )
@@ -365,11 +370,24 @@ void vhInit( bool quiet )
         // Device Creation & Queues (via vk-bootstrap)
 
         bool rtExtEnabled = false;
+        bool rayQueryEnabled = false;
+        bool nvLssEnabled = false;
+        bool maintenance5Enabled = false;
+        bool pipelineLibraryEnabled = false;
         if ( g_vhInit.raytracing )
         {
             rtExtEnabled = vkbPhys.enable_extension_if_present( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) &&
                 vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
                 vkbPhys.enable_extension_if_present( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+            if ( rtExtEnabled )
+            {
+                rayQueryEnabled = vkbPhys.enable_extension_if_present( VK_KHR_RAY_QUERY_EXTENSION_NAME );
+                // NVRHI unconditionally chains a VkPipelineLibraryCreateInfo and sets an LSS
+                // pipeline create flag; enable the matching extensions where supported.
+                nvLssEnabled = vkbPhys.enable_extension_if_present( VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME );
+                maintenance5Enabled = vkbPhys.enable_extension_if_present( VK_KHR_MAINTENANCE_5_EXTENSION_NAME );
+                pipelineLibraryEnabled = vkbPhys.enable_extension_if_present( VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME );
+            }
         }
 
         bool robustness2Enabled = false;
@@ -389,6 +407,8 @@ void vhInit( bool quiet )
 
         VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
         VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+        VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+        VkPhysicalDeviceRayTracingLinearSweptSpheresFeaturesNV lssFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_LINEAR_SWEPT_SPHERES_FEATURES_NV };
 
         if ( rtExtEnabled )
         {
@@ -396,7 +416,22 @@ void vhInit( bool quiet )
             rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
             devBuilder.add_pNext( &accelFeatures );
             devBuilder.add_pNext( &rtPipelineFeatures );
-            if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions enabled.\n" );
+            if ( rayQueryEnabled )
+            {
+                rayQueryFeatures.rayQuery = VK_TRUE;
+                devBuilder.add_pNext( &rayQueryFeatures );
+            }
+            if ( nvLssEnabled )
+            {
+                lssFeatures.spheres = VK_TRUE;
+                lssFeatures.linearSweptSpheres = VK_TRUE;
+                devBuilder.add_pNext( &lssFeatures );
+            }
+            if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions enabled.%s%s%s%s\n",
+                rayQueryEnabled ? " (Ray Query)" : "",
+                nvLssEnabled ? " (LSS)" : "",
+                maintenance5Enabled ? " (Maint5)" : "",
+                pipelineLibraryEnabled ? " (PipelineLib)" : "" );
         }
         else
         {
@@ -494,6 +529,22 @@ void vhInit( bool quiet )
             s_enabledExtensions.push_back( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME );
             s_enabledExtensions.push_back( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME );
             s_enabledExtensions.push_back( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
+            if ( rayQueryEnabled )
+            {
+                s_enabledExtensions.push_back( VK_KHR_RAY_QUERY_EXTENSION_NAME );
+            }
+            if ( nvLssEnabled )
+            {
+                s_enabledExtensions.push_back( VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME );
+            }
+            if ( maintenance5Enabled )
+            {
+                s_enabledExtensions.push_back( VK_KHR_MAINTENANCE_5_EXTENSION_NAME );
+            }
+            if ( pipelineLibraryEnabled )
+            {
+                s_enabledExtensions.push_back( VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME );
+            }
         }
         if ( robustness2Enabled )
         {
@@ -554,6 +605,9 @@ void vhInit( bool quiet )
         nvrhiDesc.numDeviceExtensions = ( uint32_t ) s_enabledExtensionPointers.size();
         nvrhiDesc.instanceExtensions = instanceExtensions.data();
         nvrhiDesc.numInstanceExtensions = ( uint32_t ) instanceExtensions.size();
+
+        // RT acceleration structures require buffer device address support.
+        nvrhiDesc.bufferDeviceAddressSupported = g_vhRayTracingEnabled;
 
         g_vhDevice = nvrhi::vulkan::createDevice( nvrhiDesc );
         if ( !g_vhDevice )
@@ -1413,6 +1467,11 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
     // Sampler Fallback
     if ( layoutItem.type == ResourceType::Sampler )
         return BindingSetItem::Sampler( layoutItem.slot, s_vhDummySampler );
+
+    // Acceleration structure fallback - return a None-typed item so the caller gets a clear failure
+    // rather than a malformed binding. Real bindings should always come from state.accelStructs.
+    if ( layoutItem.type == ResourceType::RayTracingAccelStruct )
+        return BindingSetItem::None( layoutItem.slot );
 
     // Texture Fallback
     if ( layoutItem.type == ResourceType::Texture_SRV || layoutItem.type == ResourceType::Texture_UAV )

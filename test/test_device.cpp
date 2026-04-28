@@ -129,8 +129,8 @@ UTEST( RHI, RayTracingControl )
     VRHI_LOG( "Ray Tracing Supported by HW: %s\n", g_vhRayTracingEnabled ? "YES" : "NO" );
     vhShutdown( g_testInitQuiet );
 
-    // Reset to default for other tests
-    g_vhInit.raytracing = false;
+    // Reset to default for other tests (raytracing defaults to true in vhInitData)
+    g_vhInit.raytracing = true;
 }
 
 UTEST( Allocator, FreeList )

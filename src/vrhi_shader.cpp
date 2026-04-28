@@ -114,6 +114,8 @@ bool vhReflectSpirv(
                 else
                     return isSRV ? nvrhi::ResourceType::StructuredBuffer_SRV : nvrhi::ResourceType::StructuredBuffer_UAV;
             }
+            case SPV_REFLECT_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
+                return nvrhi::ResourceType::RayTracingAccelStruct;
             default:
                 return nvrhi::ResourceType::None;
         }

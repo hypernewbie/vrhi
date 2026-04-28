@@ -31,9 +31,25 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <crtdbg.h>
 #endif // _WIN32
 #include "test.h"
 #include <vrhi.h>
+
+#ifdef _WIN32
+// Make assert/abort fail-fast in CI and headless runs instead of popping a blocking dialog.
+static void vhTestSilenceWin32Dialogs()
+{
+    SetErrorMode( SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX );
+    _set_abort_behavior( 0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT );
+    _CrtSetReportMode( _CRT_ASSERT, _CRTDBG_MODE_FILE );
+    _CrtSetReportFile( _CRT_ASSERT, _CRTDBG_FILE_STDERR );
+    _CrtSetReportMode( _CRT_ERROR, _CRTDBG_MODE_FILE );
+    _CrtSetReportFile( _CRT_ERROR, _CRTDBG_FILE_STDERR );
+    _CrtSetReportMode( _CRT_WARN, _CRTDBG_MODE_FILE );
+    _CrtSetReportFile( _CRT_WARN, _CRTDBG_FILE_STDERR );
+}
+#endif
 
 UTEST( Vrhi, Dummy )
 {
@@ -63,6 +79,10 @@ UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
 {
+#ifdef _WIN32
+    vhTestSilenceWin32Dialogs();
+#endif
+
     // Parse command line arguments
     for ( int i = 1; i < argc; ++i )
     {
@@ -81,6 +101,7 @@ int main( int argc, const char* const argv[] )
     g_vhInit.debug = true;
     g_vhInit.renderdoc = true;
     g_vhInit.markers = true;
+    g_vhInit.logBackendCmds = false;
     // g_vhInit.debugBlockWaitForBackend = true; // Enable this to test blocking backend mode.
 #endif
 

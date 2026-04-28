@@ -153,7 +153,7 @@ int32_t vhCmdBackendState::BE_Util_ResolveBindingSlot( const char* name, nvrhi::
     return -1;
 }
 
-bool vhCmdBackendState::BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics )
+bool vhCmdBackendState::BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics, bool useRT )
 {
     uint64_t stage = flags & VRHI_SHADER_STAGE_MASK;
     if ( ( stage == VRHI_SHADER_STAGE_COMPUTE ) && useCompute ) return true;
@@ -164,6 +164,12 @@ bool vhCmdBackendState::BE_Util_ShaderStageMatches( uint64_t flags, bool useComp
         stage == VRHI_SHADER_STAGE_GEOMETRY ||
         stage == VRHI_SHADER_STAGE_MESH ||
         stage == VRHI_SHADER_STAGE_AMPLIFICATION ) && useGraphics ) return true;
+    if ( ( stage == VRHI_SHADER_STAGE_RAYGEN ||
+        stage == VRHI_SHADER_STAGE_MISS ||
+        stage == VRHI_SHADER_STAGE_CLOSEST_HIT ||
+        stage == VRHI_SHADER_STAGE_ANY_HIT ||
+        stage == VRHI_SHADER_STAGE_INTERSECTION ||
+        stage == VRHI_SHADER_STAGE_CALLABLE ) && useRT ) return true;
     return false;
 }
 
@@ -1430,12 +1436,16 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             {
                 if ( !scache.baccel[i] ) continue;
                 const auto& binding = state.accelStructs[i];
-                if ( binding.slot == item.slot )
+                const bool slotMatches = ( binding.slot >= 0 ) && ( binding.slot == ( int32_t ) item.slot );
+                const bool nameMatches = ( binding.slot < 0 ) && binding.name && name && strcmp( binding.name, name ) == 0;
+                if ( slotMatches || nameMatches )
                 {
                     outItem = nvrhi::BindingSetItem::RayTracingAccelStruct( item.slot, scache.baccel[i]->handle.Get() );
+                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: AccelStruct found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
                     return true;
                 }
             }
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: AccelStruct not found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
             return false;
         }
         default:
@@ -1515,7 +1525,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         for ( int shaderIdx = 0; shaderIdx < shaderCount; ++shaderIdx )
         {
             auto shader = shaders[shaderIdx];
-            if ( !BE_Util_ShaderStageMatches( shader->flags, computeState != nullptr, graphicsState != nullptr ) )
+            if ( !BE_Util_ShaderStageMatches( shader->flags, computeState != nullptr, graphicsState != nullptr, rtState != nullptr ) )
                 continue;
 
             if ( !shader->layout )
@@ -1524,6 +1534,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 assert( !"NULL shader layout" );
                 continue;
             }
+
+            // Shaders with no reflected bindings have nothing to bind for; their descriptor set
+            // is filled with the shared empty layout in the PSO layout list and binds m_emptySet.
+            if ( shader->layout->getDesc() && shader->layout->getDesc()->bindings.empty() )
+                continue;
 
             // Match shader.layout to equivalent state->pipeline->getDesc().bindingLayouts->layout.
             assert( shader->layout->getDesc() );
@@ -1577,8 +1592,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto layoutDesc = layout->getDesc();
         assert( layoutDesc );
 
-        if ( layout == m_emptyLayout )
+        if ( layout == m_emptyLayout || ( layoutDesc && layoutDesc->bindings.empty() ) )
         {
+            // Either our shared empty layout or any user-provided layout with no bindings
+            // both use m_emptySet — two empty VkDescriptorSetLayouts with 0 bindings are
+            // always compatible regardless of visibility flags.
             if ( computeState )  computeState->addBindingSet( m_emptySet );
             if ( graphicsState ) graphicsState->addBindingSet( m_emptySet );
             if ( rtState )       rtState->bindings.push_back( m_emptySet );
@@ -2591,6 +2609,7 @@ vhBackendBuffer* vhCmdBackendState::Handle_vhCreateBufferCommon_Internal( const 
         .setCanHaveRawViews( !!( flags & VRHI_BUFFER_COMPUTE_READ ) )
         .setIsDrawIndirectArgs( !!( flags & VRHI_BUFFER_DRAW_INDIRECT ) )
         .setIsVirtual( !!( flags & VRHI_BUFFER_VIRTUAL ) )
+        .setIsAccelStructBuildInput( !!( flags & VRHI_BUFFER_ACCEL_INPUT ) )
         .setDebugName( ( name && name[0] ) ? name : temps );
 
     nvrhi::BufferHandle bhandle = nullptr;
@@ -3252,6 +3271,54 @@ void vhCmdBackendState::Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd 
 
     auto backend = backendRTPipelines[ cmd->pipeline ].get();
     backend->desc = cmd->desc;
+
+    // Auto-derive globalBindingLayouts from the RT shaders' reflected layouts if the caller did
+    // not supply any. Holes between stage descriptor sets are filled with the shared empty layout
+    // so that descriptor set compatibility holds for stages with no resources.
+    if ( backend->desc.globalBindingLayouts.empty() )
+    {
+        auto fnFindShader = [this]( nvrhi::IShader* needle ) -> vhBackendShader*
+        {
+            if ( !needle ) return nullptr;
+            for ( auto& kv : backendShaders )
+            {
+                if ( kv.second && kv.second->handle.Get() == needle ) return kv.second.get();
+            }
+            return nullptr;
+        };
+
+        std::vector< vhBackendShader* > rtShaders;
+        for ( const auto& s : backend->desc.shaders )
+        {
+            if ( auto* bs = fnFindShader( s.shader.Get() ) ) rtShaders.push_back( bs );
+        }
+        for ( const auto& hg : backend->desc.hitGroups )
+        {
+            if ( auto* bs = fnFindShader( hg.closestHitShader.Get() ) ) rtShaders.push_back( bs );
+            if ( auto* bs = fnFindShader( hg.anyHitShader.Get() ) ) rtShaders.push_back( bs );
+            if ( auto* bs = fnFindShader( hg.intersectionShader.Get() ) ) rtShaders.push_back( bs );
+        }
+
+        int maxSetIndex = 0;
+        for ( auto* s : rtShaders )
+        {
+            int setIdx = ( int ) vhGetDescriptorSetForStage( s->flags );
+            if ( setIdx > maxSetIndex ) maxSetIndex = setIdx;
+        }
+        for ( int i = 0; i <= maxSetIndex; ++i )
+        {
+            nvrhi::BindingLayoutHandle layout = m_emptyLayout;
+            for ( auto* s : rtShaders )
+            {
+                if ( i == ( int ) vhGetDescriptorSetForStage( s->flags ) && s->layout && s->layout->getDesc() && !s->layout->getDesc()->bindings.empty() )
+                {
+                    layout = s->layout;
+                    break;
+                }
+            }
+            backend->desc.globalBindingLayouts.push_back( layout );
+        }
+    }
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );

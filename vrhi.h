@@ -233,6 +233,9 @@ constexpr uint64_t VRHI_BUFFER_DRAW_INDIRECT  = 0x0400;
 constexpr uint64_t VRHI_BUFFER_ALLOW_RESIZE   = 0x0800;
 constexpr uint64_t VRHI_BUFFER_INDEX32        = 0x1000;
 constexpr uint64_t VRHI_BUFFER_VIRTUAL        = 0x2000;
+// Buffer is intended for use as a ray tracing acceleration structure build input (e.g. BLAS
+// vertex/index buffers, or raw AABB buffers for procedural geometry).
+constexpr uint64_t VRHI_BUFFER_ACCEL_INPUT    = 0x4000;
 constexpr uint64_t VRHI_BUFFER_COMPUTE_READ_WRITE = ( VRHI_BUFFER_COMPUTE_READ | VRHI_BUFFER_COMPUTE_WRITE );
 
 // --------------------------------------------------------------------------

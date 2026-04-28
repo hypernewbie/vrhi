@@ -110,6 +110,11 @@ void vhCmdSetStateBuffers( vhStateId id, const std::vector< vhState::BufferBindi
     vhCmdEnqueue( new VIDL_vhCmdSetStateBuffers( id, buffers ) );
 }
 
+void vhCmdSetStateAccelStructs( vhStateId id, const std::vector< vhState::AccelStructBinding >& accelStructs )
+{
+    vhCmdEnqueue( new VIDL_vhCmdSetStateAccelStructs( id, accelStructs ) );
+}
+
 void vhCmdSetStateConstants( vhStateId id, const std::vector< vhState::ConstantBufferValue >& constants )
 {
     vhCmdEnqueue( new VIDL_vhCmdSetStateConstants( id, constants ) );
@@ -204,6 +209,11 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     if ( dirty & VRHI_DIRTY_BUFFERS )
     {
         vhCmdSetStateBuffers( id, state.buffers );
+    }
+
+    if ( dirty & VRHI_DIRTY_ACCEL_STRUCT )
+    {
+        vhCmdSetStateAccelStructs( id, state.accelStructs );
     }
 
     if ( dirty & VRHI_DIRTY_CONSTANTS )

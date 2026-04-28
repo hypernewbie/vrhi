@@ -278,7 +278,7 @@ class vhCmdBackendState : public VIDLHandler
 
     int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader, bool debugLog = false );
 
-    bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics );
+    bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics, bool useRT = false );
 
 
 
