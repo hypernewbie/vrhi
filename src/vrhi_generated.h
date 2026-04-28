@@ -473,6 +473,26 @@ struct VIDL_vhCreateRTPipeline
         : pipeline(_pipeline), desc(_desc) {}
 };
 
+struct VIDL_vhCreateRTPipelineSimple
+{
+    static constexpr uint64_t kMagic = 0x01336815;
+    uint64_t MAGIC = kMagic;
+    vhRTPipeline pipeline;
+    vhShader rayGen;
+    vhShader miss;
+    vhShader closestHit;
+    vhShader anyHit;
+    vhShader intersection;
+    uint32_t maxPayloadSize;
+    uint32_t maxAttributeSize;
+    uint32_t maxRecursionDepth;
+
+    VIDL_vhCreateRTPipelineSimple() = default;
+
+    VIDL_vhCreateRTPipelineSimple(vhRTPipeline _pipeline, vhShader _rayGen, vhShader _miss, vhShader _closestHit, vhShader _anyHit, vhShader _intersection, uint32_t _maxPayloadSize, uint32_t _maxAttributeSize, uint32_t _maxRecursionDepth)
+        : pipeline(_pipeline), rayGen(_rayGen), miss(_miss), closestHit(_closestHit), anyHit(_anyHit), intersection(_intersection), maxPayloadSize(_maxPayloadSize), maxAttributeSize(_maxAttributeSize), maxRecursionDepth(_maxRecursionDepth) {}
+};
+
 struct VIDL_vhDestroyRTPipeline
 {
     static constexpr uint64_t kMagic = 0x5AA337AF;
@@ -1062,6 +1082,7 @@ struct VIDLHandler
     virtual void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateRTPipelineSimple( VIDL_vhCreateRTPipelineSimple* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) { (void) cmd; };
@@ -1249,6 +1270,10 @@ struct VIDLHandler
         case 0xF080D7EA:
             HandleLogFunction("Handle_vhCreateRTPipeline");
             Handle_vhCreateRTPipeline( (VIDL_vhCreateRTPipeline*) cmd );
+            break;
+        case 0x01336815:
+            HandleLogFunction("Handle_vhCreateRTPipelineSimple");
+            Handle_vhCreateRTPipelineSimple( (VIDL_vhCreateRTPipelineSimple*) cmd );
             break;
         case 0x5AA337AF:
             HandleLogFunction("Handle_vhDestroyRTPipeline");

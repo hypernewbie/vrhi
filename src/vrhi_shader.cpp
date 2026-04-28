@@ -934,6 +934,15 @@ vhRTPipeline vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::Pipelin
     return pipeline;
 }
 
+vhRTPipeline vhCreateRTPipelineSimple( vhRTPipeline pipeline, vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit, vhShader intersection, uint32_t maxPayloadSize, uint32_t maxAttributeSize, uint32_t maxRecursionDepth )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCreateRTPipelineSimple >( pipeline, rayGen, miss, closestHit, anyHit, intersection, maxPayloadSize, maxAttributeSize, maxRecursionDepth );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+
+    return pipeline;
+}
+
 void vhDestroyRTPipeline( vhRTPipeline pipeline )
 {
     std::lock_guard< std::mutex > lock( g_vhRTPipelineIDListMutex );

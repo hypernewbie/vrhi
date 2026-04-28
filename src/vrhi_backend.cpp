@@ -24,6 +24,7 @@
 #include "vrhi_backend.h"
 #include "vdeps/OffsetAllocator/offsetAllocator.hpp"
 #include <komihash/komihash.h>
+#include <set>
 
 vhCmdBackendState g_vhCmdBackendState;
 void vhCmdListFlushAll_DeviceStateLocked();
@@ -171,6 +172,33 @@ bool vhCmdBackendState::BE_Util_ShaderStageMatches( uint64_t flags, bool useComp
         stage == VRHI_SHADER_STAGE_INTERSECTION ||
         stage == VRHI_SHADER_STAGE_CALLABLE ) && useRT ) return true;
     return false;
+}
+
+nvrhi::BindingLayoutVector vhCmdBackendState::BE_Util_BuildStageIndexedLayouts( vhBackendShader* const* shaders, int shaderCount, bool useCompute, bool useGraphics, bool useRT )
+{
+    int maxSet = 0;
+    for ( int i = 0; i < shaderCount; ++i )
+    {
+        if ( !BE_Util_ShaderStageMatches( shaders[i]->flags, useCompute, useGraphics, useRT ) )
+            continue;
+        maxSet = std::max( maxSet, ( int ) vhGetDescriptorSetForStage( shaders[i]->flags ) );
+    }
+
+    nvrhi::BindingLayoutVector out;
+    for ( int set = 0; set <= maxSet; ++set )
+    {
+        nvrhi::BindingLayoutHandle pick = m_emptyLayout;
+        for ( int i = 0; i < shaderCount; ++i )
+        {
+            if ( !BE_Util_ShaderStageMatches( shaders[i]->flags, useCompute, useGraphics, useRT ) )
+                continue;
+            if ( ( int ) vhGetDescriptorSetForStage( shaders[i]->flags ) != set )
+                continue;
+            if ( shaders[i]->layout ) { pick = shaders[i]->layout; break; }
+        }
+        out.push_back( pick );
+    }
+    return out;
 }
 
 // Template helper removed - logic moved to vhTransientBuffer::Write
@@ -502,39 +530,12 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     assert( shaders && shaderCount > 0 );
     const vhBackendShader* vertexShader = nullptr;
 
-    // Add each shader's layout sequentially. Shaders determine their own registerSpace
-    // via reflection. NVRHI handles mapping layouts to descriptor sets.
-    vhProfile( "BE_PresubmitCommon_PipelineDesc_Layouts", true );
-    int maxSetIndex = 0;
-    for ( int idx = 0; idx < shaderCount; ++idx )
-    {
-        const auto& shader = *shaders[idx];
-        if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
-            continue;
-        int setIdx = ( int ) vhGetDescriptorSetForStage( shader.flags );
-            if ( setIdx > maxSetIndex ) maxSetIndex = setIdx;
-    }
-    vhProfile( "BE_PresubmitCommon_PipelineDesc_Layouts", false );
+    const bool useCompute = computePipelineDesc != nullptr;
+    const bool useGraphics = graphicsPipelineDesc != nullptr;
 
-    // Populate binding layouts sparsely
-    for ( int i = 0; i <= maxSetIndex; ++i )
+    auto layouts = BE_Util_BuildStageIndexedLayouts( shaders, shaderCount, useCompute, useGraphics, false );
+    for ( auto& layout : layouts )
     {
-        nvrhi::BindingLayoutHandle layout = m_emptyLayout;
- 
-        for ( int idx = 0; idx < shaderCount; ++idx )
-        {
-            const auto& shader = *shaders[idx];
-            if ( !BE_Util_ShaderStageMatches( shader.flags, computePipelineDesc != nullptr, graphicsPipelineDesc != nullptr ) )
-                continue;
-            
-            if ( i == ( int ) vhGetDescriptorSetForStage( shader.flags ) )
-            {
-                assert( shader.layout );
-                layout = shader.layout;
-                break;
-            }
-        }
-        
         if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( layout );
         if ( graphicsPipelineDesc ) graphicsPipelineDesc->addBindingLayout( layout );
     }
@@ -3294,6 +3295,27 @@ void vhCmdBackendState::Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd 
     auto backend = backendRTPipelines[ cmd->pipeline ].get();
     backend->desc = cmd->desc;
 
+    // Check for duplicate export names across shaders and hit groups.
+    {
+        std::set< std::string > seen;
+        for ( const auto& s : backend->desc.shaders )
+        {
+            if ( !s.exportName.empty() && !seen.insert( s.exportName ).second )
+            {
+                VRHI_ERR( "vhCreateRTPipeline() : Duplicate export name '%s'\n", s.exportName.c_str() );
+                return;
+            }
+        }
+        for ( const auto& hg : backend->desc.hitGroups )
+        {
+            if ( !hg.exportName.empty() && !seen.insert( hg.exportName ).second )
+            {
+                VRHI_ERR( "vhCreateRTPipeline() : Duplicate export name '%s'\n", hg.exportName.c_str() );
+                return;
+            }
+        }
+    }
+
     // Auto-derive globalBindingLayouts from the RT shaders' reflected layouts if the caller did
     // not supply any. Holes between stage descriptor sets are filled with the shared empty layout
     // so that descriptor set compatibility holds for stages with no resources.
@@ -3321,26 +3343,99 @@ void vhCmdBackendState::Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd 
             if ( auto* bs = fnFindShader( hg.intersectionShader.Get() ) ) rtShaders.push_back( bs );
         }
 
-        int maxSetIndex = 0;
-        for ( auto* s : rtShaders )
+        backend->desc.globalBindingLayouts = BE_Util_BuildStageIndexedLayouts( rtShaders.data(), ( int ) rtShaders.size(), false, false, true );
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        backend->handle = g_vhDevice->createRayTracingPipeline( backend->desc );
+        if ( !backend->handle )
         {
-            int setIdx = ( int ) vhGetDescriptorSetForStage( s->flags );
-            if ( setIdx > maxSetIndex ) maxSetIndex = setIdx;
-        }
-        for ( int i = 0; i <= maxSetIndex; ++i )
-        {
-            nvrhi::BindingLayoutHandle layout = m_emptyLayout;
-            for ( auto* s : rtShaders )
-            {
-                if ( i == ( int ) vhGetDescriptorSetForStage( s->flags ) && s->layout && s->layout->getDesc() && !s->layout->getDesc()->bindings.empty() )
-                {
-                    layout = s->layout;
-                    break;
-                }
-            }
-            backend->desc.globalBindingLayouts.push_back( layout );
+            VRHI_ERR( "vhCreateRTPipeline() : Failed to create raytracing pipeline!\n" );
         }
     }
+}
+
+void vhCmdBackendState::Handle_vhCreateRTPipelineSimple( VIDL_vhCreateRTPipelineSimple* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( cmd->pipeline == VRHI_INVALID_HANDLE ) return;
+    if ( cmd->rayGen == VRHI_INVALID_HANDLE || cmd->miss == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhCreateRTPipeline() : rayGen and miss shaders are required\n" );
+        return;
+    }
+
+    auto fnResolve = [this]( vhShader h ) -> vhBackendShader*
+    {
+        if ( h == VRHI_INVALID_HANDLE ) return nullptr;
+        auto it = backendShaders.find( h );
+        return ( it != backendShaders.end() && it->second ) ? it->second.get() : nullptr;
+    };
+
+    vhBackendShader* bsRayGen = fnResolve( cmd->rayGen );
+    vhBackendShader* bsMiss = fnResolve( cmd->miss );
+    vhBackendShader* bsClosestHit = fnResolve( cmd->closestHit );
+    vhBackendShader* bsAnyHit = fnResolve( cmd->anyHit );
+    vhBackendShader* bsIntersection = fnResolve( cmd->intersection );
+
+    if ( !bsRayGen || !bsRayGen->handle )
+    {
+        VRHI_ERR( "vhCreateRTPipeline() : rayGen shader not found or invalid\n" );
+        return;
+    }
+    if ( !bsMiss || !bsMiss->handle )
+    {
+        VRHI_ERR( "vhCreateRTPipeline() : miss shader not found or invalid\n" );
+        return;
+    }
+
+    if ( backendRTPipelines.find( cmd->pipeline ) == backendRTPipelines.end() )
+    {
+        backendRTPipelines[ cmd->pipeline ] = std::make_unique< vhBackendRTPipeline >();
+    }
+    auto backend = backendRTPipelines[ cmd->pipeline ].get();
+
+    // Build the NVRHI pipeline descriptor with fixed export names.
+    nvrhi::rt::PipelineDesc pipeDesc;
+    {
+        nvrhi::rt::PipelineShaderDesc rg;
+        rg.shader = bsRayGen->handle;
+        rg.exportName = "raygen";
+        nvrhi::rt::PipelineShaderDesc ms;
+        ms.shader = bsMiss->handle;
+        ms.exportName = "miss";
+        pipeDesc.shaders = { rg, ms };
+    }
+    if ( bsClosestHit && bsClosestHit->handle )
+    {
+        nvrhi::rt::PipelineHitGroupDesc hg;
+        hg.exportName = "hg";
+        hg.closestHitShader = bsClosestHit->handle;
+        hg.anyHitShader = bsAnyHit ? bsAnyHit->handle : nullptr;
+        hg.intersectionShader = bsIntersection ? bsIntersection->handle : nullptr;
+        if ( bsIntersection ) hg.isProceduralPrimitive = true;
+        pipeDesc.hitGroups = { hg };
+    }
+    pipeDesc.maxPayloadSize = cmd->maxPayloadSize;
+    pipeDesc.maxAttributeSize = cmd->maxAttributeSize;
+    pipeDesc.maxRecursionDepth = cmd->maxRecursionDepth;
+    backend->desc = pipeDesc;
+
+    // Store export names for shader table auto-population.
+    backend->raygenExport = "raygen";
+    backend->missExport = "miss";
+    backend->hitGroupExport = ( bsClosestHit && bsClosestHit->handle ) ? "hg" : "";
+
+    // Auto-derive global binding layouts.
+    std::vector< vhBackendShader* > rtShaders;
+    rtShaders.push_back( bsRayGen );
+    rtShaders.push_back( bsMiss );
+    if ( bsClosestHit ) rtShaders.push_back( bsClosestHit );
+    if ( bsAnyHit ) rtShaders.push_back( bsAnyHit );
+    if ( bsIntersection ) rtShaders.push_back( bsIntersection );
+    backend->desc.globalBindingLayouts = BE_Util_BuildStageIndexedLayouts( rtShaders.data(), ( int ) rtShaders.size(), false, false, true );
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -3399,6 +3494,15 @@ void vhCmdBackendState::Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cm
             VRHI_ERR( "vhCreateShaderTable() : Failed to create shader table!\n" );
             return;
         }
+
+        // Auto-populate from stored export names when the pipeline was created via the simple overload.
+        auto& pipeBackend = pipelineIt->second;
+        if ( !pipeBackend->raygenExport.empty() )
+            tableBackend->handle->setRayGenerationShader( pipeBackend->raygenExport.c_str() );
+        if ( !pipeBackend->missExport.empty() )
+            tableBackend->handle->addMissShader( pipeBackend->missExport.c_str() );
+        if ( !pipeBackend->hitGroupExport.empty() )
+            tableBackend->handle->addHitGroup( pipeBackend->hitGroupExport.c_str() );
     }
 
     backendShaderTables[table] = std::move( tableBackend );

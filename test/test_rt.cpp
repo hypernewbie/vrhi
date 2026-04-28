@@ -1579,24 +1579,13 @@ UTEST_F( RT, TriangleCullDisable )
     vhBuildTLAS( tlas, { inst } );
 
     vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
-    vhShader miss = CreateRTShader( g_missBlackHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
     vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
+    vhCreateRTPipeline( pipeline, rayGen, miss, closestHit );
     vhShaderTable table = vhAllocShaderTable();
     vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
 
     vhState state;
     state.DirtyAll()

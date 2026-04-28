@@ -202,6 +202,9 @@ struct vhBackendRTPipeline
     std::string name;
     nvrhi::rt::PipelineHandle handle;
     nvrhi::rt::PipelineDesc desc;
+    std::string raygenExport;
+    std::string missExport;
+    std::string hitGroupExport;
 };
 
 struct vhBackendShaderTable
@@ -281,6 +284,8 @@ class vhCmdBackendState : public VIDLHandler
     int32_t BE_Util_ResolveBindingSlot( const char* name, nvrhi::ResourceType type, vhBackendShader& shader, bool debugLog = false );
 
     bool BE_Util_ShaderStageMatches( uint64_t flags, bool useCompute, bool useGraphics, bool useRT = false );
+
+    nvrhi::BindingLayoutVector BE_Util_BuildStageIndexedLayouts( vhBackendShader* const* shaders, int shaderCount, bool useCompute, bool useGraphics, bool useRT );
 
 
 
@@ -417,6 +422,7 @@ public:
     void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) override;
     void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) override;
     void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) override;
+    void Handle_vhCreateRTPipelineSimple( VIDL_vhCreateRTPipelineSimple* cmd ) override;
     void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) override;
     void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) override;
     void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) override;

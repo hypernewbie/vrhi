@@ -1386,6 +1386,14 @@ void vhBuildTLASFromBuffer( vhAccelStruct tlas, vhBuffer instanceBuffer, uint32_
 // VIDL_GENERATE
 vhRTPipeline vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc );
 
+// VIDL_GENERATE
+vhRTPipeline vhCreateRTPipelineSimple( vhRTPipeline pipeline, vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit, vhShader intersection, uint32_t maxPayloadSize, uint32_t maxAttributeSize, uint32_t maxRecursionDepth );
+
+inline void vhCreateRTPipeline( vhRTPipeline pipeline, vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit = VRHI_INVALID_HANDLE, vhShader intersection = VRHI_INVALID_HANDLE, uint32_t maxPayloadSize = 16, uint32_t maxAttributeSize = 8, uint32_t maxRecursionDepth = 1 )
+{
+    vhCreateRTPipelineSimple( pipeline, rayGen, miss, closestHit, anyHit, intersection, maxPayloadSize, maxAttributeSize, maxRecursionDepth );
+}
+
 // Enqueues a command to destroy the raytracing pipeline.
 //
 // `pipeline` is the handle to the raytracing pipeline to be destroyed.

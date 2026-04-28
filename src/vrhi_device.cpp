@@ -1504,6 +1504,7 @@ uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc )
     h = komihash( &desc.visibility,                  sizeof( desc.visibility ),                  h );
     h = komihash( &desc.registerSpace,               sizeof( desc.registerSpace ),               h );
     h = komihash( &desc.registerSpaceIsDescriptorSet, sizeof( desc.registerSpaceIsDescriptorSet ), h );
+    h = komihash( &desc.bindingOffsets,               sizeof( desc.bindingOffsets ),               h );
 
     // Bulk-hash all binding items in one call. BindingLayoutItem is an 8-byte POD with no
     // pointer members, so the whole array is safe to treat as a flat byte span.
