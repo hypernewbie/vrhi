@@ -3004,6 +3004,9 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
         case VRHI_SHADER_STAGE_RAYGEN:        type = nvrhi::ShaderType::RayGeneration; break;
         case VRHI_SHADER_STAGE_MISS:          type = nvrhi::ShaderType::Miss; break;
         case VRHI_SHADER_STAGE_CLOSEST_HIT:   type = nvrhi::ShaderType::ClosestHit; break;
+        case VRHI_SHADER_STAGE_ANY_HIT:       type = nvrhi::ShaderType::AnyHit; break;
+        case VRHI_SHADER_STAGE_INTERSECTION:  type = nvrhi::ShaderType::Intersection; break;
+        case VRHI_SHADER_STAGE_CALLABLE:      type = nvrhi::ShaderType::Callable; break;
         case VRHI_SHADER_STAGE_MESH:          type = nvrhi::ShaderType::Mesh; break;
         case VRHI_SHADER_STAGE_AMPLIFICATION: type = nvrhi::ShaderType::Amplification; break;
     }
@@ -3187,10 +3190,54 @@ void vhCmdBackendState::Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd )
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        cmdlist->buildTopLevelAccelStruct( backend->handle, cmd->instances.data(), cmd->instances.size(), backend->desc.buildFlags );
+        nvrhi::rt::AccelStructBuildFlags flags = backend->desc.buildFlags | cmd->buildFlags;
+        cmdlist->buildTopLevelAccelStruct( backend->handle, cmd->instances.data(), cmd->instances.size(), flags );
     }
 }
 
+
+void vhCmdBackendState::Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdlist->compactBottomLevelAccelStructs();
+    }
+}
+
+void vhCmdBackendState::Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendAccelStructs.find( cmd->tlas );
+    if ( it == backendAccelStructs.end() )
+    {
+        VRHI_ERR( "vhBuildTLASFromBuffer() : TLAS %d not found!\n", cmd->tlas );
+        return;
+    }
+
+    auto backend = it->second.get();
+    if ( !backend->handle )
+    {
+        VRHI_ERR( "vhBuildTLASFromBuffer() : TLAS %d has no valid handle!\n", cmd->tlas );
+        return;
+    }
+
+    auto bufIt = backendBuffers.find( cmd->instanceBuffer );
+    if ( bufIt == backendBuffers.end() )
+    {
+        VRHI_ERR( "vhBuildTLASFromBuffer() : Buffer %d not found!\n", cmd->instanceBuffer );
+        return;
+    }
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdlist->buildTopLevelAccelStructFromBuffer( backend->handle, bufIt->second->handle.Get(), 0, cmd->numInstances, backend->desc.buildFlags );
+    }
+}
 
 void vhCmdBackendState::Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd )
 {
@@ -3332,6 +3379,23 @@ void vhCmdBackendState::Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHi
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         table->handle->addHitGroup( cmd->exportName ? cmd->exportName : "", cmd->bindingSet );
+    }
+}
+
+void vhCmdBackendState::Handle_vhShaderTableAddCallable( VIDL_vhShaderTableAddCallable* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendShaderTables.find( cmd->table );
+    if ( it == backendShaderTables.end() )
+    {
+        VRHI_ERR( "vhShaderTableAddCallable() : ShaderTable %d not found!\n", cmd->table );
+        return;
+    }
+    auto table = it->second.get();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        table->handle->addCallableShader( cmd->exportName ? cmd->exportName : "", cmd->bindingSet );
     }
 }
 

@@ -1358,9 +1358,23 @@ void vhBuildBLAS( vhAccelStruct blas, std::vector< nvrhi::rt::GeometryDesc > geo
 //
 // `tlas` is the handle to the TLAS.
 // `instances` is an array of NVRHI instance descriptors.
-// `instanceCount` is the number of instances.
+// `buildFlags` are optional per-build flags ORed with the flags stored in the AccelStructDesc.
 // VIDL_GENERATE
-void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > instances );
+void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > instances, nvrhi::rt::AccelStructBuildFlags buildFlags = nvrhi::rt::AccelStructBuildFlags::None );
+
+// Enqueues a command to compact all eligible bottom-level acceleration structures.
+//
+// Only BLASes created with AccelStructBuildFlags::AllowCompaction are eligible.
+// VIDL_GENERATE
+void vhCompactBLAS();
+
+// Enqueues a command to build a top-level acceleration structure from a GPU instance buffer.
+//
+// `tlas` is the handle to the TLAS.
+// `instanceBuffer` is a GPU buffer containing nvrhi::rt::InstanceDesc entries.
+// `numInstances` is the number of instances in the buffer.
+// VIDL_GENERATE
+void vhBuildTLASFromBuffer( vhAccelStruct tlas, vhBuffer instanceBuffer, uint32_t numInstances );
 
 // Enqueues a command to create a raytracing pipeline from a NVRHI descriptor.
 //
@@ -1416,6 +1430,14 @@ void vhShaderTableAddMiss( vhShaderTable table, const char* exportName, nvrhi::B
 // Shader resources are bound via the state's texture, buffer, and sampler bindings.
 // VIDL_GENERATE
 void vhShaderTableAddHitGroup( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet = nullptr );
+
+// Enqueues a command to add a callable shader to a shader table.
+//
+// `table` is the shader table handle.
+// `exportName` is the callable shader export name from the pipeline.
+// Shader resources are bound via the state's texture, buffer, and sampler bindings.
+// VIDL_GENERATE
+void vhShaderTableAddCallable( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet = nullptr );
 
 // Enqueues a command to dispatch rays.
 //

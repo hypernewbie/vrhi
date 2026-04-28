@@ -430,11 +430,34 @@ struct VIDL_vhBuildTLAS
     uint64_t MAGIC = kMagic;
     vhAccelStruct tlas;
     std::vector< nvrhi::rt::InstanceDesc > instances;
+    nvrhi::rt::AccelStructBuildFlags buildFlags = nvrhi::rt::AccelStructBuildFlags::None;
 
     VIDL_vhBuildTLAS() = default;
 
-    VIDL_vhBuildTLAS(vhAccelStruct _tlas, std::vector< nvrhi::rt::InstanceDesc > _instances)
-        : tlas(_tlas), instances(_instances) {}
+    VIDL_vhBuildTLAS(vhAccelStruct _tlas, std::vector< nvrhi::rt::InstanceDesc > _instances, nvrhi::rt::AccelStructBuildFlags _buildFlags)
+        : tlas(_tlas), instances(_instances), buildFlags(_buildFlags) {}
+};
+
+struct VIDL_vhCompactBLAS
+{
+    static constexpr uint64_t kMagic = 0xE525A23F;
+    uint64_t MAGIC = kMagic;
+
+    VIDL_vhCompactBLAS() = default;
+};
+
+struct VIDL_vhBuildTLASFromBuffer
+{
+    static constexpr uint64_t kMagic = 0x0C92113B;
+    uint64_t MAGIC = kMagic;
+    vhAccelStruct tlas;
+    vhBuffer instanceBuffer;
+    uint32_t numInstances;
+
+    VIDL_vhBuildTLASFromBuffer() = default;
+
+    VIDL_vhBuildTLASFromBuffer(vhAccelStruct _tlas, vhBuffer _instanceBuffer, uint32_t _numInstances)
+        : tlas(_tlas), instanceBuffer(_instanceBuffer), numInstances(_numInstances) {}
 };
 
 struct VIDL_vhCreateRTPipeline
@@ -526,6 +549,20 @@ struct VIDL_vhShaderTableAddHitGroup
     VIDL_vhShaderTableAddHitGroup() = default;
 
     VIDL_vhShaderTableAddHitGroup(vhShaderTable _table, const char* _exportName, nvrhi::BindingSetHandle _bindingSet)
+        : table(_table), exportName(_exportName), bindingSet(_bindingSet) {}
+};
+
+struct VIDL_vhShaderTableAddCallable
+{
+    static constexpr uint64_t kMagic = 0x1DDADDCC;
+    uint64_t MAGIC = kMagic;
+    vhShaderTable table;
+    const char* exportName;
+    nvrhi::BindingSetHandle bindingSet = nullptr;
+
+    VIDL_vhShaderTableAddCallable() = default;
+
+    VIDL_vhShaderTableAddCallable(vhShaderTable _table, const char* _exportName, nvrhi::BindingSetHandle _bindingSet)
         : table(_table), exportName(_exportName), bindingSet(_bindingSet) {}
 };
 
@@ -1022,6 +1059,8 @@ struct VIDLHandler
     virtual void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) { (void) cmd; };
+    virtual void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) { (void) cmd; };
+    virtual void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) { (void) cmd; };
@@ -1029,6 +1068,7 @@ struct VIDLHandler
     virtual void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) { (void) cmd; };
     virtual void Handle_vhShaderTableAddMiss( VIDL_vhShaderTableAddMiss* cmd ) { (void) cmd; };
     virtual void Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHitGroup* cmd ) { (void) cmd; };
+    virtual void Handle_vhShaderTableAddCallable( VIDL_vhShaderTableAddCallable* cmd ) { (void) cmd; };
     virtual void Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
@@ -1198,6 +1238,14 @@ struct VIDLHandler
             HandleLogFunction("Handle_vhBuildTLAS");
             Handle_vhBuildTLAS( (VIDL_vhBuildTLAS*) cmd );
             break;
+        case 0xE525A23F:
+            HandleLogFunction("Handle_vhCompactBLAS");
+            Handle_vhCompactBLAS( (VIDL_vhCompactBLAS*) cmd );
+            break;
+        case 0x0C92113B:
+            HandleLogFunction("Handle_vhBuildTLASFromBuffer");
+            Handle_vhBuildTLASFromBuffer( (VIDL_vhBuildTLASFromBuffer*) cmd );
+            break;
         case 0xF080D7EA:
             HandleLogFunction("Handle_vhCreateRTPipeline");
             Handle_vhCreateRTPipeline( (VIDL_vhCreateRTPipeline*) cmd );
@@ -1225,6 +1273,10 @@ struct VIDLHandler
         case 0xBBF55BF8:
             HandleLogFunction("Handle_vhShaderTableAddHitGroup");
             Handle_vhShaderTableAddHitGroup( (VIDL_vhShaderTableAddHitGroup*) cmd );
+            break;
+        case 0x1DDADDCC:
+            HandleLogFunction("Handle_vhShaderTableAddCallable");
+            Handle_vhShaderTableAddCallable( (VIDL_vhShaderTableAddCallable*) cmd );
             break;
         case 0x2AF23D52:
             HandleLogFunction("Handle_vhDispatchRays");

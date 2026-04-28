@@ -412,6 +412,8 @@ public:
     void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) override;
     void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) override;
     void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) override;
+    void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) override;
+    void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) override;
     void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) override;
     void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) override;
     void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) override;
@@ -419,6 +421,7 @@ public:
     void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) override;
     void Handle_vhShaderTableAddMiss( VIDL_vhShaderTableAddMiss* cmd ) override;
     void Handle_vhShaderTableAddHitGroup( VIDL_vhShaderTableAddHitGroup* cmd ) override;
+    void Handle_vhShaderTableAddCallable( VIDL_vhShaderTableAddCallable* cmd ) override;
     void Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd ) override;
     void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) override;
     void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) override;

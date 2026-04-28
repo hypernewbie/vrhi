@@ -337,7 +337,10 @@ const char* vhGetShaderProfile( uint64_t flags )
         case VRHI_SHADER_STAGE_GEOMETRY:      return "gs";
         case VRHI_SHADER_STAGE_RAYGEN:
         case VRHI_SHADER_STAGE_MISS:
-        case VRHI_SHADER_STAGE_CLOSEST_HIT:   return "lib";
+        case VRHI_SHADER_STAGE_CLOSEST_HIT:
+        case VRHI_SHADER_STAGE_ANY_HIT:
+        case VRHI_SHADER_STAGE_INTERSECTION:
+        case VRHI_SHADER_STAGE_CALLABLE:      return "lib";
         case VRHI_SHADER_STAGE_MESH:          return "ms";
         case VRHI_SHADER_STAGE_AMPLIFICATION: return "as";
     }
@@ -897,9 +900,23 @@ void vhBuildBLAS( vhAccelStruct blas, std::vector< nvrhi::rt::GeometryDesc > geo
     vhCmdEnqueue( cmd );
 }
 
-void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > instances )
+void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > instances, nvrhi::rt::AccelStructBuildFlags buildFlags )
 {
-    auto cmd = vhCmdAlloc< VIDL_vhBuildTLAS >( tlas, std::move( instances ) );
+    auto cmd = vhCmdAlloc< VIDL_vhBuildTLAS >( tlas, std::move( instances ), buildFlags );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhCompactBLAS()
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCompactBLAS >();
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhBuildTLASFromBuffer( vhAccelStruct tlas, vhBuffer instanceBuffer, uint32_t numInstances )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhBuildTLASFromBuffer >( tlas, instanceBuffer, numInstances );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
