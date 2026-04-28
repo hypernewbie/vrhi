@@ -132,6 +132,7 @@ struct vhStateResolveCache
         std::vector< ResolvedTexture > textureTable; // slot -> texture
         std::vector< ResolvedBuffer > bufferTable; // slot -> buffer
         std::vector< std::pair< ResolvedTexture, ResolvedBuffer > > uavTable; // slot -> UAV
+        std::vector< ResolvedAccelStruct > accelStructTable; // slot -> AS
 
         uint32_t userGlobalsSlot = UINT32_MAX;  // UINT32_MAX = no User Globals
         uint64_t userGlobalsHash = 0;           // Hash of reflection members
@@ -168,6 +169,7 @@ struct vhStateResolveCache
                 stageBindingStorage[i].textureTable.clear();
                 stageBindingStorage[i].bufferTable.clear();
                 stageBindingStorage[i].uavTable.clear();
+                stageBindingStorage[i].accelStructTable.clear();
                 stageBindingStorage[i].userGlobalsSlot    = UINT32_MAX;
                 stageBindingStorage[i].userGlobalsHash    = 0;
                 stageBindingStorage[i].userGlobalsReflection = nullptr;

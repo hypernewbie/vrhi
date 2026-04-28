@@ -847,6 +847,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                 slot.textureTable.reserve( vhStateResolveCache::ShaderStageBindingSlotState::MAX_TEXTURES );
                 slot.bufferTable.reserve( vhStateResolveCache::ShaderStageBindingSlotState::MAX_BUFFERS );
                 slot.uavTable.reserve( vhStateResolveCache::ShaderStageBindingSlotState::MAX_UAVS );
+                slot.accelStructTable.reserve( 16 );
             }
         }
         scache.stageBindingActive[i] = true;
@@ -868,6 +869,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             case nvrhi::ResourceType::TypedBuffer_SRV:
             case nvrhi::ResourceType::StructuredBuffer_SRV:
             case nvrhi::ResourceType::RawBuffer_SRV:
+            case nvrhi::ResourceType::RayTracingAccelStruct:
                 return fallbackSlot + ( int32_t ) g_vhInit.shaderMake_tRegShift;
             case nvrhi::ResourceType::ConstantBuffer:
             case nvrhi::ResourceType::VolatileConstantBuffer:
@@ -876,7 +878,6 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             case nvrhi::ResourceType::TypedBuffer_UAV:
             case nvrhi::ResourceType::StructuredBuffer_UAV:
             case nvrhi::ResourceType::RawBuffer_UAV:
-            case nvrhi::ResourceType::RayTracingAccelStruct:
                 return fallbackSlot + ( int32_t ) g_vhInit.shaderMake_uRegShift;
             default:
                 return fallbackSlot;
@@ -1046,6 +1047,33 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                 //printf( "DEBUG: Store buf slot=%u isCB=%d\n", slot, bbuf.desc.isConstantBuffer );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Buffer SRV '%s' bound to slot %d '%s'\n", bbuf.name.c_str(), slot, b.name ? b.name : ""  );
             }
+        }
+    }
+
+    for ( size_t i = 0; i < state.accelStructs.size(); i++ )
+    {
+        if ( !scache.baccel[i] ) continue;
+
+        const auto& a = state.accelStructs[i];
+        for ( int j = 0; j < shaderCount; j++ )
+        {
+            const int32_t slot = fnResolveSlot( a.name, a.slot, nvrhi::ResourceType::RayTracingAccelStruct, *shaders[j] );
+            if ( slot < 0 )
+                continue;
+
+            const uint32_t stage = ( uint32_t ) ( shaders[j]->flags & VRHI_SHADER_STAGE_MASK );
+            assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
+            auto& stageTable = scache.stageBindingStorage[stage];
+
+            if ( slot >= ( int32_t ) stageTable.accelStructTable.size() )
+                stageTable.accelStructTable.resize( slot + 1, { nullptr, nullptr } );
+            if ( stageTable.accelStructTable[slot].handle )
+            {
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "AccelStruct Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
+                return;
+            }
+            stageTable.accelStructTable[slot] = { scache.baccel[i]->handle.Get(), &a };
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): AccelStruct bound to slot %d '%s'\n", slot, a.name ? a.name : "" );
         }
     }
 
@@ -1432,21 +1460,15 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
         }
         case nvrhi::ResourceType::RayTracingAccelStruct:
         {
-            for ( size_t i = 0; i < scache.baccel.size(); i++ )
+            if ( item.slot >= ( int32_t ) stageTable.accelStructTable.size() ||
+                 !stageTable.accelStructTable[item.slot].handle )
             {
-                if ( !scache.baccel[i] ) continue;
-                const auto& binding = state.accelStructs[i];
-                const bool slotMatches = ( binding.slot >= 0 ) && ( binding.slot == ( int32_t ) item.slot );
-                const bool nameMatches = ( binding.slot < 0 ) && binding.name && name && strcmp( binding.name, name ) == 0;
-                if ( slotMatches || nameMatches )
-                {
-                    outItem = nvrhi::BindingSetItem::RayTracingAccelStruct( item.slot, scache.baccel[i]->handle.Get() );
-                    if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: AccelStruct found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
-                    return true;
-                }
+                if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: AccelStruct not found at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
+                return false;
             }
-            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: AccelStruct not found in cache at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
-            return false;
+            outItem = nvrhi::BindingSetItem::RayTracingAccelStruct( item.slot, stageTable.accelStructTable[item.slot].handle.Get() );
+            if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: AccelStruct found at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
+            return true;
         }
         default:
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Unknown or unsupported resource type %d (%s) at slot %d\n", ( int ) item.type, vhResourceTypeToString( item.type ), item.slot );

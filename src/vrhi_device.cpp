@@ -283,8 +283,7 @@ void vhInit( bool quiet )
         VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         v12Features.timelineSemaphore = VK_TRUE;
         v12Features.bufferDeviceAddress = VK_TRUE;
-        // Required for ray tracing shader binding tables when RT is enabled. Harmless when not.
-        v12Features.descriptorIndexing = VK_TRUE;
+        v12Features.descriptorIndexing = VK_TRUE; // Required for RT shader binding tables. Harmless when RT is off.
         v12Features.runtimeDescriptorArray = VK_TRUE;
 
         VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
@@ -382,8 +381,6 @@ void vhInit( bool quiet )
             if ( rtExtEnabled )
             {
                 rayQueryEnabled = vkbPhys.enable_extension_if_present( VK_KHR_RAY_QUERY_EXTENSION_NAME );
-                // NVRHI unconditionally chains a VkPipelineLibraryCreateInfo and sets an LSS
-                // pipeline create flag; enable the matching extensions where supported.
                 nvLssEnabled = vkbPhys.enable_extension_if_present( VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME );
                 maintenance5Enabled = vkbPhys.enable_extension_if_present( VK_KHR_MAINTENANCE_5_EXTENSION_NAME );
                 pipelineLibraryEnabled = vkbPhys.enable_extension_if_present( VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME );
@@ -427,11 +424,7 @@ void vhInit( bool quiet )
                 lssFeatures.linearSweptSpheres = VK_TRUE;
                 devBuilder.add_pNext( &lssFeatures );
             }
-            if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions enabled.%s%s%s%s\n",
-                rayQueryEnabled ? " (Ray Query)" : "",
-                nvLssEnabled ? " (LSS)" : "",
-                maintenance5Enabled ? " (Maint5)" : "",
-                pipelineLibraryEnabled ? " (PipelineLib)" : "" );
+            if ( !quiet ) VRHI_LOG( "    Ray Tracing extensions enabled.%s%s%s%s\n", rayQueryEnabled ? " (Ray Query)" : "", nvLssEnabled ? " (LSS)" : "", maintenance5Enabled ? " (Maint5)" : "", pipelineLibraryEnabled ? " (PipelineLib)" : "" );
         }
         else
         {
@@ -606,7 +599,6 @@ void vhInit( bool quiet )
         nvrhiDesc.instanceExtensions = instanceExtensions.data();
         nvrhiDesc.numInstanceExtensions = ( uint32_t ) instanceExtensions.size();
 
-        // RT acceleration structures require buffer device address support.
         nvrhiDesc.bufferDeviceAddressSupported = g_vhRayTracingEnabled;
 
         g_vhDevice = nvrhi::vulkan::createDevice( nvrhiDesc );
@@ -1468,8 +1460,6 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
     if ( layoutItem.type == ResourceType::Sampler )
         return BindingSetItem::Sampler( layoutItem.slot, s_vhDummySampler );
 
-    // Acceleration structure fallback - return a None-typed item so the caller gets a clear failure
-    // rather than a malformed binding. Real bindings should always come from state.accelStructs.
     if ( layoutItem.type == ResourceType::RayTracingAccelStruct )
         return BindingSetItem::None( layoutItem.slot );
 
