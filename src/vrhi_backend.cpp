@@ -294,6 +294,11 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
     VRHI_PROFILE_FUNCTION();
     if ( !btex.handle || !outData ) return;
     assert( btex.info.target != nvrhi::TextureDimension::Texture3D );
+    if ( mip < 0 || mip >= ( int ) btex.mipInfo.size() )
+    {
+        VRHI_ERR( "vhReadTextureSlow: mip %d out of range (0..%d)\n", mip, ( int ) btex.mipInfo.size() - 1 );
+        return;
+    }
 
     // Staging Texture
     auto desc = btex.handle->getDesc();
@@ -2162,9 +2167,13 @@ void vhCmdBackendState::RegisterInternalTexture( vhTexture id, const nvrhi::Text
     auto btex = std::make_unique< vhBackendTexture >();
     btex->handle = handle;
     btex->name = desc.debugName;
+    btex->info.target = desc.dimension;
+    btex->info.dimensions = { desc.width, desc.height, desc.depth };
     btex->info.format = desc.format;
-    btex->info.dimensions = { desc.width, desc.height, 1 };
+    btex->info.mipLevels = ( int32_t ) desc.mipLevels;
+    btex->info.arrayLayers = ( int32_t ) desc.arraySize;
     btex->flags = VRHI_TEXTURE_NONE;
+    vhTextureMiplevelInfo( btex->mipInfo, btex->pitchSize, btex->arraySize, btex->info );
     backendTextures[id] = std::move( btex );
 }
 
