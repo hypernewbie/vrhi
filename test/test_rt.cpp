@@ -2461,6 +2461,8 @@ static vhAccelStruct BuildSphereBLAS( float x, float y, float z, float radius )
 UTEST_F( RT, AllowEmptyInstances )
 {
     if ( !g_vhDeviceInfo.raytracing ) return;
+    // Mesa lavapipe <= 26.0.5 bug: lvp_encode_as iterates header->active_leaf_count instead of leaf_count, mis-encoding TLAS leaves when active instance is not at index 0.
+    if ( TestIsSoftwareVulkan() ) UTEST_SKIP( "Mesa lavapipe TLAS encoder bug — null instance before valid causes false miss" );
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
