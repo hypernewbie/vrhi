@@ -914,6 +914,7 @@ UTEST_F_TEARDOWN( RT )
 
 UTEST_F( RT, Basic )
 {
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -952,7 +953,7 @@ UTEST_F( RT, Basic )
 
 UTEST_F( RT, Inline )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -987,7 +988,7 @@ UTEST_F( RT, Inline )
 
 UTEST_F( RT, AnyHit )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1027,7 +1028,7 @@ UTEST_F( RT, AnyHit )
 
 UTEST_F( RT, AnyHitReject )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1072,7 +1073,7 @@ UTEST_F( RT, AnyHitReject )
 
 UTEST_F( RT, ProceduralAABB )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -1118,7 +1119,7 @@ UTEST_F( RT, ProceduralAABB )
 
 UTEST_F( RT, MultiHitGroup )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1200,7 +1201,7 @@ UTEST_F( RT, MultiHitGroup )
 
 UTEST_F( RT, Recursion )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1265,7 +1266,7 @@ UTEST_F( RT, Recursion )
 
 UTEST_F( RT, IndexedTriangles )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1307,7 +1308,7 @@ UTEST_F( RT, IndexedTriangles )
 
 UTEST_F( RT, InstanceTransform )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1362,7 +1363,7 @@ UTEST_F( RT, InstanceTransform )
 
 UTEST_F( RT, InstanceMask )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1416,7 +1417,7 @@ UTEST_F( RT, InstanceMask )
 
 UTEST_F( RT, Dispatch3D )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1454,7 +1455,7 @@ UTEST_F( RT, Dispatch3D )
 
 UTEST_F( RT, TwoScene )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vbA = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1504,7 +1505,7 @@ UTEST_F( RT, TwoScene )
 
 UTEST_F( RT, BuildFlagsPreferFastTrace )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1542,7 +1543,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
 
 UTEST_F( RT, BuildFlagsPreferFastBuild )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1580,7 +1581,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
 
 UTEST_F( RT, ForceOpaqueInstance )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1627,7 +1628,7 @@ UTEST_F( RT, ForceOpaqueInstance )
 
 UTEST_F( RT, MinimizeMemory )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1665,7 +1666,7 @@ UTEST_F( RT, MinimizeMemory )
 
 UTEST_F( RT, TriangleCullDisable )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1716,7 +1717,7 @@ UTEST_F( RT, TriangleCullDisable )
 
 UTEST_F( RT, FrontCCW )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
@@ -1763,7 +1764,7 @@ UTEST_F( RT, FrontCCW )
 
 UTEST_F( RT, FullHitGroup )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1820,7 +1821,7 @@ UTEST_F( RT, FullHitGroup )
 
 UTEST_F( RT, GlobalBindingLayouts )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1896,7 +1897,7 @@ UTEST_F( RT, GlobalBindingLayouts )
 
 UTEST_F( RT, EmptyTLAS )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -1932,7 +1933,7 @@ UTEST_F( RT, EmptyTLAS )
 
 UTEST_F( RT, RepeatedDispatch )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rtA = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhTexture rtB = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -1986,7 +1987,7 @@ UTEST_F( RT, RepeatedDispatch )
 
 UTEST_F( RT, StateAccelStructDirty )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2038,7 +2039,7 @@ UTEST_F( RT, StateAccelStructDirty )
 
 UTEST_F( RT, ExtensionsUAV )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2096,7 +2097,7 @@ UTEST_F( RT, ExtensionsUAV )
 
 UTEST_F( RT, ShaderCompileFail )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     const char* badSrc = R"(
 [shader("raygeneration")]
@@ -2115,7 +2116,7 @@ void main() { this is not valid HLSL }
 
 UTEST_F( RT, DestroyBoundAS )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2168,7 +2169,7 @@ UTEST_F( RT, DestroyBoundAS )
 
 UTEST_F( RT, StateReset )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2220,7 +2221,7 @@ UTEST_F( RT, StateReset )
 
 UTEST_F( RT, ShaderTableRebuild )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2283,7 +2284,7 @@ UTEST_F( RT, ShaderTableRebuild )
 
 UTEST_F( RT, NewPipelineNewTable )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2353,7 +2354,7 @@ UTEST_F( RT, NewPipelineNewTable )
 
 UTEST_F( RT, InlineCommittedStatus )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2387,7 +2388,7 @@ UTEST_F( RT, InlineCommittedStatus )
 
 UTEST_F( RT, InlineNegZDirection )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
@@ -2449,7 +2450,7 @@ static vhAccelStruct BuildSphereBLAS( float x, float y, float z, float radius )
 
 UTEST_F( RT, AllowEmptyInstances )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2505,7 +2506,7 @@ UTEST_F( RT, AllowEmptyInstances )
 
 UTEST_F( RT, SphereGeometry )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
     if ( !g_vhDevice->queryFeatureSupport( nvrhi::Feature::Spheres ) ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -2543,7 +2544,7 @@ UTEST_F( RT, SphereGeometry )
 
 UTEST_F( RT, BLASCompaction )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2604,7 +2605,7 @@ UTEST_F( RT, BLASCompaction )
 
 UTEST_F( RT, TLASRefit )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2664,7 +2665,7 @@ UTEST_F( RT, TLASRefit )
 
 UTEST_F( RT, ShaderTableBindings )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2719,7 +2720,7 @@ UTEST_F( RT, ShaderTableBindings )
 
 UTEST_F( RT, TLASFromBuffer )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2778,7 +2779,7 @@ UTEST_F( RT, TLASFromBuffer )
 
 UTEST_F( RT, MultipleMissShaders )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Raygen traces twice with miss index 0 (blue) and 1 (black). Triangle covers
     // half the launch grid; pixels that hit get red on both calls; pixels that
@@ -2841,7 +2842,7 @@ UTEST_F( RT, MultipleMissShaders )
 
 UTEST_F( RT, MultipleRayGenShaders )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rtA = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhTexture rtB = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -2897,7 +2898,7 @@ UTEST_F( RT, MultipleRayGenShaders )
 
 UTEST_F( RT, PerInstanceHitGroup )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -2982,7 +2983,7 @@ UTEST_F( RT, PerInstanceHitGroup )
 
 UTEST_F( RT, CallableShaders )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3044,7 +3045,7 @@ UTEST_F( RT, CallableShaders )
 
 UTEST_F( RT, StructuredBufferSRV_InRayGen )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // 4x4 dispatch reads per-pixel direction overrides from a StructuredBuffer.
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -3093,7 +3094,7 @@ UTEST_F( RT, StructuredBufferSRV_InRayGen )
 
 UTEST_F( RT, ConstantBuffer_InRayGen )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3137,7 +3138,7 @@ UTEST_F( RT, ConstantBuffer_InRayGen )
 
 UTEST_F( RT, SamplerInClosestHit )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3191,7 +3192,7 @@ UTEST_F( RT, SamplerInClosestHit )
 
 UTEST_F( RT, MultiGeomBLAS )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Single BLAS containing two triangles in non-overlapping XY regions, each
     // in its own GeometryDesc. Closest-hit reads GeometryIndex() to choose
@@ -3245,7 +3246,7 @@ UTEST_F( RT, MultiGeomBLAS )
 
 UTEST_F( RT, SharedBLASInstances )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // One BLAS, four TLAS instances at different XY translations covering
     // distinct quadrants of an 8x8 launch.
@@ -3314,7 +3315,7 @@ UTEST_F( RT, SharedBLASInstances )
 
 UTEST_F( RT, MixedTriAABB_TLAS )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // TLAS with one triangle BLAS instance and one AABB BLAS instance.
     // Triangle uses a triangle hit group, AABB uses an intersection-shader
@@ -3412,7 +3413,7 @@ UTEST_F( RT, MixedTriAABB_TLAS )
 
 UTEST_F( RT, LargeBLAS )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // BLAS with 1024 triangles forming a tightly packed grid covering [-1,1].
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -3469,7 +3470,7 @@ UTEST_F( RT, LargeBLAS )
 
 UTEST_F( RT, LargeTLAS )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // 64 instances arranged as 8x8 grid, each a tiny triangle.
     vhTexture rt = CreateTestTexture( 16, 16, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -3545,7 +3546,7 @@ UTEST_F( RT, LargeTLAS )
 
 UTEST_F( RT, HitKind_FrontBack )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // CW (front) and CCW (back) triangles tested on each side. With default
     // counter-clockwise = back-face, the CW triangle is front when viewed
@@ -3607,7 +3608,7 @@ UTEST_F( RT, HitKind_FrontBack )
 
 UTEST_F( RT, PrimitiveAndInstanceIndex )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // BLAS with two triangles, two TLAS instances. Closest-hit encodes
     // InstanceID() in red and PrimitiveIndex() in green channels.
@@ -3678,7 +3679,7 @@ UTEST_F( RT, PrimitiveAndInstanceIndex )
 
 UTEST_F( RT, Barycentrics )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3726,7 +3727,7 @@ UTEST_F( RT, Barycentrics )
 
 UTEST_F( RT, RayTCurrent_TMin_TMax )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // TMin=0.5, TMax=2.0 in the raygen. Geometry at distance 1.0 (z=0,
     // ray origin z=-1, direction +Z) is within [TMin, TMax] → hits.
@@ -3800,7 +3801,7 @@ UTEST_F( RT, RayTCurrent_TMin_TMax )
 
 UTEST_F( RT, RayFlag_ForceOpaque )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Geometry has any-hit reject shader. With g_TraceFlags = RAY_FLAG_FORCE_OPAQUE
     // (=1), any-hit must be bypassed and the hit recorded normally.
@@ -3852,7 +3853,7 @@ UTEST_F( RT, RayFlag_ForceOpaque )
 
 UTEST_F( RT, RayFlag_SkipClosestHit )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Raygen traces with RAY_FLAG_SKIP_CLOSEST_HIT_SHADER. Closest-hit (which
     // would write magenta) is skipped; if hit is registered, payload.hitT
@@ -3895,7 +3896,7 @@ UTEST_F( RT, RayFlag_SkipClosestHit )
 
 UTEST_F( RT, RayFlag_AcceptFirstHit )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Two overlapping geometries at different depths. With ACCEPT_FIRST_HIT
     // the first geometry encountered determines hit. Without the flag, the
@@ -3987,7 +3988,7 @@ UTEST_F( RT, RayFlag_AcceptFirstHit )
 
 UTEST_F( RT, MaxRecursionDepth )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Pipeline created with maxRecursionDepth = 2 (existing recursion test).
     // We just verify that the pipeline accepts depth=4 and runs to completion.
@@ -4027,7 +4028,7 @@ UTEST_F( RT, MaxRecursionDepth )
 
 UTEST_F( RT, LargePayload )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // 64-byte payload (4x float4). Closest-hit fills four distinct values;
     // raygen sums them and writes a known checksum colour.
@@ -4084,7 +4085,7 @@ UTEST_F( RT, LargePayload )
 
 UTEST_F( RT, AnimatedTLAS_RepeatedRefit )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // TLAS built once with PreferFastTrace+AllowUpdate, then refit 8 times
     // with progressively-translated instance transforms. Verify a hit each
@@ -4152,7 +4153,7 @@ UTEST_F( RT, AnimatedTLAS_RepeatedRefit )
 
 UTEST_F( RT, RebuildTLASVaryingInstances )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Build TLAS with 1 instance, dispatch+verify. Rebuild with 4. Rebuild with 1.
     // Verifies that instance count changes don't corrupt internal state.
@@ -4225,7 +4226,7 @@ UTEST_F( RT, RebuildTLASVaryingInstances )
 
 UTEST_F( RT, PipelineHotReload )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // Create pipeline+table, dispatch, destroy. Recreate identical pipeline+table
     // from same shaders, dispatch again. Catches handle-reuse and descriptor-cache
@@ -4275,7 +4276,7 @@ UTEST_F( RT, PipelineHotReload )
 
 UTEST_F( RT, Dispatch_256x256 )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // 256x256 = 65k thread RT dispatch. Verifies the larger end of typical
     // RT pass sizes works without state corruption.
@@ -4316,7 +4317,7 @@ UTEST_F( RT, Dispatch_256x256 )
 }
 UTEST_F( RT, Benchmark_DispatchRate )
 {
-    if ( !g_vhInit.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) return;
 
     // 100 small RT dispatches in a tight loop. Cost should be similar to compute dispatch.
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );

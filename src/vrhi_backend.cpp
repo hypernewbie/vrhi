@@ -1558,11 +1558,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 continue;
             }
 
-            // Shaders with no reflected bindings have nothing to bind for; their descriptor set
-            // is filled with the shared empty layout in the PSO layout list and binds m_emptySet.
-            if ( shader->layout->getDesc() && shader->layout->getDesc()->bindings.empty() )
-                continue;
-
             // Match shader.layout to equivalent state->pipeline->getDesc().bindingLayouts->layout.
             assert( shader->layout->getDesc() );
             auto hash = vhHashBindingLayout( *shader->layout->getDesc() );
@@ -1615,11 +1610,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         auto layoutDesc = layout->getDesc();
         assert( layoutDesc );
 
-        if ( layout == m_emptyLayout || ( layoutDesc && layoutDesc->bindings.empty() ) )
+        if ( layout == m_emptyLayout )
         {
-            // Either our shared empty layout or any user-provided layout with no bindings
-            // both use m_emptySet — two empty VkDescriptorSetLayouts with 0 bindings are
-            // always compatible regardless of visibility flags.
             if ( computeState )  computeState->addBindingSet( m_emptySet );
             if ( graphicsState ) graphicsState->addBindingSet( m_emptySet );
             if ( rtState )       rtState->bindings.push_back( m_emptySet );
