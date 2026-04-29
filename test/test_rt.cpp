@@ -24,6 +24,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <chrono>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -4303,6 +4304,50 @@ UTEST_F( RT, Dispatch_256x256 )
     // Centre pixel is inside the triangle (approx).
     EXPECT_TRUE( VerifyPixel( rt, 64, 64, 0xFF0000FF ) );
     EXPECT_TRUE( VerifyPixel( rt, 200, 200, 0xFFFF0000 ) );  // outside triangle - blue (miss)
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+UTEST_F( RT, Benchmark_DispatchRate )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // 100 small RT dispatches in a tight loop. Cost should be similar to compute dispatch.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    vhStateId sid = 8501;
+    vhSetState( sid, state );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for ( int i = 0; i < 100; ++i ) vhDispatchRays( sid, p.table, args );
+    vhFinish();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto us = std::chrono::duration_cast< std::chrono::microseconds >( t1 - t0 ).count();
+    UTEST_PRINTF( "Benchmark: 100 RT dispatches in %lld us (%.2f us/dispatch)\n", ( long long ) us, double( us ) / 100.0 );
 
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb );

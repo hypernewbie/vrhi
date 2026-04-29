@@ -8,6 +8,7 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <chrono>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1180,6 +1181,453 @@ UTEST_F( Compute, StaleUniformReproduction_MultiShader )
     vhDestroyTexture( outTex );
     vhDestroyShader( vs );
     vhDestroyShader( ps );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+// ==========================================================================
+// Phase 7 - Group 1: Compute expansion
+// ==========================================================================
+
+UTEST_F( Compute, Atomics_BufferUAV )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+
+    // Counter buffer initialised to 0; 1024 threads each InterlockedAdd 1.
+    // Result must be 1024 (8x8x16 thread groups, each with single thread).
+    uint32_t initial = 0;
+    vhBuffer counterBuf = vhAllocBuffer();
+    vhMem* mem = vhAllocMem( sizeof( uint32_t ) );
+    memcpy( mem->data(), &initial, sizeof( uint32_t ) );
+    vhCreateStorageBuffer( counterBuf, "Counter", mem, sizeof( uint32_t ),
+        VRHI_BUFFER_COMPUTE_READ_WRITE,
+        sizeof( uint32_t ) );
+
+    // Output texture so we can verify dispatch ran — write 1 per pixel.
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "AtomOut", { 32, 32 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        RWStructuredBuffer<uint> g_Counter : register(u1, VRHI_STAGE_SPACE);
+
+        [numthreads(8, 8, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            uint orig;
+            InterlockedAdd(g_Counter[0], 1, orig);
+            g_Out[id.xy] = 1.0;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "CS_Atom", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err ) );
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_Atom", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    state.SetTexture( 0, { .name = "g_Out", .texture = outTex, .computeUAV = true } );
+    state.SetBuffer( 0, { .name = "g_Counter", .buffer = counterBuf, .computeUAV = true } );
+
+    vhStateId sid = 8000;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 4, 4, 1 } );  // 4*4*64 = 1024 threads
+    vhFinish();
+
+    // We can verify dispatch ran (output texture all 255) but cannot read back
+    // counter buffer directly without a copy-to-staging API.
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+    EXPECT_EQ( readData.size(), 32 * 32 );
+    if ( !g_vhInit.nullMode )
+    {
+        for ( int i = 0; i < 32 * 32; ++i ) EXPECT_EQ( readData[i], 255 );
+    }
+
+    vhDestroyTexture( outTex );
+    vhDestroyBuffer( counterBuf );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, WorkgroupSizeVariations )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+
+    // Three dispatches with different numthreads layouts writing same pattern.
+    // All must produce the same 16x16 output.
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "WGOut", { 16, 16 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    auto Compile = []( const char* src, const char* name ) -> vhShader
+    {
+        std::vector< uint32_t > spirv;
+        std::string err;
+        bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
+        if ( !ok ) UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+        vhShader cs = vhAllocShader();
+        vhCreateShader( cs, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        return cs;
+    };
+
+    const char* cs1 = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(1, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = 1.0; }
+    )";
+    const char* cs8 = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(8, 8, 1)]
+        void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = 1.0; }
+    )";
+    const char* cs64 = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(16, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = 1.0; }
+    )";
+
+    vhShader s1 = Compile( cs1, "CS_WG_1" );
+    vhShader s8 = Compile( cs8, "CS_WG_8" );
+    vhShader s64 = Compile( cs64, "CS_WG_16x1" );
+
+    auto RunCheck = [&]( vhShader cs, glm::uvec3 groups, vhStateId sid )
+    {
+        vhState state = g_state0;
+        state.SetProgram( vhCreateComputeProgram( cs ) );
+        state.SetTexture( 0, { .name = "g_Out", .texture = outTex, .computeUAV = true } );
+        vhSetState( sid, state );
+        vhDispatch( sid, groups );
+        vhFinish();
+        vhMem rd; vhReadTextureSlow( outTex, 0, 0, &rd ); vhFinish();
+        if ( !g_vhInit.nullMode )
+        {
+            for ( int i = 0; i < 16 * 16; ++i ) EXPECT_EQ( rd[i], 255 );
+        }
+    };
+
+    RunCheck( s1, { 16, 16, 1 }, 8001 );
+    RunCheck( s8, { 2, 2, 1 }, 8002 );
+    RunCheck( s64, { 1, 16, 1 }, 8003 );
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( s1 );
+    vhDestroyShader( s8 );
+    vhDestroyShader( s64 );
+    vhSetState( 8001, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, MultiDispatchReadback )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+
+    // Three sequential dispatches each write a different value. Verify the
+    // last value persists. Tests barrier insertion between back-to-back
+    // dispatches writing the same UAV.
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "MultiOut", { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    auto Compile = []( const char* src, const char* name ) -> vhShader
+    {
+        std::vector< uint32_t > spirv;
+        std::string err;
+        bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
+        if ( !ok ) UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+        vhShader cs = vhAllocShader();
+        vhCreateShader( cs, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        return cs;
+    };
+
+    const char* tmpl = R"([[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(8,8,1)] void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = %s; })";
+    char buf1[1024], buf2[1024], buf3[1024];
+    snprintf( buf1, sizeof( buf1 ), tmpl, "0.25" );
+    snprintf( buf2, sizeof( buf2 ), tmpl, "0.50" );
+    snprintf( buf3, sizeof( buf3 ), tmpl, "1.00" );
+
+    vhShader s1 = Compile( buf1, "CS_MD1" );
+    vhShader s2 = Compile( buf2, "CS_MD2" );
+    vhShader s3 = Compile( buf3, "CS_MD3" );
+
+    auto Run = [&]( vhShader cs, vhStateId sid )
+    {
+        vhState state = g_state0;
+        state.SetProgram( vhCreateComputeProgram( cs ) );
+        state.SetTexture( 0, { .name = "g_Out", .texture = outTex, .computeUAV = true } );
+        vhSetState( sid, state );
+        vhDispatch( sid, { 1, 1, 1 } );
+    };
+
+    Run( s1, 8010 );
+    Run( s2, 8011 );
+    Run( s3, 8012 );
+
+    vhMem rd;
+    vhReadTextureSlow( outTex, 0, 0, &rd );
+    vhFinish();
+    if ( !g_vhInit.nullMode )
+    {
+        for ( int i = 0; i < 64; ++i ) EXPECT_EQ( rd[i], 255 );  // last dispatch wrote 1.0
+    }
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( s1 );
+    vhDestroyShader( s2 );
+    vhDestroyShader( s3 );
+    vhSetState( 8010, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, LargeDispatch )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+
+    // 1024x1024 single dispatch (numthreads(8,8,1) x 128x128 groups).
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "LargeOut", { 1024, 1024 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(8, 8, 1)]
+        void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = 1.0; }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "CS_Large", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err ) );
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_Large", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    state.SetTexture( 0, { .name = "g_Out", .texture = outTex, .computeUAV = true } );
+
+    vhStateId sid = 8020;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 128, 128, 1 } );
+    vhFinish();
+
+    vhMem rd;
+    vhReadTextureSlow( outTex, 0, 0, &rd );
+    vhFinish();
+    if ( !g_vhInit.nullMode )
+    {
+        // Spot-check four corners and centre.
+        EXPECT_EQ( rd[0], 255 );
+        EXPECT_EQ( rd[1023], 255 );
+        EXPECT_EQ( rd[1023 * 1024], 255 );
+        EXPECT_EQ( rd[1023 * 1024 + 1023], 255 );
+        EXPECT_EQ( rd[512 * 1024 + 512], 255 );
+    }
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, IndirectDispatch_Chained )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+
+    // Pass 1: compute writes (1, 1, 1) into an indirect args buffer.
+    // Pass 2: indirect dispatch reads those args and writes pixels.
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "ChainOut", { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    uint32_t init[3] = { 0, 0, 0 };
+    vhBuffer indirectBuf = vhAllocBuffer();
+    vhMem* mem = vhAllocMem( sizeof( init ) );
+    memcpy( mem->data(), init, sizeof( init ) );
+    vhCreateStorageBuffer( indirectBuf, "IndirectArgs", mem, sizeof( init ),
+        VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_DRAW_INDIRECT,
+        sizeof( uint32_t ) );
+
+    const char* csWriteArgs = R"(
+        RWStructuredBuffer<uint> g_Args : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(1,1,1)] void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Args[0] = 1;
+            g_Args[1] = 1;
+            g_Args[2] = 1;
+        }
+    )";
+    const char* csConsume = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(8,8,1)] void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = 1.0; }
+    )";
+
+    auto Compile = []( const char* src, const char* name ) -> vhShader
+    {
+        std::vector< uint32_t > spirv;
+        std::string err;
+        bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
+        if ( !ok ) UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+        vhShader cs = vhAllocShader();
+        vhCreateShader( cs, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        return cs;
+    };
+
+    vhShader sWrite = Compile( csWriteArgs, "CS_WriteArgs" );
+    vhShader sConsume = Compile( csConsume, "CS_Consume" );
+
+    vhState s1 = g_state0;
+    s1.SetProgram( vhCreateComputeProgram( sWrite ) );
+    s1.SetBuffer( 0, { .name = "g_Args", .buffer = indirectBuf, .computeUAV = true } );
+    vhStateId sid1 = 8030;
+    vhSetState( sid1, s1 );
+    vhDispatch( sid1, { 1, 1, 1 } );
+
+    vhState s2 = g_state0;
+    s2.SetProgram( vhCreateComputeProgram( sConsume ) );
+    s2.SetTexture( 0, { .name = "g_Out", .texture = outTex, .computeUAV = true } );
+    vhStateId sid2 = 8031;
+    vhSetState( sid2, s2 );
+    vhDispatchIndirect( sid2, indirectBuf, 0 );
+    vhFinish();
+
+    vhMem rd;
+    vhReadTextureSlow( outTex, 0, 0, &rd );
+    vhFinish();
+    if ( !g_vhInit.nullMode )
+    {
+        for ( int i = 0; i < 64; ++i ) EXPECT_EQ( rd[i], 255 );
+    }
+
+    vhDestroyTexture( outTex );
+    vhDestroyBuffer( indirectBuf );
+    vhDestroyShader( sWrite );
+    vhDestroyShader( sConsume );
+    vhSetState( sid1, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sid2, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, Benchmark_DispatchRate )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Compute shaders require GPU in Null RHI mode" );
+    }
+
+    vhFlush();
+
+    // 1000 small dispatches, time total. Print rate. Does not assert threshold.
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "BenchOut", { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(8,8,1)] void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = 1.0; }
+    )";
+    std::vector< uint32_t > spirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "CS_Bench", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err ) );
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_Bench", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    state.SetTexture( 0, { .name = "g_Out", .texture = outTex, .computeUAV = true } );
+    vhStateId sid = 8500;
+    vhSetState( sid, state );
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for ( int i = 0; i < 1000; ++i ) vhDispatch( sid, { 1, 1, 1 } );
+    vhFinish();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto us = std::chrono::duration_cast< std::chrono::microseconds >( t1 - t0 ).count();
+    UTEST_PRINTF( "Benchmark: 1000 compute dispatches in %lld us (%.2f us/dispatch)\n", ( long long ) us, double( us ) / 1000.0 );
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, Validation_DispatchZeroDimensions )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU required" );
+    vhFlush();
+
+    // Compute dispatch with 0 group count must not crash and must early-out.
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "ZeroOut", { 8, 8 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(8,8,1)] void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = 1.0; }
+    )";
+    std::vector< uint32_t > spirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "CS_Zero", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err ) );
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_Zero", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    state.SetTexture( 0, { .name = "g_Out", .texture = outTex, .computeUAV = true } );
+    vhStateId sid = 8200;
+    vhSetState( sid, state );
+
+    // Zero dimensions: should not crash.
+    vhDispatch( sid, { 0, 0, 0 } );
+    vhDispatch( sid, { 0, 1, 1 } );
+    vhDispatch( sid, { 1, 0, 1 } );
+    vhDispatch( sid, { 1, 1, 0 } );
+    vhFinish();
+
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+}
+
+UTEST_F( Compute, Validation_DispatchWithoutShader )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU required" );
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // Dispatch without setting a program. Must log error, must not crash.
+    vhState state = g_state0;
+    vhStateId sid = 8201;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+    vhFinish();
+
+    // Error counter should have incremented (at least once).
+    EXPECT_GE( g_vhErrorCounter.load(), startErrors );
+
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }

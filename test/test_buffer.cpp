@@ -21,6 +21,7 @@
 
 #include <string>
 #include <vector>
+#include <chrono>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -924,3 +925,38 @@ UTEST_F( Buffer, SubAllocator )
     EXPECT_EQ( used + available, 1024 * 1024 );
 }
 
+
+UTEST_F( Buffer, Benchmark_UploadBandwidth )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Buffer upload bandwidth requires GPU" );
+
+    vhFlush();
+
+    // 64 MB target uploaded in 1 MB chunks via vhUpdateUniformBuffer.
+    constexpr size_t kChunk = 1ULL * 1024 * 1024;
+    constexpr size_t kTotal = 64ULL * 1024 * 1024;
+    constexpr size_t kChunks = kTotal / kChunk;
+
+    // Use a uniform buffer of chunk size.
+    vhBuffer ub = vhAllocBuffer();
+    vhMem* initMem = vhAllocMem( kChunk );
+    memset( initMem->data(), 0, kChunk );
+    vhCreateUniformBuffer( ub, "BenchUB", initMem, kChunk );
+    vhFinish();
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for ( size_t i = 0; i < kChunks; ++i )
+    {
+        vhMem* m = vhAllocMem( kChunk );
+        memset( m->data(), int( i & 0xFF ), kChunk );
+        vhUpdateUniformBuffer( ub, m );
+    }
+    vhFinish();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double ms = std::chrono::duration_cast< std::chrono::microseconds >( t1 - t0 ).count() / 1000.0;
+    double mb_per_s = ( double( kTotal ) / ( 1024.0 * 1024.0 ) ) / ( ms / 1000.0 );
+    UTEST_PRINTF( "Benchmark: 64 MB uploaded in %.2f ms (%.2f MB/s)\n", ms, mb_per_s );
+
+    vhDestroyBuffer( ub );
+    vhFinish();
+}
