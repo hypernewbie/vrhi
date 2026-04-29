@@ -327,8 +327,34 @@ void vhInit( bool quiet )
         }
         else
         {
-            // Auto selected device.
+            // Auto selected device. If RT was requested but no device satisfies the RT-only
+            // required features, retry without them — RT is a request, not a hard requirement.
             auto physRet = selector.select();
+            if ( !physRet && g_vhInit.raytracing )
+            {
+                // RT was requested but no device satisfies the RT-only required features.
+                // Retry without them — raytracing is a request, not a requirement.
+                // Truth of what was actually enabled lives in g_vhDeviceInfo.raytracing after init.
+                if ( !quiet ) VRHI_LOG( "    No RT-capable device found, retrying without RT required features.\n" );
+                VkPhysicalDeviceVulkan12Features v12NoRT = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                v12NoRT.timelineSemaphore   = VK_TRUE;
+                v12NoRT.bufferDeviceAddress = VK_TRUE;
+
+                VkPhysicalDeviceFeatures featNoRT = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
+                featNoRT.independentBlend  = VK_TRUE;
+                featNoRT.fillModeNonSolid  = VK_TRUE;
+                featNoRT.samplerAnisotropy = VK_TRUE;
+                featNoRT.depthClamp        = VK_TRUE;
+
+                vkb::PhysicalDeviceSelector selectorNoRT( vkbInst );
+                selectorNoRT.require_present( !g_vhInit.headless );
+                if ( g_vhSurface ) selectorNoRT.set_surface( g_vhSurface );
+                selectorNoRT.set_minimum_version( 1, 3 )
+                    .set_required_features_12( v12NoRT )
+                    .set_required_features_13( v13Features )
+                    .set_required_features( featNoRT );
+                physRet = selectorNoRT.select();
+            }
             if ( !physRet )
             {
                 VRHI_LOG( "Failed to select suitable physical device: %s\n", physRet.error().message().c_str() );

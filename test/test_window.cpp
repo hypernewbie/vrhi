@@ -299,7 +299,6 @@ UTEST( Window, HeadlessBackbuffer )
     g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
-    g_vhInit.raytracing = false;
     g_vhInit.resolution = glm::ivec2( 1280, 720 );
     vhInit( true );
 
@@ -320,7 +319,6 @@ UTEST( Window, HeadlessBackbufferRender )
     g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
-    g_vhInit.raytracing = false;
     g_vhInit.resolution = glm::ivec2( 640, 480 );
     vhInit( true );
 
@@ -349,7 +347,6 @@ UTEST( Window, HeadlessBackbufferBlit )
     g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
-    g_vhInit.raytracing = false;
     g_vhInit.resolution = glm::ivec2( 64, 64 );
     vhInit( true );
     g_testInit = true;
@@ -402,7 +399,6 @@ UTEST( Window, HeadlessBackbufferInitShutdownChurn )
         g_vhInit = vhInitData{};
         g_vhInit.headless = true;
         g_vhInit.nullMode = false;
-        g_vhInit.raytracing = false;
         g_vhInit.resolution = glm::ivec2( 320 + ( i * 32 ), 240 + ( i * 16 ) );
         vhInit( true );
 

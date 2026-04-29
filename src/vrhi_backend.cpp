@@ -1563,6 +1563,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             auto hash = vhHashBindingLayout( *shader->layout->getDesc() );
             if ( s_hashToPSOlayout.find( hash ) == s_hashToPSOlayout.end() || !s_hashToPSOlayout[hash] )
             {
+                // User-supplied PSO layouts may intentionally exclude some shader stages.
+                if ( hasLayoutOverride ) continue;
                 VRHI_ERR( "vhSetState(): Mismatch between shader layout and PSO layout. This is likely a Vrhi bug." );
                 assert( !"Mismatch between shader layout and PSO layout" );
                 continue;
@@ -1624,7 +1626,17 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         s_slotToReflection.clear();
         auto layoutItr = s_layoutToShader.find( layout );
         if ( layoutItr == s_layoutToShader.end() )
+        {
+            // Unmapped slot (user-supplied placeholder layout). Bind an empty set against it.
+            nvrhi::BindingSetHandle bset = vhGetBindingSet( nvrhi::BindingSetDesc{}, layout );
+            if ( bset )
+            {
+                if ( computeState )  computeState->addBindingSet( bset );
+                if ( graphicsState ) graphicsState->addBindingSet( bset );
+                if ( rtState )       rtState->bindings.push_back( bset );
+            }
             continue;
+        }
         auto shader = layoutItr->second;
         if ( !shader )
             continue;

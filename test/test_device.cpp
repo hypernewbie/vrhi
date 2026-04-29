@@ -113,32 +113,20 @@ UTEST( RHI, RayTracingControl )
     // If global init is active, shut it down to test clean init
     TestEnsureShutdown();
 
-    // Case 1: Disable RT
+    // Case 1: Disable RT explicitly — device must come up, RT must remain off.
     g_vhInit.raytracing = false;
     vhInit( g_testInitQuiet );
     EXPECT_FALSE( g_vhRayTracingEnabled );
-
-    // Detect software Vulkan now that the device is up. SwiftShader / llvmpipe cannot satisfy
-    // the RT-only required features so the second vhInit() below would hit exit(1).
-    bool isSoftware = TestIsSoftwareVulkan();
     vhShutdown( g_testInitQuiet );
 
-    if ( isSoftware )
-    {
-        UTEST_SKIP( "Skipped: software Vulkan ICD cannot enable RT-required features" );
-    }
-
-    // Case 2: Enable RT
+    // Case 2: Request RT — device must come up on any ICD.
+    // On software ICDs (SwiftShader / llvmpipe) the selector retries without RT required
+    // features, so vhInit no longer exits. g_vhDeviceInfo.raytracing reflects the truth.
     g_vhInit.raytracing = true;
     vhInit( g_testInitQuiet );
-    // g_vhRayTracingEnabled should be true if HW supports it. 
-    // If not, it will be false, but initialization shouldn't crash.
-    // In our test environment, we expect this to match whether extensions were actually enabled.
     VRHI_LOG( "Ray Tracing Supported by HW: %s\n", g_vhRayTracingEnabled ? "YES" : "NO" );
     vhShutdown( g_testInitQuiet );
 
-    // Reset to test main's default (off) so SwiftShader / llvmpipe can pass device selection
-    // for subsequent non-RT tests. RT-fixture tests opt back in.
     g_vhInit.raytracing = false;
 }
 

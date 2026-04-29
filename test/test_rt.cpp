@@ -890,20 +890,16 @@ struct RT {};
 
 UTEST_F_SETUP( RT )
 {
-    // RT tests need raytracing enabled on real hardware. Skip the RT opt-in on software ICDs
-    // (llvmpipe/lavapipe/SwiftShader/MoltenVK) where RT advertising tends to expose flaky
-    // assertions. The individual RT test bodies already skip when g_vhDeviceInfo.raytracing
-    // is false, so leaving raytracing off here makes them no-op skip cleanly.
+    // Opt in to RT for the duration of RT tests. vhInit fail-softs when the device
+    // does not support RT — g_vhDeviceInfo.raytracing then reports false and the
+    // individual RT test bodies skip cleanly.
     if ( !g_testInit )
     {
-        // First touch — may or may not flip raytracing on. If a non-RT test ran first and
-        // we have a cached device, leave it. Otherwise opt-in to RT for real hardware.
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
-    if ( !g_vhInit.raytracing && !TestIsSoftwareVulkan() )
+    if ( !g_vhInit.raytracing )
     {
-        // Real hardware: re-init with RT requested so the RT tests actually exercise paths.
         TestEnsureShutdown();
         g_vhInit.raytracing = true;
         vhInit( g_testInitQuiet );
