@@ -575,6 +575,29 @@ static void DispatchAndReset( vhStateId sid, vhState& state, vhShaderTable table
     vhSetState( sid, reset.DirtyAll() );
 }
 
+struct TestRTPipeline
+{
+    vhRTPipeline pipeline = VRHI_INVALID_HANDLE;
+    vhShaderTable table = VRHI_INVALID_HANDLE;
+};
+
+static TestRTPipeline MakeRTPipeline( vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit = VRHI_INVALID_HANDLE, vhShader intersection = VRHI_INVALID_HANDLE, uint32_t maxPayloadBytes = sizeof( float ) * 4, uint32_t maxAttributeBytes = sizeof( float ) * 2 )
+{
+    TestRTPipeline out;
+    out.pipeline = vhAllocRTPipeline();
+    vhCreateRTPipeline( out.pipeline, rayGen, miss, closestHit, anyHit, intersection, maxPayloadBytes, maxAttributeBytes );
+    out.table = vhAllocShaderTable();
+    vhCreateShaderTable( out.table, out.pipeline );
+    return out;
+}
+
+static void DestroyRTPipeline( TestRTPipeline& p )
+{
+    if ( p.pipeline != VRHI_INVALID_HANDLE ) vhDestroyRTPipeline( p.pipeline );
+    if ( p.table != VRHI_INVALID_HANDLE ) vhDestroyShaderTable( p.table );
+    p = {};
+}
+
 // --------------------------------------------------------------------------
 // Fixture
 // --------------------------------------------------------------------------
@@ -618,21 +641,7 @@ UTEST_F( RT, Basic )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -642,7 +651,7 @@ UTEST_F( RT, Basic )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1500, state, table, args );
+    DispatchAndReset( 1500, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
     EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
@@ -654,8 +663,7 @@ UTEST_F( RT, Basic )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, Inline )
@@ -708,23 +716,7 @@ UTEST_F( RT, AnyHit )
     vhShader chit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
     vhShader anyHit = CreateRTShader( g_anyHitAcceptHLSL, VRHI_SHADER_STAGE_ANY_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main";
-    hgDesc.closestHitShader = vhGetShaderNvrhiHandle( chit );
-    hgDesc.anyHitShader = vhGetShaderNvrhiHandle( anyHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, chit, anyHit );
 
     vhState state;
     state.DirtyAll()
@@ -734,7 +726,7 @@ UTEST_F( RT, AnyHit )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1502, state, table, args );
+    DispatchAndReset( 1502, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -746,8 +738,7 @@ UTEST_F( RT, AnyHit )
     vhDestroyShader( miss );
     vhDestroyShader( chit );
     vhDestroyShader( anyHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, AnyHitReject )
@@ -768,23 +759,7 @@ UTEST_F( RT, AnyHitReject )
     uint32_t reject = 1;
     vhBuffer cb = CreateTestCB( &reject, sizeof( reject ) );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main";
-    hgDesc.closestHitShader = vhGetShaderNvrhiHandle( chit );
-    hgDesc.anyHitShader = vhGetShaderNvrhiHandle( anyHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, chit, anyHit );
 
     vhState state;
     state.DirtyAll()
@@ -795,7 +770,7 @@ UTEST_F( RT, AnyHitReject )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1503, state, table, args );
+    DispatchAndReset( 1503, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFFFF0000 ) );
 
@@ -808,8 +783,7 @@ UTEST_F( RT, AnyHitReject )
     vhDestroyShader( miss );
     vhDestroyShader( chit );
     vhDestroyShader( anyHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, ProceduralAABB )
@@ -829,25 +803,7 @@ UTEST_F( RT, ProceduralAABB )
     vhShader chit      = CreateRTShader( g_closestHitFromAABB_HLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
     vhShader isect     = CreateRTShader( g_intersectionAABB_HLSL, VRHI_SHADER_STAGE_INTERSECTION );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main";
-    hgDesc.closestHitShader = vhGetShaderNvrhiHandle( chit );
-    hgDesc.intersectionShader = vhGetShaderNvrhiHandle( isect );
-    hgDesc.isProceduralPrimitive = true;
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-    pipeDesc.maxAttributeSize = sizeof( float ) * 4; // CustomAABBAttributes = float4 = 16 bytes
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, chit, VRHI_INVALID_HANDLE, isect, sizeof( float ) * 4, sizeof( float ) * 4 );
 
     vhState state;
     state.DirtyAll()
@@ -857,7 +813,7 @@ UTEST_F( RT, ProceduralAABB )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1504, state, table, args );
+    DispatchAndReset( 1504, state, p.table, args );
 
     // The AABB covers the full [-1,1]x[-1,1] XY range so all pixels hit.
     // Intersection shader writes attr.color = green (0,1,0,1). ClosestHit copies it
@@ -873,8 +829,7 @@ UTEST_F( RT, ProceduralAABB )
     vhDestroyShader( miss );
     vhDestroyShader( chit );
     vhDestroyShader( isect );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, MultiHitGroup )
@@ -1040,21 +995,7 @@ UTEST_F( RT, IndexedTriangles )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1064,7 +1005,7 @@ UTEST_F( RT, IndexedTriangles )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1507, state, table, args );
+    DispatchAndReset( 1507, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
     EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
@@ -1077,8 +1018,7 @@ UTEST_F( RT, IndexedTriangles )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, InstanceTransform )
@@ -1111,21 +1051,7 @@ UTEST_F( RT, InstanceTransform )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1135,7 +1061,7 @@ UTEST_F( RT, InstanceTransform )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1508, state, table, args );
+    DispatchAndReset( 1508, state, p.table, args );
 
     // All rays should miss because the triangle is translated +Y by 10
     EXPECT_TRUE( VerifyAllPixels( rt, 0xFFFF0000 ) );
@@ -1147,8 +1073,7 @@ UTEST_F( RT, InstanceTransform )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, InstanceMask )
@@ -1178,21 +1103,7 @@ UTEST_F( RT, InstanceMask )
     uint32_t rayFlags = 0; // RAY_FLAG_NONE
     vhBuffer cbFlags = CreateTestCB( &rayFlags, sizeof( rayFlags ) );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     // Test 1: mask 0xFF in TraceRay matches instanceMask 0x01 => hit
     vhState state;
@@ -1204,7 +1115,7 @@ UTEST_F( RT, InstanceMask )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1509, state, table, args );
+    DispatchAndReset( 1509, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -1216,8 +1127,7 @@ UTEST_F( RT, InstanceMask )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, Dispatch3D )
@@ -1234,21 +1144,7 @@ UTEST_F( RT, Dispatch3D )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1258,7 +1154,7 @@ UTEST_F( RT, Dispatch3D )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4; args.depth = 2;
-    DispatchAndReset( 1510, state, table, args );
+    DispatchAndReset( 1510, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -1269,8 +1165,7 @@ UTEST_F( RT, Dispatch3D )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, TwoScene )
@@ -1290,21 +1185,7 @@ UTEST_F( RT, TwoScene )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1315,7 +1196,7 @@ UTEST_F( RT, TwoScene )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 1511, state, table, args );
+    DispatchAndReset( 1511, state, p.table, args );
 
     // Both scenes hit red, sum = red+red = (2,0,0,2) clamped -> (2,0,0,1) or (255,0,0,255)
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
@@ -1330,8 +1211,7 @@ UTEST_F( RT, TwoScene )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 // ==========================================================================
@@ -1352,21 +1232,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1376,7 +1242,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 2000, state, table, args );
+    DispatchAndReset( 2000, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -1387,8 +1253,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, BuildFlagsPreferFastBuild )
@@ -1405,21 +1270,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1429,7 +1280,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 2001, state, table, args );
+    DispatchAndReset( 2001, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -1440,8 +1291,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, ForceOpaqueInstance )
@@ -1467,21 +1317,7 @@ UTEST_F( RT, ForceOpaqueInstance )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1491,7 +1327,7 @@ UTEST_F( RT, ForceOpaqueInstance )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 2002, state, table, args );
+    DispatchAndReset( 2002, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -1502,8 +1338,7 @@ UTEST_F( RT, ForceOpaqueInstance )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, MinimizeMemory )
@@ -1520,21 +1355,7 @@ UTEST_F( RT, MinimizeMemory )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1544,7 +1365,7 @@ UTEST_F( RT, MinimizeMemory )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 2003, state, table, args );
+    DispatchAndReset( 2003, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -1555,8 +1376,7 @@ UTEST_F( RT, MinimizeMemory )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, TriangleCullDisable )
@@ -1633,21 +1453,7 @@ UTEST_F( RT, FrontCCW )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1657,7 +1463,7 @@ UTEST_F( RT, FrontCCW )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 2005, state, table, args );
+    DispatchAndReset( 2005, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -1668,8 +1474,7 @@ UTEST_F( RT, FrontCCW )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, FullHitGroup )
@@ -1819,21 +1624,7 @@ UTEST_F( RT, EmptyTLAS )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -1843,7 +1634,7 @@ UTEST_F( RT, EmptyTLAS )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 3000, state, table, args );
+    DispatchAndReset( 3000, state, p.table, args );
 
     EXPECT_TRUE( VerifyAllPixels( rt, 0xFFFF0000 ) );
 
@@ -1852,8 +1643,7 @@ UTEST_F( RT, EmptyTLAS )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, RepeatedDispatch )
@@ -1873,21 +1663,7 @@ UTEST_F( RT, RepeatedDispatch )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
     vhStateId sid = 3001;
@@ -1898,7 +1674,7 @@ UTEST_F( RT, RepeatedDispatch )
           .SetTexture( 0, { .name = "g_Output", .texture = rtA, .computeUAV = true } )
           .SetAccelStruct( 0, tlasA, -1, "g_Scene" )
           .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
-    DispatchAndReset( sid, stateA, table, args );
+    DispatchAndReset( sid, stateA, p.table, args );
 
     vhState stateB;
     stateB.DirtyAll()
@@ -1906,7 +1682,7 @@ UTEST_F( RT, RepeatedDispatch )
           .SetTexture( 0, { .name = "g_Output", .texture = rtB, .computeUAV = true } )
           .SetAccelStruct( 0, tlasB, -1, "g_Scene" )
           .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
-    DispatchAndReset( sid, stateB, table, args );
+    DispatchAndReset( sid, stateB, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rtA, 0, 0, 0xFF0000FF ) );
     EXPECT_TRUE( VerifyPixel( rtB, 0, 0, 0xFF0000FF ) );
@@ -1921,8 +1697,7 @@ UTEST_F( RT, RepeatedDispatch )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, StateAccelStructDirty )
@@ -1939,21 +1714,7 @@ UTEST_F( RT, StateAccelStructDirty )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhStateId sid = 3002;
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
@@ -1965,7 +1726,7 @@ UTEST_F( RT, StateAccelStructDirty )
          .SetAccelStruct( 0, tlas, -1, "g_Scene" );
     state.DirtyAll();
     vhSetState( sid, state );
-    vhDispatchRays( sid, table, args );
+    vhDispatchRays( sid, p.table, args );
     vhFinish();
 
     vhState state2;
@@ -1975,7 +1736,7 @@ UTEST_F( RT, StateAccelStructDirty )
           .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
           .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
     vhSetState( sid, state2 );
-    vhDispatchRays( sid, table, args );
+    vhDispatchRays( sid, p.table, args );
     vhFinish();
     vhState reset; vhSetState( sid, reset.DirtyAll() );
 
@@ -1988,8 +1749,7 @@ UTEST_F( RT, StateAccelStructDirty )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, ExtensionsUAV )
@@ -2083,21 +1843,7 @@ UTEST_F( RT, DestroyBoundAS )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -2107,7 +1853,7 @@ UTEST_F( RT, DestroyBoundAS )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 4000, state, table, args );
+    DispatchAndReset( 4000, state, p.table, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
     vhDestroyAS( tlas );
@@ -2123,7 +1869,7 @@ UTEST_F( RT, DestroyBoundAS )
           .SetAccelStruct( 0, tlas2, -1, "g_Scene" )
           .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
-    DispatchAndReset( 4000, state2, table, args );
+    DispatchAndReset( 4000, state2, p.table, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
     vhDestroyTexture( rt );
@@ -2133,8 +1879,7 @@ UTEST_F( RT, DestroyBoundAS )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, StateReset )
@@ -2151,21 +1896,7 @@ UTEST_F( RT, StateReset )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhStateId sid = 4001;
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
@@ -2177,7 +1908,7 @@ UTEST_F( RT, StateReset )
          .SetAccelStruct( 0, tlas, -1, "g_Scene" )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
     vhSetState( sid, state );
-    vhDispatchRays( sid, table, args );
+    vhDispatchRays( sid, p.table, args );
     vhFinish();
 
     vhState reset;
@@ -2187,7 +1918,7 @@ UTEST_F( RT, StateReset )
          .SetAccelStruct( 0, tlas, -1, "g_Scene" )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
     vhSetState( sid, reset );
-    vhDispatchRays( sid, table, args );
+    vhDispatchRays( sid, p.table, args );
     vhFinish();
     vhSetState( sid, vhState{}.DirtyAll() );
 
@@ -2200,8 +1931,7 @@ UTEST_F( RT, StateReset )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, ShaderTableRebuild )
@@ -2465,21 +2195,7 @@ UTEST_F( RT, AllowEmptyInstances )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -2489,7 +2205,7 @@ UTEST_F( RT, AllowEmptyInstances )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 6000, state, table, args );
+    DispatchAndReset( 6000, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -2500,8 +2216,7 @@ UTEST_F( RT, AllowEmptyInstances )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, SphereGeometry )
@@ -2518,21 +2233,7 @@ UTEST_F( RT, SphereGeometry )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -2542,7 +2243,7 @@ UTEST_F( RT, SphereGeometry )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 6001, state, table, args );
+    DispatchAndReset( 6001, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 1, 1, 0xFF0000FF ) );
     EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
@@ -2553,8 +2254,7 @@ UTEST_F( RT, SphereGeometry )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, BLASCompaction )
@@ -2571,21 +2271,7 @@ UTEST_F( RT, BLASCompaction )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -2596,7 +2282,7 @@ UTEST_F( RT, BLASCompaction )
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
 
-    DispatchAndReset( 6002, state, table, args );
+    DispatchAndReset( 6002, state, p.table, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
     vhCompactBLAS();
@@ -2619,7 +2305,7 @@ UTEST_F( RT, BLASCompaction )
 
     // Re-mark all dirty so the second dispatch re-uploads the full state.
     state.DirtyAll();
-    DispatchAndReset( 6002, state, table, args );
+    DispatchAndReset( 6002, state, p.table, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
     vhDestroyTexture( rt );
@@ -2629,8 +2315,7 @@ UTEST_F( RT, BLASCompaction )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, TLASRefit )
@@ -2658,21 +2343,7 @@ UTEST_F( RT, TLASRefit )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -2682,7 +2353,7 @@ UTEST_F( RT, TLASRefit )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 6003, state, table, args );
+    DispatchAndReset( 6003, state, p.table, args );
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
     nvrhi::rt::AffineTransform xform;
@@ -2694,7 +2365,7 @@ UTEST_F( RT, TLASRefit )
     vhBuildTLAS( tlas, { inst }, nvrhi::rt::AccelStructBuildFlags::PerformUpdate );
 
     state.DirtyAll(); // vhSetState clears dirty bits; must re-mark before second dispatch.
-    DispatchAndReset( 6003, state, table, args );
+    DispatchAndReset( 6003, state, p.table, args );
     EXPECT_TRUE( VerifyAllPixels( rt, 0xFFFF0000 ) );
 
     vhDestroyTexture( rt );
@@ -2704,8 +2375,7 @@ UTEST_F( RT, TLASRefit )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
 
 UTEST_F( RT, ShaderTableBindings )
@@ -2793,21 +2463,7 @@ UTEST_F( RT, TLASFromBuffer )
     vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
     vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
 
-    nvrhi::rt::PipelineDesc pipeDesc;
-    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
-    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );  mDesc.exportName = "miss";
-    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
-    pipeDesc.shaders = { rgDesc, mDesc };
-    pipeDesc.hitGroups = { hgDesc };
-    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
-
-    vhRTPipeline pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( pipeline, pipeDesc );
-    vhShaderTable table = vhAllocShaderTable();
-    vhCreateShaderTable( table, pipeline );
-    vhShaderTableSetRayGen( table, "main" );
-    vhShaderTableAddMiss( table, "miss" );
-    vhShaderTableAddHitGroup( table, "hg_main" );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
 
     vhState state;
     state.DirtyAll()
@@ -2817,7 +2473,7 @@ UTEST_F( RT, TLASFromBuffer )
          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
 
     nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
-    DispatchAndReset( 6005, state, table, args );
+    DispatchAndReset( 6005, state, p.table, args );
 
     EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
 
@@ -2829,6 +2485,5 @@ UTEST_F( RT, TLASFromBuffer )
     vhDestroyShader( rayGen );
     vhDestroyShader( miss );
     vhDestroyShader( closestHit );
-    vhDestroyRTPipeline( pipeline );
-    vhDestroyShaderTable( table );
+    DestroyRTPipeline( p );
 }
