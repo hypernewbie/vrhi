@@ -686,7 +686,13 @@ constexpr uint32_t VRHI_DRAW_INDIRECT = ( 1u << 1 );
 //
 // Must be called before any other RHI functions. Uses `g_vhInit` for configuration.
 // If windowHandle is provided in g_vhInit, a swapchain will be created.
+// On failure to find a suitable physical device, sets vhInitFailed() and returns
+// without crashing. Caller should check vhInitFailed() before using the device.
 void vhInit( bool quiet = false );
+
+// Returns true if the most recent vhInit() failed to find a suitable Vulkan device.
+// Useful in headless CI environments where no GPU/software ICD supports the requested feature set.
+bool vhInitFailed();
 
 // Shuts down the Vulkan RHI and stops the backend command thread.
 //

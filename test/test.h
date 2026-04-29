@@ -31,6 +31,14 @@ extern bool g_captureActive;
 extern bool g_testInit;
 void TestEnsureShutdown();
 
+// Returns true when running on a software Vulkan ICD (llvmpipe/lavapipe/SwiftShader/Microsoft Basic).
+// Used to skip stress benchmarks that race on software command submission paths.
+bool TestIsSoftwareVulkan();
+
+// Initialises the RHI and returns false if no suitable physical device exists. Lets device-touching
+// tests bail with UTEST_SKIP instead of crashing the rest of the suite.
+bool TestEnsureRHIInit();
+
 #if defined(__cplusplus) && (__cplusplus >= 201103L)
 #ifdef __clang__
 

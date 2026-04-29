@@ -75,6 +75,34 @@ void TestEnsureShutdown()
     }
 }
 
+bool TestIsSoftwareVulkan()
+{
+    if ( g_vhInit.nullMode ) return true;
+    auto contains = []( const std::string& haystack, const char* needle ) -> bool
+    {
+        std::string h = haystack;
+        std::transform( h.begin(), h.end(), h.begin(), []( unsigned char c ){ return ( char ) std::tolower( c ); } );
+        std::string n = needle;
+        std::transform( n.begin(), n.end(), n.begin(), []( unsigned char c ){ return ( char ) std::tolower( c ); } );
+        return h.find( n ) != std::string::npos;
+    };
+    if ( contains( g_vhDeviceInfo.name, "llvmpipe" ) ) return true;
+    if ( contains( g_vhDeviceInfo.name, "lavapipe" ) ) return true;
+    if ( contains( g_vhDeviceInfo.name, "swiftshader" ) ) return true;
+    if ( contains( g_vhDeviceInfo.name, "microsoft basic" ) ) return true;
+    if ( contains( g_vhDeviceInfo.driver, "swiftshader" ) ) return true;
+    if ( contains( g_vhDeviceInfo.driver, "llvmpipe" ) ) return true;
+    return false;
+}
+
+bool TestEnsureRHIInit()
+{
+    if ( g_testInit ) return !vhInitFailed();
+    vhInit( g_testInitQuiet );
+    g_testInit = true; // Marked even on failure so TestEnsureShutdown cleans up safely.
+    return !vhInitFailed();
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )

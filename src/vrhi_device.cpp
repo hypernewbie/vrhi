@@ -55,6 +55,7 @@ static vhTexture g_vhHeadlessBackbuffer = VRHI_INVALID_HANDLE;
 static nvrhi::TextureHandle g_vhHeadlessBackbufferHandle;
 
 bool g_vhMemoryBudgetEnabled = false;
+bool g_vhInitFailed = false;
 std::atomic<uint64_t> g_vhDrawCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhDispatchCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhFrameCount = 0;
@@ -139,9 +140,15 @@ void vhEnableRenderDoc()
 
 // -------------------------------------------------------- RHI Device --------------------------------------------------------
 
+bool vhInitFailed()
+{
+    return g_vhInitFailed;
+}
+
 void vhInit( bool quiet )
 {
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
+    g_vhInitFailed = false;
     g_vhErrorCounter = 0;
     g_vhPSOCompileCounter = 0;
     g_vhFrameCount = 0;
@@ -283,8 +290,13 @@ void vhInit( bool quiet )
         VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         v12Features.timelineSemaphore = VK_TRUE;
         v12Features.bufferDeviceAddress = VK_TRUE;
-        v12Features.descriptorIndexing = VK_TRUE; // Required for RT shader binding tables. Harmless when RT is off.
-        v12Features.runtimeDescriptorArray = VK_TRUE;
+        if ( g_vhInit.raytracing )
+        {
+            // Only required when RT is requested. Demanding these unconditionally rejects
+            // software ICDs (e.g. SwiftShader) that don't expose descriptor indexing.
+            v12Features.descriptorIndexing = VK_TRUE;
+            v12Features.runtimeDescriptorArray = VK_TRUE;
+        }
 
         VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         v13Features.dynamicRendering = VK_TRUE;
@@ -294,8 +306,13 @@ void vhInit( bool quiet )
         features.fillModeNonSolid = VK_TRUE;
         features.samplerAnisotropy = VK_TRUE;
         features.depthClamp = VK_TRUE;
-        features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-        features.shaderStorageImageReadWithoutFormat  = VK_TRUE;
+        if ( g_vhInit.raytracing )
+        {
+            // Only RT shaders use unformatted storage image reads/writes; gating this keeps
+            // headless CI ICDs that lack the feature able to pass device selection.
+            features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+            features.shaderStorageImageReadWithoutFormat  = VK_TRUE;
+        }
 
         selector.set_minimum_version( 1, 3 )
             .set_required_features_12( v12Features )
@@ -311,7 +328,8 @@ void vhInit( bool quiet )
             if ( !physRet || g_vhInit.deviceIndex >= ( int ) physRet.value().size() )
             {
                 VRHI_LOG( "Failed to select physical device at index %d\n", g_vhInit.deviceIndex );
-                exit( 1 );
+                g_vhInitFailed = true;
+                return;
             }
             vkbPhys = physRet.value()[g_vhInit.deviceIndex];
         }
@@ -322,7 +340,8 @@ void vhInit( bool quiet )
             if ( !physRet )
             {
                 VRHI_LOG( "Failed to select suitable physical device: %s\n", physRet.error().message().c_str() );
-                exit( 1 );
+                g_vhInitFailed = true;
+                return;
             }
             vkbPhys = physRet.value();
         }
@@ -676,6 +695,17 @@ vrhi_init_post_device:
 void vhShutdown( bool quiet )
 {
     if ( !quiet ) VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
+
+    if ( g_vhInitFailed || !g_vhDevice )
+    {
+        // vhInit bailed before the command thread/device were live. Unwind the small
+        // amount of state that was already initialised so the next vhInit() can run cleanly.
+        // vhCommandArena::Shutdown() is idempotent on uninitialised arenas.
+        g_vhCmdArena.Shutdown();
+        g_vhInitFailed = false;
+        return;
+    }
+
     vhFinish();
     vhShutdownDummyResources();
 
