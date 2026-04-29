@@ -111,14 +111,22 @@ UTEST( RHI, LogCallback )
 UTEST( RHI, RayTracingControl )
 {
     // If global init is active, shut it down to test clean init
-    // If global init is active, shut it down to test clean init
     TestEnsureShutdown();
 
     // Case 1: Disable RT
     g_vhInit.raytracing = false;
     vhInit( g_testInitQuiet );
     EXPECT_FALSE( g_vhRayTracingEnabled );
+
+    // Detect software Vulkan now that the device is up. SwiftShader / llvmpipe cannot satisfy
+    // the RT-only required features so the second vhInit() below would hit exit(1).
+    bool isSoftware = TestIsSoftwareVulkan();
     vhShutdown( g_testInitQuiet );
+
+    if ( isSoftware )
+    {
+        UTEST_SKIP( "Skipped: software Vulkan ICD cannot enable RT-required features" );
+    }
 
     // Case 2: Enable RT
     g_vhInit.raytracing = true;
