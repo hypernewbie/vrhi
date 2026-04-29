@@ -55,7 +55,6 @@ static vhTexture g_vhHeadlessBackbuffer = VRHI_INVALID_HANDLE;
 static nvrhi::TextureHandle g_vhHeadlessBackbufferHandle;
 
 bool g_vhMemoryBudgetEnabled = false;
-bool g_vhInitFailed = false;
 std::atomic<uint64_t> g_vhDrawCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhDispatchCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhFrameCount = 0;
@@ -140,15 +139,9 @@ void vhEnableRenderDoc()
 
 // -------------------------------------------------------- RHI Device --------------------------------------------------------
 
-bool vhInitFailed()
-{
-    return g_vhInitFailed;
-}
-
 void vhInit( bool quiet )
 {
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
-    g_vhInitFailed = false;
     g_vhErrorCounter = 0;
     g_vhPSOCompileCounter = 0;
     g_vhFrameCount = 0;
@@ -328,8 +321,7 @@ void vhInit( bool quiet )
             if ( !physRet || g_vhInit.deviceIndex >= ( int ) physRet.value().size() )
             {
                 VRHI_LOG( "Failed to select physical device at index %d\n", g_vhInit.deviceIndex );
-                g_vhInitFailed = true;
-                return;
+                exit( 1 );
             }
             vkbPhys = physRet.value()[g_vhInit.deviceIndex];
         }
@@ -340,8 +332,7 @@ void vhInit( bool quiet )
             if ( !physRet )
             {
                 VRHI_LOG( "Failed to select suitable physical device: %s\n", physRet.error().message().c_str() );
-                g_vhInitFailed = true;
-                return;
+                exit( 1 );
             }
             vkbPhys = physRet.value();
         }
@@ -695,17 +686,6 @@ vrhi_init_post_device:
 void vhShutdown( bool quiet )
 {
     if ( !quiet ) VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
-
-    if ( g_vhInitFailed || !g_vhDevice )
-    {
-        // vhInit bailed before the command thread/device were live. Unwind the small
-        // amount of state that was already initialised so the next vhInit() can run cleanly.
-        // vhCommandArena::Shutdown() is idempotent on uninitialised arenas.
-        g_vhCmdArena.Shutdown();
-        g_vhInitFailed = false;
-        return;
-    }
-
     vhFinish();
     vhShutdownDummyResources();
 

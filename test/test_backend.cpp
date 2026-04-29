@@ -233,9 +233,10 @@ UTEST( BackendInternal, ResolveBindingSlot )
 
 UTEST( BackendInternal, PipelineValidation )
 {
-    if ( !TestEnsureRHIInit() )
+    if ( !g_testInit )
     {
-        UTEST_SKIP( "No suitable Vulkan device for pipeline validation test" );
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
     }
 
     // Construct dummy setup for PreSubmitCommon_PipelineDesc

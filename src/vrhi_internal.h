@@ -173,7 +173,6 @@ extern std::mutex g_vhShaderTableIDListMutex;
 extern bool g_vhRayTracingEnabled;
 extern bool g_vhMemoryBudgetEnabled;
 extern bool g_vhNullMode;
-extern bool g_vhInitFailed;        // Set to true if device selection failed in vhInit. Lets headless CI skip GPU tests.
 
 #include <renderdoc_app.h>
 extern RENDERDOC_API_1_1_2* g_vhRenderDoc;

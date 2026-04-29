@@ -890,8 +890,15 @@ struct RT {};
 
 UTEST_F_SETUP( RT )
 {
+    // RT tests need raytracing enabled. If a previous non-RT test already initialised
+    // the device without RT, tear it down and re-init with RT requested.
+    if ( g_testInit && !g_vhInit.raytracing )
+    {
+        TestEnsureShutdown();
+    }
     if ( !g_testInit )
     {
+        g_vhInit.raytracing = true;
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }

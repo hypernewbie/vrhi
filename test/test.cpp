@@ -95,14 +95,6 @@ bool TestIsSoftwareVulkan()
     return false;
 }
 
-bool TestEnsureRHIInit()
-{
-    if ( g_testInit ) return !vhInitFailed();
-    vhInit( g_testInitQuiet );
-    g_testInit = true; // Marked even on failure so TestEnsureShutdown cleans up safely.
-    return !vhInitFailed();
-}
-
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )
@@ -110,6 +102,11 @@ int main( int argc, const char* const argv[] )
 #ifdef _WIN32
     vhTestSilenceWin32Dialogs();
 #endif
+
+    // Default off: lets headless CI on SwiftShader/llvmpipe pick a device that lacks
+    // RT-only Vulkan features (descriptorIndexing, runtimeDescriptorArray, etc.). The
+    // RT fixture flips this on and re-inits when the first RT test runs.
+    g_vhInit.raytracing = false;
 
     // Parse command line arguments
     for ( int i = 1; i < argc; ++i )
