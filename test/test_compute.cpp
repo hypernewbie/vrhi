@@ -1278,7 +1278,11 @@ UTEST_F( Compute, WorkgroupSizeVariations )
         std::vector< uint32_t > spirv;
         std::string err;
         bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
-        if ( !ok ) UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+        if ( !ok )
+        {
+            UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+            return VRHI_INVALID_HANDLE;
+        }
         vhShader cs = vhAllocShader();
         vhCreateShader( cs, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
         return cs;
@@ -1301,8 +1305,11 @@ UTEST_F( Compute, WorkgroupSizeVariations )
     )";
 
     vhShader s1 = Compile( cs1, "CS_WG_1" );
-    vhShader s8 = Compile( cs8, "CS_WG_8" );
-    vhShader s64 = Compile( cs64, "CS_WG_16x1" );
+    vhShader s2 = Compile( cs8, "CS_WG_8" );
+    vhShader s3 = Compile( cs64, "CS_WG_16x1" );
+    ASSERT_NE( s1, VRHI_INVALID_HANDLE );
+    ASSERT_NE( s2, VRHI_INVALID_HANDLE );
+    ASSERT_NE( s3, VRHI_INVALID_HANDLE );
 
     auto RunCheck = [&]( vhShader cs, glm::uvec3 groups, vhStateId sid )
     {
@@ -1320,13 +1327,13 @@ UTEST_F( Compute, WorkgroupSizeVariations )
     };
 
     RunCheck( s1, { 16, 16, 1 }, 8001 );
-    RunCheck( s8, { 2, 2, 1 }, 8002 );
-    RunCheck( s64, { 1, 16, 1 }, 8003 );
+    RunCheck( s2, { 2, 2, 1 }, 8002 );
+    RunCheck( s3, { 1, 16, 1 }, 8003 );
 
     vhDestroyTexture( outTex );
     vhDestroyShader( s1 );
-    vhDestroyShader( s8 );
-    vhDestroyShader( s64 );
+    vhDestroyShader( s2 );
+    vhDestroyShader( s3 );
     vhSetState( 8001, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
@@ -1351,7 +1358,11 @@ UTEST_F( Compute, MultiDispatchReadback )
         std::vector< uint32_t > spirv;
         std::string err;
         bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
-        if ( !ok ) UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+        if ( !ok )
+        {
+            UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+            return VRHI_INVALID_HANDLE;
+        }
         vhShader cs = vhAllocShader();
         vhCreateShader( cs, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
         return cs;
@@ -1367,6 +1378,9 @@ UTEST_F( Compute, MultiDispatchReadback )
     vhShader s1 = Compile( buf1, "CS_MD1" );
     vhShader s2 = Compile( buf2, "CS_MD2" );
     vhShader s3 = Compile( buf3, "CS_MD3" );
+    ASSERT_NE( s1, VRHI_INVALID_HANDLE );
+    ASSERT_NE( s2, VRHI_INVALID_HANDLE );
+    ASSERT_NE( s3, VRHI_INVALID_HANDLE );
 
     auto Run = [&]( vhShader cs, vhStateId sid )
     {
@@ -1491,7 +1505,11 @@ UTEST_F( Compute, IndirectDispatch_Chained )
         std::vector< uint32_t > spirv;
         std::string err;
         bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
-        if ( !ok ) UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+        if ( !ok )
+        {
+            UTEST_PRINTF( "Shader %s compile failed: %s\n", name, err.c_str() );
+            return VRHI_INVALID_HANDLE;
+        }
         vhShader cs = vhAllocShader();
         vhCreateShader( cs, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
         return cs;
@@ -1499,6 +1517,8 @@ UTEST_F( Compute, IndirectDispatch_Chained )
 
     vhShader sWrite = Compile( csWriteArgs, "CS_WriteArgs" );
     vhShader sConsume = Compile( csConsume, "CS_Consume" );
+    ASSERT_NE( sWrite, VRHI_INVALID_HANDLE );
+    ASSERT_NE( sConsume, VRHI_INVALID_HANDLE );
 
     vhState s1 = g_state0;
     s1.SetProgram( vhCreateComputeProgram( sWrite ) );
@@ -1616,6 +1636,12 @@ UTEST_F( Compute, Validation_DispatchWithoutShader )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU required" );
     vhFlush();
+
+    // Enable the skipped-draw error path so the dispatch logs the missing-program
+    // condition; restore prior value at the end.
+    bool prevErrorOnSkippedDraw = g_vhInit.errorOnSkippedDraw;
+    g_vhInit.errorOnSkippedDraw = true;
+
     int32_t startErrors = g_vhErrorCounter.load();
 
     // Dispatch without setting a program. Must log error, must not crash.
@@ -1625,8 +1651,10 @@ UTEST_F( Compute, Validation_DispatchWithoutShader )
     vhDispatch( sid, { 1, 1, 1 } );
     vhFinish();
 
-    // Error counter should have incremented (at least once).
-    EXPECT_GE( g_vhErrorCounter.load(), startErrors );
+    // Error counter must have incremented (at least once).
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    g_vhInit.errorOnSkippedDraw = prevErrorOnSkippedDraw;
 
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
