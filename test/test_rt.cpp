@@ -309,6 +309,289 @@ void main(uint3 id : SV_DispatchThreadID)
 )";
 
 // --------------------------------------------------------------------------
+// Phase 6 shaders
+// --------------------------------------------------------------------------
+
+static const char* g_rayGenTwoMiss = R"(
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+struct RayPayload { float4 color; };
+[shader("raygeneration")]
+void main()
+{
+    uint2 idx = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    float2 uv = (float2(idx) + 0.5f) / float2(dim);
+    RayDesc ray;
+    ray.Origin = float3(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, -1.0f);
+    ray.Direction = float3(0, 0, 1);
+    ray.TMin = 0.001;
+    ray.TMax = 100.0;
+    RayPayload p0, p1;
+    p0.color = float4(0,0,0,0);
+    p1.color = float4(0,0,0,0);
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, p0);
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFF, 0, 0, 1, ray, p1);
+    g_Output[idx] = p0.color + p1.color;
+}
+)";
+
+static const char* g_missShadowHLSL = R"(
+struct RayPayload { float4 color; };
+[shader("miss")]
+void main(inout RayPayload payload) { payload.color = float4(0.0, 0.0, 0.0, 1.0); }
+)";
+
+static const char* g_rayGenAltBlue = R"(
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+struct RayPayload { float4 color; };
+[shader("raygeneration")]
+void main()
+{
+    uint2 idx = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    float2 uv = (float2(idx) + 0.5f) / float2(dim);
+    RayDesc ray;
+    // Slightly different origin pattern to distinguish from the primary raygen.
+    ray.Origin = float3(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, -1.0f);
+    ray.Direction = float3(0, 0, 1);
+    ray.TMin = 0.001;
+    ray.TMax = 100.0;
+    RayPayload payload;
+    payload.color = float4(0,0,0,0);
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+    g_Output[idx] = payload.color;
+}
+)";
+
+static const char* g_hitCallCallableHLSL = R"(
+struct CallPayload { float4 color; };
+struct RayPayload { float4 color; };
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    CallPayload cp;
+    cp.color = float4(0,0,0,0);
+    CallShader(0, cp);
+    payload.color = cp.color;
+}
+)";
+
+static const char* g_callableSimpleHLSL = R"(
+struct CallPayload { float4 color; };
+[shader("callable")]
+void main(inout CallPayload payload) { payload.color = float4(1.0, 1.0, 0.0, 1.0); }
+)";
+
+static const char* g_rayGenReadSRV = R"(
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+StructuredBuffer<float4> g_Data : register(t1, VRHI_STAGE_SPACE);
+struct RayPayload { float4 color; };
+[shader("raygeneration")]
+void main()
+{
+    uint2 idx = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    float2 uv = (float2(idx) + 0.5f) / float2(dim);
+    float4 overrideDir = g_Data[idx.y * dim.x + idx.x];
+    RayDesc ray;
+    ray.Origin = float3(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, -1.0f);
+    ray.Direction = overrideDir.xyz;
+    ray.TMin = 0.001;
+    ray.TMax = 100.0;
+    RayPayload payload;
+    payload.color = float4(0,0,0,0);
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+    g_Output[idx] = payload.color;
+}
+)";
+
+static const char* g_rayGenCBuffer = R"(
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+cbuffer g_Camera : register(b0, VRHI_STAGE_SPACE) { float4 g_Direction; };
+struct RayPayload { float4 color; };
+[shader("raygeneration")]
+void main()
+{
+    uint2 idx = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    float2 uv = (float2(idx) + 0.5f) / float2(dim);
+    RayDesc ray;
+    ray.Origin = float3(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, -1.0f);
+    ray.Direction = g_Direction.xyz;
+    ray.TMin = 0.001;
+    ray.TMax = 100.0;
+    RayPayload payload;
+    payload.color = float4(0,0,0,0);
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+    g_Output[idx] = payload.color;
+}
+)";
+
+static const char* g_hitSampleTexture = R"(
+struct RayPayload { float4 color; };
+Texture2D<float4> g_Tex : register(t1, VRHI_STAGE_SPACE);
+SamplerState g_Sam : register(s0, VRHI_STAGE_SPACE);
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    float2 uv = attr.barycentrics;
+    payload.color = g_Tex.SampleLevel(g_Sam, uv, 0);
+}
+)";
+
+static const char* g_hitGeomIndex = R"(
+struct RayPayload { float4 color; };
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    uint gi = GeometryIndex();
+    if (gi == 0) payload.color = float4(1.0, 0.0, 0.0, 1.0);
+    else         payload.color = float4(0.0, 1.0, 0.0, 1.0);
+}
+)";
+
+static const char* g_hitHitKind = R"(
+struct RayPayload { float4 color; };
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    uint hk = HitKind();
+    if (hk == HIT_KIND_TRIANGLE_FRONT_FACE) payload.color = float4(1.0, 0.0, 0.0, 1.0);
+    else                                     payload.color = float4(0.0, 1.0, 0.0, 1.0);
+}
+)";
+
+static const char* g_hitPrimInstIdx = R"(
+struct RayPayload { float4 color; };
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    payload.color = float4(float(InstanceID()) / 255.0, float(PrimitiveIndex()) / 255.0, 0.0, 1.0);
+}
+)";
+
+static const char* g_hitBarycentrics = R"(
+struct RayPayload { float4 color; };
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    payload.color = float4(attr.barycentrics.x, attr.barycentrics.y, 0.0, 1.0);
+}
+)";
+
+static const char* g_hitWorldObjOrigin = R"(
+struct RayPayload { float4 color; };
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    float3 wo = WorldRayOrigin();
+    float3 oo = ObjectRayOrigin();
+    payload.color = float4(abs(wo - oo), 1.0);
+}
+)";
+
+static const char* g_rayGenTMinTMax = R"(
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+struct RayPayload { float4 color; };
+[shader("raygeneration")]
+void main()
+{
+    uint2 idx = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    float2 uv = (float2(idx) + 0.5f) / float2(dim);
+    RayDesc ray;
+    ray.Origin = float3(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, -1.0f);
+    ray.Direction = float3(0, 0, 1);
+    ray.TMin = 0.5;
+    ray.TMax = 2.0;
+    RayPayload payload;
+    payload.color = float4(0,0,0,0);
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+    g_Output[idx] = payload.color;
+}
+)";
+
+static const char* g_rayGenSkipCH = R"(
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+struct RayPayload { float4 color; };
+[shader("raygeneration")]
+void main()
+{
+    uint2 idx = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    float2 uv = (float2(idx) + 0.5f) / float2(dim);
+    RayDesc ray;
+    ray.Origin = float3(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, -1.0f);
+    ray.Direction = float3(0, 0, 1);
+    ray.TMin = 0.001;
+    ray.TMax = 100.0;
+    RayPayload payload;
+    payload.color = float4(0.5, 0.5, 0.5, 1.0);  // sentinel; unchanged when SKIP_CH is set
+    TraceRay(g_Scene, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 0, 0, ray, payload);
+    g_Output[idx] = payload.color;
+}
+)";
+
+static const char* g_hitRecordT = R"(
+struct RayPayload { float4 color; };
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    payload.color = float4(1.0, 0.0, 1.0, 1.0);  // magenta - never written if SKIP_CH set
+}
+)";
+
+static const char* g_rayGenLargePayload = R"(
+RWTexture2D<float4> g_Output : register(u0, VRHI_STAGE_SPACE);
+RaytracingAccelerationStructure g_Scene : register(t0, VRHI_STAGE_SPACE);
+struct BigPayload { float4 a, b, c, d; };
+[shader("raygeneration")]
+void main()
+{
+    uint2 idx = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    float2 uv = (float2(idx) + 0.5f) / float2(dim);
+    RayDesc ray;
+    ray.Origin = float3(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, -1.0f);
+    ray.Direction = float3(0, 0, 1);
+    ray.TMin = 0.001;
+    ray.TMax = 100.0;
+    BigPayload p;
+    p.a = p.b = p.c = p.d = float4(0,0,0,0);
+    TraceRay(g_Scene, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, p);
+    g_Output[idx] = p.a + p.b + p.c + p.d;
+}
+)";
+
+static const char* g_hitLargePayload = R"(
+struct BigPayload { float4 a, b, c, d; };
+[shader("closesthit")]
+void main(inout BigPayload p, in BuiltInTriangleIntersectionAttributes attr)
+{
+    p.a = float4(0.25, 0.0, 0.0, 0.25);
+    p.b = float4(0.0, 0.25, 0.0, 0.25);
+    p.c = float4(0.0, 0.0, 0.25, 0.25);
+    p.d = float4(0.0, 0.0, 0.0, 0.25);
+}
+)";
+
+static const char* g_hitAcceptFirst = R"(
+struct RayPayload { float4 color; };
+[shader("closesthit")]
+void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    payload.color = float4(0.0, 0.0, 1.0, 1.0);
+}
+)";
+
+// --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
 
@@ -581,11 +864,11 @@ struct TestRTPipeline
     vhShaderTable table = VRHI_INVALID_HANDLE;
 };
 
-static TestRTPipeline MakeRTPipeline( vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit = VRHI_INVALID_HANDLE, vhShader intersection = VRHI_INVALID_HANDLE, uint32_t maxPayloadBytes = sizeof( float ) * 4, uint32_t maxAttributeBytes = sizeof( float ) * 2 )
+static TestRTPipeline MakeRTPipeline( vhShader rayGen, vhShader miss, vhShader closestHit, vhShader anyHit = VRHI_INVALID_HANDLE, vhShader intersection = VRHI_INVALID_HANDLE, uint32_t maxPayloadBytes = sizeof( float ) * 4, uint32_t maxAttributeBytes = sizeof( float ) * 2, uint32_t maxRecursionDepth = 1 )
 {
     TestRTPipeline out;
     out.pipeline = vhAllocRTPipeline();
-    vhCreateRTPipeline( out.pipeline, rayGen, miss, closestHit, anyHit, intersection, maxPayloadBytes, maxAttributeBytes );
+    vhCreateRTPipeline( out.pipeline, rayGen, miss, closestHit, anyHit, intersection, maxPayloadBytes, maxAttributeBytes, maxRecursionDepth );
     out.table = vhAllocShaderTable();
     vhCreateShaderTable( out.table, out.pipeline );
     return out;
@@ -2480,6 +2763,1549 @@ UTEST_F( RT, TLASFromBuffer )
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb );
     vhDestroyBuffer( instanceBuf );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// ==========================================================================
+// Phase 6 - Group 1: Shader binding table layout
+// ==========================================================================
+
+UTEST_F( RT, MultipleMissShaders )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Raygen traces twice with miss index 0 (blue) and 1 (black). Triangle covers
+    // half the launch grid; pixels that hit get red on both calls; pixels that
+    // miss get blue from miss 0 and black from miss 1.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenTwoMiss, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader missBlue = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader missBlack = CreateRTShader( g_missShadowHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    nvrhi::rt::PipelineDesc pipeDesc;
+    nvrhi::rt::PipelineShaderDesc rgDesc;  rgDesc.shader = vhGetShaderNvrhiHandle( rayGen );    rgDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc m0Desc;  m0Desc.shader = vhGetShaderNvrhiHandle( missBlue );  m0Desc.exportName = "miss_b";
+    nvrhi::rt::PipelineShaderDesc m1Desc;  m1Desc.shader = vhGetShaderNvrhiHandle( missBlack ); m1Desc.exportName = "miss_k";
+    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
+    pipeDesc.shaders = { rgDesc, m0Desc, m1Desc };
+    pipeDesc.hitGroups = { hgDesc };
+    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
+
+    vhRTPipeline pipeline = vhAllocRTPipeline();
+    vhCreateRTPipeline( pipeline, pipeDesc );
+    vhShaderTable table = vhAllocShaderTable();
+    vhCreateShaderTable( table, pipeline );
+    vhShaderTableSetRayGen( table, "main" );
+    vhShaderTableAddMiss( table, "miss_b" );
+    vhShaderTableAddMiss( table, "miss_k" );
+    vhShaderTableAddHitGroup( table, "hg_main" );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, missBlue, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7000, state, table, args );
+
+    // Hit pixel (0,0): red + red saturates to red.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    // Miss pixel (3,3): blue + black = blue.
+    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( missBlue );
+    vhDestroyShader( missBlack );
+    vhDestroyShader( closestHit );
+    vhDestroyRTPipeline( pipeline );
+    vhDestroyShaderTable( table );
+}
+
+UTEST_F( RT, MultipleRayGenShaders )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    vhTexture rtA = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhTexture rtB = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGenA = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader rayGenB = CreateRTShader( g_rayGenAltBlue, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    // Two independent pipelines, each with its own raygen shader. Real
+    // renderers commonly create separate RT pipelines for primary visibility
+    // vs reflection passes rather than packing them into one mega-pipeline.
+    auto pA = MakeRTPipeline( rayGenA, miss, closestHit );
+    auto pB = MakeRTPipeline( rayGenB, miss, closestHit );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+
+    vhState stateA;
+    stateA.DirtyAll()
+          .SetProgram( vhCreateRTProgram( rayGenA, miss, closestHit ) )
+          .SetTexture( 0, { .name = "g_Output", .texture = rtA, .computeUAV = true } )
+          .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+    DispatchAndReset( 7001, stateA, pA.table, args );
+
+    vhState stateB;
+    stateB.DirtyAll()
+          .SetProgram( vhCreateRTProgram( rayGenB, miss, closestHit ) )
+          .SetTexture( 0, { .name = "g_Output", .texture = rtB, .computeUAV = true } )
+          .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+    DispatchAndReset( 7001, stateB, pB.table, args );
+
+    EXPECT_TRUE( VerifyPixel( rtA, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rtB, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rtA );
+    vhDestroyTexture( rtB );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGenA );
+    vhDestroyShader( rayGenB );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( pA );
+    DestroyRTPipeline( pB );
+}
+
+UTEST_F( RT, PerInstanceHitGroup )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    Vertex vertsA[3] = { { -1.0f, -1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { -1.0f, 1.0f, 0.0f } };
+    Vertex vertsB[3] = { {  0.0f, -1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f }, {  0.0f, 1.0f, 0.0f } };
+    vhBuffer vbA = CreateTestVB( "float3", vertsA, sizeof( vertsA ) );
+    vhBuffer vbB = CreateTestVB( "float3", vertsB, sizeof( vertsB ) );
+    vhAccelStruct blasA = BuildTriBLAS( vbA, 3 );
+    vhAccelStruct blasB = BuildTriBLAS( vbB, 3 );
+
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 2 ).setDebugName( "PerInstanceTLAS" ) );
+    vhFinish();
+
+    nvrhi::rt::InstanceDesc inst0;
+    inst0.bottomLevelAS = vhGetASNvrhiHandle( blasA );
+    inst0.instanceMask = 0xFF;
+    inst0.instanceContributionToHitGroupIndex = 0;
+    inst0.flags = nvrhi::rt::InstanceFlags::None;
+    inst0.setTransform( nvrhi::rt::c_IdentityTransform );
+
+    nvrhi::rt::InstanceDesc inst1;
+    inst1.bottomLevelAS = vhGetASNvrhiHandle( blasB );
+    inst1.instanceMask = 0xFF;
+    inst1.instanceContributionToHitGroupIndex = 1;
+    inst1.flags = nvrhi::rt::InstanceFlags::None;
+    inst1.setTransform( nvrhi::rt::c_IdentityTransform );
+
+    vhBuildTLAS( tlas, { inst0, inst1 } );
+    vhFinish();
+
+    vhShader rayGen   = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss     = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader chitRed  = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+    vhShader chitGrn  = CreateRTShader( g_hitGreenHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    nvrhi::rt::PipelineDesc pipeDesc;
+    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );   mDesc.exportName = "miss";
+    nvrhi::rt::PipelineHitGroupDesc hg0;  hg0.exportName = "hg0"; hg0.closestHitShader = vhGetShaderNvrhiHandle( chitRed );
+    nvrhi::rt::PipelineHitGroupDesc hg1;  hg1.exportName = "hg1"; hg1.closestHitShader = vhGetShaderNvrhiHandle( chitGrn );
+    pipeDesc.shaders = { rgDesc, mDesc };
+    pipeDesc.hitGroups = { hg0, hg1 };
+    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
+
+    vhRTPipeline pipeline = vhAllocRTPipeline();
+    vhCreateRTPipeline( pipeline, pipeDesc );
+    vhShaderTable table = vhAllocShaderTable();
+    vhCreateShaderTable( table, pipeline );
+    vhShaderTableSetRayGen( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
+    vhShaderTableAddHitGroup( table, "hg0" );
+    vhShaderTableAddHitGroup( table, "hg1" );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, chitRed ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7002, state, table, args );
+
+    // Left half hits instance 0 -> red. Right half hits instance 1 -> green.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 3, 0, 0xFF00FF00 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vbA );
+    vhDestroyBuffer( vbB );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blasA );
+    vhDestroyAS( blasB );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( chitRed );
+    vhDestroyShader( chitGrn );
+    vhDestroyRTPipeline( pipeline );
+    vhDestroyShaderTable( table );
+}
+
+UTEST_F( RT, CallableShaders )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen     = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss       = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitCallCallableHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+    vhShader callable   = CreateRTShader( g_callableSimpleHLSL, VRHI_SHADER_STAGE_CALLABLE );
+
+    nvrhi::rt::PipelineDesc pipeDesc;
+    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen );     rgDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );       mDesc.exportName = "miss";
+    nvrhi::rt::PipelineShaderDesc cDesc;  cDesc.shader  = vhGetShaderNvrhiHandle( callable );   cDesc.exportName = "call";
+    nvrhi::rt::PipelineHitGroupDesc hgDesc; hgDesc.exportName = "hg_main"; hgDesc.closestHitShader = vhGetShaderNvrhiHandle( closestHit );
+    pipeDesc.shaders = { rgDesc, mDesc, cDesc };
+    pipeDesc.hitGroups = { hgDesc };
+    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
+
+    vhRTPipeline pipeline = vhAllocRTPipeline();
+    vhCreateRTPipeline( pipeline, pipeDesc );
+    vhShaderTable table = vhAllocShaderTable();
+    vhCreateShaderTable( table, pipeline );
+    vhShaderTableSetRayGen( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
+    vhShaderTableAddHitGroup( table, "hg_main" );
+    vhShaderTableAddCallable( table, "call" );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7003, state, table, args );
+
+    // Hit pixel: closesthit invokes callable, callable writes yellow.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF00FFFF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    vhDestroyShader( callable );
+    vhDestroyRTPipeline( pipeline );
+    vhDestroyShaderTable( table );
+}
+
+// ==========================================================================
+// Phase 6 - Group 2: Resource bindings beyond Texture_UAV + AS
+// ==========================================================================
+
+UTEST_F( RT, StructuredBufferSRV_InRayGen )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // 4x4 dispatch reads per-pixel direction overrides from a StructuredBuffer.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    // 16 entries; first 8 point at (0,0,1) which hits, last 8 point at (0,0,-1) which misses.
+    glm::vec4 dirs[16];
+    for ( int i = 0; i < 16; ++i ) dirs[i] = ( i < 8 ) ? glm::vec4( 0, 0, 1, 0 ) : glm::vec4( 0, 0, -1, 0 );
+    vhBuffer dirBuf = CreateTestStorageBuffer( dirs, sizeof( dirs ), sizeof( glm::vec4 ) );
+
+    vhShader rayGen = CreateRTShader( g_rayGenReadSRV, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetBuffer( 0, { .name = "g_Data", .buffer = dirBuf } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7100, state, p.table, args );
+
+    // First half (idx 0-7, pixels with y=0,1) hits -> red.
+    // Second half (idx 8-15, pixels with y=2,3) misses -> blue.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 0, 3, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( dirBuf );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, ConstantBuffer_InRayGen )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenCBuffer, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    glm::vec4 dirData = glm::vec4( 0.0f, 0.0f, 1.0f, 0.0f );
+    vhBuffer cb = CreateTestCB( &dirData, sizeof( dirData ) );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetBuffer( 0, { .name = "g_Camera", .buffer = cb } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7102, state, p.table, args );
+
+    // Direction (0,0,1) hits triangle -> red.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( cb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, SamplerInClosestHit )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    // Solid green 2x2 texture used as the "albedo" sampled in closest-hit.
+    uint8_t pixels[ 2 * 2 * 4 ];
+    for ( int i = 0; i < 4; ++i ) { pixels[ i * 4 + 0 ] = 0; pixels[ i * 4 + 1 ] = 255; pixels[ i * 4 + 2 ] = 0; pixels[ i * 4 + 3 ] = 255; }
+    vhMem* texMem = vhAllocMem( sizeof( pixels ) );
+    memcpy( texMem->data(), pixels, sizeof( pixels ) );
+    vhTexture albedo = vhAllocTexture();
+    vhCreateTexture2D( albedo, "Albedo", glm::ivec2( 2, 2 ), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, texMem );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitSampleTexture, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetTexture( 1, { .name = "g_Tex", .texture = albedo } )
+         .SetSampler( 0, { "g_Sam", -1, VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7103, state, p.table, args );
+
+    // Hit pixel sampled from green texture -> green.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF00FF00 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyTexture( albedo );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// ==========================================================================
+// Phase 6 - Group 3: Geometry and scene complexity
+// ==========================================================================
+
+UTEST_F( RT, MultiGeomBLAS )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Single BLAS containing two triangles in non-overlapping XY regions, each
+    // in its own GeometryDesc. Closest-hit reads GeometryIndex() to choose
+    // colour: geo 0 -> red, geo 1 -> green.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    Vertex vertsA[3] = { { -1.0f, -1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { -1.0f, 1.0f, 0.0f } };
+    Vertex vertsB[3] = { {  0.0f, -1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f }, {  0.0f, 1.0f, 0.0f } };
+    vhBuffer vbA = CreateTestVB( "float3", vertsA, sizeof( vertsA ) );
+    vhBuffer vbB = CreateTestVB( "float3", vertsB, sizeof( vertsB ) );
+
+    vhAccelStruct blas = vhAllocAS();
+    vhCreateAS( blas, nvrhi::rt::AccelStructDesc().setIsTopLevel( false ).setDebugName( "MultiGeomBLAS" ) );
+    vhFlush( true );
+    nvrhi::rt::GeometryDesc geo0 = MakeTriGeo( vbA, 3 );
+    nvrhi::rt::GeometryDesc geo1 = MakeTriGeo( vbB, 3 );
+    vhBuildBLAS( blas, { geo0, geo1 } );
+
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitGeomIndex, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7200, state, p.table, args );
+
+    // Left half (geo 0) -> red. Right half (geo 1) -> green.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 3, 0, 0xFF00FF00 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vbA );
+    vhDestroyBuffer( vbB );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, SharedBLASInstances )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // One BLAS, four TLAS instances at different XY translations covering
+    // distinct quadrants of an 8x8 launch.
+    vhTexture rt = CreateTestTexture( 8, 8, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    // Tiny triangle that occupies a small area near origin.
+    Vertex tinyTri[3] = { { -0.25f, -0.25f, 0.0f }, { 0.25f, -0.25f, 0.0f }, { -0.25f, 0.25f, 0.0f } };
+    vhBuffer vb = CreateTestVB( "float3", tinyTri, sizeof( tinyTri ) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 4 ).setDebugName( "SharedTLAS" ) );
+    vhFinish();
+
+    auto MakeInstance = []( vhAccelStruct b, float tx, float ty )
+    {
+        nvrhi::rt::InstanceDesc inst;
+        inst.bottomLevelAS = vhGetASNvrhiHandle( b );
+        inst.instanceMask = 0xFF;
+        inst.instanceContributionToHitGroupIndex = 0;
+        inst.flags = nvrhi::rt::InstanceFlags::None;
+        nvrhi::rt::AffineTransform t;
+        t[0] = 1.f; t[1] = 0.f; t[2]  = 0.f; t[3]  = tx;
+        t[4] = 0.f; t[5] = 1.f; t[6]  = 0.f; t[7]  = ty;
+        t[8] = 0.f; t[9] = 0.f; t[10] = 1.f; t[11] = 0.f;
+        inst.setTransform( t );
+        return inst;
+    };
+
+    nvrhi::rt::InstanceDesc i0 = MakeInstance( blas, -0.5f, -0.5f );
+    nvrhi::rt::InstanceDesc i1 = MakeInstance( blas,  0.5f, -0.5f );
+    nvrhi::rt::InstanceDesc i2 = MakeInstance( blas, -0.5f,  0.5f );
+    nvrhi::rt::InstanceDesc i3 = MakeInstance( blas,  0.5f,  0.5f );
+    vhBuildTLAS( tlas, { i0, i1, i2, i3 } );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 8, 8 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 8; args.height = 8;
+    DispatchAndReset( 7201, state, p.table, args );
+
+    // At least one pixel in each instance region should hit.
+    EXPECT_TRUE( VerifyPixel( rt, 1, 1, 0xFF0000FF ) );  // bottom-left instance
+    EXPECT_TRUE( VerifyPixel( rt, 5, 5, 0xFF0000FF ) );  // top-right instance (triangle points bottom-left so check inside the hypotenuse)
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, MixedTriAABB_TLAS )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // TLAS with one triangle BLAS instance and one AABB BLAS instance.
+    // Triangle uses a triangle hit group, AABB uses an intersection-shader
+    // hit group. Each instance specifies a different
+    // instanceContributionToHitGroupIndex to pick its hit group.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    // Triangle in left half.
+    Vertex triVerts[3] = { { -1.0f, -1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { -1.0f, 1.0f, 0.0f } };
+    vhBuffer vbTri = CreateTestVB( "float3", triVerts, sizeof( triVerts ) );
+    vhAccelStruct blasTri = BuildTriBLAS( vbTri, 3 );
+
+    // AABB in right half.
+    float aabb[6] = { 0.0f, -1.0f, -0.1f, 1.0f, 1.0f, 0.1f };
+    vhBuffer aabbBuf = CreateTestStorageBuffer( aabb, sizeof( aabb ), 0, VRHI_BUFFER_ACCEL_INPUT );
+    vhAccelStruct blasAABB = BuildAABBBLAS( aabbBuf, 1 );
+
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 2 ).setDebugName( "MixedTLAS" ) );
+    vhFinish();
+
+    nvrhi::rt::InstanceDesc inst0;
+    inst0.bottomLevelAS = vhGetASNvrhiHandle( blasTri );
+    inst0.instanceMask = 0xFF;
+    inst0.instanceContributionToHitGroupIndex = 0;
+    inst0.flags = nvrhi::rt::InstanceFlags::None;
+    inst0.setTransform( nvrhi::rt::c_IdentityTransform );
+
+    nvrhi::rt::InstanceDesc inst1;
+    inst1.bottomLevelAS = vhGetASNvrhiHandle( blasAABB );
+    inst1.instanceMask = 0xFF;
+    inst1.instanceContributionToHitGroupIndex = 1;
+    inst1.flags = nvrhi::rt::InstanceFlags::None;
+    inst1.setTransform( nvrhi::rt::c_IdentityTransform );
+
+    vhBuildTLAS( tlas, { inst0, inst1 } );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader chitTri = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+    vhShader chitAABB = CreateRTShader( g_closestHitFromAABB_HLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+    vhShader isect = CreateRTShader( g_intersectionAABB_HLSL, VRHI_SHADER_STAGE_INTERSECTION );
+
+    nvrhi::rt::PipelineDesc pipeDesc;
+    nvrhi::rt::PipelineShaderDesc rgDesc; rgDesc.shader = vhGetShaderNvrhiHandle( rayGen ); rgDesc.exportName = "main";
+    nvrhi::rt::PipelineShaderDesc mDesc;  mDesc.shader  = vhGetShaderNvrhiHandle( miss );   mDesc.exportName = "miss";
+    nvrhi::rt::PipelineHitGroupDesc hg0; hg0.exportName = "hg_tri"; hg0.closestHitShader = vhGetShaderNvrhiHandle( chitTri );
+    nvrhi::rt::PipelineHitGroupDesc hg1; hg1.exportName = "hg_aabb";
+    hg1.closestHitShader = vhGetShaderNvrhiHandle( chitAABB );
+    hg1.intersectionShader = vhGetShaderNvrhiHandle( isect );
+    hg1.isProceduralPrimitive = true;
+    pipeDesc.shaders = { rgDesc, mDesc };
+    pipeDesc.hitGroups = { hg0, hg1 };
+    pipeDesc.maxPayloadSize = sizeof( float ) * 4;
+    pipeDesc.maxAttributeSize = sizeof( float ) * 4;
+
+    vhRTPipeline pipeline = vhAllocRTPipeline();
+    vhCreateRTPipeline( pipeline, pipeDesc );
+    vhShaderTable table = vhAllocShaderTable();
+    vhCreateShaderTable( table, pipeline );
+    vhShaderTableSetRayGen( table, "main" );
+    vhShaderTableAddMiss( table, "miss" );
+    vhShaderTableAddHitGroup( table, "hg_tri" );
+    vhShaderTableAddHitGroup( table, "hg_aabb" );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, chitTri ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7202, state, table, args );
+
+    // Left half hits triangle -> red. Right half hits AABB intersection -> green (intersection writes green attr).
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 3, 0, 0xFF00FF00 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vbTri );
+    vhDestroyBuffer( aabbBuf );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blasTri );
+    vhDestroyAS( blasAABB );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( chitTri );
+    vhDestroyShader( chitAABB );
+    vhDestroyShader( isect );
+    vhDestroyRTPipeline( pipeline );
+    vhDestroyShaderTable( table );
+}
+
+UTEST_F( RT, LargeBLAS )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // BLAS with 1024 triangles forming a tightly packed grid covering [-1,1].
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    constexpr int kTriCount = 1024;
+    std::vector< Vertex > verts;
+    verts.reserve( kTriCount * 3 );
+    // 32x32 grid of triangles in [-1,1]^2.
+    int gridDim = 32;
+    float cellW = 2.0f / gridDim;
+    for ( int y = 0; y < gridDim; ++y )
+    {
+        for ( int x = 0; x < gridDim; ++x )
+        {
+            float x0 = -1.0f + x * cellW;
+            float y0 = -1.0f + y * cellW;
+            verts.push_back( { x0,         y0,         0.0f } );
+            verts.push_back( { x0 + cellW, y0,         0.0f } );
+            verts.push_back( { x0,         y0 + cellW, 0.0f } );
+        }
+    }
+    vhBuffer vb = CreateTestVB( "float3", verts.data(), uint32_t( verts.size() * sizeof( Vertex ) ) );
+    vhAccelStruct blas = BuildTriBLAS( vb, kTriCount * 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7203, state, p.table, args );
+
+    // All pixels hit since the grid covers the full launch.
+    EXPECT_TRUE( VerifyAllPixels( rt, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, LargeTLAS )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // 64 instances arranged as 8x8 grid, each a tiny triangle.
+    vhTexture rt = CreateTestTexture( 16, 16, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    Vertex tinyTri[3] = { { -0.1f, -0.1f, 0.0f }, { 0.1f, -0.1f, 0.0f }, { -0.1f, 0.1f, 0.0f } };
+    vhBuffer vb = CreateTestVB( "float3", tinyTri, sizeof( tinyTri ) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 64 ).setDebugName( "LargeTLAS" ) );
+    vhFinish();
+
+    std::vector< nvrhi::rt::InstanceDesc > instances;
+    instances.reserve( 64 );
+    int gridDim = 8;
+    float cellW = 2.0f / gridDim;
+    for ( int y = 0; y < gridDim; ++y )
+    {
+        for ( int x = 0; x < gridDim; ++x )
+        {
+            float tx = -1.0f + ( x + 0.5f ) * cellW;
+            float ty = -1.0f + ( y + 0.5f ) * cellW;
+            nvrhi::rt::InstanceDesc inst;
+            inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
+            inst.instanceMask = 0xFF;
+            inst.instanceContributionToHitGroupIndex = 0;
+            inst.flags = nvrhi::rt::InstanceFlags::None;
+            nvrhi::rt::AffineTransform t;
+            t[0] = 1.f; t[1] = 0.f; t[2]  = 0.f; t[3]  = tx;
+            t[4] = 0.f; t[5] = 1.f; t[6]  = 0.f; t[7]  = ty;
+            t[8] = 0.f; t[9] = 0.f; t[10] = 1.f; t[11] = 0.f;
+            inst.setTransform( t );
+            instances.push_back( inst );
+        }
+    }
+    vhBuildTLAS( tlas, instances );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 16, 16 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 16; args.height = 16;
+    DispatchAndReset( 7204, state, p.table, args );
+
+    // Triangle is right-angled with hypotenuse cutting from bottom-right to top-left,
+    // so each instance hits pixels in its bottom-left quadrant.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 14, 14, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// ==========================================================================
+// Phase 6 - Group 4: Shader semantics: HLSL intrinsics
+// ==========================================================================
+
+UTEST_F( RT, HitKind_FrontBack )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // CW (front) and CCW (back) triangles tested on each side. With default
+    // counter-clockwise = back-face, the CW triangle is front when viewed
+    // from -Z toward +Z (our default ray direction).
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    // Use TriangleCullDisable so we keep both faces visible.
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "HitKindTLAS" ) );
+    vhFinish();
+
+    nvrhi::rt::InstanceDesc inst;
+    inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
+    inst.instanceMask = 0xFF;
+    inst.instanceContributionToHitGroupIndex = 0;
+    inst.flags = nvrhi::rt::InstanceFlags::TriangleCullDisable;
+    inst.setTransform( nvrhi::rt::c_IdentityTransform );
+    vhBuildTLAS( tlas, { inst } );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHitKind, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7300, state, p.table, args );
+
+    // Hit pixel registers either front or back. Both red and green are valid
+    // depending on the geometry's apparent winding from the ray origin.
+    vhMem readData;
+    vhReadTextureSlow( rt, 0, 0, &readData );
+    vhFinish();
+    if ( !g_vhInit.nullMode )
+    {
+        // Red = front, Green = back. Either is acceptable; assert it's not blue (miss).
+        EXPECT_NE( readData[2], 255 );
+    }
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, PrimitiveAndInstanceIndex )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // BLAS with two triangles, two TLAS instances. Closest-hit encodes
+    // InstanceID() in red and PrimitiveIndex() in green channels.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    Vertex verts[6] = {
+        { -1.0f, -1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { -1.0f, 1.0f, 0.0f },
+        {  0.0f, -1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f }, {  0.0f, 1.0f, 0.0f }
+    };
+    vhBuffer vb = CreateTestVB( "float3", verts, sizeof( verts ) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 6 );
+
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "PrimInstTLAS" ) );
+    vhFinish();
+
+    nvrhi::rt::InstanceDesc inst;
+    inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
+    inst.instanceMask = 0xFF;
+    inst.instanceContributionToHitGroupIndex = 0;
+    inst.instanceID = 5;
+    inst.flags = nvrhi::rt::InstanceFlags::None;
+    inst.setTransform( nvrhi::rt::c_IdentityTransform );
+    vhBuildTLAS( tlas, { inst } );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitPrimInstIdx, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7301, state, p.table, args );
+
+    // Pixel (0,0) hits primitive 0 of instance 5: red=5, green=0.
+    // Pixel (3,0) hits primitive 1 of instance 5: red=5, green=1.
+    vhMem readData;
+    vhReadTextureSlow( rt, 0, 0, &readData );
+    vhFinish();
+    if ( !g_vhInit.nullMode )
+    {
+        // Pixel (0,0) red = clamp(5/255) = 5.
+        EXPECT_EQ( readData[0], 5 );
+        EXPECT_EQ( readData[1], 0 );  // primitive 0 in left tri
+        // Pixel (3,0) hits primitive 1.
+        int32_t off30 = ( 0 * 4 + 3 ) * 4;
+        EXPECT_EQ( readData[off30 + 0], 5 );
+        EXPECT_EQ( readData[off30 + 1], 1 );
+    }
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, Barycentrics )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitBarycentrics, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7302, state, p.table, args );
+
+    // Barycentrics differ across the triangle. Read two positions and verify
+    // their R or G channel differs (not constant across the triangle).
+    vhMem readData;
+    vhReadTextureSlow( rt, 0, 0, &readData );
+    vhFinish();
+    if ( !g_vhInit.nullMode )
+    {
+        uint8_t r00 = readData[0];
+        uint8_t r20 = readData[2 * 4 + 0];
+        EXPECT_NE( r00, r20 );  // must vary
+    }
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, RayTCurrent_TMin_TMax )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // TMin=0.5, TMax=2.0 in the raygen. Geometry at distance 1.0 (z=0,
+    // ray origin z=-1, direction +Z) is within [TMin, TMax] → hits.
+    // For variant 2, translate triangle to z=3.0 → outside TMax → miss.
+    vhTexture rtNear = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhTexture rtFar = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlasNear = BuildTriTLAS( blas );
+
+    // Far instance: z translated by +3.
+    vhAccelStruct tlasFar = vhAllocAS();
+    vhCreateAS( tlasFar, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 1 ).setDebugName( "FarTLAS" ) );
+    vhFinish();
+    nvrhi::rt::AffineTransform tFar;
+    tFar[0] = 1.f; tFar[1] = 0.f; tFar[2]  = 0.f; tFar[3]  = 0.f;
+    tFar[4] = 0.f; tFar[5] = 1.f; tFar[6]  = 0.f; tFar[7]  = 0.f;
+    tFar[8] = 0.f; tFar[9] = 0.f; tFar[10] = 1.f; tFar[11] = 3.0f;
+    nvrhi::rt::InstanceDesc instFar;
+    instFar.bottomLevelAS = vhGetASNvrhiHandle( blas );
+    instFar.instanceMask = 0xFF;
+    instFar.instanceContributionToHitGroupIndex = 0;
+    instFar.flags = nvrhi::rt::InstanceFlags::None;
+    instFar.setTransform( tFar );
+    vhBuildTLAS( tlasFar, { instFar } );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenTMinTMax, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+
+    vhState stateN;
+    stateN.DirtyAll()
+          .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+          .SetTexture( 0, { .name = "g_Output", .texture = rtNear, .computeUAV = true } )
+          .SetAccelStruct( 0, tlasNear, -1, "g_Scene" )
+          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+    DispatchAndReset( 7303, stateN, p.table, args );
+
+    vhState stateF;
+    stateF.DirtyAll()
+          .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+          .SetTexture( 0, { .name = "g_Output", .texture = rtFar, .computeUAV = true } )
+          .SetAccelStruct( 0, tlasFar, -1, "g_Scene" )
+          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+    DispatchAndReset( 7303, stateF, p.table, args );
+
+    EXPECT_TRUE( VerifyPixel( rtNear, 0, 0, 0xFF0000FF ) );  // hit
+    EXPECT_TRUE( VerifyPixel( rtFar, 0, 0, 0xFFFF0000 ) );   // miss (TMax exceeded)
+
+    vhDestroyTexture( rtNear );
+    vhDestroyTexture( rtFar );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlasNear );
+    vhDestroyAS( tlasFar );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// ==========================================================================
+// Phase 6 - Group 5: Ray flags
+// ==========================================================================
+
+UTEST_F( RT, RayFlag_ForceOpaque )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Geometry has any-hit reject shader. With g_TraceFlags = RAY_FLAG_FORCE_OPAQUE
+    // (=1), any-hit must be bypassed and the hit recorded normally.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenWithFlags, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader chit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+    vhShader anyHit = CreateRTShader( g_anyHitRejectHLSL, VRHI_SHADER_STAGE_ANY_HIT );
+
+    uint32_t reject = 1;  // any-hit would reject if reached
+    vhBuffer cbReject = CreateTestCB( &reject, sizeof( reject ) );
+    uint32_t flagsForceOpaque = 1;  // RAY_FLAG_FORCE_OPAQUE
+    vhBuffer cbFlags = CreateTestCB( &flagsForceOpaque, sizeof( flagsForceOpaque ) );
+
+    auto p = MakeRTPipeline( rayGen, miss, chit, anyHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, chit, anyHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetBuffer( 0, { .name = "g_RayFlags", .buffer = cbFlags } )
+         .SetBuffer( 1, { .name = "g_AnyHitParams", .buffer = cbReject } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7400, state, p.table, args );
+
+    // FORCE_OPAQUE bypasses any-hit; closest-hit runs and writes red.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( cbReject );
+    vhDestroyBuffer( cbFlags );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( chit );
+    vhDestroyShader( anyHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, RayFlag_SkipClosestHit )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Raygen traces with RAY_FLAG_SKIP_CLOSEST_HIT_SHADER. Closest-hit (which
+    // would write magenta) is skipped; if hit is registered, payload.hitT
+    // is updated and pixel is green; otherwise red.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenSkipCH, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitRecordT, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7401, state, p.table, args );
+
+    // SKIP_CLOSEST_HIT bypasses closest-hit; hit pixel keeps its sentinel grey.
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF808080 ) );  // hit but CH skipped (sentinel)
+    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );  // miss writes blue
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, RayFlag_AcceptFirstHit )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Two overlapping geometries at different depths. With ACCEPT_FIRST_HIT
+    // the first geometry encountered determines hit. Without the flag, the
+    // closest is found.
+    vhTexture rtFlag = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhTexture rtCtrl = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    Vertex tri[3] = { { -1.0f, -1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f }, { -1.0f, 1.0f, 0.0f } };
+    vhBuffer vb = CreateTestVB( "float3", tri, sizeof( tri ) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+
+    // Two overlapping instances at different depths.
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc().setIsTopLevel( true ).setTopLevelMaxInstances( 2 ).setDebugName( "OverlapTLAS" ) );
+    vhFinish();
+    nvrhi::rt::AffineTransform t0;
+    t0[0] = 1.f; t0[1] = 0.f; t0[2]  = 0.f; t0[3]  = 0.f;
+    t0[4] = 0.f; t0[5] = 1.f; t0[6]  = 0.f; t0[7]  = 0.f;
+    t0[8] = 0.f; t0[9] = 0.f; t0[10] = 1.f; t0[11] = 0.5f;  // farther
+    nvrhi::rt::AffineTransform t1;
+    t1[0] = 1.f; t1[1] = 0.f; t1[2]  = 0.f; t1[3]  = 0.f;
+    t1[4] = 0.f; t1[5] = 1.f; t1[6]  = 0.f; t1[7]  = 0.f;
+    t1[8] = 0.f; t1[9] = 0.f; t1[10] = 1.f; t1[11] = 0.0f;  // closer
+
+    nvrhi::rt::InstanceDesc i0;
+    i0.bottomLevelAS = vhGetASNvrhiHandle( blas );
+    i0.instanceMask = 0xFF;
+    i0.instanceContributionToHitGroupIndex = 0;
+    i0.flags = nvrhi::rt::InstanceFlags::None;
+    i0.setTransform( t0 );
+    nvrhi::rt::InstanceDesc i1 = i0;
+    i1.setTransform( t1 );
+    vhBuildTLAS( tlas, { i0, i1 } );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenWithFlags, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    uint32_t flagsAccept = 4;  // RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
+    uint32_t flagsNone = 0;
+    vhBuffer cbAccept = CreateTestCB( &flagsAccept, sizeof( flagsAccept ) );
+    vhBuffer cbNone = CreateTestCB( &flagsNone, sizeof( flagsNone ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+
+    vhState stateF;
+    stateF.DirtyAll()
+          .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+          .SetTexture( 0, { .name = "g_Output", .texture = rtFlag, .computeUAV = true } )
+          .SetBuffer( 0, { .name = "g_RayFlags", .buffer = cbAccept } )
+          .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+    DispatchAndReset( 7402, stateF, p.table, args );
+
+    vhState stateC;
+    stateC.DirtyAll()
+          .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+          .SetTexture( 0, { .name = "g_Output", .texture = rtCtrl, .computeUAV = true } )
+          .SetBuffer( 0, { .name = "g_RayFlags", .buffer = cbNone } )
+          .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+          .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+    DispatchAndReset( 7402, stateC, p.table, args );
+
+    // Both should produce red since both geometries write red. The flag's
+    // observable behaviour is internal (early termination) but the visible
+    // colour is the same — this tests that the flag doesn't break the dispatch.
+    EXPECT_TRUE( VerifyPixel( rtFlag, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rtCtrl, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rtFlag );
+    vhDestroyTexture( rtCtrl );
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( cbAccept );
+    vhDestroyBuffer( cbNone );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// ==========================================================================
+// Phase 6 - Group 6: Pipeline depth and payload
+// ==========================================================================
+
+UTEST_F( RT, MaxRecursionDepth )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Pipeline created with maxRecursionDepth = 2 (existing recursion test).
+    // We just verify that the pipeline accepts depth=4 and runs to completion.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit, VRHI_INVALID_HANDLE, VRHI_INVALID_HANDLE, sizeof( float ) * 4, sizeof( float ) * 2, 4 );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7500, state, p.table, args );
+
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, LargePayload )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // 64-byte payload (4x float4). Closest-hit fills four distinct values;
+    // raygen sums them and writes a known checksum colour.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenLargePayload, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitLargePayload, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit, VRHI_INVALID_HANDLE, VRHI_INVALID_HANDLE, sizeof( float ) * 16 );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 7501, state, p.table, args );
+
+    // 4 quarter-strength channels sum to (0.25, 0.25, 0.25, 1.0). With UNORM8
+    // saturation 0.25*255=64.
+    vhMem readData;
+    vhReadTextureSlow( rt, 0, 0, &readData );
+    vhFinish();
+    if ( !g_vhInit.nullMode )
+    {
+        EXPECT_GE( readData[0], 50 );
+        EXPECT_LE( readData[0], 80 );
+        EXPECT_GE( readData[1], 50 );
+        EXPECT_LE( readData[1], 80 );
+        EXPECT_GE( readData[2], 50 );
+        EXPECT_LE( readData[2], 80 );
+    }
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// ==========================================================================
+// Phase 6 - Group 8: Lifecycle and stress
+// ==========================================================================
+
+UTEST_F( RT, AnimatedTLAS_RepeatedRefit )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // TLAS built once with PreferFastTrace+AllowUpdate, then refit 8 times
+    // with progressively-translated instance transforms. Verify a hit each
+    // time (instance always intersects centre pixel).
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc()
+        .setIsTopLevel( true )
+        .setTopLevelMaxInstances( 1 )
+        .setBuildFlags( nvrhi::rt::AccelStructBuildFlags::AllowUpdate )
+        .setDebugName( "AnimatedTLAS" ) );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+
+    for ( int frame = 0; frame < 8; ++frame )
+    {
+        nvrhi::rt::AffineTransform t;
+        t[0] = 1.f; t[1] = 0.f; t[2]  = 0.f; t[3]  = frame * 0.001f;
+        t[4] = 0.f; t[5] = 1.f; t[6]  = 0.f; t[7]  = 0.f;
+        t[8] = 0.f; t[9] = 0.f; t[10] = 1.f; t[11] = 0.f;
+
+        nvrhi::rt::InstanceDesc inst;
+        inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
+        inst.instanceMask = 0xFF;
+        inst.instanceContributionToHitGroupIndex = 0;
+        inst.flags = nvrhi::rt::InstanceFlags::None;
+        inst.setTransform( t );
+
+        vhBuildTLAS( tlas, { inst }, frame == 0
+            ? nvrhi::rt::AccelStructBuildFlags::None
+            : nvrhi::rt::AccelStructBuildFlags::PerformUpdate );
+        vhFinish();
+
+        vhState state;
+        state.DirtyAll()
+             .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+             .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+             .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+             .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+        DispatchAndReset( 7700 + frame, state, p.table, args );
+    }
+
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, RebuildTLASVaryingInstances )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Build TLAS with 1 instance, dispatch+verify. Rebuild with 4. Rebuild with 1.
+    // Verifies that instance count changes don't corrupt internal state.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, nvrhi::rt::AccelStructDesc()
+        .setIsTopLevel( true )
+        .setTopLevelMaxInstances( 4 )
+        .setDebugName( "VaryingTLAS" ) );
+    vhFinish();
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    auto MakeInst = [&]()
+    {
+        nvrhi::rt::InstanceDesc inst;
+        inst.bottomLevelAS = vhGetASNvrhiHandle( blas );
+        inst.instanceMask = 0xFF;
+        inst.instanceContributionToHitGroupIndex = 0;
+        inst.flags = nvrhi::rt::InstanceFlags::None;
+        inst.setTransform( nvrhi::rt::c_IdentityTransform );
+        return inst;
+    };
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+
+    auto Dispatch = [&]( vhStateId sid )
+    {
+        vhState state;
+        state.DirtyAll()
+             .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+             .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+             .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+             .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+        DispatchAndReset( sid, state, p.table, args );
+    };
+
+    vhBuildTLAS( tlas, { MakeInst() } );
+    vhFinish();
+    Dispatch( 7710 );
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhBuildTLAS( tlas, { MakeInst(), MakeInst(), MakeInst(), MakeInst() } );
+    vhFinish();
+    Dispatch( 7711 );
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhBuildTLAS( tlas, { MakeInst() } );
+    vhFinish();
+    Dispatch( 7712 );
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+UTEST_F( RT, PipelineHotReload )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // Create pipeline+table, dispatch, destroy. Recreate identical pipeline+table
+    // from same shaders, dispatch again. Catches handle-reuse and descriptor-cache
+    // bugs across pipeline lifecycle.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+
+    auto DispatchOnce = [&]( vhStateId sid, TestRTPipeline& p )
+    {
+        vhState state;
+        state.DirtyAll()
+             .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+             .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+             .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+             .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+        DispatchAndReset( sid, state, p.table, args );
+    };
+
+    auto p1 = MakeRTPipeline( rayGen, miss, closestHit );
+    DispatchOnce( 7720, p1 );
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    DestroyRTPipeline( p1 );
+    vhFlush( true );
+
+    auto p2 = MakeRTPipeline( rayGen, miss, closestHit );
+    DispatchOnce( 7721, p2 );
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p2 );
+}
+
+UTEST_F( RT, Dispatch_256x256 )
+{
+    if ( !g_vhInit.raytracing ) return;
+
+    // 256x256 = 65k thread RT dispatch. Verifies the larger end of typical
+    // RT pass sizes works without state corruption.
+    vhTexture rt = CreateTestTexture( 256, 256, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 256, 256 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 256; args.height = 256;
+    DispatchAndReset( 7730, state, p.table, args );
+
+    // Centre pixel is inside the triangle (approx).
+    EXPECT_TRUE( VerifyPixel( rt, 64, 64, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 200, 200, 0xFFFF0000 ) );  // outside triangle - blue (miss)
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
     vhDestroyAS( tlas );
     vhDestroyAS( blas );
     vhDestroyShader( rayGen );

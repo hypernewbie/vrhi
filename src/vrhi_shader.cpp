@@ -1000,6 +1000,14 @@ void vhShaderTableAddHitGroup( vhShaderTable table, const char* exportName, nvrh
     vhCmdEnqueue( cmd );
 }
 
+void vhShaderTableAddCallable( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
+{
+    if ( !exportName ) exportName = "";
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddCallable >( table, exportName, bindingSet );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
 void vhDispatchRays( vhStateId stateID, vhShaderTable table, const nvrhi::rt::DispatchRaysArguments& args )
 {
     auto cmd = vhCmdAlloc< VIDL_vhDispatchRays >( stateID, table, args );
