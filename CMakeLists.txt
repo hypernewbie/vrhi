@@ -137,6 +137,7 @@ find_path(SPIRV_REFLECT_DIR NAMES spirv_reflect.c
     HINTS 
         "$ENV{VULKAN_SDK}/source/SPIRV-Reflect"
         "$ENV{VULKAN_SDK}/Source/SPIRV-Reflect"
+        "$ENV{VULKAN_SDK}/include/SPIRV-Reflect"
         "${Vulkan_INCLUDE_DIR}/../source/SPIRV-Reflect"
         "${Vulkan_INCLUDE_DIR}/../Source/SPIRV-Reflect"
         "${Vulkan_INCLUDE_DIR}/SPIRV-Reflect"
@@ -148,6 +149,18 @@ endif()
 
 set(SPIRV_REFLECT_SOURCE "${SPIRV_REFLECT_DIR}/spirv_reflect.c")
 set(SPIRV_REFLECT_HEADER "${SPIRV_REFLECT_DIR}/spirv_reflect.h")
+
+# SPIRV-Tools headers (from vdeps or Vulkan SDK)
+find_path(SPIRV_TOOLS_INCLUDE_DIR NAMES spirv-tools/optimizer.hpp
+    HINTS
+        "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/SPIRV-Tools/include"
+        "$ENV{VULKAN_SDK}/include"
+        "${Vulkan_INCLUDE_DIR}"
+)
+
+if(NOT SPIRV_TOOLS_INCLUDE_DIR)
+    message(FATAL_ERROR "SPIRV-Tools headers not found. Please run vdeps.py or install Vulkan SDK.")
+endif()
 
 # Derive Vulkan SDK lib dir for hints
 get_filename_component( VULKAN_SDK_LIB_DIR "${Vulkan_LIBRARY}" DIRECTORY )
@@ -321,7 +334,11 @@ target_include_directories(vrhi PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/OffsetAllocator"
     "${SLANG_INCLUDE_DIR}"
 )
- target_include_directories(vrhi PRIVATE "${SPIRV_REFLECT_DIR}" "${Vulkan_INCLUDE_DIR}")
+ target_include_directories(vrhi PRIVATE
+    "${SPIRV_REFLECT_DIR}"
+    "${Vulkan_INCLUDE_DIR}"
+    "${SPIRV_TOOLS_INCLUDE_DIR}"
+)
  
  # Library search paths
  target_link_directories(vrhi PUBLIC "${VRHI_LIB_DIR}")
