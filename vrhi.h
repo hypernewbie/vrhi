@@ -1737,7 +1737,7 @@ struct vhState
         int32_t slot = -1;
         vhTexture texture = VRHI_INVALID_HANDLE;
         nvrhi::Format formatOverride = nvrhi::Format::UNKNOWN;
-        nvrhi::TextureSubresourceSet subresources = nvrhi::TextureSubresourceSet( 0, 1, 0, nvrhi::TextureSubresourceSet::AllArraySlices );
+        nvrhi::TextureSubresourceSet subresources = nvrhi::TextureSubresourceSet( 0, nvrhi::TextureSubresourceSet::AllMipLevels, 0, nvrhi::TextureSubresourceSet::AllArraySlices );
         nvrhi::TextureDimension dimensionOverride = nvrhi::TextureDimension::Unknown;
         bool computeUAV = false;
     };
