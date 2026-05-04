@@ -224,15 +224,15 @@ class vhCmdBackendState : public VIDLHandler
     
     std::mutex backendMutex;
     char temps[1024];
-    std::map< vhTexture, std::unique_ptr< vhBackendTexture > > backendTextures;
-    std::map< vhBuffer, std::unique_ptr< vhBackendBuffer > > backendBuffers;
-    std::map< vhShader, std::unique_ptr< vhBackendShader > > backendShaders;
-    std::map< vhAccelStruct, std::unique_ptr< vhBackendAccelStruct > > backendAccelStructs;
-    std::map< vhRTPipeline, std::unique_ptr< vhBackendRTPipeline > > backendRTPipelines;
-    std::map< vhShaderTable, std::unique_ptr< vhBackendShaderTable > > backendShaderTables;
-    std::map< vhTimerID, std::unique_ptr< vhBackendTimerQuery > > backendTimerQueries;
-    std::map< vhStateId, vhState > backendStates;
-    std::map< vhHeap, std::unique_ptr< vhBackendHeap > > backendHeaps;
+    robin_hood::unordered_flat_map< vhTexture,     std::unique_ptr< vhBackendTexture > >     backendTextures;
+    robin_hood::unordered_flat_map< vhBuffer,      std::unique_ptr< vhBackendBuffer > >      backendBuffers;
+    robin_hood::unordered_flat_map< vhShader,      std::unique_ptr< vhBackendShader > >      backendShaders;
+    robin_hood::unordered_flat_map< vhAccelStruct, std::unique_ptr< vhBackendAccelStruct > > backendAccelStructs;
+    robin_hood::unordered_flat_map< vhRTPipeline,  std::unique_ptr< vhBackendRTPipeline > >  backendRTPipelines;
+    robin_hood::unordered_flat_map< vhShaderTable, std::unique_ptr< vhBackendShaderTable > > backendShaderTables;
+    robin_hood::unordered_flat_map< vhTimerID,     std::unique_ptr< vhBackendTimerQuery > >  backendTimerQueries;
+    robin_hood::unordered_flat_map< vhStateId,     vhState >                                 backendStates;
+    robin_hood::unordered_flat_map< vhHeap,        std::unique_ptr< vhBackendHeap > >        backendHeaps;
     vhTransientBuffer m_globalUniformBuffer;
     uint64_t m_globalUniformBufferLastHash = 0;
     vhTransientBuffer m_worldUniformBuffer;
