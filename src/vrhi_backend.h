@@ -267,8 +267,17 @@ protected:
 
     // Bumped on resource mutations (binding setters, destroys). Used as cache key for the resolve cache.
     static uint64_t s_globalResourceVersion;
+    // Bumped on pipeline-shape mutations. Part of bset cache key.
+    static uint64_t s_globalPipelineVersion;
     static const vhState* s_resolveCacheState;
     static uint64_t s_resolveCacheVersion;
+
+    // BindingSet handle cache: skip the entire bset build loop when key is unchanged.
+    static const vhState* s_bsetCacheState;
+    static uint64_t s_bsetCacheResourceVersion;
+    static uint64_t s_bsetCachePipelineVersion;
+    static uint64_t s_bsetCacheUserGlobalsKey;
+    static std::vector< nvrhi::BindingSetHandle > s_bsetCacheHandles;
 
     static std::vector< vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;

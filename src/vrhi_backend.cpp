@@ -32,8 +32,14 @@ void vhCmdListFlushAll_DeviceStateLocked();
 robin_hood::unordered_flat_map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
 vhStateResolveCache vhCmdBackendState::s_resolveCache;
 uint64_t vhCmdBackendState::s_globalResourceVersion = 1;
+uint64_t vhCmdBackendState::s_globalPipelineVersion = 1;
 const vhState* vhCmdBackendState::s_resolveCacheState = nullptr;
 uint64_t vhCmdBackendState::s_resolveCacheVersion = 0;
+const vhState* vhCmdBackendState::s_bsetCacheState = nullptr;
+uint64_t vhCmdBackendState::s_bsetCacheResourceVersion = 0;
+uint64_t vhCmdBackendState::s_bsetCachePipelineVersion = 0;
+uint64_t vhCmdBackendState::s_bsetCacheUserGlobalsKey = 0;
+std::vector< nvrhi::BindingSetHandle > vhCmdBackendState::s_bsetCacheHandles;
 std::vector< vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
@@ -1728,11 +1734,40 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         s_resolveCacheVersion = s_globalResourceVersion;
     }
 
-    // Loop through the layouts and bind resources.
+    // BindingSet cache key: layout pointers + resolved user-global buffer (offset, size).
+    uint64_t userGlobalsKey = ( uint64_t ) layouts.size() * 0x9E3779B97F4A7C15ULL;
+    for ( size_t i = 0; i < layouts.size(); i++ )
+    {
+        userGlobalsKey ^= ( uintptr_t ) layouts[i].Get() * 0x100000001B3ULL;
+    }
+    for ( const auto& kv : s_resolveCache.userGlobalUniformsBufferCache )
+    {
+        userGlobalsKey ^= kv.first
+            ^ ( ( uint64_t ) kv.second.range.byteOffset * 0xCBF29CE484222325ULL )
+            ^ kv.second.range.byteSize;
+    }
 
+    const bool bsetCacheUsable = s_bsetCacheState == &state
+        && s_bsetCacheResourceVersion == s_globalResourceVersion
+        && s_bsetCachePipelineVersion == s_globalPipelineVersion
+        && s_bsetCacheUserGlobalsKey == userGlobalsKey
+        && s_bsetCacheHandles.size() == layouts.size();
+    if ( bsetCacheUsable )
+    {
+        for ( auto& bset : s_bsetCacheHandles )
+        {
+            if ( computeState )  computeState->addBindingSet( bset );
+            if ( graphicsState ) graphicsState->addBindingSet( bset );
+            if ( rtState )       rtState->bindings.push_back( bset );
+        }
+    }
+    else
+    {
     vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", true );
     static nvrhi::BindingSetDesc bsetDesc;
     if ( bsetDesc.bindings.capacity() == 0 ) bsetDesc.bindings.reserve( 32 );
+    s_bsetCacheHandles.clear();
+    s_bsetCacheHandles.resize( layouts.size() );
 
     for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
     {
@@ -1751,6 +1786,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( computeState )  computeState->addBindingSet( m_emptySet );
             if ( graphicsState ) graphicsState->addBindingSet( m_emptySet );
             if ( rtState )       rtState->bindings.push_back( m_emptySet );
+            s_bsetCacheHandles[layoutIdx] = m_emptySet;
             continue;
         }
 
@@ -1768,6 +1804,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 if ( computeState )  computeState->addBindingSet( bset );
                 if ( graphicsState ) graphicsState->addBindingSet( bset );
                 if ( rtState )       rtState->bindings.push_back( bset );
+                s_bsetCacheHandles[layoutIdx] = bset;
             }
             continue;
         }
@@ -1812,6 +1849,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in shader reflection. Submit / Dispatch aborted.\n", binding.slot );
                 vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
+                s_bsetCacheState = nullptr;
                 return false;
             }
             const auto& reflection = *reflectionPtr;
@@ -1820,6 +1858,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
             {
                 vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
+                s_bsetCacheState = nullptr;
                 return false;
             }
 
@@ -1838,13 +1877,21 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
             vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
+            s_bsetCacheState = nullptr;
             return false;
         }
 
         if ( computeState )  computeState->addBindingSet( bset );
         if ( graphicsState ) graphicsState->addBindingSet( bset );
         if ( rtState )       rtState->bindings.push_back( bset );
+        s_bsetCacheHandles[layoutIdx] = bset;
     }
+
+    s_bsetCacheState = &state;
+    s_bsetCacheResourceVersion = s_globalResourceVersion;
+    s_bsetCachePipelineVersion = s_globalPipelineVersion;
+    s_bsetCacheUserGlobalsKey = userGlobalsKey;
+    } // end else (cache miss path)
 
     if ( graphicsState )
     {
@@ -2325,6 +2372,12 @@ void vhCmdBackendState::shutdown()
     s_resolveCacheState = nullptr;
     s_resolveCacheVersion = 0;
     s_globalResourceVersion = 1;
+    s_globalPipelineVersion = 1;
+    s_bsetCacheState = nullptr;
+    s_bsetCacheResourceVersion = 0;
+    s_bsetCachePipelineVersion = 0;
+    s_bsetCacheUserGlobalsKey = 0;
+    s_bsetCacheHandles.clear();
     s_slotToReflection.clear();
     s_layoutLocationTable.clear();
     s_attributes.clear();
