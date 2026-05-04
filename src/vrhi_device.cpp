@@ -1867,6 +1867,7 @@ uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc )
     h = komihash( &desc.addressV, sizeof( desc.addressV ), h );
     h = komihash( &desc.addressW, sizeof( desc.addressW ), h );
     h = komihash( &desc.reductionType, sizeof( desc.reductionType ), h );
+    h = komihash( &desc.compareFunc, sizeof( desc.compareFunc ), h );
 
     return h;
 }

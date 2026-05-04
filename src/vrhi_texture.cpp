@@ -312,10 +312,23 @@ nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags )
     static float anisoMap[] = { 1.f, 2.f, 4.f, 8.f, 16.f, 1.f, 1.f, 1.f };
     desc.maxAnisotropy = anisoMap[anisoIndex];
 
-    // Reduction Type
-    if ( ( samplerFlags & VRHI_SAMPLER_COMPARE_MASK ) != 0 )
+    uint32_t cmpFunc = ( samplerFlags >> VRHI_SAMPLER_COMPARE_SHIFT ) & 0xF;
+    if ( cmpFunc != 0 )
     {
         desc.reductionType = nvrhi::SamplerReductionType::Comparison;
+        static const nvrhi::ComparisonFunc compareFuncMap[] =
+        {
+            nvrhi::ComparisonFunc::Always,
+            nvrhi::ComparisonFunc::Less,
+            nvrhi::ComparisonFunc::LessOrEqual,
+            nvrhi::ComparisonFunc::Equal,
+            nvrhi::ComparisonFunc::GreaterOrEqual,
+            nvrhi::ComparisonFunc::Greater,
+            nvrhi::ComparisonFunc::NotEqual,
+            nvrhi::ComparisonFunc::Never,
+            nvrhi::ComparisonFunc::Always,
+        };
+        desc.compareFunc = ( cmpFunc < 9 ) ? compareFuncMap[cmpFunc] : nvrhi::ComparisonFunc::Always;
     }
 
     return desc;
