@@ -431,6 +431,83 @@ struct vhArenaUniformValue
     uint32_t         dataCount;
 };
 
+inline size_t vhArenaAlignUp( size_t off, size_t a ) { return ( off + a - 1 ) & ~( a - 1 ); }
+
+template< typename T >
+vhArenaSpan< T > vhArenaCopySpan( const std::vector< T >& src )
+{
+    static_assert( std::is_trivially_copyable_v< T >, "vhArenaCopySpan: T must be trivially copyable" );
+    const uint32_t n = ( uint32_t ) src.size();
+    if ( !n ) return {};
+    void* mem = g_vhCmdArena.Allocate( ( size_t ) n * sizeof( T ), alignof( T ) );
+    assert( mem );
+    memcpy( mem, src.data(), ( size_t ) n * sizeof( T ) );
+    return vhArenaSpan< T >( ( T* ) mem, n );
+}
+
+template< typename T, typename U >
+void vhAssignFromSpan( std::vector< T >& dst, const vhArenaSpan< U >& src )
+{
+    if ( src.count == 0 )
+    {
+        dst.clear();
+        return;
+    }
+    dst.assign( src.ptr, src.ptr + src.count );
+}
+
+// Pack {CmdT header}{mat4 * n} into one arena chunk; cmd's span field points at the tail.
+template< typename CmdT >
+CmdT* vhCmdAllocMat4Span( vhStateId id, const std::vector< glm::mat4 >& matrices )
+{
+    const uint32_t n = ( uint32_t ) matrices.size();
+    const size_t headerEnd = vhArenaAlignUp( sizeof( CmdT ), alignof( glm::mat4 ) );
+    const size_t totalBytes = headerEnd + ( size_t ) n * sizeof( glm::mat4 );
+    const size_t maxAlign = std::max( alignof( CmdT ), alignof( glm::mat4 ) );
+
+    void* mem = g_vhCmdArena.Allocate( totalBytes, maxAlign );
+    assert( mem );
+
+    glm::mat4* dataPtr = n ? ( glm::mat4* ) ( ( char* ) mem + headerEnd ) : nullptr;
+    if ( n ) memcpy( dataPtr, matrices.data(), ( size_t ) n * sizeof( glm::mat4 ) );
+
+    return new ( mem ) CmdT( id, vhArenaSpan< glm::mat4 >( dataPtr, n ) );
+}
+
+// Pack {CmdT header}{ArenaValueT * n}{vec4 * sum-of-data-counts} into one arena chunk.
+template< typename CmdT, typename ArenaValueT, typename SrcValueT >
+CmdT* vhCmdAllocNamedVec4Span( vhStateId id, const std::vector< SrcValueT >& src )
+{
+    const uint32_t n = ( uint32_t ) src.size();
+    uint32_t totalDataCount = 0;
+    for ( const auto& v : src ) totalDataCount += ( uint32_t ) v.data.size();
+
+    const size_t valuesOff = vhArenaAlignUp( sizeof( CmdT ), alignof( ArenaValueT ) );
+    const size_t dataOff = vhArenaAlignUp( valuesOff + ( size_t ) n * sizeof( ArenaValueT ), alignof( glm::vec4 ) );
+    const size_t totalBytes = dataOff + ( size_t ) totalDataCount * sizeof( glm::vec4 );
+    const size_t maxAlign = std::max( { alignof( CmdT ), alignof( ArenaValueT ), alignof( glm::vec4 ) } );
+
+    void* mem = g_vhCmdArena.Allocate( totalBytes, maxAlign );
+    assert( mem );
+
+    ArenaValueT* values = n ? ( ArenaValueT* ) ( ( char* ) mem + valuesOff ) : nullptr;
+    glm::vec4*   dataBuf = totalDataCount ? ( glm::vec4* ) ( ( char* ) mem + dataOff ) : nullptr;
+
+    uint32_t cursor = 0;
+    for ( uint32_t i = 0; i < n; i++ )
+    {
+        const auto& s = src[i];
+        const uint32_t dn = ( uint32_t ) s.data.size();
+        values[i].name      = s.name;
+        values[i].data      = dn ? dataBuf + cursor : nullptr;
+        values[i].dataCount = dn;
+        if ( dn ) memcpy( dataBuf + cursor, s.data.data(), ( size_t ) dn * sizeof( glm::vec4 ) );
+        cursor += dn;
+    }
+
+    return new ( mem ) CmdT( id, vhArenaSpan< ArenaValueT >( values, n ) );
+}
+
 void vhCmdEnqueue( void* cmd, bool wait = true );
 void vhCmdListFlushAll();
 void vhCmdListFlushTransferIfNeeded();
