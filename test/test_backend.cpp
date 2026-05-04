@@ -1245,7 +1245,7 @@ UTEST( Backend, PushConstantsDirtyBit )
     {
         auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+        vhSetPushConstant_DeviceStateLocked( cmdlist, state, 0 );
     }
     vhFinish();
 }

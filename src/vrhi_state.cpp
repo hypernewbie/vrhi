@@ -302,7 +302,7 @@ nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags )
     }
 }
 
-void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state )
+void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state, size_t pipelineSizeBytes )
 {
     struct PushConstantData
     {
@@ -316,7 +316,16 @@ void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, cons
     else
         pushData.modelViewProj = state.projMatrix * state.viewMatrix;
 
-    cmdList->setPushConstants( &pushData, sizeof( pushData ) );
+    size_t writeSize = sizeof( pushData );
+    if ( pipelineSizeBytes != 0 && pipelineSizeBytes < writeSize ) writeSize = pipelineSizeBytes;
+    cmdList->setPushConstants( &pushData, writeSize );
+}
+
+size_t vhPushConstantSize( const std::vector< vhPushConstantRange >& ranges )
+{
+    size_t s = 0;
+    for ( const auto& r : ranges ) s = std::max< size_t >( s, ( size_t ) r.offset + r.size );
+    return s;
 }
 
 nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )

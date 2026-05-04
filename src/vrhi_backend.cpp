@@ -1836,7 +1836,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 if ( !shader->pushConstants.empty() )
                 {
                     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-                    vhSetPushConstant_DeviceStateLocked( cmdList, state );
+                    vhSetPushConstant_DeviceStateLocked( cmdList, state, vhPushConstantSize( shader->pushConstants ) );
                     break;
                 }
             }
@@ -1892,7 +1892,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
         {
             vhProfile( "BE_Dispatch_PushConstants", true );
-            vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+            vhSetPushConstant_DeviceStateLocked( cmdlist, state, vhPushConstantSize( computeShader.pushConstants ) );
             vhProfile( "BE_Dispatch_PushConstants", false );
         }
 
@@ -1963,7 +1963,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
         {
             vhProfile( "BE_DispatchIndirect_PushConstants", true );
-            vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+            vhSetPushConstant_DeviceStateLocked( cmdlist, state, vhPushConstantSize( computeShader.pushConstants ) );
             vhProfile( "BE_DispatchIndirect_PushConstants", false );
         }
 
@@ -2029,7 +2029,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
             {
                 if ( !shaders[i]->pushConstants.empty() )
                 {
-                    vhSetPushConstant_DeviceStateLocked( cmdlist, state );
+                    vhSetPushConstant_DeviceStateLocked( cmdlist, state, vhPushConstantSize( shaders[i]->pushConstants ) );
                     break;
                 }
             }
