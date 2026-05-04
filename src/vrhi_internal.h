@@ -254,13 +254,20 @@ class vhCommandArena
     struct Buffer
     {
         uint8_t* memory = nullptr;
-        size_t offset = 0;
+        std::atomic< size_t > offset = 0;
     };
 
     Buffer m_buffers[kNumBuffers];
-    int m_writeIndex = 0;
+    std::atomic< int > m_writeIndex = 0;
     bool m_initialised = false;
+
+    // m_mutex only protects Init/Shutdown and the overflow vectors.
+    // Allocate fast path is lock-free via atomic offset bump.
     mutable std::mutex m_mutex;
+
+    // Overflow malloc'd commands. Freed one cycle later (after the backend has consumed them).
+    std::vector< void* > m_overflowAllocations;
+    std::vector< void* > m_overflowAllocationsRecycle;
 
     static void* AllocAligned( size_t size, size_t alignment )
     {
@@ -294,9 +301,9 @@ public:
         {
             m_buffers[i].memory = static_cast< uint8_t* >( AllocAligned( kBufferSize, kBufferAlignment ) );
             assert( m_buffers[i].memory );
-            m_buffers[i].offset = 0;
+            m_buffers[i].offset.store( 0, std::memory_order_relaxed );
         }
-        m_writeIndex = 0;
+        m_writeIndex.store( 0, std::memory_order_relaxed );
         m_initialised = true;
     }
 
@@ -310,41 +317,62 @@ public:
         {
             FreeAligned( m_buffers[i].memory );
             m_buffers[i].memory = nullptr;
-            m_buffers[i].offset = 0;
+            m_buffers[i].offset.store( 0, std::memory_order_relaxed );
         }
-        m_writeIndex = 0;
+        for ( void* p : m_overflowAllocations ) FreeAligned( p );
+        for ( void* p : m_overflowAllocationsRecycle ) FreeAligned( p );
+        m_overflowAllocations.clear();
+        m_overflowAllocationsRecycle.clear();
+        m_writeIndex.store( 0, std::memory_order_relaxed );
     }
 
     void* Allocate( size_t size, size_t alignment )
     {
-        std::lock_guard< std::mutex > lock( m_mutex );
         if ( !m_initialised ) return nullptr;
 
-        Buffer& current = m_buffers[m_writeIndex];
-        if ( current.memory == nullptr ) return nullptr;
+        const int idx = m_writeIndex.load( std::memory_order_acquire );
+        Buffer& current = m_buffers[idx];
+        if ( !current.memory ) return nullptr;
 
-        size_t alignMask = alignment - 1;
-        size_t alignedOffset = ( current.offset + alignMask ) & ~alignMask;
-
-        if ( alignedOffset + size <= kBufferSize )
+        const size_t alignMask = alignment - 1;
+        size_t prev = current.offset.load( std::memory_order_relaxed );
+        for (;;)
         {
-            current.offset = alignedOffset + size;
-            return current.memory + alignedOffset;
+            const size_t alignedOffset = ( prev + alignMask ) & ~alignMask;
+            const size_t newOffset = alignedOffset + size;
+            if ( newOffset > kBufferSize ) break;
+            if ( current.offset.compare_exchange_weak( prev, newOffset, std::memory_order_relaxed, std::memory_order_relaxed ) )
+                return current.memory + alignedOffset;
         }
 
-        VRHI_LOG( "vhCommandArena: allocation of %zu bytes (alignment %zu) overflowed, using malloc\n", size, alignment );
+        // Overflow: take the lock only to track the malloc'd block for later free.
+        g_vhPerf.arenaOverflows.fetch_add( 1, std::memory_order_relaxed );
+        g_vhPerf.arenaMallocBytes.fetch_add( size, std::memory_order_relaxed );
         void* mem = AllocAligned( size, alignment );
+        {
+            std::lock_guard< std::mutex > lock( m_mutex );
+            m_overflowAllocations.push_back( mem );
+        }
         return mem;
     }
 
     void Rotate()
     {
-        std::lock_guard< std::mutex > lock( m_mutex );
-        if ( !m_initialised ) return;
+        // Defer overflow frees by one cycle so commands enqueued this cycle remain valid for the backend.
+        std::vector< void* > toFree;
+        {
+            std::lock_guard< std::mutex > lock( m_mutex );
+            if ( !m_initialised ) return;
 
-        int oldIndex = ( m_writeIndex + 1 ) % kNumBuffers;
-        m_buffers[oldIndex].offset = 0;
-        m_writeIndex = ( m_writeIndex + 1 ) % kNumBuffers;
+            const int idx = m_writeIndex.load( std::memory_order_relaxed );
+            const int oldIndex = ( idx + 1 ) % kNumBuffers;
+            m_buffers[oldIndex].offset.store( 0, std::memory_order_relaxed );
+            m_writeIndex.store( ( idx + 1 ) % kNumBuffers, std::memory_order_release );
+
+            toFree.swap( m_overflowAllocationsRecycle );
+            m_overflowAllocationsRecycle.swap( m_overflowAllocations );
+        }
+        for ( void* p : toFree ) FreeAligned( p );
     }
 };
 
