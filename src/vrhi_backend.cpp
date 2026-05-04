@@ -3990,7 +3990,7 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
 void vhCmdBackendState::Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    if ( cmd->dst == VRHI_INVALID_HANDLE || cmd->src == VRHI_INVALID_HANDLE || cmd->size == 0 ) return;
+    if ( cmd->dst == VRHI_INVALID_HANDLE || cmd->src == VRHI_INVALID_HANDLE ) return;
 
     auto itDst = backendBuffers.find( cmd->dst );
     auto itSrc = backendBuffers.find( cmd->src );
@@ -4006,23 +4006,25 @@ void vhCmdBackendState::Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd )
         return;
     }
 
-    // We can't clamp size if offset is out of bounds.
+    // size == 0 means copy from srcOffset to end of source buffer.
+    uint64_t copySize = cmd->size;
+    if ( copySize == 0 )
+    {
+        if ( cmd->srcOffset >= itSrc->second->desc.byteSize ) return;
+        copySize = itSrc->second->desc.byteSize - cmd->srcOffset;
+    }
+
     if ( cmd->srcOffset > itSrc->second->desc.byteSize || cmd->dstOffset > itDst->second->desc.byteSize )
     {
         VRHI_ERR( "vhBlitBuffer: Source or destination buffer offset out of bounds!\n" );
         return;
     }
 
-    // Clamp size to avoid buffer overruns.
-    uint64_t clampedSizeBytes = cmd->size;
-    if ( cmd->srcOffset + cmd->size > itSrc->second->desc.byteSize )
-    {
-        clampedSizeBytes = std::min( itSrc->second->desc.byteSize - cmd->srcOffset, cmd->size );
-    }
-    if ( cmd->dstOffset + cmd->size > itDst->second->desc.byteSize )
-    {
+    uint64_t clampedSizeBytes = copySize;
+    if ( cmd->srcOffset + copySize > itSrc->second->desc.byteSize )
+        clampedSizeBytes = std::min( itSrc->second->desc.byteSize - cmd->srcOffset, copySize );
+    if ( cmd->dstOffset + copySize > itDst->second->desc.byteSize )
         clampedSizeBytes = std::min( itDst->second->desc.byteSize - cmd->dstOffset, clampedSizeBytes );
-    }
 
     BE_BlitBuffer( *itDst->second, *itSrc->second, cmd->dstOffset, cmd->srcOffset, clampedSizeBytes );
 }
