@@ -583,6 +583,13 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         graphicsPipelineDesc->setPrimType( vhTranslatePrimitiveType( state.stateFlags ) );
         graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
         graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.stencilState );
+        if ( state.depthAttachment.texture == VRHI_INVALID_HANDLE )
+        {
+            auto& ds = graphicsPipelineDesc->renderState.depthStencilState;
+            ds.depthTestEnable = false;
+            ds.depthWriteEnable = false;
+            ds.stencilEnable = false;
+        }
         graphicsPipelineDesc->renderState.rasterState = vhTranslateRasterState( state.stateFlags );
         graphicsPipelineDesc->renderState.rasterState.scissorEnable = ( state.viewScissor.z >= 0.0f && state.viewScissor.w >= 0.0f );
         graphicsPipelineDesc->renderState.rasterState.depthBias = state.depthBias;
