@@ -121,7 +121,15 @@ void vhProfile( const char* name, bool begin )
 
 void vhCmdEnqueue( void* cmd, bool wait )
 {
-    for ( int i = 0; i < 128; i++ )
+    for ( int i = 0; i < 16; i++ )
+    {
+        if ( g_vhCmds.try_enqueue( cmd ) )
+        {
+            if ( wait && g_vhInit.debugBlockWaitForBackend ) vhFlush();
+            return;
+        }
+    }
+    for ( int i = 0; i < 8; i++ )
     {
         if ( g_vhCmds.try_enqueue( cmd ) )
         {

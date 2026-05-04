@@ -3976,7 +3976,10 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
     // Notify caller that we're done.
     // Safety warning : fence is probably from stack of caller
     if ( cmd->fence )
-        cmd->fence->store( true );
+    {
+        cmd->fence->store( true, std::memory_order_release );
+        cmd->fence->notify_one();
+    }
 
     g_vhCmdArena.Rotate();
 }

@@ -1029,11 +1029,7 @@ void vhFlush( bool wait )
     if ( wait )
     {
         vhProfile( "vhFlush_Wait", true );
-        // Wait for fence to be signaled
-        while ( !fence.load() )
-        {
-            std::this_thread::sleep_for( std::chrono::nanoseconds( 20 ) );
-        }
+        fence.wait( false, std::memory_order_acquire );
         vhProfile( "vhFlush_Wait", false );
     }
 }
@@ -1045,11 +1041,7 @@ void vhFinish()
     vhFlushInternal( &fence, true );
 
     vhProfile( "vhFinish_Wait", true );
-    // Wait for fence to be signaled
-    while ( !fence.load() )
-    {
-        std::this_thread::sleep_for( std::chrono::nanoseconds( 20 ) );
-    }
+    fence.wait( false, std::memory_order_acquire );
     vhProfile( "vhFinish_Wait", false );
 }
 
@@ -1106,13 +1098,13 @@ float vhGetTimerQueryTime( vhTimerID timerID )
 
 bool vhFrame()
 {
-    // Reset per‑frame statistics
+    // Reset per-frame statistics
     g_vhLastFrameStats.drawCalls = g_vhDrawCallsAccumulator.exchange( 0 );
     g_vhLastFrameStats.dispatchCalls = g_vhDispatchCallsAccumulator.exchange( 0 );
-    vhFlush();
 
     if ( g_vhInit.headless )
     {
+        vhFlush();
         g_vhFrameCount++;
         return true;
     }
@@ -1120,7 +1112,7 @@ bool vhFrame()
     if ( g_vhSurface == VK_NULL_HANDLE )
         return false;
 
-    // Flush all pending background work for this frame and wait.
+    // Drain backend so the main thread can use the same nvrhi command list for swapchain semaphore ops below.
     vhFlush( true );
 
     // Ensure we have an active command list for semaphore operations.
@@ -1170,18 +1162,22 @@ bool vhFrame()
     // Advance Frame
     g_vhFrameIndex = ( uint32_t ) ( ( g_vhFrameIndex + 1 ) % g_vhFramesInFlight );
 
-    // Wait for Next Frame's previous work to complete
+    // Wait for next frame's previous work via Vulkan timeline semaphore — kernel-blocks, no polling.
     uint64_t nextFrameInstance = g_vhFrameInstances[g_vhFrameIndex];
-    while ( true )
+    if ( nextFrameInstance != 0 )
     {
-        uint64_t completed;
+        VkSemaphore queueSem;
         {
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-            completed = nvrhiDevice->queueGetCompletedInstance( nvrhi::CommandQueue::Graphics );
+            queueSem = nvrhiDevice->getQueueSemaphore( nvrhi::CommandQueue::Graphics );
         }
-        if ( completed >= nextFrameInstance )
-            break;
-        std::this_thread::sleep_for( std::chrono::microseconds( 10 ) );
+        VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+        waitInfo.semaphoreCount = 1;
+        waitInfo.pSemaphores = &queueSem;
+        waitInfo.pValues = &nextFrameInstance;
+        vhProfile( "vhFrame_WaitSemaphore", true );
+        vkWaitSemaphores( g_vulkanDevice, &waitInfo, UINT64_MAX );
+        vhProfile( "vhFrame_WaitSemaphore", false );
     }
 
     // Acquire Next Image
