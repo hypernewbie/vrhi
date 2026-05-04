@@ -145,8 +145,17 @@ int32_t vhCmdBackendState::BE_Util_ResolveBindingSlot( const char* name, nvrhi::
         {
             if ( resource.type != type )
             {
-                if ( debugLog ) VRHI_LOG( "vhSetState(): WARNING: '%s' name found BUT under different type. Shader wants %s but vhState binds %s\n", name, vhResourceTypeToString( resource.type ), vhResourceTypeToString( type ) );
-                continue;
+                auto isStorageBuf = []( nvrhi::ResourceType t )
+                {
+                    // Raw and Structured storage buffers share VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, so allow either to bind.
+                    return t == nvrhi::ResourceType::RawBuffer_SRV || t == nvrhi::ResourceType::RawBuffer_UAV
+                        || t == nvrhi::ResourceType::StructuredBuffer_SRV || t == nvrhi::ResourceType::StructuredBuffer_UAV;
+                };
+                if ( !( isStorageBuf( resource.type ) && isStorageBuf( type ) ) )
+                {
+                    if ( debugLog ) VRHI_LOG( "vhSetState(): WARNING: '%s' name found BUT under different type. Shader wants %s but vhState binds %s\n", name, vhResourceTypeToString( resource.type ), vhResourceTypeToString( type ) );
+                    continue;
+                }
             }
             return resource.slot;
         }
