@@ -492,3 +492,24 @@ nvrhi::VariableShadingRate vhTranslateShadingRate( uint32_t rate );
 nvrhi::ShadingRateCombiner vhTranslateShadingRateCombiner( uint32_t combiner );
 void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state, size_t pipelineSizeBytes );
 size_t vhPushConstantSize( const std::vector< vhPushConstantRange >& ranges );
+
+// Calls fn(paddedSrc) where paddedSrc has at least 3 readable bytes past the data tail.
+// NVRHI rounds source read sizes up to 4 bytes; the padding ensures the over-read doesn't fault.
+template < typename Fn >
+inline void vhWithPaddedBuffer4( const void* src, size_t size, Fn&& fn )
+{
+    const size_t paddedSize = ( size + 3 ) & ~size_t( 3 );
+    if ( paddedSize == size )
+    {
+        fn( src );
+        return;
+    }
+    constexpr size_t stackCapacity = 256;
+    uint8_t stackBuf[ stackCapacity ];
+    uint8_t* heapBuf = ( paddedSize > stackCapacity ) ? new uint8_t[ paddedSize ] : nullptr;
+    uint8_t* dst = heapBuf ? heapBuf : stackBuf;
+    memcpy( dst, src, size );
+    memset( dst + size, 0, paddedSize - size );
+    fn( ( const void* ) dst );
+    delete[] heapBuf;
+}

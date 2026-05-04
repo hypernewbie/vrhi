@@ -491,7 +491,10 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
     {
         vhProfile( "BE_UpdateBuffer_Write", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        cmdlist->writeBuffer( bbuf.handle, data->data(), data->size(), offset );
+        vhWithPaddedBuffer4( data->data(), data->size(), [&]( const void* p )
+        {
+            cmdlist->writeBuffer( bbuf.handle, p, data->size(), offset );
+        } );
         vhProfile( "BE_UpdateBuffer_Write", false );
     }
 }
