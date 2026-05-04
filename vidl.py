@@ -21,6 +21,28 @@
 
 # WARNING: Vibe code generation tool ahead. Read at your own risk of sanity.
 
+# ----------------------------------------------------------------------------
+# // VIDL_STORAGE — per-parameter storage type override
+# ----------------------------------------------------------------------------
+#
+# Form:
+#
+#     // VIDL_GENERATE
+#     // VIDL_STORAGE: <param_name> = <storage_type>
+#     ReturnType funcname( ... );
+#
+# Replaces the generated struct member type and matching ctor argument for
+# <param_name> with <storage_type>, verbatim. The function declaration itself
+# is left alone — converting the original argument into the storage type is
+# the caller's job. Motivating case: letting a setter that takes
+# `const std::vector<X>&` store a non-owning arena span, so enqueueing the
+# command does not heap-copy the vector.
+#
+# Multiple lines per block are allowed (one per overridden param). Scope is
+# strictly the next `// VIDL_GENERATE` block. Naming an unknown parameter, or
+# annotating the same parameter twice, raises `ValueError`.
+# ----------------------------------------------------------------------------
+
 import os, sys, re, hashlib
 
 def generate_magic(name):
@@ -96,9 +118,17 @@ def parse_function(text):
     }
 
 def generate_source(content):
-    # Find all // VIDL_GENERATE
-    # Then find the function signature that follows
-    # We look for // VIDL_GENERATE and then everything until a semicolon
+    """Parse *content* for // VIDL_GENERATE blocks and return a string
+    of generated C++ structs plus a VIDLHandler dispatcher.
+
+    Supports per-parameter storage-type overrides via // VIDL_STORAGE
+    annotations placed between // VIDL_GENERATE and the function declaration.
+    See the top-of-file comment block in vidl.py for the full syntax.
+
+    Raises ``ValueError`` when a VIDL_STORAGE annotation references an
+    unknown parameter name or when the same parameter is annotated twice
+    within a single block.
+    """
     pattern = r'//\s*VIDL_GENERATE(.*?);'
     matches = re.findall(pattern, content, re.DOTALL)
 
@@ -106,38 +136,77 @@ def generate_source(content):
     handler_funcs = []
 
     for m in matches:
+        # Collect VIDL_STORAGE annotations into a list *before* stripping
+        # comments so that we can validate duplicates and unknown params
+        # once we know the function's parameter names.
+        storage_annotations = []
+        for sm in re.finditer(
+                r'//\s*VIDL_STORAGE\s*:\s*(\w+)\s*=\s*(.+)', m):
+            storage_annotations.append(
+                (sm.group(1).strip(), sm.group(2).strip()))
+
         # Strip comments from the captured block
         m = re.sub(r'//.*', '', m)
         m = re.sub(r'/\*.*?\*/', '', m, flags=re.DOTALL)
-        
+
         func = parse_function(m)
         if not func:
             continue
-        
+
+        # Validate annotations and build storage_overrides dict
+        valid_names = {p['orig_name'] for p in func['params']}
+        valid_names |= {p['name'] for p in func['params']}
+
+        storage_overrides = {}
+        seen_params = set()
+        for param_key, storage_type in storage_annotations:
+            if param_key in seen_params:
+                raise ValueError(
+                    f"VIDL_STORAGE: duplicate annotation for parameter "
+                    f"'{param_key}' in function '{func['name']}'"
+                )
+            seen_params.add(param_key)
+            if param_key not in valid_names:
+                orig_names = ', '.join(
+                    p['orig_name'] for p in func['params'])
+                raise ValueError(
+                    f"VIDL_STORAGE: parameter '{param_key}' not found "
+                    f"in function '{func['name']}' "
+                    f"(params: {orig_names})"
+                )
+            storage_overrides[param_key] = storage_type
+
         magic = generate_magic(func['name'])
         handler_funcs.append({'name': func['name'], 'magic': magic})
-        
+
         # Generate struct
         struct_lines = [f"struct VIDL_{func['name']}", "{"]
         struct_lines.append(f"    static constexpr uint64_t kMagic = {magic};")
         struct_lines.append("    uint64_t MAGIC = kMagic;")
-        
+
         ctor_params = []
         initializer_list = []
-        
+
         for p in func['params']:
-            member_type = p['type'].replace('&', '').strip()
+            override = storage_overrides.get(p['orig_name']) or storage_overrides.get(p['name'])
+            if override is not None:
+                # Use the override storage type for both the struct member and the ctor param.
+                member_type = override
+                ctor_param_type = override
+            else:
+                member_type = p['type'].replace('&', '').strip()
+                ctor_param_type = p['type']
             default_str = f" = {p['default']}" if p.get('default') else ""
             struct_lines.append(f"    {member_type} {p['name']}{default_str};")
             # For constructor: type _name
-            ctor_params.append(f"{p['type']} _{p['name']}")
+            ctor_params.append(f"{ctor_param_type} _{p['name']}")
             # For initializer: name(_name)
             initializer_list.append(f"{p['name']}(_{p['name']})")
-        
+
         # Default constructor
         struct_lines.append("")
         struct_lines.append(f"    VIDL_{func['name']}() = default;")
-        
+
         # Parameterized constructor
         if ctor_params:
             struct_lines.append("")
@@ -191,7 +260,11 @@ def main():
     with open(input_file, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    result = generate_source(content)
+    try:
+        result = generate_source(content)
+    except ValueError as e:
+        print(f"vidl.py error: {e}", file=sys.stderr)
+        sys.exit(1)
     
     if len(sys.argv) >= 3:
         output_file = sys.argv[2]

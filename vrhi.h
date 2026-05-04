@@ -2440,7 +2440,8 @@ void vhCmdSetStateProgram( vhStateId id, vhProgram program );
 // VIDL_GENERATE
 void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj );
 // VIDL_GENERATE
-void vhCmdSetStateWorldTransform( vhStateId id, std::vector< glm::mat4 > matrices );
+// VIDL_STORAGE: matrices = vhArenaSpan< glm::mat4 >
+void vhCmdSetStateWorldTransform( vhStateId id, const std::vector< glm::mat4 >& matrices );
 // VIDL_GENERATE
 void vhCmdSetStateFlags( vhStateId id, uint64_t flags );
 // VIDL_GENERATE
@@ -2456,18 +2457,24 @@ void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, u
 // VIDL_GENERATE
 void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint64_t offset, uint32_t first, uint32_t num );
 // VIDL_GENERATE
+// VIDL_STORAGE: textures = vhArenaSpan< vhState::TextureBinding >
 void vhCmdSetStateTextures( vhStateId id, const std::vector< vhState::TextureBinding >& textures );
 // VIDL_GENERATE
+// VIDL_STORAGE: samplers = vhArenaSpan< vhState::SamplerDefinition >
 void vhCmdSetStateSamplers( vhStateId id, const std::vector< vhState::SamplerDefinition >& samplers );
 // VIDL_GENERATE
+// VIDL_STORAGE: buffers = vhArenaSpan< vhState::BufferBinding >
 void vhCmdSetStateBuffers( vhStateId id, const std::vector< vhState::BufferBinding >& buffers );
 // VIDL_GENERATE
+// VIDL_STORAGE: constants = vhArenaSpan< vhArenaConstantValue >
 void vhCmdSetStateConstants( vhStateId id, const std::vector< vhState::ConstantBufferValue >& constants );
 // VIDL_GENERATE
 void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data );
 // VIDL_GENERATE
+// VIDL_STORAGE: uniforms = vhArenaSpan< vhArenaUniformValue >
 void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms );
 // VIDL_GENERATE
+// VIDL_STORAGE: colours = vhArenaSpan< vhState::RenderTarget >
 void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colours, vhState::RenderTarget depth );
 // VIDL_GENERATE
 void vhCmdSetStateBlendConstants( vhStateId id, glm::vec4 blendConst );
@@ -2478,6 +2485,7 @@ void vhCmdSetStateShadingRate( vhStateId id, uint32_t flags, vhTexture image );
 // VIDL_GENERATE
 void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset );
 // VIDL_GENERATE
+// VIDL_STORAGE: accelStructs = vhArenaSpan< vhState::AccelStructBinding >
 void vhCmdSetStateAccelStructs( vhStateId id, const std::vector< vhState::AccelStructBinding >& accelStructs );
 
 // Internal omni-draw command. Do not call directly.

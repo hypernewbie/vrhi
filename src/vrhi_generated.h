@@ -771,11 +771,11 @@ struct VIDL_vhCmdSetStateWorldTransform
     static constexpr uint64_t kMagic = 0x8FB805B7;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    std::vector< glm::mat4 > matrices;
+    vhArenaSpan< glm::mat4 > matrices;
 
     VIDL_vhCmdSetStateWorldTransform() = default;
 
-    VIDL_vhCmdSetStateWorldTransform(vhStateId _id, std::vector< glm::mat4 > _matrices)
+    VIDL_vhCmdSetStateWorldTransform(vhStateId _id, vhArenaSpan< glm::mat4 > _matrices)
         : id(_id), matrices(_matrices) {}
 };
 
@@ -886,11 +886,11 @@ struct VIDL_vhCmdSetStateTextures
     static constexpr uint64_t kMagic = 0x3A615501;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::TextureBinding > textures;
+    vhArenaSpan< vhState::TextureBinding > textures;
 
     VIDL_vhCmdSetStateTextures() = default;
 
-    VIDL_vhCmdSetStateTextures(vhStateId _id, const std::vector< vhState::TextureBinding >& _textures)
+    VIDL_vhCmdSetStateTextures(vhStateId _id, vhArenaSpan< vhState::TextureBinding > _textures)
         : id(_id), textures(_textures) {}
 };
 
@@ -899,11 +899,11 @@ struct VIDL_vhCmdSetStateSamplers
     static constexpr uint64_t kMagic = 0xFCB052A2;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::SamplerDefinition > samplers;
+    vhArenaSpan< vhState::SamplerDefinition > samplers;
 
     VIDL_vhCmdSetStateSamplers() = default;
 
-    VIDL_vhCmdSetStateSamplers(vhStateId _id, const std::vector< vhState::SamplerDefinition >& _samplers)
+    VIDL_vhCmdSetStateSamplers(vhStateId _id, vhArenaSpan< vhState::SamplerDefinition > _samplers)
         : id(_id), samplers(_samplers) {}
 };
 
@@ -912,11 +912,11 @@ struct VIDL_vhCmdSetStateBuffers
     static constexpr uint64_t kMagic = 0x953A85B6;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::BufferBinding > buffers;
+    vhArenaSpan< vhState::BufferBinding > buffers;
 
     VIDL_vhCmdSetStateBuffers() = default;
 
-    VIDL_vhCmdSetStateBuffers(vhStateId _id, const std::vector< vhState::BufferBinding >& _buffers)
+    VIDL_vhCmdSetStateBuffers(vhStateId _id, vhArenaSpan< vhState::BufferBinding > _buffers)
         : id(_id), buffers(_buffers) {}
 };
 
@@ -925,11 +925,11 @@ struct VIDL_vhCmdSetStateConstants
     static constexpr uint64_t kMagic = 0x23287787;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::ConstantBufferValue > constants;
+    vhArenaSpan< vhArenaConstantValue > constants;
 
     VIDL_vhCmdSetStateConstants() = default;
 
-    VIDL_vhCmdSetStateConstants(vhStateId _id, const std::vector< vhState::ConstantBufferValue >& _constants)
+    VIDL_vhCmdSetStateConstants(vhStateId _id, vhArenaSpan< vhArenaConstantValue > _constants)
         : id(_id), constants(_constants) {}
 };
 
@@ -951,11 +951,11 @@ struct VIDL_vhCmdSetStateUniforms
     static constexpr uint64_t kMagic = 0xAB3B2AB3;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::UniformBufferValue > uniforms;
+    vhArenaSpan< vhArenaUniformValue > uniforms;
 
     VIDL_vhCmdSetStateUniforms() = default;
 
-    VIDL_vhCmdSetStateUniforms(vhStateId _id, const std::vector< vhState::UniformBufferValue >& _uniforms)
+    VIDL_vhCmdSetStateUniforms(vhStateId _id, vhArenaSpan< vhArenaUniformValue > _uniforms)
         : id(_id), uniforms(_uniforms) {}
 };
 
@@ -964,12 +964,12 @@ struct VIDL_vhCmdSetStateAttachments
     static constexpr uint64_t kMagic = 0xD3B53061;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::RenderTarget > colours;
+    vhArenaSpan< vhState::RenderTarget > colours;
     vhState::RenderTarget depth;
 
     VIDL_vhCmdSetStateAttachments() = default;
 
-    VIDL_vhCmdSetStateAttachments(vhStateId _id, const std::vector< vhState::RenderTarget >& _colours, vhState::RenderTarget _depth)
+    VIDL_vhCmdSetStateAttachments(vhStateId _id, vhArenaSpan< vhState::RenderTarget > _colours, vhState::RenderTarget _depth)
         : id(_id), colours(_colours), depth(_depth) {}
 };
 
@@ -1033,11 +1033,11 @@ struct VIDL_vhCmdSetStateAccelStructs
     static constexpr uint64_t kMagic = 0x16DF2363;
     uint64_t MAGIC = kMagic;
     vhStateId id;
-    const std::vector< vhState::AccelStructBinding > accelStructs;
+    vhArenaSpan< vhState::AccelStructBinding > accelStructs;
 
     VIDL_vhCmdSetStateAccelStructs() = default;
 
-    VIDL_vhCmdSetStateAccelStructs(vhStateId _id, const std::vector< vhState::AccelStructBinding >& _accelStructs)
+    VIDL_vhCmdSetStateAccelStructs(vhStateId _id, vhArenaSpan< vhState::AccelStructBinding > _accelStructs)
         : id(_id), accelStructs(_accelStructs) {}
 };
 

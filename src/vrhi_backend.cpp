@@ -3785,7 +3785,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateVie
 void vhCmdBackendState::Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].worldMatrix = cmd->matrices;
+    vhAssignFromSpan( backendStates[cmd->id].worldMatrix, cmd->matrices );
     backendStates[cmd->id].dirty |= VRHI_DIRTY_WORLD;
 }
 
@@ -3841,25 +3841,34 @@ void vhCmdBackendState::Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndex
 void vhCmdBackendState::Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].textures = cmd->textures;
+    vhAssignFromSpan( backendStates[cmd->id].textures, cmd->textures );
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].samplers = cmd->samplers;
+    vhAssignFromSpan( backendStates[cmd->id].samplers, cmd->samplers );
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].buffers = cmd->buffers;
+    vhAssignFromSpan( backendStates[cmd->id].buffers, cmd->buffers );
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].constants = cmd->constants;
+    auto& dst = backendStates[cmd->id].constants;
+    const uint32_t n = cmd->constants.count;
+    dst.resize( n );
+    for ( uint32_t i = 0; i < n; i++ )
+    {
+        const vhArenaConstantValue& src = cmd->constants.ptr[i];
+        dst[i].name = src.name;
+        if ( src.dataCount == 0 ) dst[i].data.clear();
+        else                      dst[i].data.assign( src.data, src.data + src.dataCount );
+    }
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePushConstants* cmd )
@@ -3872,14 +3881,23 @@ void vhCmdBackendState::Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePus
 void vhCmdBackendState::Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].uniforms = cmd->uniforms;
+    auto& dst = backendStates[cmd->id].uniforms;
+    const uint32_t n = cmd->uniforms.count;
+    dst.resize( n );
+    for ( uint32_t i = 0; i < n; i++ )
+    {
+        const vhArenaUniformValue& src = cmd->uniforms.ptr[i];
+        dst[i].name = src.name;
+        if ( src.dataCount == 0 ) dst[i].data.clear();
+        else                      dst[i].data.assign( src.data, src.data + src.dataCount );
+    }
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
-    state.colourAttachment = cmd->colours;
+    vhAssignFromSpan( state.colourAttachment, cmd->colours );
     state.depthAttachment = cmd->depth;
 }
 
@@ -3932,7 +3950,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
     auto it = backendStates.find( cmd->id );
     if ( it != backendStates.end() )
     {
-        it->second.accelStructs = cmd->accelStructs;
+        vhAssignFromSpan( it->second.accelStructs, cmd->accelStructs );
         it->second.dirty |= VRHI_DIRTY_ACCEL_STRUCT;
     }
 }

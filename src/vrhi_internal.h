@@ -92,6 +92,47 @@
 #include <vulkan/vulkan.hpp>
 
 #include "vrhi.h"
+
+// Types referenced by VIDL_STORAGE-annotated commands; must be visible to vrhi_generated.h.
+// Non-owning view into command-arena memory. Valid until the next arena rotation.
+template< typename T >
+struct vhArenaSpan
+{
+    T*       ptr   = nullptr;
+    uint32_t count = 0;
+
+    vhArenaSpan() = default;
+    vhArenaSpan( T* p, uint32_t n ) : ptr( p ), count( n ) {}
+
+    bool     empty() const { return count == 0; }
+    uint32_t size()  const { return count; }
+    T*       data()        { return ptr; }
+    const T* data()  const { return ptr; }
+
+    T&       operator[]( size_t i )       { return ptr[i]; }
+    const T& operator[]( size_t i ) const { return ptr[i]; }
+
+    T*       begin()       { return ptr; }
+    T*       end()         { return count ? ptr + count : ptr; }
+    const T* begin() const { return ptr; }
+    const T* end()   const { return count ? ptr + count : ptr; }
+};
+
+// Distinct types so the VIDL Set{Constants,Uniforms} commands cannot be cross-assigned.
+struct vhArenaConstantValue
+{
+    const char*      name;
+    const glm::vec4* data;
+    uint32_t         dataCount;
+};
+
+struct vhArenaUniformValue
+{
+    const char*      name;
+    const glm::vec4* data;
+    uint32_t         dataCount;
+};
+
 #include "vrhi_generated.h"
 #include "vrhi_utils.h"
 
@@ -391,45 +432,6 @@ void vhCmdRelease( T* cmd )
 {
     if ( cmd ) cmd->~T();
 }
-
-// Non-owning view into command-arena memory. Valid until the next arena rotation.
-template< typename T >
-struct vhArenaSpan
-{
-    T*       ptr   = nullptr;
-    uint32_t count = 0;
-
-    vhArenaSpan() = default;
-    vhArenaSpan( T* p, uint32_t n ) : ptr( p ), count( n ) {}
-
-    bool     empty() const { return count == 0; }
-    uint32_t size()  const { return count; }
-    T*       data()        { return ptr; }
-    const T* data()  const { return ptr; }
-
-    T&       operator[]( size_t i )       { return ptr[i]; }
-    const T& operator[]( size_t i ) const { return ptr[i]; }
-
-    T*       begin()       { return ptr; }
-    T*       end()         { return count ? ptr + count : ptr; }
-    const T* begin() const { return ptr; }
-    const T* end()   const { return count ? ptr + count : ptr; }
-};
-
-// Distinct types so the VIDL Set{Constants,Uniforms} commands cannot be cross-assigned.
-struct vhArenaConstantValue
-{
-    const char*      name;
-    const glm::vec4* data;
-    uint32_t         dataCount;
-};
-
-struct vhArenaUniformValue
-{
-    const char*      name;
-    const glm::vec4* data;
-    uint32_t         dataCount;
-};
 
 inline size_t vhArenaAlignUp( size_t off, size_t a ) { return ( off + a - 1 ) & ~( a - 1 ); }
 

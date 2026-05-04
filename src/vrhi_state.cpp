@@ -55,9 +55,9 @@ void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj )
     vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateViewTransform >( id, view, proj ) );
 }
 
-void vhCmdSetStateWorldTransform( vhStateId id, std::vector< glm::mat4 > matrices )
+void vhCmdSetStateWorldTransform( vhStateId id, const std::vector< glm::mat4 >& matrices )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateWorldTransform( id, matrices ) );
+    vhCmdEnqueue( vhCmdAllocMat4Span< VIDL_vhCmdSetStateWorldTransform >( id, matrices ) );
 }
 
 void vhCmdSetStateFlags( vhStateId id, uint64_t flags )
@@ -97,27 +97,27 @@ void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint64_t offset, u
 
 void vhCmdSetStateTextures( vhStateId id, const std::vector< vhState::TextureBinding >& textures )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateTextures( id, textures ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateTextures >( id, vhArenaCopySpan( textures ) ) );
 }
 
 void vhCmdSetStateSamplers( vhStateId id, const std::vector< vhState::SamplerDefinition >& samplers )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateSamplers( id, samplers ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateSamplers >( id, vhArenaCopySpan( samplers ) ) );
 }
 
 void vhCmdSetStateBuffers( vhStateId id, const std::vector< vhState::BufferBinding >& buffers )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateBuffers( id, buffers ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateBuffers >( id, vhArenaCopySpan( buffers ) ) );
 }
 
 void vhCmdSetStateAccelStructs( vhStateId id, const std::vector< vhState::AccelStructBinding >& accelStructs )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateAccelStructs( id, accelStructs ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateAccelStructs >( id, vhArenaCopySpan( accelStructs ) ) );
 }
 
 void vhCmdSetStateConstants( vhStateId id, const std::vector< vhState::ConstantBufferValue >& constants )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateConstants( id, constants ) );
+    vhCmdEnqueue( vhCmdAllocNamedVec4Span< VIDL_vhCmdSetStateConstants, vhArenaConstantValue >( id, constants ) );
 }
 
 void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data )
@@ -127,12 +127,12 @@ void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data )
 
 void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateUniforms( id, uniforms ) );
+    vhCmdEnqueue( vhCmdAllocNamedVec4Span< VIDL_vhCmdSetStateUniforms, vhArenaUniformValue >( id, uniforms ) );
 }
 
 void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderTarget >& colors, vhState::RenderTarget depth )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateAttachments( id, colors, depth ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateAttachments >( id, vhArenaCopySpan( colors ), depth ) );
 }
 
 void vhCmdSetStateBlendConstants( vhStateId id, glm::vec4 blendConst )
