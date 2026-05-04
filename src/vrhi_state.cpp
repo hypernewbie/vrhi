@@ -32,27 +32,27 @@ bool vhGetState( vhStateId id, vhState& outState )
 
 void vhCmdSetStateViewRect( vhStateId id, glm::vec4 rect )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateViewRect( id, rect ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateViewRect >( id, rect ) );
 }
 
 void vhCmdSetStateViewScissor( vhStateId id, glm::vec4 scissor )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateViewScissor( id, scissor ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateViewScissor >( id, scissor ) );
 }
 
 void vhCmdSetStateViewClear( vhStateId id, uint16_t flags, glm::vec4 color, glm::u8vec4 colorUInt, float depth, uint8_t stencil )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateViewClear( id, flags, color, colorUInt, depth, stencil ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateViewClear >( id, flags, color, colorUInt, depth, stencil ) );
 }
 
 void vhCmdSetStateProgram( vhStateId id, vhProgram program )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateProgram( id, program ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateProgram >( id, program ) );
 }
 
 void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateViewTransform( id, view, proj ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateViewTransform >( id, view, proj ) );
 }
 
 void vhCmdSetStateWorldTransform( vhStateId id, std::vector< glm::mat4 > matrices )
@@ -62,37 +62,37 @@ void vhCmdSetStateWorldTransform( vhStateId id, std::vector< glm::mat4 > matrice
 
 void vhCmdSetStateFlags( vhStateId id, uint64_t flags )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateFlags( id, flags ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateFlags >( id, flags ) );
 }
 
 void vhCmdSetStateDebugFlags( vhStateId id, uint64_t flags )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateDebugFlags( id, flags ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateDebugFlags >( id, flags ) );
 }
 
 void vhCmdSetStateStencil( vhStateId id, uint64_t stencilState )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateStencil( id, stencilState ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateStencil >( id, stencilState ) );
 }
 
 void vhCmdSetStateDepthBias( vhStateId id, int bias, float clamp, float slopeScaled )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateDepthBias( id, bias, clamp, slopeScaled ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateDepthBias >( id, bias, clamp, slopeScaled ) );
 }
 
 void vhCmdSetStateVertexBindings( vhStateId id, const std::vector< vhState::VertexBinding >& bindings )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBindings( id, bindings ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateVertexBindings >( id, bindings ) );
 }
 
 void vhCmdSetStateVertexBuffer( vhStateId id, uint8_t stream, vhBuffer buffer, uint64_t offset, uint32_t start, uint32_t num, const vhVertexLayout& layoutOverride, bool isInstanced )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateVertexBuffer( id, stream, buffer, offset, start, num, layoutOverride, isInstanced ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateVertexBuffer >( id, stream, buffer, offset, start, num, layoutOverride, isInstanced ) );
 }
 
 void vhCmdSetStateIndexBuffer( vhStateId id, vhBuffer buffer, uint64_t offset, uint32_t first, uint32_t num )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateIndexBuffer( id, buffer, offset, first, num ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateIndexBuffer >( id, buffer, offset, first, num ) );
 }
 
 void vhCmdSetStateTextures( vhStateId id, const std::vector< vhState::TextureBinding >& textures )
@@ -122,7 +122,7 @@ void vhCmdSetStateConstants( vhStateId id, const std::vector< vhState::ConstantB
 
 void vhCmdSetStatePushConstants( vhStateId id, glm::vec4 data )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStatePushConstants( id, data ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStatePushConstants >( id, data ) );
 }
 
 void vhCmdSetStateUniforms( vhStateId id, const std::vector< vhState::UniformBufferValue >& uniforms )
@@ -137,22 +137,22 @@ void vhCmdSetStateAttachments( vhStateId id, const std::vector< vhState::RenderT
 
 void vhCmdSetStateBlendConstants( vhStateId id, glm::vec4 blendConst )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateBlendConstants( id, blendConst ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateBlendConstants >( id, blendConst ) );
 }
 
 void vhCmdSetStateViewDepthRange( vhStateId id, float minZ, float maxZ )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateViewDepthRange( id, minZ, maxZ ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateViewDepthRange >( id, minZ, maxZ ) );
 }
 
 void vhCmdSetStateShadingRate( vhStateId id, uint32_t flags, vhTexture image )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateShadingRate( id, flags, image ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateShadingRate >( id, flags, image ) );
 }
 
 void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset )
 {
-    vhCmdEnqueue( new VIDL_vhCmdSetStateIndirectParams( id, buffer, offset ) );
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateIndirectParams >( id, buffer, offset ) );
 }
 
 bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
