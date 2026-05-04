@@ -31,6 +31,9 @@ void vhCmdListFlushAll_DeviceStateLocked();
 
 robin_hood::unordered_flat_map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
 vhStateResolveCache vhCmdBackendState::s_resolveCache;
+uint64_t vhCmdBackendState::s_globalResourceVersion = 1;
+const vhState* vhCmdBackendState::s_resolveCacheState = nullptr;
+uint64_t vhCmdBackendState::s_resolveCacheVersion = 0;
 std::vector< vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
@@ -1237,43 +1240,41 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
         }
     }
 
-    // Static buffer for packing user globals. Resizes only upward, preserving capacity across frames.
+    BE_PreSubmitCommon_RepackUserGlobals( state, scache );
+
+    scache.init = true;
+}
+
+void vhCmdBackendState::BE_PreSubmitCommon_RepackUserGlobals(
+    const vhState& state,
+    vhStateResolveCache& scache
+)
+{
     static std::vector< uint8_t > s_userGlobalsPackBuffer;
+    scache.userGlobalUniformsBufferCache.clear();
 
     for ( int stageIdx = 1; stageIdx <= VRHI_SHADER_STAGE_MAX; stageIdx++ )
     {
-        if ( !scache.stageBindingActive[stageIdx] )
-            continue;
-
+        if ( !scache.stageBindingActive[stageIdx] ) continue;
         const auto& stageTable = scache.stageBindingStorage[stageIdx];
-
-        if ( stageTable.userGlobalsSlot == UINT32_MAX )
-            continue;
-
-        uint64_t hash = stageTable.userGlobalsHash;
-
-        if ( scache.userGlobalUniformsBufferCache.find( hash ) != scache.userGlobalUniformsBufferCache.end() )
-            continue;
-
+        if ( stageTable.userGlobalsSlot == UINT32_MAX ) continue;
+        const uint64_t hash = stageTable.userGlobalsHash;
+        if ( scache.userGlobalUniformsBufferCache.find( hash ) != scache.userGlobalUniformsBufferCache.end() ) continue;
         const vhShaderReflectionResource* res = stageTable.userGlobalsReflection;
+        if ( !res || res->sizeInBytes == 0 ) continue;
 
-        if ( !res || res->sizeInBytes == 0 )
-            continue;
-
-        uint32_t packSize = res->sizeInBytes;
-        uint32_t alignedSize = ( uint32_t ) VRHI_ROUND_UP( packSize, VRHI_CBUF_ALIGN );
-        if ( s_userGlobalsPackBuffer.size() < alignedSize )
-            s_userGlobalsPackBuffer.resize( alignedSize, 0 );
+        const uint32_t packSize = res->sizeInBytes;
+        const uint32_t alignedSize = ( uint32_t ) VRHI_ROUND_UP( packSize, VRHI_CBUF_ALIGN );
+        if ( s_userGlobalsPackBuffer.size() < alignedSize ) s_userGlobalsPackBuffer.resize( alignedSize, 0 );
         vhPackUserGlobals( state.uniforms, res->members, s_userGlobalsPackBuffer.data(), packSize );
 
-        int64_t offset = m_userUniformBuffer.Write( s_userGlobalsPackBuffer.data(), alignedSize );
+        const int64_t offset = m_userUniformBuffer.Write( s_userGlobalsPackBuffer.data(), alignedSize );
         if ( offset >= 0 )
         {
             vhStateResolveCache::UserGlobalUniformsBufferInfo info;
             info.buffer = m_userUniformBuffer.handle[m_userUniformBuffer.frameIdx];
             info.range = nvrhi::BufferRange( offset, alignedSize );
             scache.userGlobalUniformsBufferCache[hash] = info;
-
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
                 VRHI_LOG( "ResolveCache: Eagerly allocated User Globals buffer for hash 0x%llx\n", hash );
         }
@@ -1282,8 +1283,6 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             VRHI_ERR( "ResolveCache: Failed to write User Global Uniforms to transient buffer (Out of space)\n" );
         }
     }
-
-    scache.init = true;
 }
 
 bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
@@ -1702,15 +1701,31 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             s_lastLayoutMapShaders[shaderIdx] = shaders[shaderIdx];
     }
 
-    // Resolve state resource cache
-    s_resolveCache.Clear();
-    vhProfile( "BE_PreSubmitCommon_State_ResolveCache", true );
-    BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, s_resolveCache );
-    vhProfile( "BE_PreSubmitCommon_State_ResolveCache", false );
-    if ( !s_resolveCache.init )
+    // Resolve state resource cache. Reuse if (state, version, shaders) all match.
+    const bool resolveCacheUsable = s_resolveCache.init
+        && s_resolveCacheState == &state
+        && s_resolveCacheVersion == s_globalResourceVersion
+        && !shaderSetChanged;
+    if ( resolveCacheUsable )
     {
-        VRHI_ERR( "vhSetState(): Failed to resolve state resource cache.\n" );
-        return false;
+        g_vhPerf.resolveCacheHits.fetch_add( 1, std::memory_order_relaxed );
+        BE_PreSubmitCommon_RepackUserGlobals( state, s_resolveCache );
+    }
+    else
+    {
+        g_vhPerf.resolveCacheRebuilds.fetch_add( 1, std::memory_order_relaxed );
+        s_resolveCache.Clear();
+        vhProfile( "BE_PreSubmitCommon_State_ResolveCache", true );
+        BE_PreSubmitCommon_ResolveStateCache( state, shaders, shaderCount, s_resolveCache );
+        vhProfile( "BE_PreSubmitCommon_State_ResolveCache", false );
+        if ( !s_resolveCache.init )
+        {
+            VRHI_ERR( "vhSetState(): Failed to resolve state resource cache.\n" );
+            s_resolveCacheState = nullptr;
+            return false;
+        }
+        s_resolveCacheState = &state;
+        s_resolveCacheVersion = s_globalResourceVersion;
     }
 
     // Loop through the layouts and bind resources.
@@ -2307,6 +2322,9 @@ void vhCmdBackendState::shutdown()
     // Clear static caches and release all RefCountPtr members
     s_layoutToShader.clear();
     s_resolveCache.Clear();
+    s_resolveCacheState = nullptr;
+    s_resolveCacheVersion = 0;
+    s_globalResourceVersion = 1;
     s_slotToReflection.clear();
     s_layoutLocationTable.clear();
     s_attributes.clear();
@@ -2509,6 +2527,7 @@ void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
         VRHI_ERR( "vhDestroyTexture() : Texture %d not found!\n", cmd->texture );
         return;
     }
+    s_globalResourceVersion++;
 
     // Destroy texture by releasing our reference. NVRHI handles GPU destruction safety.
     {
@@ -3143,6 +3162,7 @@ void vhCmdBackendState::Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd )
         VRHI_ERR( "vhDestroyBuffer() : Buffer %d not found!\n", cmd->buffer );
         return;
     }
+    s_globalResourceVersion++;
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -3262,6 +3282,7 @@ void vhCmdBackendState::Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd )
         VRHI_ERR( "vhDestroyShader() : Shader %d not found!\n", cmd->shader );
         return;
     }
+    s_globalResourceVersion++;
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -3302,6 +3323,7 @@ void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
         VRHI_ERR( "vhDestroyAS() : AccelStruct %d not found!\n", cmd->as );
         return;
     }
+    s_globalResourceVersion++;
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -3775,6 +3797,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* 
 {
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].program = cmd->program;
+    s_globalResourceVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd )
@@ -3845,18 +3868,21 @@ void vhCmdBackendState::Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures
 {
     BE_CmdRAII cmdRAII( cmd );
     vhAssignFromSpan( backendStates[cmd->id].textures, cmd->textures );
+    s_globalResourceVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
     vhAssignFromSpan( backendStates[cmd->id].samplers, cmd->samplers );
+    s_globalResourceVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
     vhAssignFromSpan( backendStates[cmd->id].buffers, cmd->buffers );
+    s_globalResourceVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd )
@@ -3955,6 +3981,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
     {
         vhAssignFromSpan( it->second.accelStructs, cmd->accelStructs );
         it->second.dirty |= VRHI_DIRTY_ACCEL_STRUCT;
+        s_globalResourceVersion++;
     }
 }
 

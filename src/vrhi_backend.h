@@ -223,6 +223,11 @@ class vhCmdBackendState : public VIDLHandler
         vhStateResolveCache& scache
     );
 
+    void BE_PreSubmitCommon_RepackUserGlobals(
+        const vhState& state,
+        vhStateResolveCache& scache
+    );
+
     bool BE_PreSubmitCommon_FindResource(
         const vhState& state,
         const uint32_t stage,
@@ -259,6 +264,12 @@ protected:
     // Using pointer storage for s_shaders to avoid deep-copy overhead on the hot path.
     static robin_hood::unordered_flat_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
     static vhStateResolveCache s_resolveCache;
+
+    // Bumped on resource mutations (binding setters, destroys). Used as cache key for the resolve cache.
+    static uint64_t s_globalResourceVersion;
+    static const vhState* s_resolveCacheState;
+    static uint64_t s_resolveCacheVersion;
+
     static std::vector< vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
     static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
