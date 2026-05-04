@@ -1003,9 +1003,15 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
             assert( scache.stageBindingActive[stage] );
             auto& stageTable = scache.stageBindingStorage[stage];
-            if ( slot < stageTable.samplerTable.size() && stageTable.samplerTable[slot] )
+
+            if ( ( uint32_t ) slot < g_vhInit.shaderMake_sRegShift )
             {
-                // Duplicate binding slots is not fair dinkum.
+                VRHI_ERR( "vhSetState(): Sampler slot %d is not shifted by sRegShift (%u) for '%s'\n", slot, g_vhInit.shaderMake_sRegShift, s.name ? s.name : "" );
+                return;
+            }
+            const uint32_t sBit = ( uint32_t ) slot - g_vhInit.shaderMake_sRegShift;
+            if ( sBit < 64 && ( stageTable.samplerUsed & ( 1ULL << sBit ) ) )
+            {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Sampler Binding Slot Collision: Slot %d already bound by previous shader\n", slot );
                 return;
             }
@@ -1016,16 +1022,10 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                 VRHI_ERR( "vhSetState(): Failed to get sampler handle for sampler at index %zu\n", i );
                 return;
             }
-            if ( ( uint32_t ) slot < g_vhInit.shaderMake_sRegShift )
-            {
-                VRHI_ERR( "vhSetState(): Sampler slot %d is not shifted by sRegShift (%u) for '%s'\n", slot, g_vhInit.shaderMake_sRegShift, s.name ? s.name : "" );
-                return;
-            }
-            if ( slot >= stageTable.samplerTable.size() )
+            if ( ( size_t ) slot >= stageTable.samplerTable.size() )
                 stageTable.samplerTable.resize( slot + 1, nullptr );
             stageTable.samplerTable[slot] = shandle.Get();
-            //TEMP_PRINT
-            //printf( "DEBUG: Store sampler slot=%u\n", slot );
+            stageTable.MarkSlotUsed( vhStateResolveCache::ShaderStageBindingSlotState::WrittenSlot::Sampler, sBit, ( uint32_t ) slot );
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Sampler 0x%llx bound to slot %d '%s'\n", s.flags, slot, s.name ? s.name : "" );
         }
     }
@@ -1054,32 +1054,30 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     VRHI_ERR( "vhSetState(): Texture UAV slot %d is not shifted by uRegShift (%u) for '%s'\n", slot, g_vhInit.shaderMake_uRegShift, t.name ? t.name : "" );
                     return;
                 }
-                if ( slot >= stageTable.uavTable.size() )
-                    stageTable.uavTable.resize( slot + 1 );
-                auto& uavEntry = stageTable.uavTable[slot];
-                if ( uavEntry.first.handle || uavEntry.second.handle )
+                const uint32_t uBit = ( uint32_t ) slot - g_vhInit.shaderMake_uRegShift;
+                if ( uBit < 64 && ( ( stageTable.uavTextureUsed | stageTable.uavBufferUsed ) & ( 1ULL << uBit ) ) )
                 {
-                    // If either part of the pair is already filled, that's a collision.
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                uavEntry.first = { btex.handle.Get(), &t };
-                //TEMP_PRINT
-                //printf( "DEBUG: Store texture UAV slot=%u\n", slot );
+                if ( ( size_t ) slot >= stageTable.uavTable.size() )
+                    stageTable.uavTable.resize( slot + 1 );
+                stageTable.uavTable[slot].first = { btex.handle.Get(), &t };
+                stageTable.MarkSlotUsed( vhStateResolveCache::ShaderStageBindingSlotState::WrittenSlot::UavTexture, uBit, ( uint32_t ) slot );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Texture UAV '%s' bound to slot %d '%s'\n", btex.name.c_str(), slot, t.name ? t.name : "" );
             }
             else
             {
-                if ( slot >= stageTable.textureTable.size() )
-                    stageTable.textureTable.resize( slot + 1, { nullptr, nullptr } );
-                if ( stageTable.textureTable[slot].handle || stageTable.textureTable[slot].binding )
+                const uint32_t tBit = ( uint32_t ) slot - g_vhInit.shaderMake_tRegShift;
+                if ( tBit < 64 && ( stageTable.textureUsed & ( 1ULL << tBit ) ) )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Texture Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
+                if ( ( size_t ) slot >= stageTable.textureTable.size() )
+                    stageTable.textureTable.resize( slot + 1, { nullptr, nullptr } );
                 stageTable.textureTable[slot] = { btex.handle.Get(), &t };
-                //TEMP_PRINT
-                //printf( "DEBUG: Store texture SRV slot=%u\n", slot );
+                stageTable.MarkSlotUsed( vhStateResolveCache::ShaderStageBindingSlotState::WrittenSlot::Texture, tBit, ( uint32_t ) slot );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Texture SRV '%s' bound to slot %d '%s'\n", btex.name.c_str(), slot, t.name ? t.name : "" );
             }
         }
@@ -1125,32 +1123,35 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
                     VRHI_ERR( "vhSetState(): Buffer UAV slot %d is not shifted by uRegShift (%u) for '%s'\n", slot, g_vhInit.shaderMake_uRegShift, b.name ? b.name : "" );
                     return;
                 }
-                if ( slot >= stageTable.uavTable.size() )
-                    stageTable.uavTable.resize( slot + 1 );
-                auto& uavEntry = stageTable.uavTable[slot];
-                if ( uavEntry.first.handle || uavEntry.second.handle )
+                const uint32_t uBit = ( uint32_t ) slot - g_vhInit.shaderMake_uRegShift;
+                if ( uBit < 64 && ( ( stageTable.uavTextureUsed | stageTable.uavBufferUsed ) & ( 1ULL << uBit ) ) )
                 {
-                    // If either part of the pair is already filled, that's a collision.
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer UAV Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
-                uavEntry.second = { bbuf.handle.Get(), &b };
-                //TEMP_PRINT
-                //printf( "DEBUG: Store buffer UAV slot=%u\n", slot );
+                if ( ( size_t ) slot >= stageTable.uavTable.size() )
+                    stageTable.uavTable.resize( slot + 1 );
+                stageTable.uavTable[slot].second = { bbuf.handle.Get(), &b };
+                stageTable.MarkSlotUsed( vhStateResolveCache::ShaderStageBindingSlotState::WrittenSlot::UavBuffer, uBit, ( uint32_t ) slot );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Buffer UAV '%s' bound to slot %d '%s'\n", bbuf.name.c_str(), slot, b.name ? b.name : "" );
             }
             else
             {
-                if ( slot >= stageTable.bufferTable.size() )
-                    stageTable.bufferTable.resize( slot + 1, { nullptr, nullptr } );
-                if ( stageTable.bufferTable[slot].handle || stageTable.bufferTable[slot].binding )
+                const bool isConstantBuffer = ( bindingType == nvrhi::ResourceType::ConstantBuffer );
+                const uint32_t shift = isConstantBuffer ? g_vhInit.shaderMake_bRegShift : g_vhInit.shaderMake_tRegShift;
+                const auto kind = isConstantBuffer
+                    ? vhStateResolveCache::ShaderStageBindingSlotState::WrittenSlot::BufferB
+                    : vhStateResolveCache::ShaderStageBindingSlotState::WrittenSlot::BufferT;
+                const uint32_t bit = ( uint32_t ) slot - shift;
+                if ( isConstantBuffer && bit < 64 && ( stageTable.bufferUsed & ( 1ULL << bit ) ) )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Buffer Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                     return;
                 }
+                if ( ( size_t ) slot >= stageTable.bufferTable.size() )
+                    stageTable.bufferTable.resize( slot + 1, { nullptr, nullptr } );
                 stageTable.bufferTable[slot] = { bbuf.handle.Get(), &b };
-                //TEMP_PRINT
-                //printf( "DEBUG: Store buf slot=%u isCB=%d\n", slot, bbuf.desc.isConstantBuffer );
+                stageTable.MarkSlotUsed( kind, bit, ( uint32_t ) slot );
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): Buffer SRV '%s' bound to slot %d '%s'\n", bbuf.name.c_str(), slot, b.name ? b.name : ""  );
             }
         }
@@ -1171,14 +1172,16 @@ void vhCmdBackendState::BE_PreSubmitCommon_ResolveStateCache(
             assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
             auto& stageTable = scache.stageBindingStorage[stage];
 
-            if ( slot >= ( int32_t ) stageTable.accelStructTable.size() )
-                stageTable.accelStructTable.resize( slot + 1, { nullptr, nullptr } );
-            if ( stageTable.accelStructTable[slot].handle )
+            const uint32_t aBit = ( uint32_t ) slot - g_vhInit.shaderMake_tRegShift;
+            if ( aBit < 64 && ( stageTable.accelStructUsed & ( 1ULL << aBit ) ) )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "AccelStruct Binding Slot Collision: Slot %d already bound by previous resource\n", slot );
                 return;
             }
+            if ( ( size_t ) slot >= stageTable.accelStructTable.size() )
+                stageTable.accelStructTable.resize( slot + 1, { nullptr, nullptr } );
             stageTable.accelStructTable[slot] = { scache.baccel[i]->handle.Get(), &a };
+            stageTable.MarkSlotUsed( vhStateResolveCache::ShaderStageBindingSlotState::WrittenSlot::AccelStruct, aBit, ( uint32_t ) slot );
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "vhSetState(): AccelStruct bound to slot %d '%s'\n", slot, a.name ? a.name : "" );
         }
     }
