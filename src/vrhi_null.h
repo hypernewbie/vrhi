@@ -214,7 +214,9 @@ public:
     void clearMissShaders() override {}
     void clearHitShaders() override {}
     void clearCallableShaders() override {}
-    nvrhi::rt::IPipeline* getPipeline() override { return nullptr; }
+    nvrhi::rt::ShaderTableDesc const& getDesc() const override { static nvrhi::rt::ShaderTableDesc s; return s; }
+    uint32_t getNumEntries() const override { return 0; }
+    nvrhi::rt::IPipeline* getPipeline() const override { return nullptr; }
 };
 
 class vhNullRTPipeline : public vhNullResource< nvrhi::rt::IPipeline >
@@ -223,7 +225,7 @@ class vhNullRTPipeline : public vhNullResource< nvrhi::rt::IPipeline >
 public:
     vhNullRTPipeline( const nvrhi::rt::PipelineDesc& desc ) : m_desc( desc ) {}
     const nvrhi::rt::PipelineDesc& getDesc() const override { return m_desc; }
-    nvrhi::rt::ShaderTableHandle createShaderTable() override { return new vhNullShaderTable(); }
+    nvrhi::rt::ShaderTableHandle createShaderTable( nvrhi::rt::ShaderTableDesc const& = {} ) override { return new vhNullShaderTable(); }
 };
 
 class vhNullCommandList : public vhNullResource< nvrhi::ICommandList >
@@ -255,6 +257,7 @@ public:
     void drawIndexed( const nvrhi::DrawArguments& ) override {}
     void drawIndirect( uint32_t, uint32_t ) override {}
     void drawIndexedIndirect( uint32_t, uint32_t ) override {}
+    void drawIndexedIndirectCount( uint32_t, uint32_t, uint32_t ) override {}
     void setComputeState( const nvrhi::ComputeState& ) override {}
     void dispatch( uint32_t, uint32_t, uint32_t ) override {}
     void dispatchIndirect( uint32_t ) override {}

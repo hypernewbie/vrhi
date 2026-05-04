@@ -293,6 +293,7 @@ void vhInit( bool quiet )
 
         VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         v13Features.dynamicRendering = VK_TRUE;
+        v13Features.synchronization2 = VK_TRUE;
 
         VkPhysicalDeviceFeatures features = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
         features.independentBlend = VK_TRUE;

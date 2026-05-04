@@ -23,6 +23,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <vector>
 #include <nvrhi/nvrhi.h>
 
 namespace nvrhi 
@@ -43,6 +44,11 @@ namespace nvrhi::vulkan
         virtual void queueWaitForSemaphore(CommandQueue waitQueue, VkSemaphore semaphore, uint64_t value) = 0;
         virtual void queueSignalSemaphore(CommandQueue executionQueue, VkSemaphore semaphore, uint64_t value) = 0;
         virtual uint64_t queueGetCompletedInstance(CommandQueue queue) = 0;
+
+        // Pipeline cache export. Caller owns the data, may persist or pass back at next createDevice.
+        // Returns false if extraction failed (cache empty or driver error). outData is cleared on failure.
+        // Not safe to call concurrently with pipeline creation.
+        virtual bool getPipelineCacheData(std::vector<uint8_t>& outData) = 0;
     };
 
     typedef RefCountPtr<IDevice> DeviceHandle;
@@ -72,6 +78,12 @@ namespace nvrhi::vulkan
         size_t numDeviceExtensions = 0;
 
         uint32_t maxTimerQueries = 256;
+
+        // Optional initial blob for the Vulkan pipeline cache. Caller owns the memory and only needs
+        // it valid for the duration of createDevice(). If the data is stale or rejected by the driver,
+        // device creation continues with an empty cache.
+        const void* pipelineCacheInitialData = nullptr;
+        size_t pipelineCacheInitialDataSize = 0;
 
         // Indicates if VkPhysicalDeviceVulkan12Features::bufferDeviceAddress was set to 'true' at device creation time
         bool bufferDeviceAddressSupported = false;
