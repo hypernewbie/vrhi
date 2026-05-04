@@ -241,10 +241,9 @@ class vhCmdBackendState : public VIDLHandler
     nvrhi::BindingLayoutHandle m_emptyLayout;
     nvrhi::BindingSetHandle m_emptySet;
 
-    // RAII for vhMem, takes ownership of the pointer and auto-destructs it.
-    inline std::unique_ptr< vhMem > BE_MemRAII( const vhMem* mem )
+    inline void BE_MemDefer( const vhMem* mem )
     {
-        return std::unique_ptr< vhMem >( const_cast< vhMem* >( mem ) );
+        if ( mem ) g_vhMemList.push_back( const_cast< vhMem* >( mem ) );
     }
 
     // --------------------------------------------------------------------------

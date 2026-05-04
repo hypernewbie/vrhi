@@ -182,8 +182,8 @@ extern moodycamel::BlockingConcurrentQueue< void* > g_vhCmds;
 extern std::atomic<bool> g_vhCmdsQuit;
 extern std::thread g_vhCmdThread;
 extern std::atomic<bool> g_vhCmdThreadReady;
+// Backend-thread only (no mutex). Drained at end of Handle_vhFlushInternal.
 extern std::vector< std::vector<uint8_t>* > g_vhMemList;
-extern std::mutex g_vhMemListMutex;
 extern uint64_t g_vhCmdListTransferSizeHeuristic;
 
 // Backend State

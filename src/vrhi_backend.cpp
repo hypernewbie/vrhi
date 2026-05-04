@@ -2518,7 +2518,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     if ( cmd->texture == VRHI_INVALID_HANDLE )
     {
@@ -2588,7 +2588,7 @@ void vhCmdBackendState::Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd )
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     if ( cmd->texture == VRHI_INVALID_HANDLE )
     {
@@ -2836,7 +2836,7 @@ void vhCmdBackendState::Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* 
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     if ( cmd->buffer == VRHI_INVALID_HANDLE )
     {
@@ -2871,7 +2871,7 @@ void vhCmdBackendState::Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* 
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     Handle_vhUpdateBufferCommon_Internal( "vhUpdateVertexBuffer", cmd->buffer, cmd->offsetVerts, cmd->data, cmd->numVerts, true );
 }
@@ -2880,7 +2880,7 @@ void vhCmdBackendState::Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cm
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     if ( cmd->buffer == VRHI_INVALID_HANDLE )
     {
@@ -2901,7 +2901,7 @@ void vhCmdBackendState::Handle_vhUpdateIndexBuffer( VIDL_vhUpdateIndexBuffer* cm
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     Handle_vhUpdateBufferCommon_Internal( "vhUpdateIndexBuffer", cmd->buffer, cmd->offsetIndices, cmd->data, cmd->numIndices, false );
 }
@@ -2910,7 +2910,7 @@ void vhCmdBackendState::Handle_vhCreateUniformBuffer( VIDL_vhCreateUniformBuffer
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     if ( cmd->buffer == VRHI_INVALID_HANDLE )
     {
@@ -2931,7 +2931,7 @@ void vhCmdBackendState::Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     // Reuse common update logic (isVertexBuffer = true uses stride from creation)
     Handle_vhUpdateBufferCommon_Internal( "vhUpdateUniformBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->size, true );
@@ -2941,7 +2941,7 @@ void vhCmdBackendState::Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     if ( cmd->buffer == VRHI_INVALID_HANDLE )
     {
@@ -2968,7 +2968,7 @@ void vhCmdBackendState::Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer
 {
     VRHI_PROFILE_FUNCTION();
     BE_CmdRAII cmdRAII( cmd );
-    auto dataRAII = BE_MemRAII( cmd->data );
+    BE_MemDefer( cmd->data );
 
     // Reuse common update logic (isVertexBuffer = true uses stride from creation)
     Handle_vhUpdateBufferCommon_Internal( "vhUpdateStorageBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->size, true );
@@ -3960,11 +3960,9 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
     // Send it!!
     vhCmdListFlushAll_DeviceStateLocked();
 
-    // Free all cmd memory allocations, because hitting this flush means all previous commands have been processed.
-    {
-        std::lock_guard< std::mutex > lock( g_vhMemListMutex );
-        g_vhMemList.clear();
-    }
+    // Batch-free here so per-command handlers don't pay individual delete cost on the hot path.
+    for ( vhMem* m : g_vhMemList ) delete m;
+    g_vhMemList.clear();
     if ( cmd->waitForGPU )
     {
         vhProfile( "Handle_vhFlushInternal_WaitForGPU", true );
