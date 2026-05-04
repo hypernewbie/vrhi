@@ -22,9 +22,6 @@
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
 #include "vrhi_backend.h"
-#include "vrhi_internal.h"
-#include "vrhi_utils.h"
-#include "vrhi_backend.h"
 #include "vrhi_null.h"
 #include "renderdoc_app.h"
 
