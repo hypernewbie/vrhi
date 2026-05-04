@@ -359,6 +359,15 @@ void vhDestroyBuffer( vhBuffer buffer )
     vhCmdEnqueue( cmd );
 }
 
+void vhReadBufferSlow( vhBuffer buffer, uint64_t offset, uint64_t size, vhMem* outData )
+{
+    vhFinish();
+    auto cmd = vhCmdAlloc<VIDL_vhReadBufferSlow>( buffer, offset, size, outData );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+    vhFinish();
+}
+
 vhBuffer vhCreateVertexBuffer(
     vhBuffer buffer,
     const char* name,

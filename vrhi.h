@@ -1255,6 +1255,15 @@ void vhBlitBuffer(
 // VIDL_GENERATE
 void vhDestroyBuffer( vhBuffer buffer );
 
+// Enqueues a GPU->CPU copy via a staging buffer, then blocks until the copy is done.
+// WARNING: This is a slow path operation, generally for debugging.
+//
+// `offset` is the byte offset within the buffer to start reading.
+// `size` is the number of bytes to read. Pass 0 to read the entire buffer.
+// `outData` is the destination; ownership is NOT transferred (caller holds it).
+// VIDL_GENERATE
+void vhReadBufferSlow( vhBuffer buffer, uint64_t offset, uint64_t size, vhMem* outData );
+
 // Returns buffer size in bytes. 
 // Options: outStride (structure stride), outFlags (usage flags).
 uint64_t vhGetBufferInfo( vhBuffer buffer, uint32_t* outStride = nullptr, uint64_t* outFlags = nullptr );

@@ -332,6 +332,21 @@ struct VIDL_vhDestroyBuffer
         : buffer(_buffer) {}
 };
 
+struct VIDL_vhReadBufferSlow
+{
+    static constexpr uint64_t kMagic = 0x9F603B2A;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    uint64_t offset;
+    uint64_t size;
+    vhMem* outData;
+
+    VIDL_vhReadBufferSlow() = default;
+
+    VIDL_vhReadBufferSlow(vhBuffer _buffer, uint64_t _offset, uint64_t _size, vhMem* _outData)
+        : buffer(_buffer), offset(_offset), size(_size), outData(_outData) {}
+};
+
 struct VIDL_vhCreateHeap
 {
     static constexpr uint64_t kMagic = 0x06E69C4C;
@@ -1071,6 +1086,7 @@ struct VIDLHandler
     virtual void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhReadBufferSlow( VIDL_vhReadBufferSlow* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd ) { (void) cmd; };
     virtual void Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd ) { (void) cmd; };
@@ -1226,6 +1242,10 @@ struct VIDLHandler
         case 0x3A87A73E:
             HandleLogFunction("Handle_vhDestroyBuffer");
             Handle_vhDestroyBuffer( (VIDL_vhDestroyBuffer*) cmd );
+            break;
+        case 0x9F603B2A:
+            HandleLogFunction("Handle_vhReadBufferSlow");
+            Handle_vhReadBufferSlow( (VIDL_vhReadBufferSlow*) cmd );
             break;
         case 0x06E69C4C:
             HandleLogFunction("Handle_vhCreateHeap");

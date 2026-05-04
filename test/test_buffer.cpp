@@ -960,3 +960,63 @@ UTEST_F( Buffer, Benchmark_UploadBandwidth )
     vhDestroyBuffer( ub );
     vhFinish();
 }
+
+UTEST_F( Buffer, ReadbackSlow_Basic )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU readback requires GPU" );
+    vhFlush();
+
+    const uint32_t N = 32;
+    uint8_t expected[N];
+    for ( uint32_t i = 0; i < N; i++ ) expected[i] = ( uint8_t )( i * 3 + 7 );
+
+    vhBuffer buf = vhAllocBuffer();
+    vhMem* mem = vhAllocMem( N );
+    memcpy( mem->data(), expected, N );
+    vhCreateStorageBuffer( buf, "ReadbackBuf", mem, N, VRHI_BUFFER_COMPUTE_READ );
+    vhFinish();
+
+    vhMem readData;
+    vhReadBufferSlow( buf, 0, N, &readData );
+
+    EXPECT_EQ( ( int ) readData.size(), ( int ) N );
+    for ( uint32_t i = 0; i < N; i++ ) EXPECT_EQ( readData[i], expected[i] );
+
+    vhMem partial;
+    vhReadBufferSlow( buf, 8, 8, &partial );
+    EXPECT_EQ( ( int ) partial.size(), 8 );
+    for ( int i = 0; i < 8; i++ ) EXPECT_EQ( partial[i], expected[8 + i] );
+
+    vhDestroyBuffer( buf );
+    vhFinish();
+}
+
+UTEST_F( Buffer, UpdateUniform_OffsetAndSize )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU required" );
+    vhFlush();
+
+    const uint32_t total = 256;
+    std::vector< uint8_t > init( total, 0xAA );
+    vhBuffer ub = vhAllocBuffer();
+    vhMem* initMem = vhAllocMem( init );
+    vhCreateUniformBuffer( ub, "PartialUB", initMem, total );
+    vhFinish();
+
+    const uint32_t patchOffset = 64, patchSize = 32;
+    std::vector< uint8_t > patch( patchSize, 0xBB );
+    vhMem* patchMem = vhAllocMem( patch );
+    vhUpdateUniformBuffer( ub, patchMem, patchOffset );
+    vhFinish();
+
+    vhMem readData;
+    vhReadBufferSlow( ub, 0, total, &readData );
+
+    EXPECT_EQ( ( int ) readData.size(), ( int ) total );
+    for ( uint32_t i = 0; i < patchOffset; i++ ) EXPECT_EQ( readData[i], 0xAA );
+    for ( uint32_t i = patchOffset; i < patchOffset + patchSize; i++ ) EXPECT_EQ( readData[i], 0xBB );
+    for ( uint32_t i = patchOffset + patchSize; i < total; i++ ) EXPECT_EQ( readData[i], 0xAA );
+
+    vhDestroyBuffer( ub );
+    vhFinish();
+}

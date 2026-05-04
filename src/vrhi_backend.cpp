@@ -499,6 +499,69 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
     }
 }
 
+void vhCmdBackendState::BE_ReadBufferSlow( vhBackendBuffer& bbuf, vhMem* outData, uint64_t offset, uint64_t size )
+{
+    VRHI_PROFILE_FUNCTION();
+    if ( !bbuf.handle || !outData ) return;
+    const uint64_t totalSize = bbuf.desc.byteSize;
+    if ( offset >= totalSize ) return;
+    if ( size == 0 ) size = totalSize;
+    size = std::min( size, totalSize - offset );
+
+    nvrhi::BufferDesc stagingDesc;
+    stagingDesc.byteSize = size;
+    stagingDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+    stagingDesc.keepInitialState = true;
+    stagingDesc.debugName = "BE_ReadBufferSlow_Staging";
+
+    nvrhi::BufferHandle staging;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        staging = g_vhDevice->createBuffer( stagingDesc );
+    }
+    if ( !staging ) return;
+
+    {
+        nvrhi::EventQueryHandle fence;
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            fence = g_vhDevice->createEventQuery();
+        }
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            nvrhi::CommandListParameters params = { .queueType = nvrhi::CommandQueue::Graphics };
+            auto cmdList = g_vhDevice->createCommandList( params );
+            cmdList->open();
+            cmdList->copyBuffer( staging, 0, bbuf.handle, offset, size );
+            cmdList->close();
+            g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
+            g_vhDevice->setEventQuery( fence, nvrhi::CommandQueue::Graphics );
+        }
+        bool done = false;
+        for ( int attempt = 0; attempt < 100000 && !done; attempt++ )
+        {
+            {
+                std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+                done = g_vhDevice->pollEventQuery( fence );
+            }
+            if ( !done ) std::this_thread::sleep_for( std::chrono::microseconds( 100 ) );
+        }
+    }
+
+    outData->resize( size );
+    void* pData = nullptr;
+    {
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        pData = g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+    }
+    if ( pData )
+    {
+        memcpy( outData->data(), pData, size );
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        g_vhDevice->unmapBuffer( staging );
+    }
+}
+
 nvrhi::FramebufferHandle vhCmdBackendState::BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment, vhTexture shadingRateImage )
 {
     // Reuse the descriptor storage across calls and only reset the mutable fields.
@@ -4031,6 +4094,20 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
         .setStartInstanceLocation( cmd->startInstanceLocation );
 
     BE_Submit( state, s_shaders.data(), ( int ) s_shaders.size(), cmd->flags, args, cmd->drawCount );
+}
+
+void vhCmdBackendState::Handle_vhReadBufferSlow( VIDL_vhReadBufferSlow* cmd )
+{
+    VRHI_PROFILE_FUNCTION();
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->buffer == VRHI_INVALID_HANDLE ) return;
+    auto it = backendBuffers.find( cmd->buffer );
+    if ( it == backendBuffers.end() )
+    {
+        VRHI_ERR( "vhReadBufferSlow: Buffer %d not found!\n", cmd->buffer );
+        return;
+    }
+    BE_ReadBufferSlow( *it->second, cmd->outData, cmd->offset, cmd->size );
 }
 
 void vhCmdBackendState::Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd )

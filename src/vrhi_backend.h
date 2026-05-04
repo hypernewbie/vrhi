@@ -303,6 +303,8 @@ class vhCmdBackendState : public VIDLHandler
 
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data );
 
+    void BE_ReadBufferSlow( vhBackendBuffer& bbuf, vhMem* outData, uint64_t offset, uint64_t size );
+
     nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment, vhTexture shadingRateImage );
 
     int64_t BE_Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );
@@ -411,6 +413,7 @@ public:
     void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) override;
     void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) override;
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override;
+    void Handle_vhReadBufferSlow( VIDL_vhReadBufferSlow* cmd ) override;
     void Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd ) override;
     void Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd ) override;
     void Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd ) override;
