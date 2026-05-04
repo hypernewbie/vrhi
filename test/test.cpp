@@ -120,6 +120,10 @@ int main( int argc, const char* const argv[] )
         {
             g_vhInit.headless = true;
         }
+        else if ( strcmp( argv[i], "--force-vulkan12" ) == 0 )
+        {
+            g_vhInit.forceVulkan12 = true;
+        }
     }
 
 #ifndef NDEBUG

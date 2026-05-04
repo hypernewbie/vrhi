@@ -56,6 +56,7 @@ struct vhInitData
     // Debug and feature toggles.
     bool debug = false;
     bool raytracing = true;
+    bool forceVulkan12 = false;
     bool nullMode = false;
     bool logBackendCmds = false;
     bool logPSOCache = false;

@@ -139,6 +139,83 @@ void vhEnableRenderDoc()
 
 // -------------------------------------------------------- RHI Device --------------------------------------------------------
 
+static vkb::PhysicalDevice vhSelectPhysicalDevice_1_3( vkb::Instance& vkbInst, VkSurfaceKHR surface, bool headless, bool robust, bool withRT, int deviceIndex )
+{
+    vkb::PhysicalDeviceSelector selector( vkbInst );
+    selector.require_present( !headless );
+    if ( surface ) selector.set_surface( surface );
+
+    VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    v12.timelineSemaphore = VK_TRUE;
+    if ( withRT )
+    {
+        v12.bufferDeviceAddress = VK_TRUE;
+        v12.descriptorIndexing = VK_TRUE;
+        v12.runtimeDescriptorArray = VK_TRUE;
+    }
+
+    VkPhysicalDeviceVulkan13Features v13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+    v13.dynamicRendering = VK_TRUE;
+    v13.synchronization2 = VK_TRUE;
+
+    VkPhysicalDeviceFeatures feat = { .robustBufferAccess = robust ? VK_TRUE : VK_FALSE };
+    feat.independentBlend = VK_TRUE;
+    feat.fillModeNonSolid = VK_TRUE;
+    feat.samplerAnisotropy = VK_TRUE;
+    feat.depthClamp = VK_TRUE;
+    if ( withRT )
+    {
+        feat.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+        feat.shaderStorageImageReadWithoutFormat = VK_TRUE;
+    }
+
+    selector.set_minimum_version( 1, 3 ).set_required_features_12( v12 ).set_required_features_13( v13 ).set_required_features( feat );
+
+    if ( deviceIndex >= 0 )
+    {
+        auto ret = selector.select_devices();
+        if ( !ret || deviceIndex >= ( int ) ret.value().size() ) return {};
+        return ret.value()[deviceIndex];
+    }
+    auto ret = selector.select();
+    return ret ? ret.value() : vkb::PhysicalDevice{};
+}
+
+static vkb::PhysicalDevice vhSelectPhysicalDevice_1_2( vkb::Instance& vkbInst, VkSurfaceKHR surface, bool headless, bool robust, int deviceIndex )
+{
+    vkb::PhysicalDeviceSelector selector( vkbInst );
+    selector.require_present( !headless );
+    if ( surface ) selector.set_surface( surface );
+
+    VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    v12.timelineSemaphore = VK_TRUE;
+
+    VkPhysicalDeviceDynamicRenderingFeaturesKHR dynRender = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR };
+    dynRender.dynamicRendering = VK_TRUE;
+    VkPhysicalDeviceSynchronization2FeaturesKHR sync2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR };
+    sync2.synchronization2 = VK_TRUE;
+
+    VkPhysicalDeviceFeatures feat = { .robustBufferAccess = robust ? VK_TRUE : VK_FALSE };
+    feat.independentBlend = VK_TRUE;
+    feat.fillModeNonSolid = VK_TRUE;
+    feat.samplerAnisotropy = VK_TRUE;
+    feat.depthClamp = VK_TRUE;
+
+    selector.set_minimum_version( 1, 2 )
+        .add_required_extension( VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME ).add_required_extension( VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME )
+        .add_required_extension_features( dynRender ).add_required_extension_features( sync2 )
+        .set_required_features_12( v12 ).set_required_features( feat );
+
+    if ( deviceIndex >= 0 )
+    {
+        auto ret = selector.select_devices();
+        if ( !ret || deviceIndex >= ( int ) ret.value().size() ) return {};
+        return ret.value()[deviceIndex];
+    }
+    auto ret = selector.select();
+    return ret ? ret.value() : vkb::PhysicalDevice{};
+}
+
 void vhInit( bool quiet )
 {
     if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
@@ -273,95 +350,37 @@ void vhInit( bool quiet )
         // Physical Device Selection (via vk-bootstrap)
 
         if ( !quiet ) VRHI_LOG( "    Selecting physical device (via vk-bootstrap)\n" );
-        vkb::PhysicalDeviceSelector selector( vkbInst );
-        selector.require_present( !g_vhInit.headless );
-        if ( g_vhSurface )
-        {
-            selector.set_surface( g_vhSurface );
-        }
-
-        VkPhysicalDeviceVulkan12Features v12Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-        v12Features.timelineSemaphore = VK_TRUE;
-        v12Features.bufferDeviceAddress = VK_TRUE;
-        if ( g_vhInit.raytracing )
-        {
-            // Only required when RT is requested. Demanding these unconditionally rejects
-            // software ICDs (e.g. SwiftShader) that don't expose descriptor indexing.
-            v12Features.descriptorIndexing = VK_TRUE;
-            v12Features.runtimeDescriptorArray = VK_TRUE;
-        }
-
-        VkPhysicalDeviceVulkan13Features v13Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-        v13Features.dynamicRendering = VK_TRUE;
-        v13Features.synchronization2 = VK_TRUE;
-
-        VkPhysicalDeviceFeatures features = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
-        features.independentBlend = VK_TRUE;
-        features.fillModeNonSolid = VK_TRUE;
-        features.samplerAnisotropy = VK_TRUE;
-        features.depthClamp = VK_TRUE;
-        if ( g_vhInit.raytracing )
-        {
-            // Only RT shaders use unformatted storage image reads/writes; gating this keeps
-            // headless CI ICDs that lack the feature able to pass device selection.
-            features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-            features.shaderStorageImageReadWithoutFormat  = VK_TRUE;
-        }
-
-        selector.set_minimum_version( 1, 3 )
-            .set_required_features_12( v12Features )
-            .set_required_features_13( v13Features )
-            .set_required_features( features );
 
         vkb::PhysicalDevice vkbPhys;
+        bool selectedRT = false;
+        bool using12Fallback = false;
 
-        if ( g_vhInit.deviceIndex >= 0 )
+        if ( !g_vhInit.forceVulkan12 )
         {
-            // User selected device.
-            auto physRet = selector.select_devices();
-            if ( !physRet || g_vhInit.deviceIndex >= ( int ) physRet.value().size() )
+            vkbPhys = vhSelectPhysicalDevice_1_3( vkbInst, g_vhSurface, g_vhInit.headless, g_vhInit.robust, g_vhInit.raytracing, g_vhInit.deviceIndex );
+            if ( vkbPhys.physical_device )
             {
-                VRHI_LOG( "Failed to select physical device at index %d\n", g_vhInit.deviceIndex );
-                exit( 1 );
+                selectedRT = g_vhInit.raytracing;
             }
-            vkbPhys = physRet.value()[g_vhInit.deviceIndex];
+            else if ( g_vhInit.raytracing && g_vhInit.deviceIndex < 0 )
+            {
+                if ( !quiet ) VRHI_LOG( "    No RT-capable Vulkan 1.3 device found, retrying without RT.\n" );
+                vkbPhys = vhSelectPhysicalDevice_1_3( vkbInst, g_vhSurface, g_vhInit.headless, g_vhInit.robust, false, g_vhInit.deviceIndex );
+            }
         }
-        else
+
+        if ( !vkbPhys.physical_device )
         {
-            // Auto selected device. If RT was requested but no device satisfies the RT-only
-            // required features, retry without them — RT is a request, not a hard requirement.
-            auto physRet = selector.select();
-            if ( !physRet && g_vhInit.raytracing )
-            {
-                // RT was requested but no device satisfies the RT-only required features.
-                // Retry without them — raytracing is a request, not a requirement.
-                // Truth of what was actually enabled lives in g_vhDeviceInfo.raytracing after init.
-                if ( !quiet ) VRHI_LOG( "    No RT-capable device found, retrying without RT required features.\n" );
-                VkPhysicalDeviceVulkan12Features v12NoRT = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-                v12NoRT.timelineSemaphore   = VK_TRUE;
-                v12NoRT.bufferDeviceAddress = VK_TRUE;
+            if ( !quiet ) VRHI_LOG( "    %s, trying Vulkan 1.2 + KHR_dynamic_rendering + KHR_synchronization2.\n",
+                g_vhInit.forceVulkan12 ? "forceVulkan12 set" : "No Vulkan 1.3 device found" );
+            vkbPhys = vhSelectPhysicalDevice_1_2( vkbInst, g_vhSurface, g_vhInit.headless, g_vhInit.robust, g_vhInit.deviceIndex );
+            if ( vkbPhys.physical_device ) using12Fallback = true;
+        }
 
-                VkPhysicalDeviceFeatures featNoRT = { .robustBufferAccess = g_vhInit.robust ? VK_TRUE : VK_FALSE };
-                featNoRT.independentBlend  = VK_TRUE;
-                featNoRT.fillModeNonSolid  = VK_TRUE;
-                featNoRT.samplerAnisotropy = VK_TRUE;
-                featNoRT.depthClamp        = VK_TRUE;
-
-                vkb::PhysicalDeviceSelector selectorNoRT( vkbInst );
-                selectorNoRT.require_present( !g_vhInit.headless );
-                if ( g_vhSurface ) selectorNoRT.set_surface( g_vhSurface );
-                selectorNoRT.set_minimum_version( 1, 3 )
-                    .set_required_features_12( v12NoRT )
-                    .set_required_features_13( v13Features )
-                    .set_required_features( featNoRT );
-                physRet = selectorNoRT.select();
-            }
-            if ( !physRet )
-            {
-                VRHI_LOG( "Failed to select suitable physical device: %s\n", physRet.error().message().c_str() );
-                exit( 1 );
-            }
-            vkbPhys = physRet.value();
+        if ( !vkbPhys.physical_device )
+        {
+            VRHI_LOG( "Failed to select suitable physical device.\n" );
+            exit( 1 );
         }
 
         g_vulkanPhysicalDevice = vkbPhys.physical_device;
@@ -410,7 +429,7 @@ void vhInit( bool quiet )
         bool nvLssEnabled = false;
         bool maintenance5Enabled = false;
         bool pipelineLibraryEnabled = false;
-        if ( g_vhInit.raytracing )
+        if ( g_vhInit.raytracing && selectedRT )
         {
             rtExtEnabled = vkbPhys.enable_extension_if_present( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) &&
                 vkbPhys.enable_extension_if_present( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) &&
@@ -436,7 +455,7 @@ void vhInit( bool quiet )
         if ( memoryBudgetEnabled && !quiet ) VRHI_LOG( "    Enabled VK_EXT_memory_budget extension.\n" );
         g_vhMemoryBudgetEnabled = memoryBudgetEnabled;
 
-        if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)\n" );
+        if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)%s\n", using12Fallback ? " [Vulkan 1.2 + KHR extensions]" : "" );
         vkb::DeviceBuilder devBuilder( vkbPhys );
 
         VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
@@ -554,6 +573,11 @@ void vhInit( bool quiet )
 
         static std::vector<std::string> s_enabledExtensions;
         s_enabledExtensions.clear();
+        if ( using12Fallback )
+        {
+            s_enabledExtensions.push_back( VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME );
+            s_enabledExtensions.push_back( VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME );
+        }
         if ( g_vhRayTracingEnabled )
         {
             s_enabledExtensions.push_back( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME );
