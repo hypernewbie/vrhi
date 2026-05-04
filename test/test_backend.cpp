@@ -593,7 +593,7 @@ UTEST( BackendInternal, FindResource )
     vhCreateTexture2D( tex, "BackendTestTex", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     
     vhBuffer buf = vhAllocBuffer();
-    vhCreateStorageBuffer( buf, "TestBuf", nullptr, 1024 );
+    vhCreateStorageBuffer( buf, "TestBuf", nullptr, 1024, VRHI_BUFFER_COMPUTE_READ_WRITE, sizeof( uint32_t ) );
 
     vhFinish();
 

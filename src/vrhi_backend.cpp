@@ -1417,9 +1417,20 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 case nvrhi::ResourceType::StructuredBuffer_SRV:
                 case nvrhi::ResourceType::StructuredBuffer_UAV:
                 {
-                    outItem = ( item.type == nvrhi::ResourceType::StructuredBuffer_UAV )
-                        ? nvrhi::BindingSetItem::StructuredBuffer_UAV( item.slot, result->handle, format, range )
-                        : nvrhi::BindingSetItem::StructuredBuffer_SRV( item.slot, result->handle, format, range );
+                    // structStride == 0 means the buffer was actually created raw; fall back to Raw binding.
+                    const bool isUAV = ( item.type == nvrhi::ResourceType::StructuredBuffer_UAV );
+                    if ( result->handle->getDesc().structStride == 0 )
+                    {
+                        outItem = isUAV
+                            ? nvrhi::BindingSetItem::RawBuffer_UAV( item.slot, result->handle, range )
+                            : nvrhi::BindingSetItem::RawBuffer_SRV( item.slot, result->handle, range );
+                    }
+                    else
+                    {
+                        outItem = isUAV
+                            ? nvrhi::BindingSetItem::StructuredBuffer_UAV( item.slot, result->handle, format, range )
+                            : nvrhi::BindingSetItem::StructuredBuffer_SRV( item.slot, result->handle, format, range );
+                    }
                     outItem.unused = 0;
                     outItem.unused2 = 0;
                     break;
