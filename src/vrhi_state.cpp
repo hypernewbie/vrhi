@@ -399,6 +399,30 @@ nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
         blendState.targets[i] = blendState.targets[0];
     }
 
+    // Independent per-RT blend: 11 bits per slot in stateFlags (4 src factor, 4 dst factor, 3 equation).
+    if ( stateFlags & VRHI_STATE_BLEND_INDEPENDENT )
+    {
+        for ( int i = 0; i < 3; i++ )
+        {
+            uint32_t bits = ( uint32_t ) ( ( stateFlags >> ( i * 11 ) ) & 0x7FFu );
+            if ( bits == 0 ) continue;
+            uint32_t srcF = ( bits >> 0 ) & 0xF;
+            uint32_t dstF = ( bits >> 4 ) & 0xF;
+            uint32_t equ  = ( bits >> 8 ) & 0x7;
+            auto& t = blendState.targets[i];
+            t.blendEnable    = true;
+            t.srcBlend       = fnConvertBlendFactor( srcF );
+            t.destBlend      = fnConvertBlendFactor( dstF );
+            t.srcBlendAlpha  = fnConvertBlendFactor( srcF );
+            t.destBlendAlpha = fnConvertBlendFactor( dstF );
+            if ( equ != 0 )
+            {
+                t.blendOp      = fnConvertBlendOp( equ );
+                t.blendOpAlpha = fnConvertBlendOp( equ );
+            }
+        }
+    }
+
     blendState.alphaToCoverageEnable = ( stateFlags & VRHI_STATE_BLEND_ALPHA_TO_COVERAGE ) != 0;
 
     return blendState;
