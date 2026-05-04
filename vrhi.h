@@ -718,6 +718,24 @@ struct vhRenderStats
     uint64_t dispatchCalls = 0;  // Accumulated dispatch calls (both direct and indirect)
 };
 
+// Hot-path diagnostic counters. Bumped via relaxed atomics; vhPerfCheck() dumps + clears.
+struct vhPerfCounters
+{
+    std::atomic< uint64_t > arenaOverflows       = 0;
+    std::atomic< uint64_t > arenaMallocBytes     = 0;
+    std::atomic< uint64_t > enqueueYields        = 0;
+    std::atomic< uint64_t > enqueueRetryFloor    = 0;
+    std::atomic< uint64_t > resolveCacheRebuilds = 0;
+    std::atomic< uint64_t > resolveCacheHits     = 0;
+    std::atomic< uint64_t > psoHashes            = 0;
+    std::atomic< uint64_t > psoCacheHits         = 0;
+    std::atomic< uint64_t > psoCacheMisses       = 0;
+};
+extern vhPerfCounters g_vhPerf;
+
+// Logs perf counters via vhLog. No-op if all zero. reset=true zeroes them after.
+void vhPerfCheck( bool reset = true );
+
 struct vhDeviceInfo
 {
     std::string name;           // "NVIDIA GeForce RTX 4090 - Discrete GPU"

@@ -112,10 +112,41 @@ void vhLog( bool error, const char* fmt, ... )
         printf( "%s", buffer );
 }
 
-void vhProfile( const char* name, bool begin )
+vhPerfCounters g_vhPerf;
+
+void vhPerfCheck( bool reset )
 {
-    if ( g_vhInit.fnProfileCallback )
-        g_vhInit.fnProfileCallback( name, begin );
+    auto load = []( std::atomic< uint64_t >& a ) -> uint64_t { return a.load( std::memory_order_relaxed ); };
+    uint64_t arenaOver       = load( g_vhPerf.arenaOverflows );
+    uint64_t arenaMalloc     = load( g_vhPerf.arenaMallocBytes );
+    uint64_t yields          = load( g_vhPerf.enqueueYields );
+    uint64_t retryFloor      = load( g_vhPerf.enqueueRetryFloor );
+    uint64_t resolveRebuilds = load( g_vhPerf.resolveCacheRebuilds );
+    uint64_t resolveHits     = load( g_vhPerf.resolveCacheHits );
+    uint64_t psoHashes       = load( g_vhPerf.psoHashes );
+    uint64_t psoHits         = load( g_vhPerf.psoCacheHits );
+    uint64_t psoMisses       = load( g_vhPerf.psoCacheMisses );
+    uint64_t any = arenaOver | arenaMalloc | yields | retryFloor | resolveRebuilds | resolveHits | psoHashes | psoHits | psoMisses;
+    if ( !any ) return;
+
+    VRHI_LOG( "vhPerfCheck:\n" );
+    VRHI_LOG( "    arenaOverflows = %llu (malloc bytes %llu)\n", arenaOver, arenaMalloc );
+    VRHI_LOG( "    enqueueYields  = %llu (retryFloor %llu)\n", yields, retryFloor );
+    VRHI_LOG( "    resolveCache   = %llu hits, %llu rebuilds\n", resolveHits, resolveRebuilds );
+    VRHI_LOG( "    psoHashes      = %llu (hits %llu, misses %llu)\n", psoHashes, psoHits, psoMisses );
+
+    if ( reset )
+    {
+        g_vhPerf.arenaOverflows.store( 0, std::memory_order_relaxed );
+        g_vhPerf.arenaMallocBytes.store( 0, std::memory_order_relaxed );
+        g_vhPerf.enqueueYields.store( 0, std::memory_order_relaxed );
+        g_vhPerf.enqueueRetryFloor.store( 0, std::memory_order_relaxed );
+        g_vhPerf.resolveCacheRebuilds.store( 0, std::memory_order_relaxed );
+        g_vhPerf.resolveCacheHits.store( 0, std::memory_order_relaxed );
+        g_vhPerf.psoHashes.store( 0, std::memory_order_relaxed );
+        g_vhPerf.psoCacheHits.store( 0, std::memory_order_relaxed );
+        g_vhPerf.psoCacheMisses.store( 0, std::memory_order_relaxed );
+    }
 }
 
 void vhCmdEnqueue( void* cmd, bool wait )
@@ -136,7 +167,9 @@ void vhCmdEnqueue( void* cmd, bool wait )
             return;
         }
         std::this_thread::yield();
+        g_vhPerf.enqueueYields.fetch_add( 1, std::memory_order_relaxed );
     }
+    g_vhPerf.enqueueRetryFloor.fetch_add( 1, std::memory_order_relaxed );
     g_vhCmds.enqueue( cmd );
     if ( wait && g_vhInit.debugBlockWaitForBackend ) vhFlush();
 }

@@ -225,8 +225,11 @@ void vhLog( bool error, const char* fmt, ... );
 #define VRHI_LOG( fmt, ... ) vhLog( false, fmt, ##__VA_ARGS__ )
 #define VRHI_ERR( fmt, ... ) vhLog( true, fmt, ##__VA_ARGS__ )
 
-// Profiling helper
-void vhProfile( const char* name, bool begin );
+// Inlined so the no-callback hot path is a single load + branch.
+inline void vhProfile( const char* name, bool begin )
+{
+    if ( g_vhInit.fnProfileCallback ) g_vhInit.fnProfileCallback( name, begin );
+}
 
 struct vhProfileScope
 {
