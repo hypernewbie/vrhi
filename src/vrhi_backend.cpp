@@ -343,7 +343,6 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
         return;
     }
 
-    // Staging Texture
     auto desc = btex.handle->getDesc();
     desc.isVirtual = false;
     desc.isRenderTarget = false;
@@ -351,6 +350,13 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
     desc.keepInitialState = true;
     desc.initialState = nvrhi::ResourceStates::CopyDest;
     desc.debugName = "BE_ReadTextureSlow Staging Texture";
+    desc.arraySize = 1;
+    if ( desc.dimension == nvrhi::TextureDimension::Texture2DArray
+        || desc.dimension == nvrhi::TextureDimension::TextureCube
+        || desc.dimension == nvrhi::TextureDimension::TextureCubeArray )
+    {
+        desc.dimension = nvrhi::TextureDimension::Texture2D;
+    }
 
     nvrhi::StagingTextureHandle stagingTex;
     {
@@ -362,34 +368,51 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
 
     if ( !stagingTex ) return;
 
-    nvrhi::TextureSlice slice;
-    slice.mipLevel = mip;
-    slice.arraySlice = layer;
+    nvrhi::TextureSlice srcSlice;
+    srcSlice.mipLevel = mip;
+    srcSlice.arraySlice = layer;
 
-    // For this slow-path operation, just use Graphics queue for everything
-    // (avoids complexity with transfer queue barriers)
+    nvrhi::TextureSlice dstSlice;
+    dstSlice.mipLevel = mip;
+    dstSlice.arraySlice = 0;
+
     {
         vhProfile( "BE_ReadTextureSlow_Copy", true );
-        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
 
-        nvrhi::CommandListParameters params = { .queueType = nvrhi::CommandQueue::Graphics };
-        auto cmdList = g_vhDevice->createCommandList( params );
-        cmdList->open();
-        cmdList->copyTexture( stagingTex, slice, btex.handle, slice );
-        cmdList->close();
-        g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
-        g_vhDevice->waitForIdle();
+        nvrhi::EventQueryHandle fence;
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            fence = g_vhDevice->createEventQuery();
+        }
+        {
+            std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+            nvrhi::CommandListParameters params = { .queueType = nvrhi::CommandQueue::Graphics };
+            auto cmdList = g_vhDevice->createCommandList( params );
+            cmdList->open();
+            cmdList->copyTexture( stagingTex, dstSlice, btex.handle, srcSlice );
+            cmdList->close();
+            g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
+            g_vhDevice->setEventQuery( fence, nvrhi::CommandQueue::Graphics );
+        }
+        bool done = false;
+        for ( int attempt = 0; attempt < 100000 && !done; attempt++ )
+        {
+            {
+                std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+                done = g_vhDevice->pollEventQuery( fence );
+            }
+            if ( !done ) std::this_thread::sleep_for( std::chrono::microseconds( 100 ) );
+        }
         vhProfile( "BE_ReadTextureSlow_Copy", false );
     }
 
-    // CPU copy
     void* pData = nullptr;
     size_t rowPitch = 0;
 
     {
         vhProfile( "BE_ReadTextureSlow_Map", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        pData = g_vhDevice->mapStagingTexture( stagingTex, slice, nvrhi::CpuAccessMode::Read, &rowPitch );
+        pData = g_vhDevice->mapStagingTexture( stagingTex, dstSlice, nvrhi::CpuAccessMode::Read, &rowPitch );
         vhProfile( "BE_ReadTextureSlow_Map", false );
     }
 
