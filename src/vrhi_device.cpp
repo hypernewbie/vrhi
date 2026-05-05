@@ -659,6 +659,12 @@ void vhInit( bool quiet )
 
         nvrhiDesc.bufferDeviceAddressSupported = g_vhRayTracingEnabled;
 
+        if ( !g_vhInit.psoCacheInitialData.empty() )
+        {
+            nvrhiDesc.pipelineCacheInitialData = g_vhInit.psoCacheInitialData.data();
+            nvrhiDesc.pipelineCacheInitialDataSize = g_vhInit.psoCacheInitialData.size();
+        }
+
         g_vhDevice = nvrhi::vulkan::createDevice( nvrhiDesc );
         if ( !g_vhDevice )
         {
@@ -828,6 +834,15 @@ void vhShutdown( bool quiet )
     }
 
     g_vhNullMode = false;
+}
+
+bool vhGetPSOCache( std::vector< uint8_t >& outData )
+{
+    outData.clear();
+    if ( g_vhNullMode || !g_vhVulkanDevice ) return false;
+    vhFinish();
+    g_vhDevice->waitForIdle();
+    return g_vhVulkanDevice->getPipelineCacheData( outData );
 }
 
 vhMemoryStats vhStatsMemory()

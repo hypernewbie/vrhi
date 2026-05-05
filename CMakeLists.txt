@@ -389,6 +389,7 @@ endif()
          test/test_rt.cpp
          test/test_window.cpp
          test/test_null_device.cpp
+         test/test_psocache.cpp
      )
  
      add_executable(vrhi_test ${TEST_SOURCES})

@@ -104,6 +104,9 @@ struct vhInitData
     uint32_t maxViewGlobals = 4 * 1024;           // Per-view constants (camera, projection, etc).
     uint32_t maxWorldMatrices = 16 * 1024;         // World-space transform matrices.
     uint32_t maxUserGlobals = 16 * 1024 * 1024;    // User shader parameters (material data, etc).
+
+    // Seeds the Vulkan driver pipeline cache. Obtained from a previous vhGetPSOCache().
+    std::vector< uint8_t > psoCacheInitialData;
 };
 
 typedef uint32_t vhTexture;
@@ -693,6 +696,10 @@ void vhInit( bool quiet = false );
 //
 // Cleans up all resources and waits for the GPU to finish.
 void vhShutdown( bool quiet = false );
+
+// Extracts the Vulkan driver pipeline cache. Flushes pending RHI work first.
+// Returns false in null mode or on driver error; outData is cleared on failure.
+bool vhGetPSOCache( std::vector< uint8_t >& outData );
 
 // Presents the current frame and advances the swapchain.
 // Returns false if the swapchain is invalid or window is resized.
