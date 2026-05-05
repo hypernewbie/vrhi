@@ -4335,8 +4335,9 @@ UTEST_F( RT, RayFlag_CullBackFacing )
 {
     if ( !g_vhDeviceInfo.raytracing ) return;
 
-    // CW winding = back-facing in Vulkan default (CCW = front).
-    // With RAY_FLAG_CULL_BACK_FACING_TRIANGLES the hit should be rejected → miss (blue).
+    // kTriVertices normal points +Z (same direction as the ray). In Vulkan RT, a triangle
+    // whose normal aligns with the ray direction is considered back-facing.
+    // RAY_FLAG_CULL_BACK_FACING_TRIANGLES culls it → miss (blue).
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
@@ -4374,9 +4375,10 @@ UTEST_F( RT, RayFlag_CullFrontFacing )
 {
     if ( !g_vhDeviceInfo.raytracing ) return;
 
-    // CCW = front-facing. RAY_FLAG_CULL_FRONT_FACING_TRIANGLES → miss (blue).
+    // kTriVerticesCCW has CW winding in XY → front-facing under Vulkan RT default (CW = front).
+    // RAY_FLAG_CULL_FRONT_FACING_TRIANGLES culls it → miss (blue).
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+    vhBuffer vb = CreateTestVB( "float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
     vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
     vhAccelStruct tlas = BuildTriTLAS( blas );
 
