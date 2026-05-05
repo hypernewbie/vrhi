@@ -27,6 +27,20 @@ extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr )
     if ( !viewPtr ) return nullptr;
     NSView* view = ( __bridge NSView* )viewPtr;
     [view setWantsLayer:YES];
-    view.layer = [CAMetalLayer layer];
-    return ( __bridge void* )view.layer;
+    CAMetalLayer* layer = [CAMetalLayer layer];
+
+    // Match the backing-store scale of the view's window (or screen as fallback) so the
+    // Metal drawable matches the framebuffer pixels GLFW reports via glfwGetFramebufferSize().
+    // Without this the layer defaults to contentsScale 1.0, producing a non-retina swapchain
+    // that the renderer then mismatches against (everything draws at 1/2 resolution and macOS
+    // upscales 2x, making content + text appear "zoomed in" on retina displays).
+    CGFloat scale = 1.0;
+    if ( view.window )
+        scale = view.window.backingScaleFactor;
+    else if ( NSScreen.mainScreen )
+        scale = NSScreen.mainScreen.backingScaleFactor;
+    layer.contentsScale = scale;
+
+    view.layer = layer;
+    return ( __bridge void* )layer;
 }
