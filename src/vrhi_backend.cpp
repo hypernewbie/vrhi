@@ -1616,7 +1616,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: AccelStruct not found at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
                 return false;
             }
-            outItem = nvrhi::BindingSetItem::RayTracingAccelStruct( item.slot, stageTable.accelStructTable[item.slot].handle.Get() );
+            outItem = nvrhi::BindingSetItem::RayTracingAccelStruct( item.slot, stageTable.accelStructTable[item.slot].handle );
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS ) VRHI_LOG( "FindResource: AccelStruct found at slot %d ('%s')\n", item.slot, name ? name : "Unknown" );
             return true;
         }

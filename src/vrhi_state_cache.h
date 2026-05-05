@@ -52,7 +52,7 @@ struct vhStateResolveCache
 
     struct ResolvedAccelStruct
     {
-        nvrhi::rt::AccelStructHandle handle = nullptr;
+        nvrhi::rt::IAccelStruct* handle = nullptr;
         const vhState::AccelStructBinding* binding = nullptr;
     };
 
