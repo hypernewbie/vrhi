@@ -51,9 +51,12 @@ UTEST( Window, SwapchainClear )
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
     }
 #if defined(__linux__)
-    if ( std::getenv( "DISPLAY" ) == nullptr )
     {
-        UTEST_SKIP( "No DISPLAY detected, skipping window test" );
+        const char* display = std::getenv( "DISPLAY" );
+        if ( display == nullptr || display[0] == '\0' )
+        {
+            UTEST_SKIP( "No DISPLAY detected, skipping window test" );
+        }
     }
 #endif
 
@@ -136,6 +139,12 @@ UTEST( Window, SwapchainClear )
     vhState s;
     vhSetState( 0, s.DirtyAll() );
 
+    // Shut down VRHI (and hence Vulkan surface/swapchain) before destroying the
+    // X11 window. Otherwise the next test's TestEnsureShutdown() will try to
+    // destroy a Vulkan surface that references an already-freed Window, which
+    // triggers a buffer overflow inside mesa WSI / libxcb during cleanup.
+    TestEnsureShutdown();
+
     RGFW_window_close( win );
 }
 
@@ -146,9 +155,12 @@ UTEST( Window, ResizeSwapchain )
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
     }
 #if defined(__linux__)
-    if ( std::getenv( "DISPLAY" ) == nullptr )
     {
-        UTEST_SKIP( "No DISPLAY detected, skipping window test" );
+        const char* display = std::getenv( "DISPLAY" );
+        if ( display == nullptr || display[0] == '\0' )
+        {
+            UTEST_SKIP( "No DISPLAY detected, skipping window test" );
+        }
     }
 #endif
 
@@ -311,9 +323,13 @@ UTEST( Window, ResizeSwapchain )
     vhState s;
     vhSetState( 0, s.DirtyAll() );
 
+    // See SwapchainClear: shut down VRHI before destroying the window so the
+    // Vulkan surface doesn't outlive the X11 Window it was created against.
+    TestEnsureShutdown();
+
     RGFW_window_close( win );
 }
- 
+
 UTEST( Window, FrameNumber )
 {
     // Ensure clean state
