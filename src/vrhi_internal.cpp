@@ -123,17 +123,16 @@ void vhPerfCheck( bool reset )
     uint64_t retryFloor      = load( g_vhPerf.enqueueRetryFloor );
     uint64_t resolveRebuilds = load( g_vhPerf.resolveCacheRebuilds );
     uint64_t resolveHits     = load( g_vhPerf.resolveCacheHits );
-    uint64_t psoHashes       = load( g_vhPerf.psoHashes );
     uint64_t psoHits         = load( g_vhPerf.psoCacheHits );
     uint64_t psoMisses       = load( g_vhPerf.psoCacheMisses );
-    uint64_t any = arenaOver | arenaMalloc | yields | retryFloor | resolveRebuilds | resolveHits | psoHashes | psoHits | psoMisses;
+    uint64_t any = arenaOver | arenaMalloc | yields | retryFloor | resolveRebuilds | resolveHits | psoHits | psoMisses;
     if ( !any ) return;
 
     VRHI_LOG( "vhPerfCheck:\n" );
     VRHI_LOG( "    arenaOverflows = %llu (malloc bytes %llu)\n", arenaOver, arenaMalloc );
     VRHI_LOG( "    enqueueYields  = %llu (retryFloor %llu)\n", yields, retryFloor );
     VRHI_LOG( "    resolveCache   = %llu hits, %llu rebuilds\n", resolveHits, resolveRebuilds );
-    VRHI_LOG( "    psoHashes      = %llu (hits %llu, misses %llu)\n", psoHashes, psoHits, psoMisses );
+    VRHI_LOG( "    psoCache       = %llu hits, %llu misses\n", psoHits, psoMisses );
 
     if ( reset )
     {
@@ -143,7 +142,6 @@ void vhPerfCheck( bool reset )
         g_vhPerf.enqueueRetryFloor.store( 0, std::memory_order_relaxed );
         g_vhPerf.resolveCacheRebuilds.store( 0, std::memory_order_relaxed );
         g_vhPerf.resolveCacheHits.store( 0, std::memory_order_relaxed );
-        g_vhPerf.psoHashes.store( 0, std::memory_order_relaxed );
         g_vhPerf.psoCacheHits.store( 0, std::memory_order_relaxed );
         g_vhPerf.psoCacheMisses.store( 0, std::memory_order_relaxed );
     }

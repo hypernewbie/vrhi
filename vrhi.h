@@ -734,7 +734,6 @@ struct vhPerfCounters
     std::atomic< uint64_t > enqueueRetryFloor    = 0;
     std::atomic< uint64_t > resolveCacheRebuilds = 0;
     std::atomic< uint64_t > resolveCacheHits     = 0;
-    std::atomic< uint64_t > psoHashes            = 0;
     std::atomic< uint64_t > psoCacheHits         = 0;
     std::atomic< uint64_t > psoCacheMisses       = 0;
 };
