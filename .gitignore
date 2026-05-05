@@ -1,10 +1,6 @@
 # CMake
 build/
-build_debug/
-build_release/
-build_llvm_debug/
-build_llvm_release/
-build_llvm/
+build_*/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
