@@ -1278,6 +1278,17 @@ void vhCmdBackendState::BE_PreSubmitCommon_RepackUserGlobals(
         if ( s_userGlobalsPackBuffer.size() < alignedSize ) s_userGlobalsPackBuffer.resize( alignedSize, 0 );
         vhPackUserGlobals( state.uniforms, res->members, s_userGlobalsPackBuffer.data(), packSize );
 
+        const uint64_t dataHash = komihash( s_userGlobalsPackBuffer.data(), alignedSize, hash );
+        UserGlobalsLastWrite& last = m_userGlobalsLast[stageIdx];
+        if ( last.dataHash == dataHash && last.buffer == m_userUniformBuffer.handle[m_userUniformBuffer.frameIdx] )
+        {
+            vhStateResolveCache::UserGlobalUniformsBufferInfo info;
+            info.buffer = last.buffer;
+            info.range = last.range;
+            scache.userGlobalUniformsBufferCache[hash] = info;
+            continue;
+        }
+
         const int64_t offset = m_userUniformBuffer.Write( s_userGlobalsPackBuffer.data(), alignedSize );
         if ( offset >= 0 )
         {
@@ -1285,12 +1296,17 @@ void vhCmdBackendState::BE_PreSubmitCommon_RepackUserGlobals(
             info.buffer = m_userUniformBuffer.handle[m_userUniformBuffer.frameIdx];
             info.range = nvrhi::BufferRange( offset, alignedSize );
             scache.userGlobalUniformsBufferCache[hash] = info;
+            last.dataHash = dataHash;
+            last.buffer = info.buffer;
+            last.range = info.range;
             if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_ALL_BINDINGS )
                 VRHI_LOG( "ResolveCache: Eagerly allocated User Globals buffer for hash 0x%llx\n", hash );
         }
         else
         {
             VRHI_ERR( "ResolveCache: Failed to write User Global Uniforms to transient buffer (Out of space)\n" );
+            last.dataHash = 0;
+            last.buffer = nullptr;
         }
     }
 }
@@ -4104,6 +4120,7 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 
     m_userUniformBuffer.Unmap_DeviceStateLocked();
     m_userUniformBuffer.Step();
+    for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
 
     // Send it!!
     vhCmdListFlushAll_DeviceStateLocked();

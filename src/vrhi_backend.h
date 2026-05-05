@@ -137,6 +137,14 @@ class vhCmdBackendState : public VIDLHandler
     vhTransientBuffer m_worldUniformBuffer;
     uint64_t m_worldUniformBufferLastHash = 0;
     vhTransientBuffer m_userUniformBuffer;
+    struct UserGlobalsLastWrite
+    {
+        uint64_t dataHash = 0;
+        nvrhi::IBuffer* buffer = nullptr;
+        nvrhi::BufferRange range;
+    };
+    UserGlobalsLastWrite m_userGlobalsLast[VRHI_SHADER_STAGE_MAX + 1];
+
     nvrhi::BindingLayoutHandle m_emptyLayout;
     nvrhi::BindingSetHandle m_emptySet;
 
