@@ -935,9 +935,8 @@ UTEST( Backend, Util_WriteGlobalUniform )
          cmdList->copyBuffer( stagingBuffer, 0, tb.handle[tb.frameIdx], offset3, sizeof( vhGlobalUniform ) );
     }
 
-    // Flush and Wait
-    vhCmdListFlush( nvrhi::CommandQueue::Graphics );
-    g_vhDevice->waitForIdle();
+    // Flush and Wait — use vhFinish to keep all NVRHI calls on the backend thread.
+    vhFinish();
 
     // Map and Verify
     void* pData = g_vhDevice->mapBuffer( stagingBuffer, nvrhi::CpuAccessMode::Read );
@@ -1245,7 +1244,7 @@ UTEST( Backend, PushConstantsDirtyBit )
     {
         auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        vhSetPushConstant_DeviceStateLocked( cmdlist, state, 0 );
+        vhSetPushConstant_DeviceStateLocked( cmdlist, state );
     }
     vhFinish();
 }
@@ -1282,8 +1281,7 @@ UTEST( Backend, TimerQueryBasic )
     // End Timer
     vhEndTimerQuery( timerID );
 
-    vhFlush();
-    g_vhDevice->waitForIdle();
+    vhFinish();
 
     // Still should be 0.0f because ring buffer delay (3 frames)
     EXPECT_EQ( vhGetTimerQueryTime( timerID ), 0.0f );
@@ -1293,8 +1291,7 @@ UTEST( Backend, TimerQueryBasic )
     {
         vhBeginTimerQuery( timerID );
         vhEndTimerQuery( timerID );
-        vhFlush();
-        g_vhDevice->waitForIdle();
+        vhFinish();
     }
 
     // Now we should have a result
@@ -1336,9 +1333,8 @@ UTEST( Backend, TimerQueryMultiple )
         vhBeginTimerQuery( timer2 );
         vhEndTimerQuery( timer2 );
         vhEndTimerQuery( timer1 );
-        
-        vhFlush();
-        g_vhDevice->waitForIdle();
+
+        vhFinish();
     }
 
     float t1 = vhGetTimerQueryTime( timer1 );
@@ -1360,16 +1356,15 @@ UTEST( Backend, TimerQueryErrors )
     }
 
     // End without Begin (Should log error and not crash)
-    vhEndTimerQuery( 0x999 ); 
-    vhFlush(); 
-    g_vhDevice->waitForIdle();
+    vhEndTimerQuery( 0x999 );
+    vhFinish();
     
     // Check invalid ID returns 0
     EXPECT_EQ( vhGetTimerQueryTime( 0x999 ), 0.0f );
     vhFinish();
 }
 
-UTEST( Backend, SparseBindings )
+UTEST( Backend, ComputeBasicBinding )
 {
     if ( !g_testInit )
     {
@@ -2196,6 +2191,57 @@ UTEST( Backend, VertexBindingSnapshotFlushShrinks )
     vhDestroyBuffer( vb2 );
     vhCmdBackendStateTest::Shutdown();
     vhFinish();
+}
+
+UTEST( Backend, ProfileMarkerNesting )
+{
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+
+    // fnProfileCallback fires from the backend RHI thread; use atomics.
+    std::atomic<int> opens{0}, closes{0};
+    auto savedCB = g_vhInit.fnProfileCallback;
+    g_vhInit.fnProfileCallback = [&]( const char* name, bool begin )
+    {
+        if ( begin ) opens.fetch_add( 1, std::memory_order_relaxed );
+        else         closes.fetch_add( 1, std::memory_order_relaxed );
+    };
+
+    vhBeginMarker( "Outer" );
+    vhBeginMarker( "Middle" );
+    vhBeginMarker( "Inner" );
+    vhEndMarker();
+    vhEndMarker();
+    vhEndMarker();
+    vhFinish();
+
+    g_vhInit.fnProfileCallback = savedCB;
+
+    EXPECT_EQ( opens.load(), closes.load() );
+    EXPECT_GT( opens.load(), 0 );
+}
+
+UTEST( Backend, BlockingBackendMode_Equivalence )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+
+    TestEnsureShutdown();
+    g_vhInit = vhInitData{};
+    g_vhInit.debugBlockWaitForBackend = true;
+    vhInit( g_testInitQuiet );
+    g_testInit = true;
+
+    // Just verify init/shutdown works in blocking mode
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( tex, "BlockTex", glm::ivec2(4,4), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE );
+    vhFlush();
+    vhDestroyTexture( tex );
+    vhFinish();
+
+    // No errors expected
+    EXPECT_EQ( g_vhErrorCounter.load(), 0 );
+
+    vhShutdown( g_testInitQuiet );
+    g_testInit = false;
 }
 
 UTEST( Backend, VertexBindingSnapshotFlushEmpty )

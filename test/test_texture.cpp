@@ -266,6 +266,9 @@ UTEST_F( Texture, Readback )
     // Fill with known pattern
     for ( size_t i = 0; i < dataSize; ++i ) ( *initialData )[i] = ( uint8_t ) ( i % 255 );
 
+    // Copy before passing ownership to backend
+    std::vector<uint8_t> refData = *initialData;
+
     vhCreateTexture2D(
         tex,
         "ReadbackTex",
@@ -275,10 +278,6 @@ UTEST_F( Texture, Readback )
         VRHI_TEXTURE_SRGB,
         initialData
     );
-
-    // Copy reference data before backend consumes it (needed for verification)
-
-    std::vector<uint8_t> refData = *initialData; // Copy for verification
 
     // Flush to ensure creation happens
     vhFlush();
@@ -1624,6 +1623,35 @@ UTEST_F( Texture, MipComplete_UpdateAllMips )
             }
         }
     }
+
+    vhDestroyTexture( tex );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
+UTEST_F( Texture, UpdateMipPartial_OthersIntact )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( tex, "PartialMipTex", glm::ivec2(8,8), 2, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE );
+    vhMem* m0 = vhAllocMem( 64 ); memset( m0->data(), 0xAA, 64 );
+    vhUpdateTexture( tex, 0, 0, 1, 1, m0 );
+    vhMem* m1 = vhAllocMem( 16 ); memset( m1->data(), 0xBB, 16 );
+    vhUpdateTexture( tex, 1, 0, 1, 1, m1 );
+    vhFinish();
+
+    vhMem* m1b = vhAllocMem( 16 ); memset( m1b->data(), 0xCC, 16 );
+    vhUpdateTexture( tex, 1, 0, 1, 1, m1b );
+    vhFinish();
+
+    vhMem read0; vhReadTextureSlow( tex, 0, 0, &read0 ); vhFinish();
+    EXPECT_EQ( (int)read0.size(), 64 );
+    for ( int i = 0; i < 64; i++ ) EXPECT_EQ( read0[i], 0xAA );
+
+    vhMem read1; vhReadTextureSlow( tex, 1, 0, &read1 ); vhFinish();
+    EXPECT_EQ( (int)read1.size(), 16 );
+    for ( int i = 0; i < 16; i++ ) EXPECT_EQ( read1[i], 0xCC );
 
     vhDestroyTexture( tex );
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );

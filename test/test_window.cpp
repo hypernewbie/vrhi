@@ -20,6 +20,9 @@
 */
 
 #include <cstdlib>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #define RGFW_IMPLEMENTATION
 
@@ -39,10 +42,11 @@
 
 #include "test.h"
 #include <vrhi.h>
+#include <vrhi_internal.h>
 
 UTEST( Window, SwapchainClear )
 {
-    if ( g_vhInit.nullMode || g_vhInit.headless )
+    if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
     }
@@ -137,7 +141,7 @@ UTEST( Window, SwapchainClear )
 
 UTEST( Window, ResizeSwapchain )
 {
-    if ( g_vhInit.nullMode || g_vhInit.headless )
+    if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
     }
@@ -207,8 +211,27 @@ UTEST( Window, ResizeSwapchain )
         if ( !vhFrame() ) break;
     }
 
-    // Resize OS window to 256x256 before resizing swapchain
+    // Resize OS window to 256x256. On X11 the resize is async; pump events and query
+    // the surface capabilities until they reflect the new size before calling vhResize.
     RGFW_window_resize( win, 256, 256 );
+#if defined(__linux__)
+    {
+        Display* dpy = (Display*)nativeDisplay;
+        XSync( dpy, False );
+        // Poll until VkSurfaceCapabilitiesKHR.currentExtent matches the new size, up to 1 second.
+        VkSurfaceCapabilitiesKHR caps{};
+        for ( int retry = 0; retry < 100; ++retry )
+        {
+            RGFW_event evt;
+            RGFW_window_checkEvent( win, &evt );
+            XSync( dpy, False );
+            vkGetPhysicalDeviceSurfaceCapabilitiesKHR( g_vulkanPhysicalDevice, g_vhSurface, &caps );
+            if ( caps.currentExtent.width == 256 && caps.currentExtent.height == 256 )
+                break;
+            usleep( 10000 ); // 10ms
+        }
+    }
+#endif
 
     // Resize to 256x256
     vhResize( 256, 256 );
@@ -244,8 +267,25 @@ UTEST( Window, ResizeSwapchain )
         if ( !vhFrame() ) break;
     }
 
-    // Resize OS window back to 128x128 before resizing swapchain
+    // Resize OS window back to 128x128 before resizing swapchain.
     RGFW_window_resize( win, 128, 128 );
+#if defined(__linux__)
+    {
+        Display* dpy = (Display*)nativeDisplay;
+        XSync( dpy, False );
+        VkSurfaceCapabilitiesKHR caps{};
+        for ( int retry = 0; retry < 100; ++retry )
+        {
+            RGFW_event evt;
+            RGFW_window_checkEvent( win, &evt );
+            XSync( dpy, False );
+            vkGetPhysicalDeviceSurfaceCapabilitiesKHR( g_vulkanPhysicalDevice, g_vhSurface, &caps );
+            if ( caps.currentExtent.width == 128 && caps.currentExtent.height == 128 )
+                break;
+            usleep( 10000 );
+        }
+    }
+#endif
 
     // Resize back to original
     vhResize( 128, 128 );
@@ -419,4 +459,41 @@ UTEST( Window, HeadlessBackbufferInitShutdownChurn )
         vhFlush();
         vhShutdown( true );
     }
+}
+
+UTEST( Window, ResizeDuringDraws )
+{
+#ifdef __APPLE__
+    UTEST_SKIP( "vhResize during active command buffers triggers Metal device lost on MoltenVK" );
+#endif
+    TestEnsureShutdown();
+    g_vhInit = vhInitData{};
+    g_vhInit.headless = true;
+    g_vhInit.resolution = glm::ivec2( 128, 128 );
+    vhInit( true );
+    g_testInit = true;
+
+    vhTexture rt = vhAllocTexture();
+    vhCreateTexture2D( rt, "ResizeTex", glm::ivec2(32,32), 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    vhFinish();
+
+    // Draw something, then resize mid-stream, then draw again — must not crash.
+    for ( int i = 0; i < 3; i++ )
+    {
+        vhState state;
+        state.SetColourAttachment(0, rt).SetViewRect(glm::vec4(0,0,32,32))
+             .SetViewClear(VRHI_CLEAR_COLOR, glm::vec4(0));
+        vhSetState(100, state);
+        vhClear(100, VRHI_CLEAR_COLOR);
+        vhFlush();
+
+        glm::ivec2 newSize(64 + i * 32, 64 + i * 32);
+        vhResize(newSize.x, newSize.y);
+        EXPECT_EQ( vhGetWindowSize(), glm::uvec2(newSize) );
+    }
+
+    vhDestroyTexture(rt);
+    vhFinish();
+    vhShutdown(true);
+    g_testInit = false;
 }

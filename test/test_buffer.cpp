@@ -966,9 +966,10 @@ UTEST_F( Buffer, ReadbackSlow_Basic )
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU readback requires GPU" );
     vhFlush();
 
+    // Write known data to a storage buffer, read it back via vhReadBufferSlow
     const uint32_t N = 32;
     uint8_t expected[N];
-    for ( uint32_t i = 0; i < N; i++ ) expected[i] = ( uint8_t )( i * 3 + 7 );
+    for ( uint32_t i = 0; i < N; i++ ) expected[i] = (uint8_t)( i * 3 + 7 );
 
     vhBuffer buf = vhAllocBuffer();
     vhMem* mem = vhAllocMem( N );
@@ -979,13 +980,14 @@ UTEST_F( Buffer, ReadbackSlow_Basic )
     vhMem readData;
     vhReadBufferSlow( buf, 0, N, &readData );
 
-    EXPECT_EQ( ( int ) readData.size(), ( int ) N );
+    EXPECT_EQ( (int)readData.size(), (int)N );
     for ( uint32_t i = 0; i < N; i++ ) EXPECT_EQ( readData[i], expected[i] );
 
+    // Test partial read (offset + partial size)
     vhMem partial;
     vhReadBufferSlow( buf, 8, 8, &partial );
-    EXPECT_EQ( ( int ) partial.size(), 8 );
-    for ( int i = 0; i < 8; i++ ) EXPECT_EQ( partial[i], expected[8 + i] );
+    EXPECT_EQ( (int)partial.size(), 8 );
+    for ( int i = 0; i < 8; i++ ) EXPECT_EQ( partial[i], expected[8+i] );
 
     vhDestroyBuffer( buf );
     vhFinish();
@@ -997,14 +999,15 @@ UTEST_F( Buffer, UpdateUniform_OffsetAndSize )
     vhFlush();
 
     const uint32_t total = 256;
-    std::vector< uint8_t > init( total, 0xAA );
+    std::vector<uint8_t> init( total, 0xAA );
     vhBuffer ub = vhAllocBuffer();
     vhMem* initMem = vhAllocMem( init );
     vhCreateUniformBuffer( ub, "PartialUB", initMem, total );
     vhFinish();
 
+    // Update only bytes [64, 96) with 0xBB
     const uint32_t patchOffset = 64, patchSize = 32;
-    std::vector< uint8_t > patch( patchSize, 0xBB );
+    std::vector<uint8_t> patch( patchSize, 0xBB );
     vhMem* patchMem = vhAllocMem( patch );
     vhUpdateUniformBuffer( ub, patchMem, patchOffset );
     vhFinish();
@@ -1012,7 +1015,7 @@ UTEST_F( Buffer, UpdateUniform_OffsetAndSize )
     vhMem readData;
     vhReadBufferSlow( ub, 0, total, &readData );
 
-    EXPECT_EQ( ( int ) readData.size(), ( int ) total );
+    EXPECT_EQ( (int)readData.size(), (int)total );
     for ( uint32_t i = 0; i < patchOffset; i++ ) EXPECT_EQ( readData[i], 0xAA );
     for ( uint32_t i = patchOffset; i < patchOffset + patchSize; i++ ) EXPECT_EQ( readData[i], 0xBB );
     for ( uint32_t i = patchOffset + patchSize; i < total; i++ ) EXPECT_EQ( readData[i], 0xAA );

@@ -4327,6 +4327,237 @@ UTEST_F( RT, Dispatch_256x256 )
     vhDestroyShader( closestHit );
     DestroyRTPipeline( p );
 }
+// --------------------------------------------------------------------------
+// RayFlag_CullBackFacing / CullFrontFacing
+// --------------------------------------------------------------------------
+
+UTEST_F( RT, RayFlag_CullBackFacing )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+
+    // CW winding = back-facing in Vulkan default (CCW = front).
+    // With RAY_FLAG_CULL_BACK_FACING_TRIANGLES the hit should be rejected → miss (blue).
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    uint32_t flags = 0x10;  // RAY_FLAG_CULL_BACK_FACING_TRIANGLES
+    vhBuffer cbFlags = CreateTestCB( &flags, sizeof( flags ) );
+
+    vhShader rayGen = CreateRTShader( g_rayGenWithFlags, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss   = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader chit   = CreateRTShader( g_hitHLSL,  VRHI_SHADER_STAGE_CLOSEST_HIT );
+    auto p = MakeRTPipeline( rayGen, miss, chit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, chit ) )
+         .SetTexture( 0, { .name="g_Output", .texture=rt, .computeUAV=true } )
+         .SetBuffer( 0, { .name="g_RayFlags", .buffer=cbFlags } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4(0,0,4,4) );
+    nvrhi::rt::DispatchRaysArguments args; args.width=4; args.height=4;
+    DispatchAndReset( 8600, state, p.table, args );
+
+    // Back-face culled → miss = blue
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt ); vhDestroyBuffer( vb ); vhDestroyBuffer( cbFlags );
+    vhDestroyAS( tlas ); vhDestroyAS( blas );
+    vhDestroyShader( rayGen ); vhDestroyShader( miss ); vhDestroyShader( chit );
+    DestroyRTPipeline( p );
+    vhFinish();
+}
+
+UTEST_F( RT, RayFlag_CullFrontFacing )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+
+    // CCW = front-facing. RAY_FLAG_CULL_FRONT_FACING_TRIANGLES → miss (blue).
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::None );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    uint32_t flags = 0x20;  // RAY_FLAG_CULL_FRONT_FACING_TRIANGLES
+    vhBuffer cbFlags = CreateTestCB( &flags, sizeof( flags ) );
+
+    vhShader rayGen = CreateRTShader( g_rayGenWithFlags, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss   = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader chit   = CreateRTShader( g_hitHLSL,  VRHI_SHADER_STAGE_CLOSEST_HIT );
+    auto p = MakeRTPipeline( rayGen, miss, chit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, chit ) )
+         .SetTexture( 0, { .name="g_Output", .texture=rt, .computeUAV=true } )
+         .SetBuffer( 0, { .name="g_RayFlags", .buffer=cbFlags } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4(0,0,4,4) );
+    nvrhi::rt::DispatchRaysArguments args; args.width=4; args.height=4;
+    DispatchAndReset( 8601, state, p.table, args );
+
+    // Front-face culled → miss = blue at hit pixel
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt ); vhDestroyBuffer( vb ); vhDestroyBuffer( cbFlags );
+    vhDestroyAS( tlas ); vhDestroyAS( blas );
+    vhDestroyShader( rayGen ); vhDestroyShader( miss ); vhDestroyShader( chit );
+    DestroyRTPipeline( p );
+    vhFinish();
+}
+
+// --------------------------------------------------------------------------
+// BLAS_Rebuild_NoUpdate
+// --------------------------------------------------------------------------
+
+UTEST_F( RT, BLAS_Rebuild_NoUpdate )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+#ifdef __APPLE__
+    UTEST_SKIP( "BLAS rebuild from host-side buffer update unreliable on MoltenVK" );
+#endif
+
+    // Build BLAS with triangle in one position, rebuild with different triangle.
+    // Rebuild must not require AllowUpdate flag; result should reflect new geometry.
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    static Vertex v1[] = { { -1,-1,0 }, { 1,-1,0 }, { -1,1,0 } };  // covers top-left
+    static Vertex v2[] = { { 0.5f,0.5f,0 }, { 2,0.5f,0 }, { 0.5f,2,0 } };  // outside 4x4 viewport → miss
+
+    vhBuffer vb = CreateTestVB( "float3", v1, sizeof(v1) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3, nvrhi::rt::GeometryFlags::Opaque,
+                                       nvrhi::rt::AccelStructBuildFlags::None );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss   = CreateRTShader( g_missHLSL,   VRHI_SHADER_STAGE_MISS );
+    vhShader chit   = CreateRTShader( g_hitHLSL,    VRHI_SHADER_STAGE_CLOSEST_HIT );
+    auto p = MakeRTPipeline( rayGen, miss, chit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, chit ) )
+         .SetTexture( 0, { .name="g_Output", .texture=rt, .computeUAV=true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4(0,0,4,4) );
+    nvrhi::rt::DispatchRaysArguments args; args.width=4; args.height=4;
+    DispatchAndReset( 8602, state, p.table, args );
+
+    // First build: triangle covers pixel(0,0) → red
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+
+    // Rebuild BLAS with different geometry (no AllowUpdate needed for full rebuild)
+    {
+        vhMem* mem = vhAllocMem( sizeof(v2) ); memcpy( mem->data(), v2, sizeof(v2) );
+        vhUpdateVertexBuffer( vb, mem );
+    }
+    vhFinish();
+    auto makeInst = [&]( vhAccelStruct b ) {
+        nvrhi::rt::InstanceDesc i; i.bottomLevelAS = vhGetASNvrhiHandle(b);
+        i.instanceMask = 0xFF; i.flags = nvrhi::rt::InstanceFlags::None;
+        i.setTransform( nvrhi::rt::c_IdentityTransform ); return i;
+    };
+    vhBuildBLAS( blas, { MakeTriGeo( vb, 3 ) } );
+    vhBuildTLAS( tlas, { makeInst( blas ) } );
+    vhFinish();
+
+    DispatchAndReset( 8602, state.DirtyAll(), p.table, args );
+
+    // After rebuild: no triangle covers pixel(0,0) → miss = blue
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt ); vhDestroyBuffer( vb );
+    vhDestroyAS( tlas ); vhDestroyAS( blas );
+    vhDestroyShader( rayGen ); vhDestroyShader( miss ); vhDestroyShader( chit );
+    DestroyRTPipeline( p );
+    vhFinish();
+}
+
+// --------------------------------------------------------------------------
+// AS_DegenerateTriangles_NoCrash
+// --------------------------------------------------------------------------
+
+UTEST_F( RT, AS_DegenerateTriangles_NoCrash )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+
+    // Zero-area triangle: all three vertices at the same point.
+    // Build must not crash; ray must miss.
+    static Vertex degen[] = { {0,0,0}, {0,0,0}, {0,0,0} };
+    vhBuffer vb = CreateTestVB( "float3", degen, sizeof(degen) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss   = CreateRTShader( g_missHLSL,   VRHI_SHADER_STAGE_MISS );
+    vhShader chit   = CreateRTShader( g_hitHLSL,    VRHI_SHADER_STAGE_CLOSEST_HIT );
+    auto p = MakeRTPipeline( rayGen, miss, chit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, chit ) )
+         .SetTexture( 0, { .name="g_Output", .texture=rt, .computeUAV=true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4(0,0,4,4) );
+    nvrhi::rt::DispatchRaysArguments args; args.width=4; args.height=4;
+    DispatchAndReset( 8603, state, p.table, args );
+
+    // No valid triangle → all rays miss → blue
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt ); vhDestroyBuffer( vb );
+    vhDestroyAS( tlas ); vhDestroyAS( blas );
+    vhDestroyShader( rayGen ); vhDestroyShader( miss ); vhDestroyShader( chit );
+    DestroyRTPipeline( p );
+    vhFinish();
+}
+
+// --------------------------------------------------------------------------
+// TLAS_OverflowMaxInstances
+// --------------------------------------------------------------------------
+
+UTEST_F( RT, TLAS_OverflowMaxInstances )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+
+    // Build TLAS with topLevelMaxInstances=1 but submit 4 instances.
+    // Must log error (counter increments) and not crash.
+    static Vertex v[] = { {-1,-1,0},{1,-1,0},{-1,1,0} };
+    vhBuffer vb = CreateTestVB( "float3", v, sizeof(v) );
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+
+    nvrhi::rt::AccelStructDesc tlasDesc;
+    tlasDesc.isTopLevel = true;
+    tlasDesc.topLevelMaxInstances = 1;  // Only 1 instance capacity
+    vhAccelStruct tlas = vhAllocAS();
+    vhCreateAS( tlas, tlasDesc );
+    vhFinish();
+
+    int32_t errBefore = g_vhErrorCounter.load();
+
+    // Try to build with 4 instances (overflows max)
+    auto makeInst2 = [&]( vhAccelStruct b ) {
+        nvrhi::rt::InstanceDesc i; i.bottomLevelAS = vhGetASNvrhiHandle(b);
+        i.instanceMask = 0xFF; i.flags = nvrhi::rt::InstanceFlags::None;
+        i.setTransform( nvrhi::rt::c_IdentityTransform ); return i;
+    };
+    std::vector< nvrhi::rt::InstanceDesc > instances;
+    for ( int i = 0; i < 4; i++ ) instances.push_back( makeInst2( blas ) );
+    vhBuildTLAS( tlas, instances );
+    vhFinish();
+
+    // Either an error was logged, or it succeeded silently (driver-dependent).
+    // The key is: no crash and no undefined behaviour.
+    int32_t errAfter = g_vhErrorCounter.load();
+    UTEST_PRINTF( "TLAS overflow: error counter before=%d after=%d\n", errBefore, errAfter );
+
+    vhDestroyAS( tlas ); vhDestroyAS( blas ); vhDestroyBuffer( vb );
+    vhFinish();
+}
+
 UTEST_F( RT, Benchmark_DispatchRate )
 {
     if ( !g_vhDeviceInfo.raytracing ) return;

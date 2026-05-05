@@ -639,7 +639,7 @@ nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint
 nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
 nvrhi::VariableShadingRate vhTranslateShadingRate( uint32_t rate );
 nvrhi::ShadingRateCombiner vhTranslateShadingRateCombiner( uint32_t combiner );
-void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state, size_t pipelineSizeBytes );
+void vhSetPushConstant_DeviceStateLocked( nvrhi::CommandListHandle cmdList, const vhState& state, size_t pipelineSizeBytes = 0 );
 size_t vhPushConstantSize( const std::vector< vhPushConstantRange >& ranges );
 
 // Calls fn(paddedSrc) where paddedSrc has at least 3 readable bytes past the data tail.

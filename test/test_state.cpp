@@ -996,3 +996,97 @@ UTEST_F( State, HelperExpansion )
     EXPECT_STREQ( state.samplers[2].name, "MySampler" );
     EXPECT_EQ( state.dirty & VRHI_DIRTY_TEXTURE_SAMPLERS, VRHI_DIRTY_TEXTURE_SAMPLERS );
 }
+
+// Regression: arena-backed VIDL setters must round-trip non-empty -> empty -> non-empty
+// payloads through vhFlush() without UB on null/empty spans, and the backend must
+// observe the full transition for every collection-typed field.
+UTEST_F( State, ArenaSetters_EmptyRoundtrip )
+{
+    const vhStateId id = 4242;
+
+    // ---- Populated pass.
+    {
+        vhState s;
+
+        vhState::TextureBinding tex;
+        tex.name = "RT_T"; tex.slot = 0; tex.texture = 1;
+        s.SetTextures( { tex } );
+
+        s.SetSampler( 0, 0xCAFEu, 0, "RT_S" );
+
+        vhState::BufferBinding buf;
+        buf.name = "RT_B"; buf.slot = 0; buf.buffer = 2;
+        s.SetBuffers( { buf } );
+
+        s.SetWorldTransform( glm::mat4( 1.0f ), 1 );
+
+        const glm::vec4 u = glm::vec4( 7, 8, 9, 10 );
+        s.SetUniform( 0, "RT_U", &u, 1 );
+
+        const glm::vec4 c = glm::vec4( 1, 2, 3, 4 );
+        s.SetConstant( 0, "RT_C", &c, 1 );
+
+        vhSetState( id, s );
+        vhFlush();
+
+        vhState back;
+        ASSERT_TRUE( vhGetState( id, back ) );
+        ASSERT_EQ( back.textures.size(), 1u );
+        EXPECT_STREQ( back.textures[0].name, "RT_T" );
+        ASSERT_EQ( back.samplers.size(), 1u );
+        EXPECT_EQ( back.samplers[0].flags, 0xCAFEu );
+        ASSERT_EQ( back.buffers.size(), 1u );
+        EXPECT_STREQ( back.buffers[0].name, "RT_B" );
+        ASSERT_EQ( back.worldMatrix.size(), 1u );
+        ASSERT_EQ( back.uniforms.size(), 1u );
+        ASSERT_EQ( back.uniforms[0].data.size(), 1u );
+        EXPECT_NEAR( back.uniforms[0].data[0].x, 7.0f, 0.001f );
+        ASSERT_EQ( back.constants.size(), 1u );
+        ASSERT_EQ( back.constants[0].data.size(), 1u );
+    }
+
+    // ---- Empty pass: must not crash and must clear backend state.
+    {
+        vhState s;
+        s.SetTextures( {} );
+        s.SetSamplers( {} );
+        s.SetBuffers( {} );
+        s.worldMatrix.clear(); s.dirty |= VRHI_DIRTY_WORLD;
+        s.SetUniforms( {} );
+        s.SetConstants( {} );
+        s.SetAttachments( {}, vhState::RenderTarget{} );
+
+        vhSetState( id, s );
+        vhFlush();
+
+        vhState back;
+        ASSERT_TRUE( vhGetState( id, back ) );
+        EXPECT_EQ( back.textures.size(), 0u );
+        EXPECT_EQ( back.samplers.size(), 0u );
+        EXPECT_EQ( back.buffers.size(), 0u );
+        EXPECT_EQ( back.worldMatrix.size(), 0u );
+        EXPECT_EQ( back.uniforms.size(), 0u );
+        EXPECT_EQ( back.constants.size(), 0u );
+        EXPECT_EQ( back.colourAttachment.size(), 0u );
+    }
+
+    // ---- Re-populate to confirm storage stayed live and reusable.
+    {
+        vhState s;
+        const glm::vec4 u0 = glm::vec4( 1, 0, 0, 0 );
+        const glm::vec4 u1 = glm::vec4( 0, 1, 0, 0 );
+        s.SetUniform( 0, "RT_U2a", &u0, 1 );
+        s.SetUniform( 1, "RT_U2b", &u1, 1 );
+        vhSetState( id, s );
+        vhFlush();
+
+        vhState back;
+        ASSERT_TRUE( vhGetState( id, back ) );
+        ASSERT_EQ( back.uniforms.size(), 2u );
+        EXPECT_STREQ( back.uniforms[0].name, "RT_U2a" );
+        EXPECT_STREQ( back.uniforms[1].name, "RT_U2b" );
+    }
+
+    vhState clean;
+    vhSetState( id, clean.DirtyAll() );
+}
