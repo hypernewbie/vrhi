@@ -44,6 +44,11 @@ const vhState* vhCmdBackendState::s_submitPSOCacheState = nullptr;
 uint64_t vhCmdBackendState::s_submitPSOCacheVersion = 0;
 nvrhi::GraphicsPipelineHandle vhCmdBackendState::s_submitPSOCachePSO;
 nvrhi::FramebufferHandle vhCmdBackendState::s_submitPSOCacheFB;
+const vhState* vhCmdBackendState::s_lastGfxStateApplied = nullptr;
+uint64_t vhCmdBackendState::s_lastGfxResourceVersionApplied = 0;
+uint64_t vhCmdBackendState::s_lastGfxPipelineVersionApplied = 0;
+uint64_t vhCmdBackendState::s_lastGfxUserGlobalsKeyApplied = 0;
+nvrhi::ICommandList* vhCmdBackendState::s_lastGfxCmdlistApplied = nullptr;
 std::vector< vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
@@ -2045,6 +2050,8 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
 
+    s_lastGfxStateApplied = nullptr;
+
     vhBackendShader* shaderPtr = &computeShader;
     vhResetComputePipelineDesc( s_dispatchDesc );
     vhResetComputeState( s_dispatchCState );
@@ -2101,6 +2108,8 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
     assert( indirectBuffer.handle );
+
+    s_lastGfxStateApplied = nullptr;
 
     vhProfile( "BE_DispatchIndirect_Validation", true );
     if ( !( indirectBuffer.flags & VRHI_BUFFER_DRAW_INDIRECT ) )
@@ -2233,13 +2242,28 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
     {
         VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
         vhProfile( "BE_Submit_StateSetup", false );
+        s_lastGfxStateApplied = nullptr;
         return;
     }
     vhProfile( "BE_Submit_StateSetup", false );
 
+    const bool gfxStateChanged = s_lastGfxStateApplied != &state
+        || s_lastGfxResourceVersionApplied != s_globalResourceVersion
+        || s_lastGfxPipelineVersionApplied != s_globalPipelineVersion
+        || s_lastGfxUserGlobalsKeyApplied != s_bsetCacheUserGlobalsKey
+        || s_lastGfxCmdlistApplied != cmdlist.Get();
+
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        cmdlist->setGraphicsState( s_submitGState );
+        if ( gfxStateChanged )
+        {
+            cmdlist->setGraphicsState( s_submitGState );
+            s_lastGfxStateApplied = &state;
+            s_lastGfxResourceVersionApplied = s_globalResourceVersion;
+            s_lastGfxPipelineVersionApplied = s_globalPipelineVersion;
+            s_lastGfxUserGlobalsKeyApplied = s_bsetCacheUserGlobalsKey;
+            s_lastGfxCmdlistApplied = cmdlist.Get();
+        }
 
         if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
         {
@@ -2300,6 +2324,7 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
 void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args )
 {
     VRHI_PROFILE_FUNCTION();
+    s_lastGfxStateApplied = nullptr;
     vhBackendShader* rtShaders[VRHI_SHADER_STAGE_MAX];
     int rtShaderCount = 0;
     vhProfile( "BE_DispatchRays_ShaderSetup", true );
@@ -2427,6 +2452,11 @@ void vhCmdBackendState::shutdown()
     s_submitPSOCacheVersion = 0;
     s_submitPSOCachePSO = nullptr;
     s_submitPSOCacheFB = nullptr;
+    s_lastGfxStateApplied = nullptr;
+    s_lastGfxResourceVersionApplied = 0;
+    s_lastGfxPipelineVersionApplied = 0;
+    s_lastGfxUserGlobalsKeyApplied = 0;
+    s_lastGfxCmdlistApplied = nullptr;
     s_slotToReflection.clear();
     s_layoutLocationTable.clear();
     s_attributes.clear();
@@ -4121,6 +4151,7 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
     m_userUniformBuffer.Unmap_DeviceStateLocked();
     m_userUniformBuffer.Step();
     for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
+    s_lastGfxStateApplied = nullptr;
 
     // Send it!!
     vhCmdListFlushAll_DeviceStateLocked();

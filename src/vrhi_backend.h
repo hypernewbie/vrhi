@@ -293,6 +293,12 @@ protected:
     static nvrhi::GraphicsPipelineHandle s_submitPSOCachePSO;
     static nvrhi::FramebufferHandle s_submitPSOCacheFB;
 
+    static const vhState* s_lastGfxStateApplied;
+    static uint64_t s_lastGfxResourceVersionApplied;
+    static uint64_t s_lastGfxPipelineVersionApplied;
+    static uint64_t s_lastGfxUserGlobalsKeyApplied;
+    static nvrhi::ICommandList* s_lastGfxCmdlistApplied;
+
     static std::vector< vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
     static std::vector< nvrhi::VertexAttributeDesc > s_attributes;
