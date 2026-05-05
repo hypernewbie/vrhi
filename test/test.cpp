@@ -60,6 +60,8 @@ bool g_testInit = false;
 bool g_testInitQuiet = true;
 bool g_captureActive = false;
 
+vhInitData g_testInitDefaults;
+
 void TestEnsureShutdown()
 {
     if ( g_captureActive )
@@ -67,12 +69,15 @@ void TestEnsureShutdown()
         vhCaptureEnd();
         g_captureActive = false;
     }
-    
+
     if ( g_testInit )
     {
         vhShutdown( g_testInitQuiet );
         g_testInit = false;
     }
+
+    // Restore so NullDevice tests setting nullMode don't leak into the rest of the suite.
+    g_vhInit = g_testInitDefaults;
 }
 
 bool TestIsSoftwareVulkan()
@@ -145,6 +150,8 @@ int main( int argc, const char* const argv[] )
     g_vhInit.shaderMakePath = "../tools/linux_release";
     g_vhInit.shaderMakeSlangPath = "../tools/linux_release";
 #endif
+
+    g_testInitDefaults = g_vhInit;
 
     int result = utest_main( argc, argv );
     TestEnsureShutdown();
