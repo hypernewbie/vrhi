@@ -279,6 +279,12 @@ protected:
     static uint64_t s_bsetCacheUserGlobalsKey;
     static std::vector< nvrhi::BindingSetHandle > s_bsetCacheHandles;
 
+    // PSO + framebuffer cache for BE_Submit: skip rebuild when (state, pipelineVersion) unchanged.
+    static const vhState* s_submitPSOCacheState;
+    static uint64_t s_submitPSOCacheVersion;
+    static nvrhi::GraphicsPipelineHandle s_submitPSOCachePSO;
+    static nvrhi::FramebufferHandle s_submitPSOCacheFB;
+
     static std::vector< vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;
     static std::vector< nvrhi::VertexAttributeDesc > s_attributes;

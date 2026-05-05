@@ -40,6 +40,10 @@ uint64_t vhCmdBackendState::s_bsetCacheResourceVersion = 0;
 uint64_t vhCmdBackendState::s_bsetCachePipelineVersion = 0;
 uint64_t vhCmdBackendState::s_bsetCacheUserGlobalsKey = 0;
 std::vector< nvrhi::BindingSetHandle > vhCmdBackendState::s_bsetCacheHandles;
+const vhState* vhCmdBackendState::s_submitPSOCacheState = nullptr;
+uint64_t vhCmdBackendState::s_submitPSOCacheVersion = 0;
+nvrhi::GraphicsPipelineHandle vhCmdBackendState::s_submitPSOCachePSO;
+nvrhi::FramebufferHandle vhCmdBackendState::s_submitPSOCacheFB;
 std::vector< vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
@@ -2150,36 +2154,61 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
 void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
 {
     VRHI_PROFILE_FUNCTION();
-    vhResetGraphicsPipelineDesc( s_submitPipelineDesc );
     vhResetGraphicsState( s_submitGState );
 
-    vhProfile( "BE_Submit_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &s_submitPipelineDesc ) )
+    nvrhi::GraphicsPipelineHandle pso;
+    nvrhi::FramebufferHandle fb;
+    const bool psoFbCacheUsable = s_submitPSOCacheState == &state
+        && s_submitPSOCacheVersion == s_globalPipelineVersion
+        && s_submitPSOCachePSO
+        && s_submitPSOCacheFB;
+    if ( psoFbCacheUsable )
     {
-        VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
+        g_vhPerf.psoCacheHits.fetch_add( 1, std::memory_order_relaxed );
+        pso = s_submitPSOCachePSO;
+        fb = s_submitPSOCacheFB;
+    }
+    else
+    {
+        g_vhPerf.psoCacheMisses.fetch_add( 1, std::memory_order_relaxed );
+        vhResetGraphicsPipelineDesc( s_submitPipelineDesc );
+
+        vhProfile( "BE_Submit_PipelineDesc", true );
+        if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &s_submitPipelineDesc ) )
+        {
+            VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
+            vhProfile( "BE_Submit_PipelineDesc", false );
+            s_submitPSOCacheState = nullptr;
+            return;
+        }
         vhProfile( "BE_Submit_PipelineDesc", false );
-        return;
-    }
-    vhProfile( "BE_Submit_PipelineDesc", false );
 
-    vhProfile( "BE_Submit_GetFramebuffer", true );
-    nvrhi::FramebufferHandle fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
-    vhProfile( "BE_Submit_GetFramebuffer", false );
-    if ( !fb )
-    {
-        VRHI_ERR( "BE_Submit(): Failed to get Framebuffer!\n" );
-        return;
-    }
+        vhProfile( "BE_Submit_GetFramebuffer", true );
+        fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
+        vhProfile( "BE_Submit_GetFramebuffer", false );
+        if ( !fb )
+        {
+            VRHI_ERR( "BE_Submit(): Failed to get Framebuffer!\n" );
+            s_submitPSOCacheState = nullptr;
+            return;
+        }
 
-    nvrhi::GraphicsPipelineHandle pso = vhPSOCacheGet( s_submitPipelineDesc, fb->getFramebufferInfo() );
-    vhProfile( "BE_Submit_PSOCache", true );
-    if ( !pso )
-    {
-        VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
+        vhProfile( "BE_Submit_PSOCache", true );
+        pso = vhPSOCacheGet( s_submitPipelineDesc, fb->getFramebufferInfo() );
+        if ( !pso )
+        {
+            VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
+            vhProfile( "BE_Submit_PSOCache", false );
+            s_submitPSOCacheState = nullptr;
+            return;
+        }
         vhProfile( "BE_Submit_PSOCache", false );
-        return;
+
+        s_submitPSOCacheState = &state;
+        s_submitPSOCacheVersion = s_globalPipelineVersion;
+        s_submitPSOCachePSO = pso;
+        s_submitPSOCacheFB = fb;
     }
-    vhProfile( "BE_Submit_PSOCache", false );
 
     s_submitGState.setPipeline( pso.Get() );
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
@@ -2378,6 +2407,10 @@ void vhCmdBackendState::shutdown()
     s_bsetCachePipelineVersion = 0;
     s_bsetCacheUserGlobalsKey = 0;
     s_bsetCacheHandles.clear();
+    s_submitPSOCacheState = nullptr;
+    s_submitPSOCacheVersion = 0;
+    s_submitPSOCachePSO = nullptr;
+    s_submitPSOCacheFB = nullptr;
     s_slotToReflection.clear();
     s_layoutLocationTable.clear();
     s_attributes.clear();
@@ -2581,6 +2614,7 @@ void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
         return;
     }
     s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 
     // Destroy texture by releasing our reference. NVRHI handles GPU destruction safety.
     {
@@ -3216,6 +3250,7 @@ void vhCmdBackendState::Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd )
         return;
     }
     s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -3336,6 +3371,7 @@ void vhCmdBackendState::Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd )
         return;
     }
     s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -3377,6 +3413,7 @@ void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
         return;
     }
     s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -3851,6 +3888,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* 
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].program = cmd->program;
     s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd )
@@ -3872,6 +3910,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd 
 {
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].stateFlags = cmd->flags;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd )
@@ -3885,6 +3924,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* 
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
     state.stencilState = cmd->stencilState;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd )
@@ -3894,12 +3934,14 @@ void vhCmdBackendState::Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBi
     state.depthBias = cmd->bias;
     state.depthBiasClamp = cmd->clamp;
     state.slopeScaledDepthBias = cmd->slopeScaled;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateVertexBindings( VIDL_vhCmdSetStateVertexBindings* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].vertexBindings = cmd->bindings;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVertexBuffer* cmd )
@@ -3909,12 +3951,14 @@ void vhCmdBackendState::Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVert
     if ( cmd->stream >= state.vertexBindings.size() ) state.vertexBindings.resize( cmd->stream + 1 );
     state.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num, cmd->offset, cmd->layoutOverride };
     state.vertexBindings[cmd->stream].isInstanced = cmd->isInstanced;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].indexBinding = { cmd->buffer, cmd->first, cmd->num, cmd->offset };
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd )
@@ -3981,6 +4025,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttac
     auto& state = backendStates[cmd->id];
     vhAssignFromSpan( state.colourAttachment, cmd->colours );
     state.depthAttachment = cmd->depth;
+    s_globalPipelineVersion++;
 }
 
 
@@ -3991,6 +4036,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateBlendConstants( VIDL_vhCmdSetStateBl
     if ( it != backendStates.end() )
     {
         it->second.blendConstantColor = cmd->blendConst;
+        s_globalPipelineVersion++;
     }
 }
 
@@ -4012,6 +4058,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadi
     {
         it->second.shadingRateFlags = cmd->flags;
         it->second.shadingRateImage = cmd->image;
+        s_globalPipelineVersion++;
     }
 }
 
