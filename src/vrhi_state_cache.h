@@ -23,6 +23,18 @@
 
 #include "vrhi_internal.h"
 
+#if defined( _MSC_VER ) && !defined( __clang__ )
+#include <intrin.h>
+static inline uint32_t vhCtzll( uint64_t v )
+{
+    unsigned long idx;
+    _BitScanForward64( &idx, v );
+    return ( uint32_t ) idx;
+}
+#else
+static inline uint32_t vhCtzll( uint64_t v ) { return ( uint32_t ) __builtin_ctzll( v ); }
+#endif
+
 struct vhBackendTexture;
 struct vhBackendBuffer;
 struct vhBackendShader;
@@ -143,42 +155,42 @@ struct vhStateResolveCache
             // Walk only entries we wrote this draw — bitmasks for slot < 64, vector for the rest.
             while ( s.samplerUsed )
             {
-                uint32_t b = __builtin_ctzll( s.samplerUsed );
+                uint32_t b = vhCtzll( s.samplerUsed );
                 s.samplerUsed &= s.samplerUsed - 1;
                 uint32_t idx = sShift + b;
                 if ( idx < s.samplerTable.size() ) s.samplerTable[idx] = nullptr;
             }
             while ( s.textureUsed )
             {
-                uint32_t b = __builtin_ctzll( s.textureUsed );
+                uint32_t b = vhCtzll( s.textureUsed );
                 s.textureUsed &= s.textureUsed - 1;
                 uint32_t idx = tShift + b;
                 if ( idx < s.textureTable.size() ) s.textureTable[idx] = {};
             }
             while ( s.bufferUsed )
             {
-                uint32_t b = __builtin_ctzll( s.bufferUsed );
+                uint32_t b = vhCtzll( s.bufferUsed );
                 s.bufferUsed &= s.bufferUsed - 1;
                 uint32_t idx = bShift + b;
                 if ( idx < s.bufferTable.size() ) s.bufferTable[idx] = {};
             }
             while ( s.uavTextureUsed )
             {
-                uint32_t b = __builtin_ctzll( s.uavTextureUsed );
+                uint32_t b = vhCtzll( s.uavTextureUsed );
                 s.uavTextureUsed &= s.uavTextureUsed - 1;
                 uint32_t idx = uShift + b;
                 if ( idx < s.uavTable.size() ) s.uavTable[idx].first = {};
             }
             while ( s.uavBufferUsed )
             {
-                uint32_t b = __builtin_ctzll( s.uavBufferUsed );
+                uint32_t b = vhCtzll( s.uavBufferUsed );
                 s.uavBufferUsed &= s.uavBufferUsed - 1;
                 uint32_t idx = uShift + b;
                 if ( idx < s.uavTable.size() ) s.uavTable[idx].second = {};
             }
             while ( s.accelStructUsed )
             {
-                uint32_t b = __builtin_ctzll( s.accelStructUsed );
+                uint32_t b = vhCtzll( s.accelStructUsed );
                 s.accelStructUsed &= s.accelStructUsed - 1;
                 uint32_t idx = tShift + b;
                 if ( idx < s.accelStructTable.size() ) s.accelStructTable[idx] = {};
