@@ -2486,6 +2486,13 @@ UTEST_F( Graphics, DepthBiasEffect )
 #ifdef __APPLE__
     UTEST_SKIP( "Depth bias on flat surfaces unreliable on MoltenVK" );
 #endif
+    // Vulkan spec leaves the depth-bias unit `r` implementation-defined for
+    // floating-point depth formats. Software ICDs (lavapipe / SwiftShader)
+    // pick a value that makes the constant bias factor used here insufficient
+    // to fail the LEQUAL test, while real HW drivers (RADV / NV / MoltenVK)
+    // produce the expected ordering. Skip on software backends rather than
+    // bake an implementation-specific magic constant into the test.
+    if ( TestIsSoftwareVulkan() ) { UTEST_SKIP( "Depth bias unit `r` is implementation-defined on float depth; result varies on software Vulkan" ); }
 
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32, VRHI_TEXTURE_RT );
