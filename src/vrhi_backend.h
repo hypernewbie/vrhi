@@ -24,7 +24,7 @@
 #include "vrhi_internal.h"
 #include "vrhi_utils.h"
 #include <komihash/komihash.h>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 
 // --------------------------------------------------------------------------
 // Backend Types
@@ -123,15 +123,15 @@ class vhCmdBackendState : public VIDLHandler
     
     std::mutex backendMutex;
     char temps[1024];
-    robin_hood::unordered_flat_map< vhTexture,     std::unique_ptr< vhBackendTexture > >     backendTextures;
-    robin_hood::unordered_flat_map< vhBuffer,      std::unique_ptr< vhBackendBuffer > >      backendBuffers;
-    robin_hood::unordered_flat_map< vhShader,      std::unique_ptr< vhBackendShader > >      backendShaders;
-    robin_hood::unordered_flat_map< vhAccelStruct, std::unique_ptr< vhBackendAccelStruct > > backendAccelStructs;
-    robin_hood::unordered_flat_map< vhRTPipeline,  std::unique_ptr< vhBackendRTPipeline > >  backendRTPipelines;
-    robin_hood::unordered_flat_map< vhShaderTable, std::unique_ptr< vhBackendShaderTable > > backendShaderTables;
-    robin_hood::unordered_flat_map< vhTimerID,     std::unique_ptr< vhBackendTimerQuery > >  backendTimerQueries;
-    robin_hood::unordered_flat_map< vhStateId,     vhState >                                 backendStates;
-    robin_hood::unordered_flat_map< vhHeap,        std::unique_ptr< vhBackendHeap > >        backendHeaps;
+    ankerl::unordered_dense::map< vhTexture,     std::unique_ptr< vhBackendTexture > >     backendTextures;
+    ankerl::unordered_dense::map< vhBuffer,      std::unique_ptr< vhBackendBuffer > >      backendBuffers;
+    ankerl::unordered_dense::map< vhShader,      std::unique_ptr< vhBackendShader > >      backendShaders;
+    ankerl::unordered_dense::map< vhAccelStruct, std::unique_ptr< vhBackendAccelStruct > > backendAccelStructs;
+    ankerl::unordered_dense::map< vhRTPipeline,  std::unique_ptr< vhBackendRTPipeline > >  backendRTPipelines;
+    ankerl::unordered_dense::map< vhShaderTable, std::unique_ptr< vhBackendShaderTable > > backendShaderTables;
+    ankerl::unordered_dense::map< vhTimerID,     std::unique_ptr< vhBackendTimerQuery > >  backendTimerQueries;
+    ankerl::unordered_dense::map< vhStateId,     vhState >                                 backendStates;
+    ankerl::unordered_dense::map< vhHeap,        std::unique_ptr< vhBackendHeap > >        backendHeaps;
     vhTransientBuffer m_globalUniformBuffer;
     uint64_t m_globalUniformBufferLastHash = 0;
     vhTransientBuffer m_worldUniformBuffer;
@@ -270,7 +270,7 @@ class vhCmdBackendState : public VIDLHandler
 protected:
     // Static caches to avoid reallocation overhead, explicitly cleared in shutdown()
     // Using pointer storage for s_shaders to avoid deep-copy overhead on the hot path.
-    static robin_hood::unordered_flat_map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
+    static ankerl::unordered_dense::map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
     static vhStateResolveCache s_resolveCache;
 
     // Bumped on resource mutations (binding setters, destroys). Used as cache key for the resolve cache.

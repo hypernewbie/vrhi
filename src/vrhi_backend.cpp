@@ -29,7 +29,7 @@
 vhCmdBackendState g_vhCmdBackendState;
 void vhCmdListFlushAll_DeviceStateLocked();
 
-robin_hood::unordered_flat_map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
+ankerl::unordered_dense::map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhCmdBackendState::s_layoutToShader;
 vhStateResolveCache vhCmdBackendState::s_resolveCache;
 uint64_t vhCmdBackendState::s_globalResourceVersion = 1;
 uint64_t vhCmdBackendState::s_globalPipelineVersion = 1;
@@ -1675,7 +1675,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         currentComputePSO != s_lastComputePSO ||
         shaderSetChanged;
 
-    static robin_hood::unordered_flat_map< uint64_t, const nvrhi::BindingLayoutHandle* > s_hashToPSOlayout;
+    static ankerl::unordered_dense::map< uint64_t, const nvrhi::BindingLayoutHandle* > s_hashToPSOlayout;
     if ( psoChanged )
     {
         // Build map of hash --> psoLayouts. Static map uses clear() to preserve bucket array capacity.
@@ -2368,6 +2368,13 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
 void vhCmdBackendState::init()
 {
     std::lock_guard< std::mutex > lock( backendMutex );
+
+    backendTextures.reserve( 256 );
+    backendBuffers.reserve( 256 );
+    backendShaders.reserve( 128 );
+    backendStates.reserve( 32 );
+    backendTimerQueries.reserve( 16 );
+    backendHeaps.reserve( 8 );
 
     if ( !m_globalUniformBuffer.handle[0] )
     {
