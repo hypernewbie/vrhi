@@ -29,10 +29,18 @@
      set(CMAKE_CXX_COMPILER clang++ CACHE STRING "")
  endif()
  
- project(vrhi_test C CXX)
- 
- set(CMAKE_CXX_STANDARD 23)
- set(CMAKE_CXX_STANDARD_REQUIRED ON)
+project(vrhi_test C CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Enable new CMake debug-info-format abstraction (CMP0141) and emit /Z7 (embedded
+# debug info, no separate PDB) so that sccache can cache MSVC builds. Set before
+# any target/compile-flag logic runs.
+if(MSVC)
+    cmake_policy(SET CMP0141 NEW)
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded" CACHE STRING "MSVC debug info format" FORCE)
+endif()
  
  # Default to Debug for single-config generators (Ninja, Make) if not specified
  if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
