@@ -212,6 +212,8 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
             "-DVK_USE_PLATFORM_WIN32_KHR=ON",
             "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
             f"-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>{runtime_suffix}",
+            "-DCMAKE_POLICY_DEFAULT_CMP0141=NEW",
+            "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded",
         ]
 
         if use_llvm:
