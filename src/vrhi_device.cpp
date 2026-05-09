@@ -274,6 +274,7 @@ void vhInit( bool quiet )
             .set_debug_callback( vhVKDebugCallback );
         if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 
+        instBuilder.enable_extension( VK_KHR_SURFACE_EXTENSION_NAME );
 #ifdef __APPLE__
         if ( !g_vhInit.headless )
             instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
