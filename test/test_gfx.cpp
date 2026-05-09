@@ -25,6 +25,8 @@
 #include <string>
 #include <chrono>
 #include <mutex>
+#include <thread>
+#include <unordered_map>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -1762,6 +1764,99 @@ UTEST_F( Graphics, Markers )
     }
     EXPECT_EQ( opens, closes );
     EXPECT_GE( opens, 2 );
+}
+
+UTEST_F( Graphics, ProfileMarkerBalance_Draws )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU for real BE_Submit path" );
+
+    struct ThreadDepth
+    {
+        int depth = 0;
+        int minDepth = 0;
+        std::string firstStrayLeave;
+    };
+    std::mutex mtx;
+    std::unordered_map< std::thread::id, ThreadDepth > perThread;
+
+    auto savedCallback = g_vhInit.fnProfileCallback;
+    g_vhInit.fnProfileCallback = [&]( const char* name, bool begin )
+    {
+        std::lock_guard< std::mutex > lk( mtx );
+        ThreadDepth& td = perThread[ std::this_thread::get_id() ];
+        if ( begin )
+        {
+            td.depth++;
+        }
+        else
+        {
+            if ( td.depth <= 0 && td.firstStrayLeave.empty() )
+                td.firstStrayLeave = name;
+            td.depth--;
+            if ( td.depth < td.minDepth ) td.minDepth = td.depth;
+        }
+    };
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    struct Vertex { glm::vec3 pos; glm::vec4 colour; };
+    Vertex verts[3] =
+    {
+        { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  3.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -1.0f,  3.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+    };
+
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb, 0 )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+
+    vhStateId sid = 8765;
+    vhSetState( sid, state );
+
+    constexpr int kFrames = 256;
+    for ( int i = 0; i < kFrames; ++i )
+    {
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush();
+    }
+    vhFinish();
+
+    g_vhInit.fnProfileCallback = savedCallback;
+
+    int worstMin = 0;
+    std::string firstStray;
+    {
+        std::lock_guard< std::mutex > lk( mtx );
+        for ( auto& kv : perThread )
+        {
+            if ( kv.second.minDepth < worstMin ) worstMin = kv.second.minDepth;
+            if ( firstStray.empty() && !kv.second.firstStrayLeave.empty() )
+                firstStray = kv.second.firstStrayLeave;
+            EXPECT_EQ( kv.second.depth, 0 );
+        }
+    }
+    if ( worstMin < 0 )
+    {
+        UTEST_PRINTF( "vhProfile imbalance: per-thread depth went negative (min=%d), first stray LEAVE: '%s'\n",
+                      worstMin, firstStray.c_str() );
+    }
+    EXPECT_EQ( worstMin, 0 );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
 }
 
 // --------------------------------------------------------------------------

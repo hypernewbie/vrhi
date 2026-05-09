@@ -716,7 +716,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         // [TODO] The following fields are not currently populated from vhState:
         // - patchControlPoints: tessellation is only supported if we add it.
 
-        vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", true );
+        VRHI_PROFILE_SCOPE( "BE_PresubmitCommon_PipelineDesc_VertexLayout" );
         // Reuse pool for parsed vertex layouts. Inner vectors are cleared but not destroyed,
         // preserving their internal buffer capacity across calls.
         static std::vector< std::vector< vhVertexLayoutDef > > s_parsedLayouts;
@@ -762,7 +762,6 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 if ( !vhParseVertexLayoutInternal( binding.layoutOverride, slot ) )
                 {
                     VRHI_ERR( "Failed to parse vertex layout override: %s\n", binding.layoutOverride.c_str() );
-                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 pLayout = &slot;
@@ -777,13 +776,11 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 if ( def.location < 0 || def.location >= k_maxVertexLocations )
                 {
                     VRHI_ERR( "Vertex Attribute Location %d out of supported range [0, %d).\n", def.location, k_maxVertexLocations );
-                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 if ( s_locationTable[ def.location ] != nullptr )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Collision: Location %d already bound by previous buffer\n", def.location );
-                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 s_locationTable[ def.location ] = &def;
@@ -796,7 +793,6 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 if ( attr.isInstanced != bindingInstanced )
                 {
                     VRHI_ERR( "Vertex Attribute Instancing Mismatch at Location %d: Layout %s, Binding %s. Must match.\n", def.location, attr.isInstanced ? "instanced" : "per-vertex", bindingInstanced ? "instanced" : "per-vertex" );
-                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
 
@@ -851,13 +847,11 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 if ( !bound )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Missing: Shader expects Location %d, but no bound buffer provides it.\n", vsAttribDef.location );
-                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
                 if ( !vhAreVertexFormatsCompatible( bound->format, vsAttribDef.format ) )
                 {
                     if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_VATTRIB_MISMATCH ) VRHI_ERR( "Vertex Attribute Format Incompatible at Location %d (Buffer: %d (%s), Shader: %d (%s))\n", vsAttribDef.location, ( int ) bound->format, nvrhi::getFormatInfo( bound->format ).name, ( int ) vsAttribDef.format, nvrhi::getFormatInfo( vsAttribDef.format ).name );
-                    vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
                     return false;
                 }
             }
@@ -882,7 +876,6 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
                 }
             }
         }
-        vhProfile( "BE_PresubmitCommon_PipelineDesc_VertexLayout", false );
     }
 
     return true;
@@ -1788,7 +1781,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     }
     else
     {
-    vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", true );
+    VRHI_PROFILE_SCOPE( "BE_PreSubmitCommon_State_BindingSetBuild" );
     static nvrhi::BindingSetDesc bsetDesc;
     if ( bsetDesc.bindings.capacity() == 0 ) bsetDesc.bindings.reserve( 32 );
     s_bsetCacheHandles.clear();
@@ -1873,7 +1866,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( !reflectionPtr )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in shader reflection. Submit / Dispatch aborted.\n", binding.slot );
-                vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
                 s_bsetCacheState = nullptr;
                 return false;
             }
@@ -1882,7 +1874,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             // Validate the reflection against the layout.
             if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
             {
-                vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
                 s_bsetCacheState = nullptr;
                 return false;
             }
@@ -1901,7 +1892,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( !bset )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
-            vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
             s_bsetCacheState = nullptr;
             return false;
         }
@@ -2041,7 +2031,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             }
         }
     }
-    vhProfile( "BE_PreSubmitCommon_State_BindingSetBuild", false );
     return true;
 }
 
@@ -2056,35 +2045,35 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     vhResetComputePipelineDesc( s_dispatchDesc );
     vhResetComputeState( s_dispatchCState );
 
-    vhProfile( "BE_Dispatch_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
     {
-        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
-        vhProfile( "BE_Dispatch_PipelineDesc", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_Dispatch_PipelineDesc" );
+        if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
+        {
+            VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+            return;
+        }
     }
-    vhProfile( "BE_Dispatch_PipelineDesc", false );
 
     nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( s_dispatchDesc );
-    vhProfile( "BE_Dispatch_PSOCache", true );
-    if ( !pso )
     {
-        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
-        vhProfile( "BE_Dispatch_PSOCache", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_Dispatch_PSOCache" );
+        if ( !pso )
+        {
+            VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+            return;
+        }
     }
-    vhProfile( "BE_Dispatch_PSOCache", false );
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     s_dispatchCState.setPipeline( pso.Get() );
-    vhProfile( "BE_Dispatch_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
     {
-        VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
-        vhProfile( "BE_Dispatch_StateSetup", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_Dispatch_StateSetup" );
+        if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
+        {
+            VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+            return;
+        }
     }
-    vhProfile( "BE_Dispatch_StateSetup", false );
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
@@ -2111,49 +2100,49 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
 
     s_lastGfxStateApplied = nullptr;
 
-    vhProfile( "BE_DispatchIndirect_Validation", true );
-    if ( !( indirectBuffer.flags & VRHI_BUFFER_DRAW_INDIRECT ) )
     {
-        VRHI_ERR( "BE_DispatchIndirect() : Indirect buffer %s was not created with VRHI_BUFFER_DRAW_INDIRECT! SKIPPING COMPUTE DISPATCH.\n", indirectBuffer.name.c_str() );
-        vhProfile( "BE_DispatchIndirect_Validation", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_DispatchIndirect_Validation" );
+        if ( !( indirectBuffer.flags & VRHI_BUFFER_DRAW_INDIRECT ) )
+        {
+            VRHI_ERR( "BE_DispatchIndirect() : Indirect buffer %s was not created with VRHI_BUFFER_DRAW_INDIRECT! SKIPPING COMPUTE DISPATCH.\n", indirectBuffer.name.c_str() );
+            return;
+        }
     }
-    vhProfile( "BE_DispatchIndirect_Validation", false );
 
     vhBackendShader* shaderPtr = &computeShader;
     vhResetComputePipelineDesc( s_dispatchDesc );
     vhResetComputeState( s_dispatchCState );
 
-    vhProfile( "BE_DispatchIndirect_PipelineDesc", true );
-    if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
     {
-        VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
-        vhProfile( "BE_DispatchIndirect_PipelineDesc", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_DispatchIndirect_PipelineDesc" );
+        if ( !BE_PresubmitCommon_PipelineDesc( state, &shaderPtr, 1, &s_dispatchDesc, nullptr ) )
+        {
+            VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineDesc for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+            return;
+        }
     }
-    vhProfile( "BE_DispatchIndirect_PipelineDesc", false );
 
     nvrhi::ComputePipelineHandle pso = vhPSOCacheGet( s_dispatchDesc );
-    vhProfile( "BE_DispatchIndirect_PSOCache", true );
-    if ( !pso )
     {
-        VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
-        vhProfile( "BE_DispatchIndirect_PSOCache", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_DispatchIndirect_PSOCache" );
+        if ( !pso )
+        {
+            VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputePipelineHandle PSO for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+            return;
+        }
     }
-    vhProfile( "BE_DispatchIndirect_PSOCache", false );
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
     s_dispatchCState.setPipeline( pso.Get() );
-    vhProfile( "BE_DispatchIndirect_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
     {
-        VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
-        vhProfile( "BE_DispatchIndirect_StateSetup", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_DispatchIndirect_StateSetup" );
+        if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
+        {
+            VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
+            return;
+        }
     }
-    vhProfile( "BE_DispatchIndirect_StateSetup", false );
 
     vhProfile( "BE_DispatchIndirect_SetParams", true );
     s_dispatchCState.setIndirectParams( indirectBuffer.handle );
@@ -2198,19 +2187,20 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
         g_vhPerf.psoCacheMisses.fetch_add( 1, std::memory_order_relaxed );
         vhResetGraphicsPipelineDesc( s_submitPipelineDesc );
 
-        vhProfile( "BE_Submit_PipelineDesc", true );
-        if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &s_submitPipelineDesc ) )
         {
-            VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
-            vhProfile( "BE_Submit_PipelineDesc", false );
-            s_submitPSOCacheState = nullptr;
-            return;
+            VRHI_PROFILE_SCOPE( "BE_Submit_PipelineDesc" );
+            if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &s_submitPipelineDesc ) )
+            {
+                VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
+                s_submitPSOCacheState = nullptr;
+                return;
+            }
         }
-        vhProfile( "BE_Submit_PipelineDesc", false );
 
-        vhProfile( "BE_Submit_GetFramebuffer", true );
-        fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
-        vhProfile( "BE_Submit_GetFramebuffer", false );
+        {
+            VRHI_PROFILE_SCOPE( "BE_Submit_GetFramebuffer" );
+            fb = BE_GetFrameBuffer( state.colourAttachment, state.depthAttachment, state.shadingRateImage );
+        }
         if ( !fb )
         {
             VRHI_ERR( "BE_Submit(): Failed to get Framebuffer!\n" );
@@ -2218,16 +2208,16 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
             return;
         }
 
-        vhProfile( "BE_Submit_PSOCache", true );
-        pso = vhPSOCacheGet( s_submitPipelineDesc, fb->getFramebufferInfo() );
-        if ( !pso )
         {
-            VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
-            vhProfile( "BE_Submit_PSOCache", false );
-            s_submitPSOCacheState = nullptr;
-            return;
+            VRHI_PROFILE_SCOPE( "BE_Submit_PSOCache" );
+            pso = vhPSOCacheGet( s_submitPipelineDesc, fb->getFramebufferInfo() );
+            if ( !pso )
+            {
+                VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
+                s_submitPSOCacheState = nullptr;
+                return;
+            }
         }
-        vhProfile( "BE_Submit_PSOCache", false );
 
         s_submitPSOCacheState = &state;
         s_submitPSOCacheVersion = s_globalPipelineVersion;
@@ -2237,15 +2227,15 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
 
     s_submitGState.setPipeline( pso.Get() );
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
-    vhProfile( "BE_Submit_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
     {
-        VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
-        vhProfile( "BE_Submit_StateSetup", false );
-        s_lastGfxStateApplied = nullptr;
-        return;
+        VRHI_PROFILE_SCOPE( "BE_Submit_StateSetup" );
+        if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
+        {
+            VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
+            s_lastGfxStateApplied = nullptr;
+            return;
+        }
     }
-    vhProfile( "BE_Submit_StateSetup", false );
 
     const bool gfxStateChanged = s_lastGfxStateApplied != &state
         || s_lastGfxResourceVersionApplied != s_globalResourceVersion
@@ -2344,17 +2334,14 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
 
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
-    vhProfile( "BE_DispatchRays_StateSetup", true );
-    if ( !BE_PreSubmitCommon_State(
-        cmdlist, state, rtShaders, rtShaderCount,
-        nullptr, nullptr,
-        &rtState, &pipeline.desc.globalBindingLayouts ) )
     {
-        VRHI_ERR( "BE_DispatchRays(): Failed to set RT state.\n" );
-        vhProfile( "BE_DispatchRays_StateSetup", false );
-        return;
+        VRHI_PROFILE_SCOPE( "BE_DispatchRays_StateSetup" );
+        if ( !BE_PreSubmitCommon_State( cmdlist, state, rtShaders, rtShaderCount, nullptr, nullptr, &rtState, &pipeline.desc.globalBindingLayouts ) )
+        {
+            VRHI_ERR( "BE_DispatchRays(): Failed to set RT state.\n" );
+            return;
+        }
     }
-    vhProfile( "BE_DispatchRays_StateSetup", false );
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
