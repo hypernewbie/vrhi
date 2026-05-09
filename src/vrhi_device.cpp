@@ -269,7 +269,7 @@ void vhInit( bool quiet )
         instBuilder.set_app_name( g_vhInit.appName.c_str() )
             .set_engine_name( g_vhInit.engineName.c_str() )
             .require_api_version( 1, 3, 0 )
-            // .set_headless( g_vhInit.headless )
+            .set_headless( g_vhInit.headless )
             .request_validation_layers( g_vhInit.debug )
             .set_debug_callback( vhVKDebugCallback );
         if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );

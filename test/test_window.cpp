@@ -57,6 +57,12 @@ UTEST( Window, SwapchainClear )
         {
             UTEST_SKIP( "No DISPLAY detected, skipping window test" );
         }
+        Display* xdisp = XOpenDisplay( display );
+        if ( !xdisp )
+        {
+            UTEST_SKIP( "XOpenDisplay failed, skipping window test" );
+        }
+        XCloseDisplay( xdisp );
     }
 #endif
 
@@ -139,10 +145,6 @@ UTEST( Window, SwapchainClear )
     vhState s;
     vhSetState( 0, s.DirtyAll() );
 
-    // Shut down VRHI (and hence Vulkan surface/swapchain) before destroying the
-    // X11 window. Otherwise the next test's TestEnsureShutdown() will try to
-    // destroy a Vulkan surface that references an already-freed Window, which
-    // triggers a buffer overflow inside mesa WSI / libxcb during cleanup.
     TestEnsureShutdown();
 
     RGFW_window_close( win );
@@ -161,6 +163,12 @@ UTEST( Window, ResizeSwapchain )
         {
             UTEST_SKIP( "No DISPLAY detected, skipping window test" );
         }
+        Display* xdisp = XOpenDisplay( display );
+        if ( !xdisp )
+        {
+            UTEST_SKIP( "XOpenDisplay failed, skipping window test" );
+        }
+        XCloseDisplay( xdisp );
     }
 #endif
 
