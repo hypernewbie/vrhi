@@ -275,7 +275,8 @@ void vhInit( bool quiet )
         if ( g_vhInit.renderdoc ) instBuilder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 
 #ifdef __APPLE__
-        instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
+        if ( !g_vhInit.headless )
+            instBuilder.enable_extension( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
         instBuilder.enable_extension( VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME );
 #endif
 

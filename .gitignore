@@ -53,6 +53,7 @@ bin/
 lib_out/
 out/
 tmp/
+temp/
 
 # OS/Temp files
 .DS_Store
