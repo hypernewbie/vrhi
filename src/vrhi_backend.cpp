@@ -4127,49 +4127,51 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
 
 void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 {
-    VRHI_PROFILE_FUNCTION();
-    BE_CmdRAII cmdRAII( cmd );
-    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-
-    // Flush and step transient buffer maps here.
-    // This needs to be done *before* we flush the command lists to GPU!!
-
-    m_globalUniformBuffer.Unmap_DeviceStateLocked();
-    m_globalUniformBuffer.Step();
-    m_globalUniformBufferLastHash = 0;
-    
-    m_worldUniformBuffer.Unmap_DeviceStateLocked();
-    m_worldUniformBuffer.Step();
-    m_worldUniformBufferLastHash = 0;
-
-    m_userUniformBuffer.Unmap_DeviceStateLocked();
-    m_userUniformBuffer.Step();
-    for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
-    s_lastGfxStateApplied = nullptr;
-
-    // Send it!!
-    vhCmdListFlushAll_DeviceStateLocked();
-
-    // Batch-free here so per-command handlers don't pay individual delete cost on the hot path.
-    for ( vhMem* m : g_vhMemList ) delete m;
-    g_vhMemList.clear();
-    if ( cmd->waitForGPU )
+    std::atomic<bool>* fence = cmd->fence;
     {
-        vhProfile( "Handle_vhFlushInternal_WaitForGPU", true );
-        g_vhDevice->waitForIdle();
-        vhProfile( "Handle_vhFlushInternal_WaitForGPU", false );
-    }
-    g_vhDevice->runGarbageCollection();
+        VRHI_PROFILE_FUNCTION();
+        BE_CmdRAII cmdRAII( cmd );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
-    // Notify caller that we're done.
-    // Safety warning : fence is probably from stack of caller
-    if ( cmd->fence )
-    {
-        cmd->fence->store( true, std::memory_order_release );
-        cmd->fence->notify_one();
+        // Flush and step transient buffer maps here.
+        // This needs to be done *before* we flush the command lists to GPU!!
+
+        m_globalUniformBuffer.Unmap_DeviceStateLocked();
+        m_globalUniformBuffer.Step();
+        m_globalUniformBufferLastHash = 0;
+
+        m_worldUniformBuffer.Unmap_DeviceStateLocked();
+        m_worldUniformBuffer.Step();
+        m_worldUniformBufferLastHash = 0;
+
+        m_userUniformBuffer.Unmap_DeviceStateLocked();
+        m_userUniformBuffer.Step();
+        for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
+        s_lastGfxStateApplied = nullptr;
+
+        // Submit pending command lists.
+        vhCmdListFlushAll_DeviceStateLocked();
+
+        // Batch-free here so per-command handlers don't pay individual delete cost on the hot path.
+        for ( vhMem* m : g_vhMemList ) delete m;
+        g_vhMemList.clear();
+        if ( cmd->waitForGPU )
+        {
+            vhProfile( "Handle_vhFlushInternal_WaitForGPU", true );
+            g_vhDevice->waitForIdle();
+            vhProfile( "Handle_vhFlushInternal_WaitForGPU", false );
+        }
+        g_vhDevice->runGarbageCollection();
+
+        g_vhCmdArena.Rotate();
     }
 
-    g_vhCmdArena.Rotate();
+    // Signal after the scoped work so profile end events are visible to waiters.
+    if ( fence )
+    {
+        fence->store( true, std::memory_order_release );
+        fence->notify_one();
+    }
 }
 
 void vhCmdBackendState::Handle_vhDispatch( VIDL_vhDispatch* cmd )
