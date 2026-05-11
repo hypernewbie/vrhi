@@ -1729,7 +1729,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     const bool resolveCacheUsable = s_resolveCache.init
         && s_resolveCacheState == &state
         && s_resolveCacheVersion == s_globalResourceVersion
-        && !shaderSetChanged;
+        && !shaderSetChanged
+        && state.dirty == 0;
     if ( resolveCacheUsable )
     {
         g_vhPerf.resolveCacheHits.fetch_add( 1, std::memory_order_relaxed );
@@ -1769,7 +1770,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         && s_bsetCacheResourceVersion == s_globalResourceVersion
         && s_bsetCachePipelineVersion == s_globalPipelineVersion
         && s_bsetCacheUserGlobalsKey == userGlobalsKey
-        && s_bsetCacheHandles.size() == layouts.size();
+        && s_bsetCacheHandles.size() == layouts.size()
+        && state.dirty == 0;
     if ( bsetCacheUsable )
     {
         for ( auto& bset : s_bsetCacheHandles )
@@ -2030,6 +2032,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 }
             }
         }
+        state.dirty = 0;
     }
     return true;
 }
@@ -2085,6 +2088,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
             vhSetPushConstant_DeviceStateLocked( cmdlist, state, vhPushConstantSize( computeShader.pushConstants ) );
             vhProfile( "BE_Dispatch_PushConstants", false );
         }
+        state.dirty = 0;
 
         vhProfile( "BE_Dispatch_Execute", true );
         cmdlist->dispatch( workGroupCount.x, workGroupCount.y, workGroupCount.z );
@@ -2158,6 +2162,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
             vhSetPushConstant_DeviceStateLocked( cmdlist, state, vhPushConstantSize( computeShader.pushConstants ) );
             vhProfile( "BE_DispatchIndirect_PushConstants", false );
         }
+        state.dirty = 0;
 
         vhProfile( "BE_DispatchIndirect_Execute", true );
         cmdlist->dispatchIndirect( ( uint32_t ) byteOffset );
@@ -2241,7 +2246,8 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
         || s_lastGfxResourceVersionApplied != s_globalResourceVersion
         || s_lastGfxPipelineVersionApplied != s_globalPipelineVersion
         || s_lastGfxUserGlobalsKeyApplied != s_bsetCacheUserGlobalsKey
-        || s_lastGfxCmdlistApplied != cmdlist.Get();
+        || s_lastGfxCmdlistApplied != cmdlist.Get()
+        || state.dirty != 0;
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
@@ -2268,6 +2274,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
             }
             vhProfile( "BE_Submit_PushConstants", false );
         }
+        state.dirty = 0;
 
         vhProfile( "BE_Submit_Execute", true );
         if ( flags & VRHI_DRAW_INDIRECT )

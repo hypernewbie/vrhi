@@ -2637,6 +2637,67 @@ UTEST_F( Graphics, DepthBiasEffect )
 // MultiDrawSameState
 // --------------------------------------------------------------------------
 
+// --------------------------------------------------------------------------
+// PerDrawWorldTransform — vhCmdSetStateWorldTransform must change the world
+// uniform for the next draw even when a prior draw cached the state bindings.
+// --------------------------------------------------------------------------
+
+static const char* g_worldColorPS = R"(
+cbuffer WorldUniforms : register(b1, VRHI_STAGE_SPACE)
+{
+    float4x4 u_world[4];
+};
+
+[shader("pixel")]
+float4 main( float4 pos : SV_Position ) : SV_Target
+{
+    float4 test = mul( u_world[0], float4( 1.0f, 0.0f, 0.0f, 0.0f ) );
+    if ( test.x > 1.5f )
+        return float4( 0.0f, 1.0f, 0.0f, 1.0f ); // green
+    return float4( 1.0f, 0.0f, 0.0f, 1.0f ); // red
+}
+)";
+
+UTEST_F( Graphics, PerDrawWorldTransform )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_worldColorPS, VRHI_SHADER_STAGE_PIXEL );
+
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) );
+    state.SetColourAttachment( 0, rt );
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+    state.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK );
+    state.SetWorldTransform( glm::mat4( 1.0f ), 1 );
+
+    vhStateId sid = 1700;
+
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );  // identity world → red
+
+    // Change world to scale(2,1,1) so mul(u_world[0], (1,0,0,0)).x == 2 → green
+    vhCmdSetStateWorldTransform( sid, { glm::mat4( 2.0f, 0.0f, 0.0f, 0.0f,
+                                                    0.0f, 1.0f, 0.0f, 0.0f,
+                                                    0.0f, 0.0f, 1.0f, 0.0f,
+                                                    0.0f, 0.0f, 0.0f, 1.0f ) } );
+    vhDraw( sid, 3 );
+
+    vhFinish();
+
+    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF00FF00 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+}
+
 UTEST_F( Graphics, MultiDrawSameState )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
