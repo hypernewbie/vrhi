@@ -153,6 +153,9 @@ class vhCmdBackendState : public VIDLHandler
         if ( mem ) g_vhMemList.push_back( const_cast< vhMem* >( mem ) );
     }
 
+    // End any active render pass so that RTXMU barrier injection does not violate Vulkan rules.
+    void BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist );
+
     // --------------------------------------------------------------------------
     // Backend :: Utils & Helpers
     // --------------------------------------------------------------------------

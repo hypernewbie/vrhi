@@ -592,6 +592,26 @@ void main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes att
 }
 )";
 
+// Simple graphics shaders for regression test (draw + AS build in same frame).
+static const char* g_regressVS = R"(
+struct VSInput { float3 pos : POSITION; };
+struct VSOutput { float4 pos : SV_Position; };
+[shader("vertex")]
+VSOutput main( VSInput input )
+{
+    VSOutput o;
+    o.pos = float4( input.pos, 1.0 );
+    return o;
+}
+)";
+static const char* g_regressPS = R"(
+[shader("pixel")]
+float4 main() : SV_Target
+{
+    return float4( 1.0, 0.0, 0.0, 1.0 );
+}
+)";
+
 // --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
@@ -4557,6 +4577,81 @@ UTEST_F( RT, TLAS_OverflowMaxInstances )
     UTEST_PRINTF( "TLAS overflow: error counter before=%d after=%d\n", errBefore, errAfter );
 
     vhDestroyAS( tlas ); vhDestroyAS( blas ); vhDestroyBuffer( vb );
+    vhFinish();
+}
+
+UTEST_F( RT, DrawThenBuildAS )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( g_vhInit.nullMode ) return;
+
+    // Regression: draw (opens dynamic rendering) then immediately build BLAS.
+    // Without the VRHI-side render-pass break, RTXMU injects a pipeline barrier
+    // inside the still-active render pass, violating Vulkan spec.
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    struct Vertex { glm::vec3 pos; };
+    Vertex quad[6] = {
+        { { -1.0f, -1.0f, 0.0f } }, { {  1.0f, -1.0f, 0.0f } }, { { -1.0f,  1.0f, 0.0f } },
+        { {  1.0f, -1.0f, 0.0f } }, { {  1.0f,  1.0f, 0.0f } }, { { -1.0f,  1.0f, 0.0f } }
+    };
+    vhBuffer gfxVB = vhAllocBuffer();
+    vhMem* mem = vhAllocMem( sizeof( quad ) );
+    memcpy( mem->data(), quad, sizeof( quad ) );
+    vhCreateVertexBuffer( gfxVB, "RegressVB", mem, "float3" );
+
+    vhShader vs = vhAllocShader();
+    vhShader ps = vhAllocShader();
+    {
+        std::vector< uint32_t > spirv; std::string err;
+        vhCompileShader( "RegressVS", g_regressVS, VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
+        vhCreateShader( vs, "RegressVS", VRHI_SHADER_STAGE_VERTEX, spirv );
+        spirv.clear();
+        vhCompileShader( "RegressPS", g_regressPS, VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err );
+        vhCreateShader( ps, "RegressPS", VRHI_SHADER_STAGE_PIXEL, spirv );
+    }
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( gfxVB, 0 )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+
+    vhStateId sid = 9500;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 6 );
+
+    // Build BLAS while render pass is still active — this is the repro path.
+    vhAccelStruct blas = BuildTriBLAS( vb, 3 );
+
+    // Verify the BLAS works.
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhTexture rtOut = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rtOut, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 6008, state, p.table, args );
+    EXPECT_TRUE( VerifyPixel( rtOut, 0, 0, 0xFF0000FF ) );
+
+    vhDestroyTexture( rt ); vhDestroyTexture( rtOut );
+    vhDestroyBuffer( vb ); vhDestroyBuffer( gfxVB );
+    vhDestroyAS( tlas ); vhDestroyAS( blas );
+    vhDestroyShader( rayGen ); vhDestroyShader( miss ); vhDestroyShader( closestHit );
+    vhDestroyShader( vs ); vhDestroyShader( ps );
+    DestroyRTPipeline( p );
     vhFinish();
 }
 

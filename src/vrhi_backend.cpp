@@ -3461,6 +3461,20 @@ void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
     }
 }
 
+void vhCmdBackendState::BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist )
+{
+    // End any active render pass so that RTXMU barrier injection does not violate Vulkan rules.
+    cmdlist->commitBarriers();
+    cmdlist->clearState();
+
+    // Invalidate the VRHI graphics state cache — clearState() wiped NVRHI's internal state.
+    s_lastGfxStateApplied = nullptr;
+    s_lastGfxResourceVersionApplied = 0;
+    s_lastGfxPipelineVersionApplied = 0;
+    s_lastGfxUserGlobalsKeyApplied = 0;
+    s_lastGfxCmdlistApplied = nullptr;
+}
+
 void vhCmdBackendState::Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
@@ -3482,6 +3496,7 @@ void vhCmdBackendState::Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd )
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        BE_EndRenderPassBeforeAS( cmdlist );
         cmdlist->buildBottomLevelAccelStruct( backend->handle, cmd->geometries.data(), cmd->geometries.size(), backend->desc.buildFlags );
     }
 }
@@ -3507,6 +3522,7 @@ void vhCmdBackendState::Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd )
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        BE_EndRenderPassBeforeAS( cmdlist );
         nvrhi::rt::AccelStructBuildFlags flags = backend->desc.buildFlags | cmd->buildFlags;
         cmdlist->buildTopLevelAccelStruct( backend->handle, cmd->instances.data(), cmd->instances.size(), flags );
     }
@@ -3552,6 +3568,7 @@ void vhCmdBackendState::Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        BE_EndRenderPassBeforeAS( cmdlist );
         cmdlist->buildTopLevelAccelStructFromBuffer( backend->handle, bufIt->second->handle.Get(), 0, cmd->numInstances, backend->desc.buildFlags );
     }
 }
