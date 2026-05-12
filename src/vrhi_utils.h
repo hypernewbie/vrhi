@@ -84,39 +84,6 @@ public:
 
 // ------------ Texture Utilities ------------
 
-// Get next mipmap dimension
-inline int vhGetImageNextMipmapDim( int x )
-{
-    return ( x > 1 ) ? ( x >> 1 ) : 1;
-}
-
-// Get next mipmap dimension
-inline glm::ivec3 vhGetImageNextMipmapDim( const glm::ivec3& dimensions )
-{
-    return glm::ivec3(
-        vhGetImageNextMipmapDim( dimensions.x ),
-        vhGetImageNextMipmapDim( dimensions.y ),
-        vhGetImageNextMipmapDim( dimensions.z )
-    );
-}
-
-// Calculate the maximum number of mipmaps for given dimensions.
-inline int vhGetImageMaxMipCount( const glm::ivec3& dimensions )
-{
-    if ( dimensions.x <= 0 || dimensions.y <= 0 || dimensions.z <= 0 )
-    {
-        return 0;
-    }
-    glm::ivec3 dim = dimensions;
-    int count = 0;
-    while ( dim.x > 1 || dim.y > 1 || dim.z > 1 )
-    {
-        dim = vhGetImageNextMipmapDim( dim );
-        count++;
-    }
-    return count + 1;
-}
-
 // Get the size of a single array slice of the image
 glm::ivec2 vhGetImageSliceSize( const vhFormatInfo& info, const glm::ivec3& dimensions );
 

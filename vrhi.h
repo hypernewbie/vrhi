@@ -137,6 +137,34 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
 
+inline int vhGetImageNextMipmapDim( int x )
+{
+    return ( x > 1 ) ? ( x >> 1 ) : 1;
+}
+
+inline glm::ivec3 vhGetImageNextMipmapDim( const glm::ivec3& dimensions )
+{
+    return glm::ivec3(
+        vhGetImageNextMipmapDim( dimensions.x ),
+        vhGetImageNextMipmapDim( dimensions.y ),
+        vhGetImageNextMipmapDim( dimensions.z )
+    );
+}
+
+inline int vhGetImageMaxMipCount( const glm::ivec3& dimensions )
+{
+    if ( dimensions.x <= 0 || dimensions.y <= 0 || dimensions.z <= 0 )
+        return 0;
+    glm::ivec3 dim = dimensions;
+    int count = 0;
+    while ( dim.x > 1 || dim.y > 1 || dim.z > 1 )
+    {
+        dim = vhGetImageNextMipmapDim( dim );
+        count++;
+    }
+    return count + 1;
+}
+
 // --------------------------------------------------------------------------
 // Shader Stages
 // --------------------------------------------------------------------------
@@ -915,6 +943,7 @@ void vhDestroyTexture( vhTexture texture );
 // `dimensions` specifies width, height, and depth.
 // `numMips` and `numLayers` specify mip count and array size.
 // `numMips` can be VRHI_MIPMAP_COMPLETE to create a full mip chain down to 1x1x1.
+// Use vhGetImageMaxMipCount(dimensions) to compute the resolved value synchronously.
 // `format` is the pixel format.
 // `flag` specifies usage and sampling options.
 // `data` is optional initial pixel data. Takes ownership of the memory.
