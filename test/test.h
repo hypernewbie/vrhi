@@ -22,6 +22,12 @@
 #pragma once
 
 #undef __EXCEPTIONS
+
+#if defined(_WIN32) && !defined(_WINDOWS_)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include "utest.h"
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
