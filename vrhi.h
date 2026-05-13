@@ -132,7 +132,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 // --------------------------------------------------------------------------
 
 #define VRHI_VERSION_MAJOR 0
-#define VRHI_VERSION_MINOR 3
+#define VRHI_VERSION_MINOR 4
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
