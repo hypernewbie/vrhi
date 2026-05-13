@@ -1697,6 +1697,31 @@ inline vhProgram vhCreateRTProgram( vhShader rayGen, vhShader miss, vhShader clo
     return { rayGen, miss, closestHit, anyHit, intersection };
 }
 
+// Pre-compile a graphics PSO into the internal PSO cache. No draw required.
+// stateFlags: VRHI_STATE_* bitmask (depth, blend, cull, prim type, etc.)
+// vertexLayout: layout string e.g. "float3 half4 half4 half4 half4 half4".
+//               Empty for vertex shaders with no inputs (SV_VertexID only).
+// colorFormats: render target formats (empty for depth-only).
+// depthFormat: depth attachment format (nvrhi::Format::UNKNOWN for no depth).
+// sampleCount: MSAA sample count (must be > 0, 1 for no MSAA).
+// Fire-and-forget. Call vhFinish() to ensure commands are processed.
+// VIDL_GENERATE
+void vhPrecompilePSO(
+    vhProgram program,
+    uint64_t stateFlags,
+    const vhVertexLayout& vertexLayout,
+    const std::vector< nvrhi::Format >& colorFormats,
+    nvrhi::Format depthFormat,
+    uint32_t sampleCount
+);
+
+// Pre-compile a compute PSO into the internal PSO cache. No dispatch required.
+// Fire-and-forget. Call vhFinish() to ensure commands are processed.
+inline void vhPrecompilePSO( vhProgram program )
+{
+    vhPrecompilePSO( std::move( program ), 0, "", {}, nvrhi::Format::UNKNOWN, 1 );
+}
+
 // ------------ State ------------
 
 typedef uint64_t vhStateId;

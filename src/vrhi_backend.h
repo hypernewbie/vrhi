@@ -266,6 +266,8 @@ class vhCmdBackendState : public VIDLHandler
 
     void BE_Submit( vhState& state, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount );
 
+    void BE_PrecompilePSO( const VIDL_vhPrecompilePSO* cmd );
+
     void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size );
 
     void BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args );
@@ -381,6 +383,7 @@ public:
     void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) override;
     void Handle_vhClear( VIDL_vhClear* cmd ) override;
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override;
+    void Handle_vhPrecompilePSO( VIDL_vhPrecompilePSO* cmd ) override;
     void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) override;
     void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) override;
     void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) override;

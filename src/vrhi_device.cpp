@@ -1023,6 +1023,34 @@ void vhClear( vhStateId state, uint16_t clearFlags )
     vhCmdEnqueue( cmd );
 }
 
+void vhPrecompilePSO(
+    vhProgram program,
+    uint64_t stateFlags,
+    const vhVertexLayout& vertexLayout,
+    const std::vector< nvrhi::Format >& colorFormats,
+    nvrhi::Format depthFormat,
+    uint32_t sampleCount
+)
+{
+    if ( program.empty() )
+        return;
+    if ( sampleCount == 0 )
+    {
+        VRHI_ERR( "vhPrecompilePSO(): sampleCount must be > 0\n" );
+        return;
+    }
+
+    VIDL_vhPrecompilePSO* cmd = vhCmdAlloc< VIDL_vhPrecompilePSO >(
+        std::move( program ),
+        stateFlags,
+        vertexLayout,
+        colorFormats,
+        depthFormat,
+        sampleCount
+    );
+    vhCmdEnqueue( cmd, false );
+}
+
 void vhBlitBuffer( vhBuffer dst, vhBuffer src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size )
 {
     VIDL_vhBlitBuffer* cmd = vhCmdAlloc<VIDL_vhBlitBuffer>( dst, src, dstOffset, srcOffset, size );
@@ -1644,9 +1672,13 @@ uint64_t vhHashVertexAttributeDesc( int location, const nvrhi::VertexAttributeDe
 static uint64_t vhHashRenderState( const nvrhi::RenderState& rs )
 {
     static_assert( sizeof( nvrhi::RenderState ) == 144, "nvrhi::RenderState size mismatch" );
-    // Single bulk hash over the entire struct. Safe because GraphicsPipelineDesc is
-    // value-initialised (= {}) on every draw, so all padding bytes are deterministically zero.
-    return komihash( &rs, sizeof( rs ), 0 );
+
+    uint64_t h = 0;
+    h = komihash( &rs.blendState, sizeof( rs.blendState ), h );
+    h = komihash( &rs.depthStencilState, sizeof( rs.depthStencilState ), h );
+    h = komihash( &rs.rasterState, sizeof( rs.rasterState ), h );
+    h = komihash( &rs.singlePassStereo, sizeof( rs.singlePassStereo ), h );
+    return h;
 }
 
 static uint64_t vhHashFramebufferInfo( const nvrhi::FramebufferInfo& fb )

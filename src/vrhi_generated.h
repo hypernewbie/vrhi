@@ -643,6 +643,23 @@ struct VIDL_vhDestroyShader
         : shader(_shader) {}
 };
 
+struct VIDL_vhPrecompilePSO
+{
+    static constexpr uint64_t kMagic = 0x7198AE86;
+    uint64_t MAGIC = kMagic;
+    vhProgram program;
+    uint64_t stateFlags;
+    const vhVertexLayout vertexLayout;
+    const std::vector< nvrhi::Format > colorFormats;
+    nvrhi::Format depthFormat;
+    uint32_t sampleCount;
+
+    VIDL_vhPrecompilePSO() = default;
+
+    VIDL_vhPrecompilePSO(vhProgram _program, uint64_t _stateFlags, const vhVertexLayout& _vertexLayout, const std::vector< nvrhi::Format >& _colorFormats, nvrhi::Format _depthFormat, uint32_t _sampleCount)
+        : program(_program), stateFlags(_stateFlags), vertexLayout(_vertexLayout), colorFormats(_colorFormats), depthFormat(_depthFormat), sampleCount(_sampleCount) {}
+};
+
 struct VIDL_vhDispatch
 {
     static constexpr uint64_t kMagic = 0x8A8ABD80;
@@ -1109,6 +1126,7 @@ struct VIDLHandler
     virtual void Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShader( VIDL_vhCreateShader* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd ) { (void) cmd; };
+    virtual void Handle_vhPrecompilePSO( VIDL_vhPrecompilePSO* cmd ) { (void) cmd; };
     virtual void Handle_vhDispatch( VIDL_vhDispatch* cmd ) { (void) cmd; };
     virtual void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) { (void) cmd; };
     virtual void Handle_vhClear( VIDL_vhClear* cmd ) { (void) cmd; };
@@ -1334,6 +1352,10 @@ struct VIDLHandler
         case 0x3328C9A7:
             HandleLogFunction("Handle_vhDestroyShader");
             Handle_vhDestroyShader( (VIDL_vhDestroyShader*) cmd );
+            break;
+        case 0x7198AE86:
+            HandleLogFunction("Handle_vhPrecompilePSO");
+            Handle_vhPrecompilePSO( (VIDL_vhPrecompilePSO*) cmd );
             break;
         case 0x8A8ABD80:
             HandleLogFunction("Handle_vhDispatch");

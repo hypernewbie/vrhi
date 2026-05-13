@@ -40,6 +40,8 @@ UTEST( NullDevice, InitShutdown )
 
     EXPECT_EQ( g_vhDevice.Get(), nullptr );
     EXPECT_FALSE( g_vhNullMode );
+
+    g_vhInit = g_testInitDefaults;
 }
 
 UTEST( NullDevice, ResourceCreation )
@@ -68,6 +70,8 @@ UTEST( NullDevice, ResourceCreation )
     vhFlush();
 
     vhShutdown( true );
+
+    g_vhInit = g_testInitDefaults;
 }
 
 UTEST( NullDevice, FrameLoop )
@@ -85,6 +89,8 @@ UTEST( NullDevice, FrameLoop )
     }
 
     vhShutdown( true );
+
+    g_vhInit = g_testInitDefaults;
 }
 
 UTEST( NullDevice, Resize )
@@ -104,4 +110,7 @@ UTEST( NullDevice, Resize )
     EXPECT_EQ( vhGetWindowSize().y, 1080 );
 
     vhShutdown( true );
+
+    // Restore defaults so subsequent tests don't inherit nullMode.
+    g_vhInit = g_testInitDefaults;
 }

@@ -4869,3 +4869,133 @@ nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable tabl
     return g_vhCmdBackendState.QueryShaderTableHandle( table );
 }
 
+void vhCmdBackendState::Handle_vhPrecompilePSO( VIDL_vhPrecompilePSO* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    BE_PrecompilePSO( cmd );
+}
+
+void vhCmdBackendState::BE_PrecompilePSO( const VIDL_vhPrecompilePSO* cmd )
+{
+    s_shaders.clear();
+    for ( vhShader handle : cmd->program )
+    {
+        auto it = backendShaders.find( handle );
+        if ( it != backendShaders.end() && it->second && it->second->handle )
+            s_shaders.push_back( it->second.get() );
+    }
+
+    if ( s_shaders.empty() )
+    {
+        VRHI_ERR( "BE_PrecompilePSO(): No valid shaders in program!\n" );
+        return;
+    }
+
+    // Determine compute vs graphics by inspecting shader stages
+    bool isCompute = false;
+    for ( auto* shader : s_shaders )
+    {
+        if ( ( shader->flags & VRHI_SHADER_STAGE_MASK ) == VRHI_SHADER_STAGE_COMPUTE )
+        {
+            isCompute = true;
+            break;
+        }
+    }
+
+    vhState state;
+    state.stateFlags = cmd->stateFlags;
+    state.viewScissor = glm::vec4( 0.0f, 0.0f, -1.0f, -1.0f );
+
+    if ( isCompute )
+    {
+        vhBackendShader* computeShader = nullptr;
+        for ( auto* shader : s_shaders )
+        {
+            if ( ( shader->flags & VRHI_SHADER_STAGE_MASK ) == VRHI_SHADER_STAGE_COMPUTE )
+            {
+                computeShader = shader;
+                break;
+            }
+        }
+        if ( !computeShader )
+        {
+            VRHI_ERR( "BE_PrecompilePSO(): No compute shader in program!\n" );
+            return;
+        }
+
+        vhResetComputePipelineDesc( s_dispatchDesc );
+        if ( !BE_PresubmitCommon_PipelineDesc( state, &computeShader, 1, &s_dispatchDesc, nullptr ) )
+        {
+            VRHI_ERR( "BE_PrecompilePSO(): Failed to build compute pipeline desc!\n" );
+            return;
+        }
+
+        vhPSOCacheGet( s_dispatchDesc );
+        return;
+    }
+
+    // Graphics precompile
+    constexpr vhBuffer kTempBufferHandle = 0xFFFFFFFE;
+    bool createdTempBuffer = false;
+
+    if ( cmd->depthFormat != nvrhi::Format::UNKNOWN )
+        state.depthAttachment.texture = ( vhTexture ) 1;
+
+    if ( !cmd->vertexLayout.empty() )
+    {
+        std::vector< vhVertexLayoutDef > parsedLayout;
+        if ( !vhParseVertexLayoutInternal( cmd->vertexLayout, parsedLayout ) )
+        {
+            VRHI_ERR( "BE_PrecompilePSO(): Failed to parse vertex layout: %s\n", cmd->vertexLayout.c_str() );
+            return;
+        }
+
+        uint32_t stride = ( uint32_t ) vhVertexLayoutDefSize( parsedLayout );
+        bool isInstanced = false;
+        for ( auto& def : parsedLayout )
+        {
+            if ( def.isInstanced ) { isInstanced = true; break; }
+        }
+
+        {
+            auto tempBuf = std::make_unique< vhBackendBuffer >();
+            tempBuf->layout = std::move( parsedLayout );
+            tempBuf->stride = stride;
+            backendBuffers[ kTempBufferHandle ] = std::move( tempBuf );
+        }
+
+        vhState::VertexBinding vb;
+        vb.buffer       = kTempBufferHandle;
+        vb.stream       = 0;
+        vb.startVertex  = 0;
+        vb.numVertices  = UINT32_MAX;
+        vb.byteOffset   = 0;
+        vb.isInstanced  = isInstanced;
+        state.vertexBindings.resize( 1 );
+        state.vertexBindings[ 0 ] = vb;
+        createdTempBuffer = true;
+    }
+
+    vhResetGraphicsPipelineDesc( s_submitPipelineDesc );
+    bool descOk = BE_PresubmitCommon_PipelineDesc(
+        state, s_shaders.data(), ( int ) s_shaders.size(),
+        nullptr, &s_submitPipelineDesc );
+
+    if ( createdTempBuffer )
+        backendBuffers.erase( kTempBufferHandle );
+
+    if ( !descOk )
+    {
+        VRHI_ERR( "BE_PrecompilePSO(): Failed to build graphics pipeline desc!\n" );
+        return;
+    }
+
+    nvrhi::FramebufferInfo fbInfo;
+    for ( auto& fmt : cmd->colorFormats )
+        fbInfo.addColorFormat( fmt );
+    fbInfo.setDepthFormat( cmd->depthFormat );
+    fbInfo.setSampleCount( cmd->sampleCount );
+
+    vhPSOCacheGet( s_submitPipelineDesc, fbInfo );
+}
+

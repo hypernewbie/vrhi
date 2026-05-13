@@ -29,6 +29,7 @@
 
 extern bool g_captureActive;
 extern bool g_testInit;
+extern struct vhInitData g_testInitDefaults;
 void TestEnsureShutdown();
 
 // Returns true when running on a software Vulkan ICD (llvmpipe/lavapipe/SwiftShader/Microsoft Basic).
