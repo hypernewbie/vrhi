@@ -173,8 +173,10 @@ void vhCmdEnqueue( void* cmd, bool wait )
 }
 
 nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };
+bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count] = { false, false, false };
 uint64_t g_vhCmdListTransferSizeHeuristic = 0;
 
+// Persistent: handle is created once and re-opened after each execute to keep the upload pool alive.
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
 {
     std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
@@ -183,7 +185,11 @@ nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
     {
         nvrhi::CommandListParameters params = { .queueType = ( nvrhi::CommandQueue ) type };
         g_vhCmdLists[typeIdx] = g_vhDevice->createCommandList( params );
+    }
+    if ( !g_vhCmdListOpen[typeIdx] )
+    {
         g_vhCmdLists[typeIdx]->open();
+        g_vhCmdListOpen[typeIdx] = true;
     }
     return g_vhCmdLists[typeIdx];
 }
@@ -192,25 +198,19 @@ nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
 // Automatically inserts semaphore waits for downstream queues:
 // - Copy feeds Compute and Graphics
 // - Compute feeds Graphics
-//
-// Returns the instance ID of the executed command list.
-// Automatically inserts semaphore waits for downstream queues:
-// - Copy feeds Compute and Graphics
-// - Compute feeds Graphics
-//
 uint64_t vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQueue type )
 {
     // WARNING: Lock g_nvRHIStateMutex before calling this.
     auto typeIdx = ( uint64_t ) type;
     uint64_t instance = 0;
 
-    if ( g_vhCmdLists[typeIdx] )
+    if ( g_vhCmdLists[typeIdx] && g_vhCmdListOpen[typeIdx] )
     {
         g_vhCmdLists[typeIdx]->close();
 
-        // Execute and get the instance ID for synchronisation
+        // Handle is intentionally retained; the next vhCmdListGet() will re-open it.
         instance = g_vhDevice->executeCommandList( g_vhCmdLists[typeIdx], type );
-        g_vhCmdLists[typeIdx] = nullptr;
+        g_vhCmdListOpen[typeIdx] = false;
 
         // Automatic Synchronisation
         if ( instance )
@@ -230,6 +230,16 @@ uint64_t vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQue
     }
 
     return instance;
+}
+
+// Shutdown only. Lock g_nvRHIStateMutex before calling.
+void vhCmdListReleaseAll_DeviceStateLocked()
+{
+    for ( uint64_t i = 0; i < ( uint64_t ) nvrhi::CommandQueue::Count; i++ )
+    {
+        g_vhCmdLists[i] = nullptr;
+        g_vhCmdListOpen[i] = false;
+    }
 }
 
 // Semaphores for frame synchronisation
@@ -470,6 +480,75 @@ void vhCmdListFlushAll()
 {
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
     vhCmdListFlushAll_DeviceStateLocked();
+}
+
+// Keep in sync with the literal "..." passed to vhProfile()/VRHI_PROFILE_SCOPE() across src/.
+// VRHI_PROFILE_FUNCTION() scopes use __FUNCTION__ and are intentionally omitted.
+static const char* const g_vhProfileScopeNames[] =
+{
+    "vhFlush",
+    "vhFlush_Copy",
+    "vhFlush_Compute",
+    "vhFlush_Wait",
+    "vhFinish_Wait",
+    "vhFrame_Present",
+    "vhFrame_WaitSemaphore",
+    "vhFrame_AcquireNextImage",
+    "Handle_vhFlushInternal_WaitForGPU",
+    "Handle_vhFlushInternal_GC",
+    "BE_UpdateTexture_Calc",
+    "BE_UpdateTexture_Write",
+    "BE_BlitTexture_SliceSetup",
+    "BE_BlitTexture_Execute",
+    "BE_ReadTextureSlow_StagingCreate",
+    "BE_ReadTextureSlow_Copy",
+    "BE_ReadTextureSlow_Map",
+    "BE_ReadTextureSlow_CopyCPU",
+    "BE_ReadTextureSlow_Unmap",
+    "BE_ResizeBuffer_Create",
+    "BE_ResizeBuffer_Copy",
+    "BE_UpdateBuffer_ResizeCheck",
+    "BE_UpdateBuffer_Write",
+    "BE_PresubmitCommon_PipelineDesc_ShaderHandles",
+    "BE_PresubmitCommon_PipelineDesc_RenderState",
+    "BE_PresubmitCommon_PipelineDesc_VertexLayout",
+    "BE_PreSubmitCommon_ResolveStateCache_Textures",
+    "BE_PreSubmitCommon_ResolveStateCache_Shaders",
+    "BE_PreSubmitCommon_ResolveStateCache_Buffers",
+    "BE_PreSubmitCommon_ResolveStateCache_AccelStructs",
+    "BE_PreSubmitCommon_State_PSOLayoutHash",
+    "BE_PreSubmitCommon_State_ShaderLayoutMatch",
+    "BE_PreSubmitCommon_State_ResolveCache",
+    "BE_PreSubmitCommon_State_BindingSetBuild",
+    "BE_PreSubmitCommon_State_GraphicsStateSetup",
+    "BE_Dispatch_PipelineDesc",
+    "BE_Dispatch_PSOCache",
+    "BE_Dispatch_StateSetup",
+    "BE_Dispatch_PushConstants",
+    "BE_Dispatch_Execute",
+    "BE_DispatchIndirect_Validation",
+    "BE_DispatchIndirect_PipelineDesc",
+    "BE_DispatchIndirect_PSOCache",
+    "BE_DispatchIndirect_StateSetup",
+    "BE_DispatchIndirect_SetParams",
+    "BE_DispatchIndirect_PushConstants",
+    "BE_DispatchIndirect_Execute",
+    "BE_Submit_PipelineDesc",
+    "BE_Submit_GetFramebuffer",
+    "BE_Submit_PSOCache",
+    "BE_Submit_StateSetup",
+    "BE_Submit_PushConstants",
+    "BE_Submit_Execute",
+    "BE_BlitBuffer_Execute",
+    "BE_DispatchRays_ShaderSetup",
+    "BE_DispatchRays_StateSetup",
+    "BE_DispatchRays_Execute",
+};
+
+void vhEnumerateProfileScopes( void (*cb)( const char* name, void* user ), void* user )
+{
+    if ( !cb ) return;
+    for ( const char* name : g_vhProfileScopeNames ) cb( name, user );
 }
 
 // Global states for user convenience.

@@ -526,8 +526,11 @@ glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
 
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count];
+extern bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count];
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 uint64_t vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
+// Shutdown only. Lock g_nvRHIStateMutex; backend thread must be joined first.
+void vhCmdListReleaseAll_DeviceStateLocked();
 
 struct vhVertexLayoutDef
 {
@@ -550,7 +553,7 @@ void vhSamplerCacheShutdown();
 nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& desc );
 nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 void vhBindingSetCacheClear();
-nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
+nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLayout* layout );
 nvrhi::FramebufferHandle vhFBOCacheGet( const nvrhi::FramebufferDesc& desc );
 void vhFBOCacheReset();
 
@@ -621,7 +624,7 @@ bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nv
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc );
 uint64_t vhHashBindingLayout( const nvrhi::BindingLayoutDesc& desc );
-uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout );
+uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLayout* layout );
 uint64_t vhHashShaderDebugName( nvrhi::ShaderHandle shader );
 uint64_t vhHashShaderSPIRV( const std::vector< uint32_t >& spirv );
 uint64_t vhHashInputLayout( nvrhi::InputLayoutHandle layout );

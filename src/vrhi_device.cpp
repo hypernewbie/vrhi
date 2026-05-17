@@ -752,6 +752,11 @@ void vhShutdown( bool quiet )
     g_vhCmdThreadReady = false;
     vhBackendShutdown();
     vhCmdListFlushAll();
+    {
+        // Release persistent command list handles now that no more recording can happen.
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhCmdListReleaseAll_DeviceStateLocked();
+    }
     g_vhCmdArena.Shutdown();
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
@@ -1824,12 +1829,12 @@ nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& 
     return pso;
 }
 
-uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout )
+uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLayout* layout )
 {
     static_assert( sizeof( nvrhi::BindingSetItem ) == 40, "nvrhi::BindingSetItem size mismatch" );
 
     // We expect desc to be zero init.
-    void* pLayout = layout.Get();
+    void* pLayout = layout;
     uint64_t h = komihash( &pLayout, sizeof( pLayout ), 0 );
     h = komihash( &desc.trackLiveness, sizeof( desc.trackLiveness ), h );
 
@@ -1880,7 +1885,7 @@ void vhBindingSetCacheClear()
     s_bindingSetCache.clear();
 }
 
-nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout )
+nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLayout* layout )
 {
     uint64_t hash = vhHashBindingSet( desc, layout );
 

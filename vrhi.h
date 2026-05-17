@@ -105,6 +105,9 @@ struct vhInitData
     uint32_t maxWorldMatrices = 16 * 1024;         // World-space transform matrices.
     uint32_t maxUserGlobals = 16 * 1024 * 1024;    // User shader parameters (material data, etc).
 
+    // Flushes between nvrhi runGarbageCollection() runs. 0 or 1 forces every flush. vhFinish() always GCs.
+    uint32_t gcFlushInterval = 16;
+
     // Seeds the Vulkan driver pipeline cache. Obtained from a previous vhGetPSOCache().
     std::vector< uint8_t > psoCacheInitialData;
 };
@@ -827,6 +830,11 @@ void vhFlush( bool wait = true );
 // Flushes all commands and blocks until the GPU has completed all queued work.
 // Use this for synchronisation points, readbacks, or before accessing GPU results.
 void vhFinish();
+
+// Enumerates every literal profile scope name VRHI may emit via fnProfileCallback.
+// Use at init to pre-register names with your profiler and avoid first-call lookups on the hot path.
+// Scopes emitted via VRHI_PROFILE_FUNCTION() use __FUNCTION__ and are not enumerated here.
+void vhEnumerateProfileScopes( void (*cb)( const char* name, void* user ), void* user = nullptr );
 
 // Clears backend caches (e.g. framebuffers). Call this after a window resize.
 // VIDL_GENERATE

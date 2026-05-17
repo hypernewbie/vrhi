@@ -148,6 +148,9 @@ class vhCmdBackendState : public VIDLHandler
     nvrhi::BindingLayoutHandle m_emptyLayout;
     nvrhi::BindingSetHandle m_emptySet;
 
+    // Debounce counter for runGarbageCollection() in Handle_vhFlushInternal.
+    uint64_t m_flushCounter = 0;
+
     inline void BE_MemDefer( const vhMem* mem )
     {
         if ( mem ) g_vhMemList.push_back( const_cast< vhMem* >( mem ) );

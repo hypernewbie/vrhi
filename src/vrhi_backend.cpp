@@ -1796,7 +1796,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         bsetDesc.bindings = std::move( savedBindings );
         bsetDesc.bindings.clear();
 
-        auto layout = layouts[layoutIdx];
+        auto& layout = layouts[layoutIdx];
         assert( layout );
         auto layoutDesc = layout->getDesc();
         assert( layoutDesc );
@@ -1818,7 +1818,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( layoutItr == s_layoutToShader.end() )
         {
             // Unmapped slot (user-supplied placeholder layout). Bind an empty set against it.
-            nvrhi::BindingSetHandle bset = vhGetBindingSet( nvrhi::BindingSetDesc{}, layout );
+            nvrhi::BindingSetHandle bset = vhGetBindingSet( nvrhi::BindingSetDesc{}, layout.Get() );
             if ( bset )
             {
                 if ( computeState )  computeState->addBindingSet( bset );
@@ -1890,7 +1890,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
 
         // Create Binding Set.
-        nvrhi::BindingSetHandle bset = vhGetBindingSet( bsetDesc, layout );
+        nvrhi::BindingSetHandle bset = vhGetBindingSet( bsetDesc, layout.Get() );
         if ( !bset )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
@@ -4185,7 +4185,16 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
             g_vhDevice->waitForIdle();
             vhProfile( "Handle_vhFlushInternal_WaitForGPU", false );
         }
-        g_vhDevice->runGarbageCollection();
+
+        // GC is expensive (WDDM dealloc). Debounce via g_vhInit.gcFlushInterval; always GC on waitForGPU.
+        m_flushCounter++;
+        const uint32_t gcInterval = g_vhInit.gcFlushInterval == 0 ? 1 : g_vhInit.gcFlushInterval;
+        if ( cmd->waitForGPU || ( m_flushCounter % gcInterval ) == 0 )
+        {
+            vhProfile( "Handle_vhFlushInternal_GC", true );
+            g_vhDevice->runGarbageCollection();
+            vhProfile( "Handle_vhFlushInternal_GC", false );
+        }
 
         g_vhCmdArena.Rotate();
     }

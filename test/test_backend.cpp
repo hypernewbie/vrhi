@@ -2193,6 +2193,135 @@ UTEST( Backend, VertexBindingSnapshotFlushShrinks )
     vhFinish();
 }
 
+// vhEnumerateProfileScopes should hand back a non-empty list of non-null, non-empty names
+// containing at least one well-known scope ("vhFlush"). Used by AE to pre-register names.
+UTEST( Backend, ProfileScopeEnumeration )
+{
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+
+    struct Ctx
+    {
+        int count = 0;
+        bool foundVhFlush = false;
+        bool anyNull = false;
+        bool anyEmpty = false;
+    };
+    Ctx ctx;
+
+    vhEnumerateProfileScopes( []( const char* name, void* user )
+    {
+        Ctx& c = *( Ctx* ) user;
+        c.count++;
+        if ( !name ) { c.anyNull = true; return; }
+        if ( name[0] == '\0' ) { c.anyEmpty = true; return; }
+        if ( strcmp( name, "vhFlush" ) == 0 ) c.foundVhFlush = true;
+    }, &ctx );
+
+    EXPECT_GT( ctx.count, 0 );
+    EXPECT_FALSE( ctx.anyNull );
+    EXPECT_FALSE( ctx.anyEmpty );
+    EXPECT_TRUE( ctx.foundVhFlush );
+
+    // Null callback must not crash.
+    vhEnumerateProfileScopes( nullptr, nullptr );
+}
+
+// B0: NVRHI command list handles are retained across vhFlush() so the upload chunk pool
+// inside the command list survives instead of being torn down every flush.
+UTEST( Backend, PersistentCommandListHandle )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+
+    // Drain so the backend is idle and g_vhCmdLists is in a known state.
+    vhFinish();
+
+    nvrhi::ICommandList* before = nullptr;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        before = g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Graphics].Get();
+    }
+
+    // writeBuffer pushes work through the Graphics command list, forcing creation.
+    auto fnDriveGraphicsWork = []()
+    {
+        vhBuffer buf = vhAllocBuffer();
+        vhCreateUniformBuffer( buf, "PersistTestBuf", nullptr, 256 );
+        vhMem* data = vhAllocMem( 256 );
+        vhUpdateUniformBuffer( buf, data, 0, 256 );
+        vhFlush();
+        vhDestroyBuffer( buf );
+        vhFinish();
+    };
+
+    if ( !before )
+    {
+        fnDriveGraphicsWork();
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        before = g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Graphics].Get();
+    }
+    ASSERT_TRUE( before != nullptr );
+
+    // Drive several flush cycles and confirm the handle pointer never changes.
+    for ( int i = 0; i < 4; i++ )
+    {
+        fnDriveGraphicsWork();
+
+        nvrhi::ICommandList* after = nullptr;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            after = g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Graphics].Get();
+        }
+        EXPECT_EQ( after, before );
+    }
+}
+
+// B1: gcFlushInterval debounces runGarbageCollection(). A very large interval should suppress
+// GC across normal vhFlush() calls, but vhFinish() (waitForGPU) must always force a GC.
+UTEST( Backend, GCFlushIntervalDebounce )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+
+    // Default value sanity check.
+    EXPECT_EQ( g_vhInit.gcFlushInterval, 16u );
+
+    static std::atomic<int> gcCount{0};
+    gcCount = 0;
+
+    auto savedCB = g_vhInit.fnProfileCallback;
+    g_vhInit.fnProfileCallback = []( const char* name, bool begin )
+    {
+        if ( begin && name && strcmp( name, "Handle_vhFlushInternal_GC" ) == 0 )
+            gcCount.fetch_add( 1, std::memory_order_relaxed );
+    };
+
+    const uint32_t savedInterval = g_vhInit.gcFlushInterval;
+
+    // Drain anything queued before the test so our counter measures only what we drive.
+    vhFinish();
+    gcCount = 0;
+
+    // Huge interval — non-waiting flushes should not trigger GC.
+    g_vhInit.gcFlushInterval = 100000;
+    for ( int i = 0; i < 4; i++ ) vhFlush( true );
+    EXPECT_EQ( gcCount.load(), 0 );
+
+    // vhFinish() forces waitForGPU which must always GC.
+    vhFinish();
+    EXPECT_GE( gcCount.load(), 1 );
+
+    // Tight interval — every flush should GC.
+    gcCount = 0;
+    g_vhInit.gcFlushInterval = 1;
+    for ( int i = 0; i < 3; i++ ) vhFlush( true );
+    EXPECT_GE( gcCount.load(), 3 );
+
+    g_vhInit.gcFlushInterval = savedInterval;
+    g_vhInit.fnProfileCallback = savedCB;
+    vhFinish();
+}
+
 UTEST( Backend, ProfileMarkerNesting )
 {
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
