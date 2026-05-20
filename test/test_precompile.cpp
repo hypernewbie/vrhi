@@ -290,6 +290,7 @@ UTEST_F( Precompile_Compute, BatchNThenCacheHit )
     const int N = 32;
     std::vector< vhShader > shaders;
     shaders.reserve( N );
+    s_liveShaderNames.reserve( s_liveShaderNames.size() + N );
 
     for ( int i = 0; i < N; ++i )
     {
