@@ -3489,11 +3489,7 @@ UTEST_F( Graphics, ComparisonSampler_Shadow )
 UTEST_F( Graphics, ConservativeRaster_Border )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-
-    nvrhi::FormatSupport conservCheck = vhQueryFormatSupport( nvrhi::Format::RGBA8_UNORM );
-    (void)conservCheck;
-    // Check if conservative rasterization is supported via a feature query
-    // (VRHI exposes it as a state flag; hardware support varies)
+    if ( TestIsSoftwareVulkan() ) { UTEST_SKIP( "Conservative raster unsupported on software Vulkan" ); }
 
     vhTexture rt = CreateTestTexture( 8, 8, nvrhi::Format::RGBA8_UNORM );
     struct Vertex { glm::vec3 pos; glm::vec4 col; };
