@@ -918,7 +918,10 @@ UTEST_F_SETUP( RT )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
-    if ( !g_vhInit.raytracing )
+    // Lavapipe advertises RT but its implementation hangs on TLAS/BLAS work under
+    // CI's reduced-CPU runner. Force RT off on software Vulkan so RT tests skip
+    // cleanly via their `if ( !g_vhDeviceInfo.raytracing ) return;` guards.
+    if ( !g_vhInit.raytracing && !TestIsSoftwareVulkan() )
     {
         TestEnsureShutdown();
         g_vhInit.raytracing = true;
