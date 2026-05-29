@@ -144,11 +144,14 @@ static vkb::PhysicalDevice vhSelectPhysicalDevice_1_3( vkb::Instance& vkbInst, V
 
     VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12.timelineSemaphore = VK_TRUE;
+    v12.descriptorIndexing = VK_TRUE;
+    v12.runtimeDescriptorArray = VK_TRUE;
+    v12.descriptorBindingPartiallyBound = VK_TRUE;
+    v12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    v12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
     if ( withRT )
     {
         v12.bufferDeviceAddress = VK_TRUE;
-        v12.descriptorIndexing = VK_TRUE;
-        v12.runtimeDescriptorArray = VK_TRUE;
     }
 
     VkPhysicalDeviceVulkan13Features v13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
@@ -186,6 +189,11 @@ static vkb::PhysicalDevice vhSelectPhysicalDevice_1_2( vkb::Instance& vkbInst, V
 
     VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12.timelineSemaphore = VK_TRUE;
+    v12.descriptorIndexing = VK_TRUE;
+    v12.runtimeDescriptorArray = VK_TRUE;
+    v12.descriptorBindingPartiallyBound = VK_TRUE;
+    v12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    v12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
 
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynRender = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR };
     dynRender.dynamicRendering = VK_TRUE;
@@ -388,7 +396,11 @@ void vhInit( bool quiet )
         VkPhysicalDeviceDriverProperties driverProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
         VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
         props2.pNext = &driverProps;
+        VkPhysicalDeviceVulkan12Features supportedV12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        features2.pNext = &supportedV12;
         vkGetPhysicalDeviceProperties2( g_vulkanPhysicalDevice, &props2 );
+        vkGetPhysicalDeviceFeatures2( g_vulkanPhysicalDevice, &features2 );
         VRHI_LOG( "    Vulkan Driver: %s (%s)\n", driverProps.driverName, driverProps.driverInfo );
 
         // Populate device info struct
@@ -683,7 +695,7 @@ void vhInit( bool quiet )
         }
 
         // Auto-detect remaining features
-        g_vhDeviceInfo.bindless = vhQueryFeatureSupport_Internal( nvrhi::Feature::HlslExtensionUAV );
+        g_vhDeviceInfo.bindless = supportedV12.descriptorIndexing && supportedV12.runtimeDescriptorArray;
         g_vhDeviceInfo.vrs = vhQueryFeatureSupport_Internal( nvrhi::Feature::VariableRateShading );
         g_vhDeviceInfo.asyncCompute = vhQueryFeatureSupport_Internal( nvrhi::Feature::CopyQueue );
 
