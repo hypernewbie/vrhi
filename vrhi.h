@@ -214,6 +214,13 @@ constexpr uint32_t VRHI_DESCRIPTOR_SET_CALLABLE      = 6;
 
 constexpr uint32_t VRHI_DESCRIPTOR_SET_MAX           = 8;
 
+// Declare bindless arrays in VRHI_BINDLESS_SPACE, starting at register t0/u0/b0/s0:
+//     Texture2D    g_Textures[]   : register(t0, VRHI_BINDLESS_SPACE);
+//     SamplerState g_Samplers[]   : register(s0, VRHI_BINDLESS_SPACE);
+// Index them with NonUniformResourceIndex() when the index varies across a wave.
+constexpr uint32_t VRHI_DESCRIPTOR_SET_BINDLESS      = 0;
+constexpr uint32_t VRHI_BINDLESS_REGISTER_SPACE      = 8;
+
 // Returns the fixed descriptor set index for a given shader stage.
 //
 // Each shader stage uses a unique, independent Descriptor Set index for its VRHI_STAGE_SPACE resources.
@@ -1561,6 +1568,7 @@ struct vhShaderReflectionResource
     nvrhi::Format format = nvrhi::Format::UNKNOWN;
     nvrhi::TextureDimension dim = nvrhi::TextureDimension::Unknown;
     uint32_t arraySize = 0;
+    bool bindless = false;
     uint32_t sizeInBytes = 0; // Validation
     std::vector< vhReflectionMember > members;
     uint64_t membersHash = 0; // Cached hash of members, computed at shader load time

@@ -32,7 +32,7 @@
 
 // ------------ Shader Utilities ------------
 
-uint32_t vhPatchSpirvDescriptorSet0( std::vector< uint32_t >& spirv, uint32_t targetSet )
+uint32_t vhPatchSpirvDescriptorSet( std::vector< uint32_t >& spirv, uint32_t sourceSet, uint32_t targetSet )
 {
     constexpr uint32_t spirvHeaderWords = 5;
     constexpr uint32_t spvOpDecorate = 71;
@@ -61,7 +61,7 @@ uint32_t vhPatchSpirvDescriptorSet0( std::vector< uint32_t >& spirv, uint32_t ta
         {
             uint32_t decoration = spirv[i + 2];
 
-            if ( decoration == spvDecorationDescriptorSet && spirv[i + 3] == 0 )
+            if ( decoration == spvDecorationDescriptorSet && spirv[i + 3] == sourceSet )
             {
                 spirv[i + 3] = targetSet;
                 patchedCount++;
@@ -72,6 +72,11 @@ uint32_t vhPatchSpirvDescriptorSet0( std::vector< uint32_t >& spirv, uint32_t ta
     }
 
     return patchedCount;
+}
+
+uint32_t vhPatchSpirvDescriptorSet0( std::vector< uint32_t >& spirv, uint32_t targetSet )
+{
+    return vhPatchSpirvDescriptorSet( spirv, 0, targetSet );
 }
 
 // SPIRV reflection helper.
@@ -244,14 +249,17 @@ bool vhReflectSpirv(
             nvrhi::ResourceType type = fnGetResourceTypeFromReflect( *binding );
 
             if ( type == nvrhi::ResourceType::None ) continue;
-            assert( binding->count > 0 );
 
-            nvrhi::BindingLayoutItem item{};
-            item.setSlot( binding->binding );
-            item.setType( type );
-            item.setSize( binding->count );
+            bool bindless = ( binding->set == VRHI_DESCRIPTOR_SET_BINDLESS );
 
-            outDesc.addItem( item );
+            if ( !bindless )
+            {
+                nvrhi::BindingLayoutItem item{};
+                item.setSlot( binding->binding );
+                item.setType( type );
+                item.setSize( binding->count );
+                outDesc.addItem( item );
+            }
 
             vhShaderReflectionResource res;
             res.name = binding->name ? binding->name : "";
@@ -261,6 +269,7 @@ bool vhReflectSpirv(
             res.format = fnMapSpvImageFormat( binding->image.image_format );
             res.dim = fnGetTextureDimension( binding->image );
             res.arraySize = binding->count;
+            res.bindless = bindless;
             res.sizeInBytes = binding->block.size;
 
             if ( res.type == nvrhi::ResourceType::ConstantBuffer && ( res.name == "$Globals" || res.name == "_Globals" || res.name == "globalParams" ) )
@@ -506,10 +515,20 @@ bool vhCompileShaderSlang(
         fnSlangAddArg( std::to_string( space ) );
     }
 
+    // Bindless space: explicit zero shifts so register tN/uN/bN/sN maps to binding N.
+    for ( const char* shift : { "-fvk-s-shift", "-fvk-t-shift", "-fvk-b-shift", "-fvk-u-shift" } )
+    {
+        fnSlangAddLit( shift );
+        fnSlangAddArg( "0" );
+        fnSlangAddArg( std::to_string( VRHI_BINDLESS_REGISTER_SPACE ) );
+    }
+
     // VRHI Stage Space Define
     uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
     fnSlangAddLit( "-D" );
     fnSlangAddArg( "VRHI_STAGE_SPACE=space" + std::to_string( stageSpace ) );
+    fnSlangAddLit( "-D" );
+    fnSlangAddArg( "VRHI_BINDLESS_SPACE=space" + std::to_string( VRHI_BINDLESS_REGISTER_SPACE ) );
 
     // Process arguments
     if ( SLANG_FAILED( request->processCommandLineArguments( args.data(), (int)args.size() ) ) )
@@ -660,7 +679,7 @@ bool vhCompileShader(
 
     // Hash input into cache key
 
-    std::string hashInput = std::string( name ) + "@@SRC@@" + source + "@@CACHESALT_V3@@" + std::to_string(flags) + "@@ENTRY@@" + entry;
+    std::string hashInput = std::string( name ) + "@@SRC@@" + source + "@@CACHESALT_V4@@" + std::to_string(flags) + "@@ENTRY@@" + entry;
     hashInput += "@@DEFINES@@";
     for ( const auto& d : defines ) hashInput += d;
     hashInput += "@@INCLUDES@@";
@@ -681,13 +700,12 @@ bool vhCompileShader(
     {
         if ( vhLoadSpirvFile( spvPath, outSpirv ) )
         {
-            // Apply descriptor set patching even when loading from cache.
-            // The cache key does not include the patch flag, so we must patch after load.
             if ( flags & VRHI_SHADER_PATCH_DSET0 )
             {
                 uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
                 vhPatchSpirvDescriptorSet0( outSpirv, stageSpace );
             }
+            vhPatchSpirvDescriptorSet( outSpirv, VRHI_BINDLESS_REGISTER_SPACE, VRHI_DESCRIPTOR_SET_BINDLESS );
             return true;
         }
     }
@@ -730,6 +748,7 @@ bool vhCompileShader(
         uint32_t stageSpace = vhGetDescriptorSetForStage( flags );
         vhPatchSpirvDescriptorSet0( outSpirv, stageSpace );
     }
+    vhPatchSpirvDescriptorSet( outSpirv, VRHI_BINDLESS_REGISTER_SPACE, VRHI_DESCRIPTOR_SET_BINDLESS );
     return true;
 }
 

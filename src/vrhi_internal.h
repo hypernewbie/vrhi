@@ -610,6 +610,7 @@ bool vhReflectSpirv(
     std::vector< vhVertexLayoutDef >* outInputLayout = nullptr
 );
 
+uint32_t vhPatchSpirvDescriptorSet( std::vector< uint32_t >& spirv, uint32_t sourceSet, uint32_t targetSet );
 uint32_t vhPatchSpirvDescriptorSet0( std::vector< uint32_t >& spirv, uint32_t targetSet );
 
 void vhPackUserGlobals(
