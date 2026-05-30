@@ -139,7 +139,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 #define VRHI_VERSION_MAJOR 0
 #define VRHI_VERSION_MINOR 5
-#define VRHI_VERSION_PATCH 1
+#define VRHI_VERSION_PATCH 2
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
@@ -1609,6 +1609,15 @@ void vhExecuteNative( vhNativeExecuteFn fn, void* user, uint32_t frameIndex, con
 VkDevice vhGetVkDevice();
 VkPhysicalDevice vhGetVkPhysicalDevice();
 VkInstance vhGetVkInstance();
+
+// Lock if you're using VkDevice, VkPhysicalDevice or VkInstance outside a native callback. Otherwise dont touch.
+struct vhNativeDeviceLock
+{
+    vhNativeDeviceLock();
+    ~vhNativeDeviceLock();
+    vhNativeDeviceLock( const vhNativeDeviceLock& ) = delete;
+    vhNativeDeviceLock& operator=( const vhNativeDeviceLock& ) = delete;
+};
 
 // Allocates a client-side shader table handle.
 //

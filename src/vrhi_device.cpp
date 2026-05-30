@@ -1127,6 +1127,16 @@ VkInstance vhGetVkInstance()
     return g_vulkanInstance;
 }
 
+vhNativeDeviceLock::vhNativeDeviceLock()
+{
+    g_nvRHIStateMutex.lock();
+}
+
+vhNativeDeviceLock::~vhNativeDeviceLock()
+{
+    g_nvRHIStateMutex.unlock();
+}
+
 void vhBeginMarker( const std::string& name )
 {
     if ( !g_vhInit.markers ) return;

@@ -131,3 +131,11 @@ UTEST_F( Native, BracketAndRebaseline )
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
+
+UTEST_F( Native, DeviceLock )
+{
+    vhNativeDeviceLock lock;
+    ASSERT_TRUE( vhGetVkDevice() != VK_NULL_HANDLE );
+    ASSERT_TRUE( vhGetVkPhysicalDevice() != VK_NULL_HANDLE );
+    ASSERT_TRUE( vhGetVkInstance() != VK_NULL_HANDLE );
+}
