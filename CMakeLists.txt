@@ -395,6 +395,7 @@ endif()
          test/test_compute.cpp
          test/test_gfx.cpp
          test/test_rt.cpp
+         test/test_bindless.cpp
          test/test_window.cpp
          test/test_null_device.cpp
          test/test_psocache.cpp
