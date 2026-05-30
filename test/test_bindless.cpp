@@ -543,6 +543,7 @@ UTEST_F( Bindless, Allocator_Growable )
 UTEST_F( Bindless, UpdateAfterBind_WriteAcrossFrames )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( g_vhDeviceInfo.name.find( "CPU" ) != std::string::npos ) UTEST_SKIP( "Requires real GPU" );
     if ( !( g_vhDeviceInfo.bindlessUpdateAfterBind & VRHI_UAB_SAMPLED_IMAGE ) ) UTEST_SKIP( "No sampled-image update-after-bind support" );
 
     vhFlush();
