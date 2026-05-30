@@ -574,6 +574,21 @@ struct VIDL_vhCmdWriteDescriptorTable
         : table(_table), resource(_resource), isBuffer(_isBuffer), item(_item) {}
 };
 
+struct VIDL_vhExecuteNative
+{
+    static constexpr uint64_t kMagic = 0xD6E8577C;
+    uint64_t MAGIC = kMagic;
+    vhNativeExecuteFn fn;
+    void* user;
+    uint32_t frameIndex;
+    vhArenaSpan< vhNativeResource > resources;
+
+    VIDL_vhExecuteNative() = default;
+
+    VIDL_vhExecuteNative(vhNativeExecuteFn _fn, void* _user, uint32_t _frameIndex, vhArenaSpan< vhNativeResource > _resources)
+        : fn(_fn), user(_user), frameIndex(_frameIndex), resources(_resources) {}
+};
+
 struct VIDL_vhCreateShaderTable
 {
     static constexpr uint64_t kMagic = 0x9DDDDA05;
@@ -1188,6 +1203,7 @@ struct VIDLHandler
     virtual void Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescriptorTable* cmd ) { (void) cmd; };
     virtual void Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorTable* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd ) { (void) cmd; };
+    virtual void Handle_vhExecuteNative( VIDL_vhExecuteNative* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) { (void) cmd; };
     virtual void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) { (void) cmd; };
@@ -1404,6 +1420,10 @@ struct VIDLHandler
         case 0x325B9D7B:
             HandleLogFunction("Handle_vhCmdWriteDescriptorTable");
             Handle_vhCmdWriteDescriptorTable( (VIDL_vhCmdWriteDescriptorTable*) cmd );
+            break;
+        case 0xD6E8577C:
+            HandleLogFunction("Handle_vhExecuteNative");
+            Handle_vhExecuteNative( (VIDL_vhExecuteNative*) cmd );
             break;
         case 0x9DDDDA05:
             HandleLogFunction("Handle_vhCreateShaderTable");

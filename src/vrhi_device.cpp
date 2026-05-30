@@ -1107,6 +1107,11 @@ void vhFinish()
     vhProfile( "vhFinish_Wait", false );
 }
 
+void vhExecuteNative( vhNativeExecuteFn fn, void* user, uint32_t frameIndex, const std::vector< vhNativeResource >& resources )
+{
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhExecuteNative >( fn, user, frameIndex, vhArenaCopySpan( resources ) ) );
+}
+
 void vhBeginMarker( const std::string& name )
 {
     if ( !g_vhInit.markers ) return;

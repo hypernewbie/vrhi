@@ -165,7 +165,7 @@ class vhCmdBackendState : public VIDLHandler
         if ( mem ) g_vhMemList.push_back( const_cast< vhMem* >( mem ) );
     }
 
-    // End any active render pass so that RTXMU barrier injection does not violate Vulkan rules.
+    void BE_InvalidateGfxCache();
     void BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist );
 
     // --------------------------------------------------------------------------
@@ -379,6 +379,7 @@ public:
     void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) override;
     void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) override;
     void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) override;
+    void Handle_vhExecuteNative( VIDL_vhExecuteNative* cmd ) override;
     void Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorTable* cmd ) override;
     void Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescriptorTable* cmd ) override;
     void Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorTable* cmd ) override;

@@ -3503,18 +3503,21 @@ void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
     }
 }
 
-void vhCmdBackendState::BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist )
+void vhCmdBackendState::BE_InvalidateGfxCache()
 {
-    // End any active render pass so that RTXMU barrier injection does not violate Vulkan rules.
-    cmdlist->commitBarriers();
-    cmdlist->clearState();
-
-    // Invalidate the VRHI graphics state cache — clearState() wiped NVRHI's internal state.
     s_lastGfxStateApplied = nullptr;
     s_lastGfxResourceVersionApplied = 0;
     s_lastGfxPipelineVersionApplied = 0;
     s_lastGfxUserGlobalsKeyApplied = 0;
     s_lastGfxCmdlistApplied = nullptr;
+}
+
+void vhCmdBackendState::BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist )
+{
+    // End any active render pass so that RTXMU barrier injection does not violate Vulkan rules.
+    cmdlist->commitBarriers();
+    cmdlist->clearState();
+    BE_InvalidateGfxCache();
 }
 
 void vhCmdBackendState::Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd )
@@ -3612,6 +3615,66 @@ void vhCmdBackendState::Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         BE_EndRenderPassBeforeAS( cmdlist );
         cmdlist->buildTopLevelAccelStructFromBuffer( backend->handle, bufIt->second->handle.Get(), 0, cmd->numInstances, backend->desc.buildFlags );
+    }
+}
+
+void vhCmdBackendState::Handle_vhExecuteNative( VIDL_vhExecuteNative* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+
+    for ( uint32_t i = 0; i < cmd->resources.size(); i++ )
+    {
+        auto& r = cmd->resources[i];
+        auto it = backendTextures.find( r.texture );
+        if ( it == backendTextures.end() || !it->second || !it->second->handle )
+        {
+            VRHI_ERR( "vhExecuteNative() : resource %u not found\n", i );
+            return;
+        }
+        auto& h = it->second->handle;
+        const auto& d = h->getDesc();
+        r.image     = (VkImage)     h->getNativeObject( nvrhi::ObjectTypes::VK_Image ).pointer;
+        r.view      = (VkImageView) h->getNativeView( nvrhi::ObjectTypes::VK_ImageView, d.format, nvrhi::AllSubresources, d.dimension ).pointer;
+        r.format    = nvrhi::vulkan::convertFormat( d.format );
+        r.width     = d.width;
+        r.height    = d.height;
+        r.mipLevels = d.mipLevels;
+        r.arraySize = d.arraySize;
+        cmdlist->setTextureState( h, nvrhi::AllSubresources, r.stateBefore );
+    }
+    cmdlist->commitBarriers();
+
+    // Hand off: wipe NVRHI's pipeline/descriptor cache so the lib records cleanly.
+    cmdlist->clearState();
+    BE_InvalidateGfxCache();
+
+    vhNativeContext ctx;
+    ctx.cmdbuf              = (VkCommandBuffer) cmdlist->getNativeObject( nvrhi::ObjectTypes::VK_CommandBuffer ).pointer;
+    ctx.device              = g_vulkanDevice;
+    ctx.physicalDevice      = g_vulkanPhysicalDevice;
+    ctx.instance            = g_vulkanInstance;
+    ctx.getDeviceProcAddr   = vkGetDeviceProcAddr;
+    ctx.graphicsQueue       = g_vulkanGraphicsQueue;
+    ctx.graphicsQueueFamily = g_QueueFamilyGraphics;
+    ctx.computeQueue        = g_vulkanComputeQueue;
+    ctx.computeQueueFamily  = g_QueueFamilyCompute;
+    ctx.frameIndex          = cmd->frameIndex;
+
+    cmd->fn( ctx, cmd->resources.data(), cmd->resources.size(), cmd->user );
+
+    // Wipe again (lib left its pipeline bound), then re-baseline NVRHI's tracker.
+    cmdlist->clearState();
+    BE_InvalidateGfxCache();
+
+    for ( uint32_t i = 0; i < cmd->resources.size(); i++ )
+    {
+        auto& r = cmd->resources[i];
+        auto it = backendTextures.find( r.texture );
+        if ( it != backendTextures.end() && it->second && it->second->handle )
+            cmdlist->beginTrackingTextureState( it->second->handle, nvrhi::AllSubresources, r.stateAfter );
     }
 }
 

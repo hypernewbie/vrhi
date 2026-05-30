@@ -33,6 +33,35 @@
 #include <glm/glm.hpp>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
+#if defined(_WIN32)
+    #define VK_USE_PLATFORM_WIN32_KHR
+#elif defined(__APPLE__)
+    #define VK_USE_PLATFORM_METAL_EXT
+#else
+    #define VK_USE_PLATFORM_XLIB_KHR
+#endif
+#include <vulkan/vulkan.h>
+#ifdef VK_USE_PLATFORM_XLIB_KHR
+    #ifdef None
+        #undef None
+    #endif
+    #ifdef Always
+        #undef Always
+    #endif
+    #ifdef TileShape
+        #undef TileShape
+    #endif
+    #ifdef Success
+        #undef Success
+    #endif
+    #ifdef Status
+        #undef Status
+    #endif
+    #ifdef Bool
+        #undef Bool
+    #endif
+#endif
+
 #include <nvrhi/nvrhi.h>
 
 // --------------------------------------------------------------------------
@@ -1563,6 +1592,45 @@ struct vhBindlessAllocator
     void reset() { highWater = 0; freeList.clear(); }
     uint32_t allocated() const { return highWater - ( uint32_t ) freeList.size(); }
 };
+
+// --------------------------------------------------------------------------
+// Native Vulkan Interop (FSR / DLSS / etc.)
+// --------------------------------------------------------------------------
+
+// Pre-resolved Vulkan objects handed to the callback. cmdbuf is vrhi's open graphics primary — record into it, do not submit or close it.
+struct vhNativeContext
+{
+    VkCommandBuffer         cmdbuf;
+    VkDevice                device;
+    VkPhysicalDevice        physicalDevice;
+    VkInstance              instance;
+    PFN_vkGetDeviceProcAddr getDeviceProcAddr;
+    VkQueue                 graphicsQueue;
+    uint32_t                graphicsQueueFamily;
+    VkQueue                 computeQueue;
+    uint32_t                computeQueueFamily;
+    uint32_t                frameIndex;     // verbatim from vhExecuteNative call
+};
+
+// Per-resource entry. Declare stateBefore/stateAfter; backend fills image/view/format/dims. Texture must not be in a permanent NVRHI state. UAV outputs require VRHI_TEXTURE_COMPUTE_WRITE.
+struct vhNativeResource
+{
+    vhTexture             texture     = VRHI_INVALID_HANDLE;
+    nvrhi::ResourceStates stateBefore = nvrhi::ResourceStates::ShaderResource;
+    nvrhi::ResourceStates stateAfter  = nvrhi::ResourceStates::ShaderResource;
+    // backend-filled:
+    VkImage               image       = VK_NULL_HANDLE;
+    VkImageView           view        = VK_NULL_HANDLE;
+    VkFormat              format      = VK_FORMAT_UNDEFINED;
+    uint32_t              width = 0, height = 0, mipLevels = 0, arraySize = 0;
+};
+
+typedef void (*vhNativeExecuteFn)( const vhNativeContext& ctx, vhNativeResource* resources, uint32_t resourceCount, void* user );
+
+// Borrows vrhi's open graphics command buffer, transitions resources to stateBefore, invokes fn, then re-baselines NVRHI's tracker to stateAfter.
+// VIDL_GENERATE
+// VIDL_STORAGE: resources = vhArenaSpan< vhNativeResource >
+void vhExecuteNative( vhNativeExecuteFn fn, void* user, uint32_t frameIndex, const std::vector< vhNativeResource >& resources );
 
 // Allocates a client-side shader table handle.
 //
