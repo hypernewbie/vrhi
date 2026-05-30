@@ -801,6 +801,13 @@ struct vhDeviceInfo
 
     uint32_t maxTextureSize = 0;
     uint32_t maxColorAttachments = 0;
+    uint32_t maxBindlessSampledImages  = 0;   // Texture_SRV, TypedBuffer_SRV
+    uint32_t maxBindlessStorageImages  = 0;   // Texture_UAV, TypedBuffer_UAV
+    uint32_t maxBindlessStorageBuffers = 0;   // structured / raw buffers
+    uint32_t maxBindlessUniformBuffers = 0;   // ConstantBuffer
+    uint32_t maxBindlessSamplers       = 0;   // Sampler
+    uint32_t maxBoundDescriptorSets    = 0;   // max tables bindable at once
+    uint32_t maxPerStageResources      = 0;   // aggregate across all types per stage
     uint64_t totalVRAM = 0;
 };
 

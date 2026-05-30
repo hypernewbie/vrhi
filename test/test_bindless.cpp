@@ -49,7 +49,15 @@ UTEST_F( Bindless, Supported )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Null mode has no real features" );
     EXPECT_TRUE( g_vhDeviceInfo.bindless );
+    EXPECT_GT( g_vhDeviceInfo.maxBindlessSampledImages,  0u );
+    EXPECT_GT( g_vhDeviceInfo.maxBindlessStorageImages,  0u );
+    EXPECT_GT( g_vhDeviceInfo.maxBindlessStorageBuffers, 0u );
+    EXPECT_GT( g_vhDeviceInfo.maxBindlessUniformBuffers, 0u );
+    EXPECT_GT( g_vhDeviceInfo.maxBindlessSamplers,       0u );
+    EXPECT_GT( g_vhDeviceInfo.maxBoundDescriptorSets,    0u );
+    EXPECT_GT( g_vhDeviceInfo.maxPerStageResources,      0u );
 }
+
 
 UTEST_F( Bindless, AllocAndDestroy )
 {

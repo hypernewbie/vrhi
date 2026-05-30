@@ -421,6 +421,13 @@ void vhInit( bool quiet )
             std::to_string( VK_API_VERSION_PATCH( props2.properties.apiVersion ) );
         g_vhDeviceInfo.maxTextureSize = props2.properties.limits.maxImageDimension2D;
         g_vhDeviceInfo.maxColorAttachments = props2.properties.limits.maxColorAttachments;
+        g_vhDeviceInfo.maxBindlessSampledImages  = std::min( props2.properties.limits.maxPerStageDescriptorSampledImages,  props2.properties.limits.maxDescriptorSetSampledImages );
+        g_vhDeviceInfo.maxBindlessStorageImages  = std::min( props2.properties.limits.maxPerStageDescriptorStorageImages,  props2.properties.limits.maxDescriptorSetStorageImages );
+        g_vhDeviceInfo.maxBindlessStorageBuffers = std::min( props2.properties.limits.maxPerStageDescriptorStorageBuffers, props2.properties.limits.maxDescriptorSetStorageBuffers );
+        g_vhDeviceInfo.maxBindlessUniformBuffers = std::min( props2.properties.limits.maxPerStageDescriptorUniformBuffers, props2.properties.limits.maxDescriptorSetUniformBuffers );
+        g_vhDeviceInfo.maxBindlessSamplers       = std::min( props2.properties.limits.maxPerStageDescriptorSamplers,       props2.properties.limits.maxDescriptorSetSamplers );
+        g_vhDeviceInfo.maxBoundDescriptorSets    = props2.properties.limits.maxBoundDescriptorSets;
+        g_vhDeviceInfo.maxPerStageResources      = props2.properties.limits.maxPerStageResources;
 
         // Get memory heap info
         VkPhysicalDeviceMemoryProperties memProps;
