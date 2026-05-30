@@ -139,7 +139,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 #define VRHI_VERSION_MAJOR 0
 #define VRHI_VERSION_MINOR 5
-#define VRHI_VERSION_PATCH 2
+#define VRHI_VERSION_PATCH 3
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
@@ -785,6 +785,14 @@ extern vhPerfCounters g_vhPerf;
 // Logs perf counters via vhLog. No-op if all zero. reset=true zeroes them after.
 void vhPerfCheck( bool reset = true );
 
+constexpr uint32_t VRHI_UAB_SAMPLED_IMAGE               = 0x01;
+constexpr uint32_t VRHI_UAB_STORAGE_IMAGE               = 0x02;
+constexpr uint32_t VRHI_UAB_STORAGE_BUFFER              = 0x04;
+constexpr uint32_t VRHI_UAB_UNIFORM_BUFFER              = 0x08;
+constexpr uint32_t VRHI_UAB_UNIFORM_TEXEL_BUFFER        = 0x10;
+constexpr uint32_t VRHI_UAB_STORAGE_TEXEL_BUFFER        = 0x20;
+constexpr uint32_t VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING = 0x40;
+
 struct vhDeviceInfo
 {
     std::string name;           // "NVIDIA GeForce RTX 4090 - Discrete GPU"
@@ -808,6 +816,13 @@ struct vhDeviceInfo
     uint32_t maxBindlessSamplers       = 0;   // Sampler
     uint32_t maxBoundDescriptorSets    = 0;   // max tables bindable at once
     uint32_t maxPerStageResources      = 0;   // aggregate across all types per stage
+
+    uint32_t bindlessUpdateAfterBind      = 0;   // VRHI_UAB_* mask of supported update-after-bind types
+    uint32_t maxBindlessSampledImagesUAB  = 0;   // Texture_SRV, TypedBuffer_SRV
+    uint32_t maxBindlessStorageImagesUAB  = 0;   // Texture_UAV, TypedBuffer_UAV
+    uint32_t maxBindlessStorageBuffersUAB = 0;   // structured / raw buffers
+    uint32_t maxBindlessUniformBuffersUAB = 0;   // ConstantBuffer
+    uint32_t maxBindlessSamplersUAB       = 0;   // Sampler
     uint64_t totalVRAM = 0;
 };
 
@@ -1527,7 +1542,7 @@ nvrhi::BindingLayoutHandle vhGetDescriptorTableLayoutNvrhiHandle( vhDescriptorTa
 void vhCmdWriteDescriptorTable( vhDescriptorTable table, uint32_t resource, bool isBuffer, nvrhi::BindingSetItem item );
 
 // Creates a table holding one unbounded array of `type` at register `slot`, visible to all stages.
-inline vhDescriptorTable vhCreateDescriptorTableSimple( nvrhi::ResourceType type, uint32_t maxCapacity, uint32_t slot = 0 )
+inline vhDescriptorTable vhCreateDescriptorTableSimple( nvrhi::ResourceType type, uint32_t maxCapacity, uint32_t slot = 0, bool updateAfterBind = false )
 {
     vhDescriptorTable table = vhAllocDescriptorTable();
     if ( table == VRHI_INVALID_HANDLE ) return VRHI_INVALID_HANDLE;
@@ -1535,6 +1550,7 @@ inline vhDescriptorTable vhCreateDescriptorTableSimple( nvrhi::ResourceType type
     nvrhi::BindlessLayoutDesc desc;
     desc.visibility = nvrhi::ShaderType::All;
     desc.maxCapacity = maxCapacity;
+    desc.updateAfterBind = updateAfterBind;
     desc.registerSpaces.push_back( nvrhi::BindingLayoutItem{}.setType( type ).setSlot( slot ) );
     return vhCreateDescriptorTable( table, desc );
 }

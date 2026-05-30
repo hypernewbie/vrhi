@@ -2055,12 +2055,14 @@ namespace nvrhi
         static_vector<BindingLayoutItem, c_MaxBindlessRegisterSpaces> registerSpaces;
 
         LayoutType layoutType = LayoutType::Immutable;
+        bool updateAfterBind = false;
 
         BindlessLayoutDesc& setVisibility(ShaderType value) { visibility = value; return *this; }
         BindlessLayoutDesc& setFirstSlot(uint32_t value) { firstSlot = value; return *this; }
         BindlessLayoutDesc& setMaxCapacity(uint32_t value) { maxCapacity = value; return *this; }
         BindlessLayoutDesc& addRegisterSpace(const BindingLayoutItem& value) { registerSpaces.push_back(value); return *this; }
         BindlessLayoutDesc& setLayoutType(LayoutType value) { layoutType = value; return *this; }
+        BindlessLayoutDesc& setUpdateAfterBind(bool value) { updateAfterBind = value; return *this; }
     };
 
     class IBindingLayout : public IResource

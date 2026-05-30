@@ -3678,6 +3678,23 @@ void vhCmdBackendState::Handle_vhExecuteNative( VIDL_vhExecuteNative* cmd )
     }
 }
 
+static uint32_t vhUABFlagForResourceType( nvrhi::ResourceType type )
+{
+    switch ( type )
+    {
+        case nvrhi::ResourceType::Texture_SRV: return VRHI_UAB_SAMPLED_IMAGE;
+        case nvrhi::ResourceType::Texture_UAV: return VRHI_UAB_STORAGE_IMAGE;
+        case nvrhi::ResourceType::TypedBuffer_SRV: return VRHI_UAB_UNIFORM_TEXEL_BUFFER;
+        case nvrhi::ResourceType::TypedBuffer_UAV: return VRHI_UAB_STORAGE_TEXEL_BUFFER;
+        case nvrhi::ResourceType::StructuredBuffer_SRV:
+        case nvrhi::ResourceType::StructuredBuffer_UAV:
+        case nvrhi::ResourceType::RawBuffer_SRV:
+        case nvrhi::ResourceType::RawBuffer_UAV: return VRHI_UAB_STORAGE_BUFFER;
+        case nvrhi::ResourceType::ConstantBuffer: return VRHI_UAB_UNIFORM_BUFFER;
+        default: return 0;
+    }
+}
+
 void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorTable* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
@@ -3691,6 +3708,18 @@ void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorT
     backend->desc = cmd->desc;
     backend->desc.layoutType = nvrhi::BindlessLayoutDesc::LayoutType::Immutable;
     backend->capacity = 0;
+
+    if ( backend->desc.updateAfterBind )
+    {
+        uint32_t required = VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+        for ( const auto& space : backend->desc.registerSpaces )
+            required |= vhUABFlagForResourceType( space.type );
+        if ( ( g_vhDeviceInfo.bindlessUpdateAfterBind & required ) != required )
+        {
+            VRHI_ERR( "vhCreateDescriptorTable() : update-after-bind requested but unsupported for one or more resource types!\n" );
+            return;
+        }
+    }
 
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
     backend->layout = g_vhDevice->createBindlessLayout( backend->desc );

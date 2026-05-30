@@ -393,7 +393,9 @@ void vhInit( bool quiet )
         g_vulkanPhysicalDevice = vkbPhys.physical_device;
         if ( !quiet ) VRHI_LOG( "    Selected GPU Device: %s\n", vkbPhys.name.c_str() );
 
+        VkPhysicalDeviceVulkan12Properties v12Props = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES };
         VkPhysicalDeviceDriverProperties driverProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
+        driverProps.pNext = &v12Props;
         VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
         props2.pNext = &driverProps;
         VkPhysicalDeviceVulkan12Features supportedV12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
@@ -428,6 +430,20 @@ void vhInit( bool quiet )
         g_vhDeviceInfo.maxBindlessSamplers       = std::min( props2.properties.limits.maxPerStageDescriptorSamplers,       props2.properties.limits.maxDescriptorSetSamplers );
         g_vhDeviceInfo.maxBoundDescriptorSets    = props2.properties.limits.maxBoundDescriptorSets;
         g_vhDeviceInfo.maxPerStageResources      = props2.properties.limits.maxPerStageResources;
+
+        if ( supportedV12.descriptorBindingSampledImageUpdateAfterBind ) g_vhDeviceInfo.bindlessUpdateAfterBind |= VRHI_UAB_SAMPLED_IMAGE;
+        if ( supportedV12.descriptorBindingStorageImageUpdateAfterBind ) g_vhDeviceInfo.bindlessUpdateAfterBind |= VRHI_UAB_STORAGE_IMAGE;
+        if ( supportedV12.descriptorBindingStorageBufferUpdateAfterBind ) g_vhDeviceInfo.bindlessUpdateAfterBind |= VRHI_UAB_STORAGE_BUFFER;
+        if ( supportedV12.descriptorBindingUniformBufferUpdateAfterBind ) g_vhDeviceInfo.bindlessUpdateAfterBind |= VRHI_UAB_UNIFORM_BUFFER;
+        if ( supportedV12.descriptorBindingUniformTexelBufferUpdateAfterBind ) g_vhDeviceInfo.bindlessUpdateAfterBind |= VRHI_UAB_UNIFORM_TEXEL_BUFFER;
+        if ( supportedV12.descriptorBindingStorageTexelBufferUpdateAfterBind ) g_vhDeviceInfo.bindlessUpdateAfterBind |= VRHI_UAB_STORAGE_TEXEL_BUFFER;
+        if ( supportedV12.descriptorBindingUpdateUnusedWhilePending ) g_vhDeviceInfo.bindlessUpdateAfterBind |= VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+
+        g_vhDeviceInfo.maxBindlessSampledImagesUAB  = std::min( v12Props.maxPerStageDescriptorUpdateAfterBindSampledImages,  v12Props.maxDescriptorSetUpdateAfterBindSampledImages );
+        g_vhDeviceInfo.maxBindlessStorageImagesUAB  = std::min( v12Props.maxPerStageDescriptorUpdateAfterBindStorageImages,  v12Props.maxDescriptorSetUpdateAfterBindStorageImages );
+        g_vhDeviceInfo.maxBindlessStorageBuffersUAB = std::min( v12Props.maxPerStageDescriptorUpdateAfterBindStorageBuffers, v12Props.maxDescriptorSetUpdateAfterBindStorageBuffers );
+        g_vhDeviceInfo.maxBindlessUniformBuffersUAB = std::min( v12Props.maxPerStageDescriptorUpdateAfterBindUniformBuffers, v12Props.maxDescriptorSetUpdateAfterBindUniformBuffers );
+        g_vhDeviceInfo.maxBindlessSamplersUAB       = std::min( v12Props.maxPerStageDescriptorUpdateAfterBindSamplers,       v12Props.maxDescriptorSetUpdateAfterBindSamplers );
 
         // Get memory heap info
         VkPhysicalDeviceMemoryProperties memProps;
@@ -472,6 +488,17 @@ void vhInit( bool quiet )
         bool memoryBudgetEnabled = vkbPhys.enable_extension_if_present( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
         if ( memoryBudgetEnabled && !quiet ) VRHI_LOG( "    Enabled VK_EXT_memory_budget extension.\n" );
         g_vhMemoryBudgetEnabled = memoryBudgetEnabled;
+
+        // Enable whichever update-after-bind bits the device supports (free permissions; opt-in per table).
+        VkPhysicalDeviceVulkan12Features uabFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        uabFeatures.descriptorBindingSampledImageUpdateAfterBind = supportedV12.descriptorBindingSampledImageUpdateAfterBind;
+        uabFeatures.descriptorBindingStorageImageUpdateAfterBind = supportedV12.descriptorBindingStorageImageUpdateAfterBind;
+        uabFeatures.descriptorBindingStorageBufferUpdateAfterBind = supportedV12.descriptorBindingStorageBufferUpdateAfterBind;
+        uabFeatures.descriptorBindingUniformBufferUpdateAfterBind = supportedV12.descriptorBindingUniformBufferUpdateAfterBind;
+        uabFeatures.descriptorBindingUniformTexelBufferUpdateAfterBind = supportedV12.descriptorBindingUniformTexelBufferUpdateAfterBind;
+        uabFeatures.descriptorBindingStorageTexelBufferUpdateAfterBind = supportedV12.descriptorBindingStorageTexelBufferUpdateAfterBind;
+        uabFeatures.descriptorBindingUpdateUnusedWhilePending = supportedV12.descriptorBindingUpdateUnusedWhilePending;
+        vkbPhys.enable_extension_features_if_present( uabFeatures );
 
         if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)%s\n", using12Fallback ? " [Vulkan 1.2 + KHR extensions]" : "" );
         vkb::DeviceBuilder devBuilder( vkbPhys );

@@ -56,6 +56,8 @@ UTEST_F( Bindless, Supported )
     EXPECT_GT( g_vhDeviceInfo.maxBindlessSamplers,       0u );
     EXPECT_GT( g_vhDeviceInfo.maxBoundDescriptorSets,    0u );
     EXPECT_GT( g_vhDeviceInfo.maxPerStageResources,      0u );
+    EXPECT_TRUE( g_vhDeviceInfo.bindlessUpdateAfterBind & VRHI_UAB_SAMPLED_IMAGE );
+    EXPECT_GT( g_vhDeviceInfo.maxBindlessSampledImagesUAB, 0u );
 }
 
 
@@ -535,5 +537,97 @@ UTEST_F( Bindless, Allocator_Growable )
     EXPECT_EQ( alloc.alloc(), 0u );
 
     vhDestroyDescriptorTable( t );
+    vhFinish();
+}
+
+UTEST_F( Bindless, UpdateAfterBind_WriteAcrossFrames )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( !( g_vhDeviceInfo.bindlessUpdateAfterBind & VRHI_UAB_SAMPLED_IMAGE ) ) UTEST_SKIP( "No sampled-image update-after-bind support" );
+
+    vhFlush();
+
+    vhTexture texA = vhAllocTexture();
+    vhTexture texB = vhAllocTexture();
+    {
+        vhMem* dataA = vhAllocMem( 16 );
+        memset( dataA->data(), 50, 16 );
+        vhCreateTexture2D( texA, "UABSrcA", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, dataA );
+
+        vhMem* dataB = vhAllocMem( 16 );
+        memset( dataB->data(), 200, 16 );
+        vhCreateTexture2D( texB, "UABSrcB", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, dataB );
+    }
+
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "UABOut", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 16, 0, true );
+
+    const char* csSource = R"(
+        Texture2D<float> g_Textures[] : register(t0, VRHI_BINDLESS_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            uint index = id.x & 1;
+            g_Out[id.xy] = g_Textures[NonUniformResourceIndex(index)][id.xy];
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool success = vhCompileShader( "CS_UABSample", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if ( !success ) printf( "Shader Compile Error: %s\n", error.c_str() );
+    ASSERT_TRUE( success );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_UABSample", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = outTex;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+    state.SetDescriptorTable( 0, table );
+
+    vhStateId sid = 921;
+
+    // Write slot 0, dispatch, then flush WITHOUT waiting so the command buffer is in flight.
+    vhDescriptorTableSetTexture( table, 0, texA );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+    vhFlush();
+
+    // Write slot 1 (a previously-unused slot) while the prior dispatch may still be in flight.
+    vhDescriptorTableSetTexture( table, 1, texB );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_EQ( readData.size(), 16u );
+    for ( int row = 0; row < 4; ++row )
+    {
+        for ( int col = 0; col < 4; ++col )
+        {
+            const uint8_t expected = ( col & 1 ) ? 200 : 50; // odd col -> texB, even col -> texA
+            EXPECT_NEAR( readData[row * 4 + col], expected, 1 );
+        }
+    }
+
+    vhDestroyTexture( texA );
+    vhDestroyTexture( texB );
+    vhDestroyTexture( outTex );
+    vhDestroyDescriptorTable( table );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
 }
