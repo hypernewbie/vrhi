@@ -110,7 +110,7 @@ UTEST_F( Native, BracketAndRebaseline )
     vhState state = g_state0;
     state.SetProgram( vhCreateComputeProgram( cs ) );
     state.SetTexture( 0, { .name = "g_In",  .texture = outTex } );
-    state.SetTexture( 1, { .name = "g_Out", .texture = verifyTex, .computeUAV = true, .formatOverride = nvrhi::Format::R8_UNORM } );
+    state.SetTexture( 1, { .name = "g_Out", .texture = verifyTex, .formatOverride = nvrhi::Format::R8_UNORM, .computeUAV = true } );
 
     vhStateId sid = 80000;
     vhSetState( sid, state );
