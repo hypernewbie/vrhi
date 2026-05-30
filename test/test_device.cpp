@@ -130,6 +130,45 @@ UTEST( RHI, RayTracingControl )
     g_vhInit.raytracing = false;
 }
 
+UTEST( RHI, Shader16BitControl )
+{
+    TestEnsureShutdown();
+
+    // Case 1: Both false (default) — device must come up, flags must stay false.
+    g_vhInit.shaderFloat16 = false;
+    g_vhInit.shaderInt16 = false;
+    vhInit( g_testInitQuiet );
+    EXPECT_NE( g_vhDevice.Get(), nullptr );
+    EXPECT_FALSE( g_vhDeviceInfo.shaderFloat16 );
+    EXPECT_FALSE( g_vhDeviceInfo.shaderInt16 );
+    vhShutdown( g_testInitQuiet );
+
+    // Case 2: Request both — device must come up regardless of HW support.
+    g_vhInit.shaderFloat16 = true;
+    g_vhInit.shaderInt16 = true;
+    vhInit( g_testInitQuiet );
+    EXPECT_NE( g_vhDevice.Get(), nullptr );
+
+    // Query ground-truth HW support to verify "enabled iff supported".
+    VkPhysicalDeviceFeatures2 feat2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+    VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    feat2.pNext = &v12;
+    vkGetPhysicalDeviceFeatures2( vhGetVkPhysicalDevice(), &feat2 );
+
+    EXPECT_EQ( g_vhDeviceInfo.shaderFloat16, v12.shaderFloat16 ? true : false );
+    EXPECT_EQ( g_vhDeviceInfo.shaderInt16, feat2.features.shaderInt16 ? true : false );
+
+    VRHI_LOG( "shaderFloat16: requested=YES supported=%s enabled=%s\n",
+        v12.shaderFloat16 ? "YES" : "NO", g_vhDeviceInfo.shaderFloat16 ? "YES" : "NO" );
+    VRHI_LOG( "shaderInt16:   requested=YES supported=%s enabled=%s\n",
+        feat2.features.shaderInt16 ? "YES" : "NO", g_vhDeviceInfo.shaderInt16 ? "YES" : "NO" );
+
+    vhShutdown( g_testInitQuiet );
+
+    g_vhInit.shaderFloat16 = false;
+    g_vhInit.shaderInt16 = false;
+}
+
 UTEST( Allocator, FreeList )
 {
     vhAllocatorObjectFreeList allocator( 10 );

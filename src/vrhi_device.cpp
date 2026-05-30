@@ -500,6 +500,23 @@ void vhInit( bool quiet )
         uabFeatures.descriptorBindingUpdateUnusedWhilePending = supportedV12.descriptorBindingUpdateUnusedWhilePending;
         vkbPhys.enable_extension_features_if_present( uabFeatures );
 
+        g_vhDeviceInfo.shaderFloat16 = false;
+        if ( g_vhInit.shaderFloat16 )
+        {
+            VkPhysicalDeviceVulkan12Features f16 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+            f16.shaderFloat16 = VK_TRUE;
+            g_vhDeviceInfo.shaderFloat16 = vkbPhys.enable_extension_features_if_present( f16 );
+            if ( !quiet ) VRHI_LOG( g_vhDeviceInfo.shaderFloat16 ? "    Enabled shaderFloat16.\n" : "    shaderFloat16 requested but unsupported; continuing.\n" );
+        }
+        g_vhDeviceInfo.shaderInt16 = false;
+        if ( g_vhInit.shaderInt16 )
+        {
+            VkPhysicalDeviceFeatures i16 = {};
+            i16.shaderInt16 = VK_TRUE;
+            g_vhDeviceInfo.shaderInt16 = vkbPhys.enable_features_if_present( i16 );
+            if ( !quiet ) VRHI_LOG( g_vhDeviceInfo.shaderInt16 ? "    Enabled shaderInt16.\n" : "    shaderInt16 requested but unsupported; continuing.\n" );
+        }
+
         if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)%s\n", using12Fallback ? " [Vulkan 1.2 + KHR extensions]" : "" );
         vkb::DeviceBuilder devBuilder( vkbPhys );
 
