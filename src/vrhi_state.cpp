@@ -560,6 +560,7 @@ nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint
 nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags )
 {
     nvrhi::RasterState rasterState;
+    memset( &rasterState, 0, sizeof( rasterState ) ); // zero padding: hashed by raw bytes
 
     // Extract cull mode
     uint32_t cullMode = ( uint32_t ) ( ( stateFlags & VRHI_STATE_CULL_MASK ) >> VRHI_STATE_CULL_SHIFT );
