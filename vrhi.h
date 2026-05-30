@@ -1555,18 +1555,23 @@ inline vhDescriptorTable vhCreateDescriptorTableSimple( nvrhi::ResourceType type
     return vhCreateDescriptorTable( table, desc );
 }
 
-// Optional slot index allocator over a table's free list. When growable, alloc() doubles the table
+// Optional slot index allocator over a table's free list. When growable, Alloc() doubles the table
 // (up to maxCapacity) on overflow; otherwise it returns VRHI_INVALID_HANDLE when full.
+// Free() defers reuse until Step() has run kDeferredDepth times; call Step() once per frame.
 struct vhBindlessAllocator
 {
+    static constexpr uint32_t kDeferredDepth = 3; // frames-in-flight; a freed slot is held this many Step()s
+
     vhDescriptorTable table = VRHI_INVALID_HANDLE;
     uint32_t capacity = 0;
     uint32_t maxCapacity = 0;
     uint32_t highWater = 0;
     std::vector< uint32_t > freeList;
+    std::vector< uint32_t > deferredFrees[kDeferredDepth];
+    uint32_t frameIndex = 0;
     bool growable = false;
 
-    uint32_t alloc()
+    uint32_t Alloc()
     {
         if ( !freeList.empty() )
         {
@@ -1585,9 +1590,30 @@ struct vhBindlessAllocator
         return highWater++;
     }
 
-    void free( uint32_t index ) { freeList.push_back( index ); }
-    void reset() { highWater = 0; freeList.clear(); }
-    uint32_t allocated() const { return highWater - ( uint32_t ) freeList.size(); }
+    void Free( uint32_t index ) { deferredFrees[frameIndex].push_back( index ); }
+
+    void Step()
+    {
+        frameIndex = ( frameIndex + 1 ) % kDeferredDepth;
+        std::vector< uint32_t >& bucket = deferredFrees[frameIndex];
+        freeList.insert( freeList.end(), bucket.begin(), bucket.end() );
+        bucket.clear();
+    }
+
+    void Reset()
+    {
+        highWater = 0;
+        freeList.clear();
+        for ( uint32_t i = 0; i < kDeferredDepth; i++ ) deferredFrees[i].clear();
+        frameIndex = 0;
+    }
+
+    uint32_t Allocated() const
+    {
+        uint32_t deferred = 0;
+        for ( uint32_t i = 0; i < kDeferredDepth; i++ ) deferred += ( uint32_t ) deferredFrees[i].size();
+        return highWater - ( uint32_t ) freeList.size() - deferred;
+    }
 };
 
 // --------------------------------------------------------------------------
