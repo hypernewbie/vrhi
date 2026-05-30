@@ -1516,6 +1516,54 @@ nvrhi::BindingLayoutHandle vhGetDescriptorTableLayoutNvrhiHandle( vhDescriptorTa
 // VIDL_GENERATE
 void vhCmdWriteDescriptorTable( vhDescriptorTable table, uint32_t resource, bool isBuffer, nvrhi::BindingSetItem item );
 
+// Creates a table holding one unbounded array of `type` at register `slot`, visible to all stages.
+inline vhDescriptorTable vhCreateDescriptorTableSimple( nvrhi::ResourceType type, uint32_t maxCapacity, uint32_t slot = 0 )
+{
+    vhDescriptorTable table = vhAllocDescriptorTable();
+    if ( table == VRHI_INVALID_HANDLE ) return VRHI_INVALID_HANDLE;
+
+    nvrhi::BindlessLayoutDesc desc;
+    desc.visibility = nvrhi::ShaderType::All;
+    desc.maxCapacity = maxCapacity;
+    desc.registerSpaces.push_back( nvrhi::BindingLayoutItem{}.setType( type ).setSlot( slot ) );
+    return vhCreateDescriptorTable( table, desc );
+}
+
+// Optional slot index allocator over a table's free list. When growable, alloc() doubles the table
+// (up to maxCapacity) on overflow; otherwise it returns VRHI_INVALID_HANDLE when full.
+struct vhBindlessAllocator
+{
+    vhDescriptorTable table = VRHI_INVALID_HANDLE;
+    uint32_t capacity = 0;
+    uint32_t maxCapacity = 0;
+    uint32_t highWater = 0;
+    std::vector< uint32_t > freeList;
+    bool growable = false;
+
+    uint32_t alloc()
+    {
+        if ( !freeList.empty() )
+        {
+            uint32_t idx = freeList.back();
+            freeList.pop_back();
+            return idx;
+        }
+        if ( highWater >= capacity )
+        {
+            if ( !growable || capacity >= maxCapacity ) return VRHI_INVALID_HANDLE;
+            uint32_t newCap = capacity ? capacity * 2 : 16;
+            if ( newCap > maxCapacity ) newCap = maxCapacity;
+            vhResizeDescriptorTable( table, newCap, true );
+            capacity = newCap;
+        }
+        return highWater++;
+    }
+
+    void free( uint32_t index ) { freeList.push_back( index ); }
+    void reset() { highWater = 0; freeList.clear(); }
+    uint32_t allocated() const { return highWater - ( uint32_t ) freeList.size(); }
+};
+
 // Allocates a client-side shader table handle.
 //
 // Returns a `vhShaderTable` handle.
