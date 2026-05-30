@@ -169,6 +169,39 @@ UTEST( RHI, Shader16BitControl )
     g_vhInit.shaderInt16 = false;
 }
 
+UTEST( RHI, ExtraDeviceExtensions )
+{
+    TestEnsureShutdown();
+
+    g_vhInit.extraDeviceExtensions = {
+        VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+        VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
+    };
+    vhInit( g_testInitQuiet );
+    EXPECT_NE( g_vhDevice.Get(), nullptr );
+
+    if ( !g_vhInit.nullMode )
+    {
+        uint32_t n = 0;
+        vkEnumerateDeviceExtensionProperties( vhGetVkPhysicalDevice(), nullptr, &n, nullptr );
+        std::vector< VkExtensionProperties > props( n );
+        vkEnumerateDeviceExtensionProperties( vhGetVkPhysicalDevice(), nullptr, &n, props.data() );
+
+        bool supported = false;
+        for ( const auto& p : props )
+            if ( strcmp( p.extensionName, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME ) == 0 ) supported = true;
+
+        if ( supported )
+        {
+            PFN_vkVoidFunction fn = vkGetDeviceProcAddr( vhGetVkDevice(), "vkGetBufferMemoryRequirements2KHR" );
+            EXPECT_TRUE( fn != nullptr );
+        }
+    }
+
+    vhShutdown( g_testInitQuiet );
+    g_vhInit.extraDeviceExtensions.clear();
+}
+
 UTEST( Allocator, FreeList )
 {
     vhAllocatorObjectFreeList allocator( 10 );

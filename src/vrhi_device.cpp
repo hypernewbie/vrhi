@@ -517,6 +517,19 @@ void vhInit( bool quiet )
             if ( !quiet ) VRHI_LOG( g_vhDeviceInfo.shaderInt16 ? "    Enabled shaderInt16.\n" : "    shaderInt16 requested but unsupported; continuing.\n" );
         }
 
+        if ( !g_vhInit.extraDeviceExtensions.empty() )
+        {
+            std::vector< std::string > alreadyEnabled = vkbPhys.get_extensions();
+            for ( const std::string& ext : g_vhInit.extraDeviceExtensions )
+            {
+                if ( std::find( alreadyEnabled.begin(), alreadyEnabled.end(), ext ) != alreadyEnabled.end() )
+                    continue;
+                bool ok = vkbPhys.enable_extension_if_present( ext.c_str() );
+                if ( ok ) alreadyEnabled.push_back( ext );
+                if ( !quiet ) VRHI_LOG( ok ? "    Enabled extra extension: %s\n" : "    Extra extension unavailable, skipping: %s\n", ext.c_str() );
+            }
+        }
+
         if ( !quiet ) VRHI_LOG( "    Creating VK Logical Device (via vk-bootstrap)%s\n", using12Fallback ? " [Vulkan 1.2 + KHR extensions]" : "" );
         vkb::DeviceBuilder devBuilder( vkbPhys );
 
