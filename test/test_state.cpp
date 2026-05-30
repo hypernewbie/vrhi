@@ -26,11 +26,11 @@
 #include <windows.h>
 #endif // _WIN32
 #include "test.h"
+#include <vrhi_internal.h>
 #include <vrhi.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
-#include <vrhi_internal.h>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;

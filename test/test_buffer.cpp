@@ -27,8 +27,8 @@
 #include <windows.h>
 #endif // _WIN32
 #include "test.h"
-#include <vrhi.h>
 #include <vrhi_internal.h>
+#include <vrhi.h>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;

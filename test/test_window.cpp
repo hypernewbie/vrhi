@@ -41,8 +41,8 @@
 #endif
 
 #include "test.h"
-#include <vrhi.h>
 #include <vrhi_internal.h>
+#include <vrhi.h>
 
 UTEST( Window, SwapchainClear )
 {

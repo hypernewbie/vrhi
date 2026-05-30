@@ -33,34 +33,7 @@
 #include <glm/glm.hpp>
 #endif // VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 
-#if defined(_WIN32)
-    #define VK_USE_PLATFORM_WIN32_KHR
-#elif defined(__APPLE__)
-    #define VK_USE_PLATFORM_METAL_EXT
-#else
-    #define VK_USE_PLATFORM_XLIB_KHR
-#endif
-#include <vulkan/vulkan.h>
-#ifdef VK_USE_PLATFORM_XLIB_KHR
-    #ifdef None
-        #undef None
-    #endif
-    #ifdef Always
-        #undef Always
-    #endif
-    #ifdef TileShape
-        #undef TileShape
-    #endif
-    #ifdef Success
-        #undef Success
-    #endif
-    #ifdef Status
-        #undef Status
-    #endif
-    #ifdef Bool
-        #undef Bool
-    #endif
-#endif
+#include <vulkan/vulkan.h>   // core handles for native-interop structs; no VK_USE_PLATFORM_* needed
 
 #include <nvrhi/nvrhi.h>
 

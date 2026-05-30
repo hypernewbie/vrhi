@@ -31,8 +31,8 @@
 //   - Temp-buffer safety after early-return errors
 
 #include "test.h"
-#include <vrhi.h>
 #include <vrhi_internal.h>
+#include <vrhi.h>
 
 #include <algorithm>
 #include <string>
