@@ -25,6 +25,10 @@
 // Common Includes & Logic
 // --------------------------------------------------------------------------
 
+#if defined( VULKAN_H_ ) && !defined( VK_USE_PLATFORM_XLIB_KHR ) && !defined( VK_USE_PLATFORM_WIN32_KHR ) && !defined( VK_USE_PLATFORM_METAL_EXT )
+    #error "VRHI requires vrhi_internal.h to be included before vrhi.h so the platform Vulkan surface is established before vulkan.h"
+#endif
+
 #if defined(_WIN32)
     #define VK_USE_PLATFORM_WIN32_KHR
 #elif defined(__APPLE__)

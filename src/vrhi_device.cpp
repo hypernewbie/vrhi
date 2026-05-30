@@ -1112,6 +1112,21 @@ void vhExecuteNative( vhNativeExecuteFn fn, void* user, uint32_t frameIndex, con
     vhCmdEnqueue( vhCmdAlloc< VIDL_vhExecuteNative >( fn, user, frameIndex, vhArenaCopySpan( resources ) ) );
 }
 
+VkDevice vhGetVkDevice()
+{
+    return g_vulkanDevice;
+}
+
+VkPhysicalDevice vhGetVkPhysicalDevice()
+{
+    return g_vulkanPhysicalDevice;
+}
+
+VkInstance vhGetVkInstance()
+{
+    return g_vulkanInstance;
+}
+
 void vhBeginMarker( const std::string& name )
 {
     if ( !g_vhInit.markers ) return;

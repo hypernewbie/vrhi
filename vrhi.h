@@ -1606,6 +1606,10 @@ typedef void (*vhNativeExecuteFn)( const vhNativeContext& ctx, vhNativeResource*
 // VIDL_STORAGE: resources = vhArenaSpan< vhNativeResource >
 void vhExecuteNative( vhNativeExecuteFn fn, void* user, uint32_t frameIndex, const std::vector< vhNativeResource >& resources );
 
+VkDevice vhGetVkDevice();
+VkPhysicalDevice vhGetVkPhysicalDevice();
+VkInstance vhGetVkInstance();
+
 // Allocates a client-side shader table handle.
 //
 // Returns a `vhShaderTable` handle.
