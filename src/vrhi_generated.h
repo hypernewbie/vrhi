@@ -1112,6 +1112,19 @@ struct VIDL_vhCmdSetStateAccelStructs
         : id(_id), accelStructs(_accelStructs) {}
 };
 
+struct VIDL_vhCmdSetStateDescriptorTables
+{
+    static constexpr uint64_t kMagic = 0x42057DCB;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    vhArenaSpan< vhState::DescriptorTableBinding > tables;
+
+    VIDL_vhCmdSetStateDescriptorTables() = default;
+
+    VIDL_vhCmdSetStateDescriptorTables(vhStateId _id, vhArenaSpan< vhState::DescriptorTableBinding > _tables)
+        : id(_id), tables(_tables) {}
+};
+
 struct VIDL_vhDrawCommonInternal
 {
     static constexpr uint64_t kMagic = 0x8827DC81;
@@ -1214,6 +1227,7 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetStateDescriptorTables* cmd ) { (void) cmd; };
     virtual void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) { (void) cmd; };
 
     virtual void HandleLogFunction( const char* str ) {};
@@ -1546,6 +1560,10 @@ struct VIDLHandler
         case 0x16DF2363:
             HandleLogFunction("Handle_vhCmdSetStateAccelStructs");
             Handle_vhCmdSetStateAccelStructs( (VIDL_vhCmdSetStateAccelStructs*) cmd );
+            break;
+        case 0x42057DCB:
+            HandleLogFunction("Handle_vhCmdSetStateDescriptorTables");
+            Handle_vhCmdSetStateDescriptorTables( (VIDL_vhCmdSetStateDescriptorTables*) cmd );
             break;
         case 0x8827DC81:
             HandleLogFunction("Handle_vhDrawCommonInternal");

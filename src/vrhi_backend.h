@@ -425,6 +425,7 @@ public:
     void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) override;
     void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) override;
     void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) override;
+    void Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetStateDescriptorTables* cmd ) override;
     void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) override;
 
     vhBackendBuffer* Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,

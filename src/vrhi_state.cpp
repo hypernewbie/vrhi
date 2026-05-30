@@ -115,6 +115,11 @@ void vhCmdSetStateAccelStructs( vhStateId id, const std::vector< vhState::AccelS
     vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateAccelStructs >( id, vhArenaCopySpan( accelStructs ) ) );
 }
 
+void vhCmdSetStateDescriptorTables( vhStateId id, const std::vector< vhState::DescriptorTableBinding >& tables )
+{
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateDescriptorTables >( id, vhArenaCopySpan( tables ) ) );
+}
+
 void vhCmdSetStateConstants( vhStateId id, const std::vector< vhState::ConstantBufferValue >& constants )
 {
     vhCmdEnqueue( vhCmdAllocNamedVec4Span< VIDL_vhCmdSetStateConstants, vhArenaConstantValue >( id, constants ) );
@@ -214,6 +219,11 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     if ( dirty & VRHI_DIRTY_ACCEL_STRUCT )
     {
         vhCmdSetStateAccelStructs( id, state.accelStructs );
+    }
+
+    if ( dirty & VRHI_DIRTY_DESCRIPTOR_TABLES )
+    {
+        vhCmdSetStateDescriptorTables( id, state.descriptorTables );
     }
 
     if ( dirty & VRHI_DIRTY_CONSTANTS )

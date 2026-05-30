@@ -650,6 +650,18 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     const bool useGraphics = graphicsPipelineDesc != nullptr;
 
     auto layouts = BE_Util_BuildStageIndexedLayouts( shaders, shaderCount, useCompute, useGraphics, false );
+
+    // Bindless layouts sit at Vulkan set VRHI_DESCRIPTOR_SET_BINDLESS + registerSpace (matching the patched SPIR-V); pad gaps with the empty layout.
+    for ( const auto& binding : state.descriptorTables )
+    {
+        if ( binding.table == VRHI_INVALID_HANDLE ) continue;
+        auto dtIt = backendDescriptorTables.find( binding.table );
+        if ( dtIt == backendDescriptorTables.end() || !dtIt->second->layout ) continue;
+        const uint32_t setIndex = VRHI_DESCRIPTOR_SET_BINDLESS + binding.registerSpace;
+        while ( layouts.size() <= setIndex ) layouts.push_back( m_emptyLayout );
+        layouts[setIndex] = dtIt->second->layout;
+    }
+
     for ( auto& layout : layouts )
     {
         if ( computePipelineDesc ) computePipelineDesc->addBindingLayout( layout );
@@ -1798,6 +1810,28 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
         auto& layout = layouts[layoutIdx];
         assert( layout );
+
+        // Bindless layouts have no regular desc; bind the matching IDescriptorTable directly.
+        if ( layout->getBindlessDesc() != nullptr )
+        {
+            nvrhi::IBindingSet* dtable = nullptr;
+            for ( const auto& binding : state.descriptorTables )
+            {
+                if ( binding.table == VRHI_INVALID_HANDLE ) continue;
+                auto dtIt = backendDescriptorTables.find( binding.table );
+                if ( dtIt != backendDescriptorTables.end() && dtIt->second->layout == layout )
+                {
+                    dtable = dtIt->second->handle.Get();
+                    break;
+                }
+            }
+            if ( computeState )  computeState->addBindingSet( dtable );
+            if ( graphicsState ) graphicsState->addBindingSet( dtable );
+            if ( rtState )       rtState->bindings.push_back( dtable );
+            s_bsetCacheHandles[layoutIdx] = dtable;
+            continue;
+        }
+
         auto layoutDesc = layout->getDesc();
         assert( layoutDesc );
 
@@ -4265,6 +4299,19 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
         vhAssignFromSpan( it->second.accelStructs, cmd->accelStructs );
         it->second.dirty |= VRHI_DIRTY_ACCEL_STRUCT;
         s_globalResourceVersion++;
+    }
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetStateDescriptorTables* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto it = backendStates.find( cmd->id );
+    if ( it != backendStates.end() )
+    {
+        vhAssignFromSpan( it->second.descriptorTables, cmd->tables );
+        it->second.dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
+        s_globalResourceVersion++;
+        s_globalPipelineVersion++;
     }
 }
 

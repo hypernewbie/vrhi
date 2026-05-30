@@ -678,6 +678,7 @@ constexpr uint64_t VRHI_DIRTY_VRS              = ( 1ULL << 12 );
 constexpr uint64_t VRHI_DIRTY_INDIRECT         = ( 1ULL << 13 );
 constexpr uint64_t VRHI_DIRTY_DEPTH_BIAS       = ( 1ULL << 14 );
 constexpr uint64_t VRHI_DIRTY_ACCEL_STRUCT     = ( 1ULL << 15 );
+constexpr uint64_t VRHI_DIRTY_DESCRIPTOR_TABLES = ( 1ULL << 16 );
 constexpr uint64_t VRHI_DIRTY_ALL              = 0xFFFFFFFFFFFFFFFF;
 
 constexpr uint32_t VRHI_DRAW_INDEXED  = ( 1u << 0 );
@@ -1893,6 +1894,13 @@ struct vhState
     };
     std::vector< AccelStructBinding > accelStructs;
 
+    struct DescriptorTableBinding
+    {
+        vhDescriptorTable table = VRHI_INVALID_HANDLE;
+        uint32_t registerSpace = 0;
+    };
+    std::vector< DescriptorTableBinding > descriptorTables;
+
     struct SamplerDefinition
     {
         const char* name = nullptr; // Setting this will autofill slot.
@@ -2053,8 +2061,9 @@ struct vhState
         constants.clear();
         uniforms.clear();
         accelStructs.clear();
+        descriptorTables.clear();
         
-        dirty |= ( VRHI_DIRTY_VERTEX_INDEX | VRHI_DIRTY_TEXTURE_SAMPLERS | VRHI_DIRTY_BUFFERS | VRHI_DIRTY_CONSTANTS | VRHI_DIRTY_UNIFORMS | VRHI_DIRTY_ACCEL_STRUCT );
+        dirty |= ( VRHI_DIRTY_VERTEX_INDEX | VRHI_DIRTY_TEXTURE_SAMPLERS | VRHI_DIRTY_BUFFERS | VRHI_DIRTY_CONSTANTS | VRHI_DIRTY_UNIFORMS | VRHI_DIRTY_ACCEL_STRUCT | VRHI_DIRTY_DESCRIPTOR_TABLES );
         return *this;
     }
     vhState& SetIndexBuffer( vhBuffer buffer, uint64_t offset = 0, uint32_t firstIndex = 0, uint32_t numIndices = UINT32_MAX )
@@ -2182,6 +2191,19 @@ struct vhState
         if ( idx >= accelStructs.size() ) accelStructs.resize( idx + 1 );
         accelStructs[idx] = { as, slot, name };
         dirty |= VRHI_DIRTY_ACCEL_STRUCT;
+        return *this;
+    }
+    vhState& SetDescriptorTables( const std::vector< DescriptorTableBinding >& tables_ )
+    {
+        descriptorTables = tables_;
+        dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
+        return *this;
+    }
+    vhState& SetDescriptorTable( uint32_t idx, vhDescriptorTable table, uint32_t registerSpace = 0 )
+    {
+        if ( idx >= descriptorTables.size() ) descriptorTables.resize( idx + 1 );
+        descriptorTables[idx] = { table, registerSpace };
+        dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
         return *this;
     }
     AccelStructBinding& GetAccelStruct( uint32_t idx )
@@ -2600,6 +2622,9 @@ void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset
 // VIDL_GENERATE
 // VIDL_STORAGE: accelStructs = vhArenaSpan< vhState::AccelStructBinding >
 void vhCmdSetStateAccelStructs( vhStateId id, const std::vector< vhState::AccelStructBinding >& accelStructs );
+// VIDL_GENERATE
+// VIDL_STORAGE: tables = vhArenaSpan< vhState::DescriptorTableBinding >
+void vhCmdSetStateDescriptorTables( vhStateId id, const std::vector< vhState::DescriptorTableBinding >& tables );
 
 // Internal omni-draw command. Do not call directly.
 // VIDL_GENERATE
