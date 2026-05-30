@@ -79,6 +79,10 @@ vhAllocatorObjectFreeList g_vhShaderTableIDList( 4 * 1024 );
 std::unordered_map< vhShaderTable, bool > g_vhShaderTableIDValid;
 std::mutex g_vhShaderTableIDListMutex;
 
+vhAllocatorObjectFreeList g_vhDescriptorTableIDList( 4 * 1024 );
+std::unordered_map< vhDescriptorTable, bool > g_vhDescriptorTableIDValid;
+std::mutex g_vhDescriptorTableIDListMutex;
+
 bool g_vhRayTracingEnabled = false;
 bool g_vhNullMode = false;
 

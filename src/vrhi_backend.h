@@ -113,6 +113,14 @@ struct vhBackendShaderTable
     vhRTPipeline pipeline;
 };
 
+struct vhBackendDescriptorTable
+{
+    nvrhi::BindingLayoutHandle layout;
+    nvrhi::DescriptorTableHandle handle;
+    nvrhi::BindlessLayoutDesc desc;
+    uint32_t capacity = 0;
+};
+
 // --------------------------------------------------------------------------
 // Main Backend State
 // --------------------------------------------------------------------------
@@ -129,6 +137,7 @@ class vhCmdBackendState : public VIDLHandler
     ankerl::unordered_dense::map< vhAccelStruct, std::unique_ptr< vhBackendAccelStruct > > backendAccelStructs;
     ankerl::unordered_dense::map< vhRTPipeline,  std::unique_ptr< vhBackendRTPipeline > >  backendRTPipelines;
     ankerl::unordered_dense::map< vhShaderTable, std::unique_ptr< vhBackendShaderTable > > backendShaderTables;
+    ankerl::unordered_dense::map< vhDescriptorTable, std::unique_ptr< vhBackendDescriptorTable > > backendDescriptorTables;
     ankerl::unordered_dense::map< vhTimerID,     std::unique_ptr< vhBackendTimerQuery > >  backendTimerQueries;
     ankerl::unordered_dense::map< vhStateId,     vhState >                                 backendStates;
     ankerl::unordered_dense::map< vhHeap,        std::unique_ptr< vhBackendHeap > >        backendHeaps;
@@ -370,6 +379,10 @@ public:
     void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) override;
     void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) override;
     void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) override;
+    void Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorTable* cmd ) override;
+    void Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescriptorTable* cmd ) override;
+    void Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorTable* cmd ) override;
+    void Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd ) override;
     void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) override;
     void Handle_vhCreateRTPipelineSimple( VIDL_vhCreateRTPipelineSimple* cmd ) override;
     void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) override;
@@ -458,7 +471,11 @@ public:
     float QueryTimer( vhTimerID timerID );
 
     nvrhi::rt::AccelStructHandle QueryAccelStructHandle( vhAccelStruct as );
-    
+
+    nvrhi::DescriptorTableHandle QueryDescriptorTableHandle( vhDescriptorTable table );
+    nvrhi::BindingLayoutHandle QueryDescriptorTableLayoutHandle( vhDescriptorTable table );
+    uint32_t QueryDescriptorTableCapacity( vhDescriptorTable table );
+
     nvrhi::rt::PipelineHandle QueryRTPipelineHandle( vhRTPipeline pipeline );
 
     nvrhi::rt::ShaderTableHandle QueryShaderTableHandle( vhShaderTable table );

@@ -2423,6 +2423,7 @@ void vhCmdBackendState::shutdown()
     backendAccelStructs.clear();
     backendRTPipelines.clear();
     backendShaderTables.clear();
+    backendDescriptorTables.clear();
 
     m_globalUniformBuffer.Shutdown_DeviceStateLocked();
     m_worldUniformBuffer.Shutdown_DeviceStateLocked();
@@ -3577,6 +3578,124 @@ void vhCmdBackendState::Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         BE_EndRenderPassBeforeAS( cmdlist );
         cmdlist->buildTopLevelAccelStructFromBuffer( backend->handle, bufIt->second->handle.Get(), 0, cmd->numInstances, backend->desc.buildFlags );
+    }
+}
+
+void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorTable* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( cmd->table == VRHI_INVALID_HANDLE ) return;
+
+    if ( backendDescriptorTables.find( cmd->table ) == backendDescriptorTables.end() )
+        backendDescriptorTables[ cmd->table ] = std::make_unique< vhBackendDescriptorTable >();
+
+    auto backend = backendDescriptorTables[ cmd->table ].get();
+    backend->desc = cmd->desc;
+    backend->desc.layoutType = nvrhi::BindlessLayoutDesc::LayoutType::Immutable;
+    backend->capacity = 0;
+
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    backend->layout = g_vhDevice->createBindlessLayout( backend->desc );
+    if ( !backend->layout )
+    {
+        VRHI_ERR( "vhCreateDescriptorTable() : Failed to create bindless layout!\n" );
+        return;
+    }
+    backend->handle = g_vhDevice->createDescriptorTable( backend->layout );
+    if ( !backend->handle )
+    {
+        VRHI_ERR( "vhCreateDescriptorTable() : Failed to create descriptor table!\n" );
+        return;
+    }
+    backend->capacity = backend->desc.maxCapacity;
+}
+
+void vhCmdBackendState::Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescriptorTable* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( backendDescriptorTables.find( cmd->table ) == backendDescriptorTables.end() ) return;
+
+    s_globalResourceVersion++;
+    s_globalPipelineVersion++;
+
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    backendDescriptorTables.erase( cmd->table );
+}
+
+void vhCmdBackendState::Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorTable* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendDescriptorTables.find( cmd->table );
+    if ( it == backendDescriptorTables.end() || !it->second->handle )
+    {
+        VRHI_ERR( "vhResizeDescriptorTable() : Table %d not found!\n", cmd->table );
+        return;
+    }
+
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    g_vhDevice->resizeDescriptorTable( it->second->handle, cmd->newSize, cmd->keepContents );
+    it->second->capacity = cmd->newSize;
+}
+
+void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    auto it = backendDescriptorTables.find( cmd->table );
+    if ( it == backendDescriptorTables.end() || !it->second->handle )
+    {
+        VRHI_ERR( "vhDescriptorTableSet() : Table %d not found!\n", cmd->table );
+        return;
+    }
+    auto backend = it->second.get();
+
+    // Resolve the vrhi handle here so writes compose with queued resource creation.
+    nvrhi::BindingSetItem item = cmd->item;
+    if ( cmd->resource == VRHI_INVALID_HANDLE )
+    {
+        item.type = nvrhi::ResourceType::None;
+    }
+    else if ( cmd->isBuffer )
+    {
+        auto bit = backendBuffers.find( cmd->resource );
+        if ( bit == backendBuffers.end() || !bit->second->handle )
+        {
+            VRHI_ERR( "vhDescriptorTableSetBuffer() : Buffer %d not found!\n", cmd->resource );
+            return;
+        }
+        item.resourceHandle = bit->second->handle.Get();
+    }
+    else
+    {
+        auto tit = backendTextures.find( cmd->resource );
+        if ( tit == backendTextures.end() || !tit->second->handle )
+        {
+            VRHI_ERR( "vhDescriptorTableSetTexture() : Texture %d not found!\n", cmd->resource );
+            return;
+        }
+        item.resourceHandle = tit->second->handle.Get();
+    }
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    g_vhDevice->writeDescriptorTable( backend->handle, item );
+
+    // Bindless resources skip binding-set state tracking, so pin them to a permanent shader-visible state once.
+    if ( item.resourceHandle )
+    {
+        const bool isUAV = ( item.type == nvrhi::ResourceType::Texture_UAV
+            || item.type == nvrhi::ResourceType::TypedBuffer_UAV
+            || item.type == nvrhi::ResourceType::StructuredBuffer_UAV
+            || item.type == nvrhi::ResourceType::RawBuffer_UAV );
+        const nvrhi::ResourceStates st = isUAV ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource;
+        if ( cmd->isBuffer )
+            cmdlist->setPermanentBufferState( ( nvrhi::IBuffer* ) item.resourceHandle, st );
+        else
+            cmdlist->setPermanentTextureState( ( nvrhi::ITexture* ) item.resourceHandle, st );
+        cmdlist->commitBarriers();
     }
 }
 
@@ -4762,6 +4881,30 @@ nvrhi::rt::AccelStructHandle vhCmdBackendState::QueryAccelStructHandle( vhAccelS
     return it->second->handle;
 }
 
+nvrhi::DescriptorTableHandle vhCmdBackendState::QueryDescriptorTableHandle( vhDescriptorTable table )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto it = backendDescriptorTables.find( table );
+    if ( it == backendDescriptorTables.end() ) return nullptr;
+    return it->second->handle;
+}
+
+nvrhi::BindingLayoutHandle vhCmdBackendState::QueryDescriptorTableLayoutHandle( vhDescriptorTable table )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto it = backendDescriptorTables.find( table );
+    if ( it == backendDescriptorTables.end() ) return nullptr;
+    return it->second->layout;
+}
+
+uint32_t vhCmdBackendState::QueryDescriptorTableCapacity( vhDescriptorTable table )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto it = backendDescriptorTables.find( table );
+    if ( it == backendDescriptorTables.end() ) return 0;
+    return it->second->capacity;
+}
+
 nvrhi::rt::PipelineHandle vhCmdBackendState::QueryRTPipelineHandle( vhRTPipeline pipeline )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
@@ -4865,6 +5008,21 @@ glm::u64vec2 vhBackendQueryBufferMemoryRequirements( vhBuffer buffer )
 nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as )
 {
     return g_vhCmdBackendState.QueryAccelStructHandle( as );
+}
+
+nvrhi::DescriptorTableHandle vhBackendQueryDescriptorTableHandle( vhDescriptorTable table )
+{
+    return g_vhCmdBackendState.QueryDescriptorTableHandle( table );
+}
+
+nvrhi::BindingLayoutHandle vhBackendQueryDescriptorTableLayoutHandle( vhDescriptorTable table )
+{
+    return g_vhCmdBackendState.QueryDescriptorTableLayoutHandle( table );
+}
+
+uint32_t vhBackendQueryDescriptorTableCapacity( vhDescriptorTable table )
+{
+    return g_vhCmdBackendState.QueryDescriptorTableCapacity( table );
 }
 
 nvrhi::rt::PipelineHandle vhBackendQueryRTPipelineHandle( vhRTPipeline pipeline )

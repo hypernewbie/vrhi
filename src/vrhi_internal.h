@@ -200,6 +200,10 @@ extern vhAllocatorObjectFreeList g_vhShaderIDList;
 extern std::unordered_map< vhShader, bool > g_vhShaderIDValid;
 extern std::mutex g_vhShaderIDListMutex;
 
+extern vhAllocatorObjectFreeList g_vhDescriptorTableIDList;
+extern std::unordered_map< vhDescriptorTable, bool > g_vhDescriptorTableIDValid;
+extern std::mutex g_vhDescriptorTableIDListMutex;
+
 // Raytracing state
 extern vhAllocatorObjectFreeList g_vhAccelStructIDList;
 extern std::unordered_map< vhAccelStruct, bool > g_vhAccelStructIDValid;
@@ -242,6 +246,9 @@ nvrhi::ShaderHandle vhBackendQueryShaderHandle( vhShader shader );
 bool vhBackendQueryState( vhStateId id, vhState& outState );
 float vhBackendQueryTimer( vhTimerID timerID );
 nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as );
+nvrhi::DescriptorTableHandle vhBackendQueryDescriptorTableHandle( vhDescriptorTable table );
+nvrhi::BindingLayoutHandle vhBackendQueryDescriptorTableLayoutHandle( vhDescriptorTable table );
+uint32_t vhBackendQueryDescriptorTableCapacity( vhDescriptorTable table );
 nvrhi::rt::PipelineHandle vhBackendQueryRTPipelineHandle( vhRTPipeline pipeline );
 nvrhi::rt::ShaderTableHandle vhBackendQueryShaderTableHandle( vhShaderTable table );
 glm::u64vec2 vhBackendQueryTextureMemoryRequirements( vhTexture texture );

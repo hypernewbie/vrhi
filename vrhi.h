@@ -124,6 +124,7 @@ typedef uint32_t vhRTPipeline;
 typedef uint32_t vhShaderTable; 
 typedef uint64_t vhStateId;
 typedef uint32_t vhHeap; 
+typedef uint32_t vhDescriptorTable;
 
 extern vhInitData g_vhInit;
 extern nvrhi::DeviceHandle g_vhDevice;
@@ -1477,6 +1478,42 @@ inline void vhCreateRTPipeline( vhRTPipeline pipeline, vhShader rayGen, vhShader
 // `pipeline` is the handle to the raytracing pipeline to be destroyed.
 // VIDL_GENERATE
 void vhDestroyRTPipeline( vhRTPipeline pipeline );
+
+// --------------------------------------------------------------------------
+// Bindless Descriptor Tables
+// --------------------------------------------------------------------------
+
+// Allocate a handle, create the table, populate slots, bind via vhState::SetDescriptorTable. Shader side: see VRHI_BINDLESS_SPACE.
+vhDescriptorTable vhAllocDescriptorTable();
+
+// VIDL_GENERATE
+vhDescriptorTable vhCreateDescriptorTable( vhDescriptorTable table, const nvrhi::BindlessLayoutDesc& desc );
+
+// VIDL_GENERATE
+void vhDestroyDescriptorTable( vhDescriptorTable table );
+
+// VIDL_GENERATE
+void vhResizeDescriptorTable( vhDescriptorTable table, uint32_t newSize, bool keepContents = true );
+
+void vhDescriptorTableSetTexture( vhDescriptorTable table, uint32_t index, vhTexture texture,
+    nvrhi::Format format = nvrhi::Format::UNKNOWN,
+    nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources,
+    bool computeUAV = false );
+
+void vhDescriptorTableSetBuffer( vhDescriptorTable table, uint32_t index, vhBuffer buffer,
+    nvrhi::ResourceType type,
+    uint64_t byteOffset = 0, uint64_t byteSize = 0,
+    nvrhi::Format format = nvrhi::Format::UNKNOWN );
+
+void vhDescriptorTableClear( vhDescriptorTable table, uint32_t index, nvrhi::ResourceType type );
+
+uint32_t vhDescriptorTableCapacity( vhDescriptorTable table );
+nvrhi::DescriptorTableHandle vhGetDescriptorTableNvrhiHandle( vhDescriptorTable table );
+nvrhi::BindingLayoutHandle vhGetDescriptorTableLayoutNvrhiHandle( vhDescriptorTable table );
+
+// Internal: writes one slot. Use the vhDescriptorTableSet* wrappers instead.
+// VIDL_GENERATE
+void vhCmdWriteDescriptorTable( vhDescriptorTable table, uint32_t resource, bool isBuffer, nvrhi::BindingSetItem item );
 
 // Allocates a client-side shader table handle.
 //

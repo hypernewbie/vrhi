@@ -520,6 +520,60 @@ struct VIDL_vhDestroyRTPipeline
         : pipeline(_pipeline) {}
 };
 
+struct VIDL_vhCreateDescriptorTable
+{
+    static constexpr uint64_t kMagic = 0x325C4B7D;
+    uint64_t MAGIC = kMagic;
+    vhDescriptorTable table;
+    const nvrhi::BindlessLayoutDesc desc;
+
+    VIDL_vhCreateDescriptorTable() = default;
+
+    VIDL_vhCreateDescriptorTable(vhDescriptorTable _table, const nvrhi::BindlessLayoutDesc& _desc)
+        : table(_table), desc(_desc) {}
+};
+
+struct VIDL_vhDestroyDescriptorTable
+{
+    static constexpr uint64_t kMagic = 0x7B2D38D5;
+    uint64_t MAGIC = kMagic;
+    vhDescriptorTable table;
+
+    VIDL_vhDestroyDescriptorTable() = default;
+
+    VIDL_vhDestroyDescriptorTable(vhDescriptorTable _table)
+        : table(_table) {}
+};
+
+struct VIDL_vhResizeDescriptorTable
+{
+    static constexpr uint64_t kMagic = 0xF4484B3F;
+    uint64_t MAGIC = kMagic;
+    vhDescriptorTable table;
+    uint32_t newSize;
+    bool keepContents = true;
+
+    VIDL_vhResizeDescriptorTable() = default;
+
+    VIDL_vhResizeDescriptorTable(vhDescriptorTable _table, uint32_t _newSize, bool _keepContents)
+        : table(_table), newSize(_newSize), keepContents(_keepContents) {}
+};
+
+struct VIDL_vhCmdWriteDescriptorTable
+{
+    static constexpr uint64_t kMagic = 0x325B9D7B;
+    uint64_t MAGIC = kMagic;
+    vhDescriptorTable table;
+    uint32_t resource;
+    bool isBuffer;
+    nvrhi::BindingSetItem item;
+
+    VIDL_vhCmdWriteDescriptorTable() = default;
+
+    VIDL_vhCmdWriteDescriptorTable(vhDescriptorTable _table, uint32_t _resource, bool _isBuffer, nvrhi::BindingSetItem _item)
+        : table(_table), resource(_resource), isBuffer(_isBuffer), item(_item) {}
+};
+
 struct VIDL_vhCreateShaderTable
 {
     static constexpr uint64_t kMagic = 0x9DDDDA05;
@@ -1117,6 +1171,10 @@ struct VIDLHandler
     virtual void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateRTPipelineSimple( VIDL_vhCreateRTPipelineSimple* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) { (void) cmd; };
+    virtual void Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorTable* cmd ) { (void) cmd; };
+    virtual void Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescriptorTable* cmd ) { (void) cmd; };
+    virtual void Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorTable* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateShaderTable( VIDL_vhCreateShaderTable* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyShaderTable( VIDL_vhDestroyShaderTable* cmd ) { (void) cmd; };
     virtual void Handle_vhShaderTableSetRayGen( VIDL_vhShaderTableSetRayGen* cmd ) { (void) cmd; };
@@ -1316,6 +1374,22 @@ struct VIDLHandler
         case 0x5AA337AF:
             HandleLogFunction("Handle_vhDestroyRTPipeline");
             Handle_vhDestroyRTPipeline( (VIDL_vhDestroyRTPipeline*) cmd );
+            break;
+        case 0x325C4B7D:
+            HandleLogFunction("Handle_vhCreateDescriptorTable");
+            Handle_vhCreateDescriptorTable( (VIDL_vhCreateDescriptorTable*) cmd );
+            break;
+        case 0x7B2D38D5:
+            HandleLogFunction("Handle_vhDestroyDescriptorTable");
+            Handle_vhDestroyDescriptorTable( (VIDL_vhDestroyDescriptorTable*) cmd );
+            break;
+        case 0xF4484B3F:
+            HandleLogFunction("Handle_vhResizeDescriptorTable");
+            Handle_vhResizeDescriptorTable( (VIDL_vhResizeDescriptorTable*) cmd );
+            break;
+        case 0x325B9D7B:
+            HandleLogFunction("Handle_vhCmdWriteDescriptorTable");
+            Handle_vhCmdWriteDescriptorTable( (VIDL_vhCmdWriteDescriptorTable*) cmd );
             break;
         case 0x9DDDDA05:
             HandleLogFunction("Handle_vhCreateShaderTable");

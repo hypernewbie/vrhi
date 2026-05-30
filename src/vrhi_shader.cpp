@@ -942,7 +942,101 @@ void vhBuildTLASFromBuffer( vhAccelStruct tlas, vhBuffer instanceBuffer, uint32_
     vhCmdEnqueue( cmd );
 }
 
+// ------------ Descriptor Tables ------------
 
+vhDescriptorTable vhAllocDescriptorTable()
+{
+    std::lock_guard< std::mutex > lock( g_vhDescriptorTableIDListMutex );
+    uint32_t id = g_vhDescriptorTableIDList.alloc();
+    g_vhDescriptorTableIDValid[id] = true;
+    return id;
+}
+
+vhDescriptorTable vhCreateDescriptorTable( vhDescriptorTable table, const nvrhi::BindlessLayoutDesc& desc )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCreateDescriptorTable >( table, desc );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+    return table;
+}
+
+void vhDestroyDescriptorTable( vhDescriptorTable table )
+{
+    std::lock_guard< std::mutex > lock( g_vhDescriptorTableIDListMutex );
+    if ( g_vhDescriptorTableIDValid.find( table ) == g_vhDescriptorTableIDValid.end() ) return;
+    g_vhDescriptorTableIDValid.erase( table );
+    g_vhDescriptorTableIDList.release( table );
+
+    auto cmd = vhCmdAlloc< VIDL_vhDestroyDescriptorTable >( table );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhResizeDescriptorTable( vhDescriptorTable table, uint32_t newSize, bool keepContents )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhResizeDescriptorTable >( table, newSize, keepContents );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhDescriptorTableSetTexture( vhDescriptorTable table, uint32_t index, vhTexture texture,
+    nvrhi::Format format,
+    nvrhi::TextureSubresourceSet subresources,
+    bool computeUAV )
+{
+    nvrhi::BindingSetItem item;
+    if ( computeUAV )
+        item = nvrhi::BindingSetItem::Texture_UAV( index, nullptr, format, subresources );
+    else
+        item = nvrhi::BindingSetItem::Texture_SRV( index, nullptr, format, subresources );
+    item.slot = index;
+
+    vhCmdWriteDescriptorTable( table, texture, false, item );
+}
+
+void vhDescriptorTableSetBuffer( vhDescriptorTable table, uint32_t index, vhBuffer buffer,
+    nvrhi::ResourceType type,
+    uint64_t byteOffset, uint64_t byteSize,
+    nvrhi::Format format )
+{
+    nvrhi::BindingSetItem item;
+    item.slot = index;
+    item.type = type;
+    item.resourceHandle = nullptr;
+    item.format = format;
+    item.range = nvrhi::BufferRange{ byteOffset, byteSize };
+
+    vhCmdWriteDescriptorTable( table, buffer, true, item );
+}
+
+void vhDescriptorTableClear( vhDescriptorTable table, uint32_t index, nvrhi::ResourceType type )
+{
+    (void) type; // Clearing uses ResourceType::None; a typed item with a null handle fails NVRHI validation.
+    nvrhi::BindingSetItem item = nvrhi::BindingSetItem::None( index );
+    vhCmdWriteDescriptorTable( table, VRHI_INVALID_HANDLE, false, item );
+}
+
+void vhCmdWriteDescriptorTable( vhDescriptorTable table, uint32_t resource, bool isBuffer, nvrhi::BindingSetItem item )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCmdWriteDescriptorTable >( table, resource, isBuffer, item );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+uint32_t vhDescriptorTableCapacity( vhDescriptorTable table )
+{
+    return vhBackendQueryDescriptorTableCapacity( table );
+}
+
+nvrhi::DescriptorTableHandle vhGetDescriptorTableNvrhiHandle( vhDescriptorTable table )
+{
+    return vhBackendQueryDescriptorTableHandle( table );
+}
+
+nvrhi::BindingLayoutHandle vhGetDescriptorTableLayoutNvrhiHandle( vhDescriptorTable table )
+{
+    return vhBackendQueryDescriptorTableLayoutHandle( table );
+}
 
 vhRTPipeline vhCreateRTPipeline( vhRTPipeline pipeline, const nvrhi::rt::PipelineDesc& desc )
 {
