@@ -843,6 +843,19 @@ static vhAccelStruct BuildTriIndexedBLAS( vhBuffer vb, vhBuffer ib, uint32_t ver
     return blas;
 }
 
+// Builds a triangle BLAS via the handle-carrying vhBuildIndexedTriangleBLAS path. Unlike the helpers
+// above, this deliberately performs NO vhFlush() between AS/buffer creation and the build: the new
+// API carries raw vhBuffer IDs through the command queue and resolves them on the backend thread
+// after FIFO has already processed the create commands. Pass ib = VRHI_INVALID_HANDLE for non-indexed.
+static vhAccelStruct BuildTriBLASViaHandles( vhBuffer vb, vhBuffer ib, uint32_t vertexCount, uint32_t indexCount,
+    nvrhi::Format indexFormat = nvrhi::Format::R16_UINT, nvrhi::rt::GeometryFlags flags = nvrhi::rt::GeometryFlags::Opaque )
+{
+    vhAccelStruct blas = vhAllocAS();
+    vhCreateAS( blas, nvrhi::rt::AccelStructDesc().setIsTopLevel( false ).setDebugName( "TestBLAS" ) );
+    vhBuildIndexedTriangleBLAS( blas, vb, ib, nvrhi::Format::RGB32_FLOAT, indexFormat, sizeof( Vertex ), vertexCount, indexCount, flags );
+    return blas;
+}
+
 static vhAccelStruct BuildAABBBLAS( vhBuffer buf, uint32_t aabbCount )
 {
     vhAccelStruct blas = vhAllocAS();
@@ -1331,6 +1344,95 @@ UTEST_F( RT, IndexedTriangles )
     vhDestroyTexture( rt );
     vhDestroyBuffer( vb );
     vhDestroyBuffer( ib );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// Exercises the handle-carrying vhBuildIndexedTriangleBLAS path with an index buffer. The BLAS is
+// built without any vhFlush() barrier after creating the vertex/index buffers and the AS, proving
+// the backend resolves the vhBuffer IDs in FIFO order.
+UTEST_F( RT, IndexedTriangleBLASViaHandles )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+    uint16_t indices[3] = { 0, 1, 2 };
+    vhBuffer ib = CreateTestIB( indices, sizeof( indices ) );
+
+    vhAccelStruct blas = BuildTriBLASViaHandles( vb, ib, 3, 3 );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 8700, state, p.table, args );
+
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyBuffer( ib );
+    vhDestroyAS( tlas );
+    vhDestroyAS( blas );
+    vhDestroyShader( rayGen );
+    vhDestroyShader( miss );
+    vhDestroyShader( closestHit );
+    DestroyRTPipeline( p );
+}
+
+// Exercises the non-indexed branch of vhBuildIndexedTriangleBLAS (indexBuffer = VRHI_INVALID_HANDLE).
+// Deliberately passes a bogus indexFormat (R32_UINT) and indexCount (999) to prove the backend
+// normalises them to UNKNOWN / 0. Without that normalisation the Vulkan backend would select the
+// indexed path (it keys off indexFormat != UNKNOWN) and read indices from a null device address,
+// hanging the GPU. A correct build traces the triangle just like the indexed case.
+UTEST_F( RT, NonIndexedTriangleBLASViaHandles )
+{
+    if ( !g_vhDeviceInfo.raytracing ) return;
+
+    vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
+
+    vhAccelStruct blas = BuildTriBLASViaHandles( vb, VRHI_INVALID_HANDLE, 3, 999, nvrhi::Format::R32_UINT );
+    vhAccelStruct tlas = BuildTriTLAS( blas );
+
+    vhShader rayGen = CreateRTShader( g_rayGenHLSL, VRHI_SHADER_STAGE_RAYGEN );
+    vhShader miss = CreateRTShader( g_missHLSL, VRHI_SHADER_STAGE_MISS );
+    vhShader closestHit = CreateRTShader( g_hitHLSL, VRHI_SHADER_STAGE_CLOSEST_HIT );
+
+    auto p = MakeRTPipeline( rayGen, miss, closestHit );
+
+    vhState state;
+    state.DirtyAll()
+         .SetProgram( vhCreateRTProgram( rayGen, miss, closestHit ) )
+         .SetTexture( 0, { .name = "g_Output", .texture = rt, .computeUAV = true } )
+         .SetAccelStruct( 0, tlas, -1, "g_Scene" )
+         .SetViewRect( glm::vec4( 0, 0, 4, 4 ) );
+
+    nvrhi::rt::DispatchRaysArguments args; args.width = 4; args.height = 4;
+    DispatchAndReset( 8701, state, p.table, args );
+
+    EXPECT_TRUE( VerifyPixel( rt, 0, 0, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 3, 3, 0xFFFF0000 ) );
+
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
     vhDestroyAS( tlas );
     vhDestroyAS( blas );
     vhDestroyShader( rayGen );

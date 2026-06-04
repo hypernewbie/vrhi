@@ -439,6 +439,26 @@ struct VIDL_vhBuildBLAS
         : blas(_blas), geometries(_geometries) {}
 };
 
+struct VIDL_vhBuildIndexedTriangleBLAS
+{
+    static constexpr uint64_t kMagic = 0x6F4120B6;
+    uint64_t MAGIC = kMagic;
+    vhAccelStruct blas;
+    vhBuffer vertexBuffer;
+    vhBuffer indexBuffer;
+    nvrhi::Format vertexFormat;
+    nvrhi::Format indexFormat;
+    uint32_t vertexStride;
+    uint32_t vertexCount;
+    uint32_t indexCount;
+    nvrhi::rt::GeometryFlags flags;
+
+    VIDL_vhBuildIndexedTriangleBLAS() = default;
+
+    VIDL_vhBuildIndexedTriangleBLAS(vhAccelStruct _blas, vhBuffer _vertexBuffer, vhBuffer _indexBuffer, nvrhi::Format _vertexFormat, nvrhi::Format _indexFormat, uint32_t _vertexStride, uint32_t _vertexCount, uint32_t _indexCount, nvrhi::rt::GeometryFlags _flags)
+        : blas(_blas), vertexBuffer(_vertexBuffer), indexBuffer(_indexBuffer), vertexFormat(_vertexFormat), indexFormat(_indexFormat), vertexStride(_vertexStride), vertexCount(_vertexCount), indexCount(_indexCount), flags(_flags) {}
+};
+
 struct VIDL_vhBuildTLAS
 {
     static constexpr uint64_t kMagic = 0xBAF93377;
@@ -1193,6 +1213,7 @@ struct VIDLHandler
     virtual void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) { (void) cmd; };
+    virtual void Handle_vhBuildIndexedTriangleBLAS( VIDL_vhBuildIndexedTriangleBLAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) { (void) cmd; };
     virtual void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) { (void) cmd; };
     virtual void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) { (void) cmd; };
@@ -1380,6 +1401,10 @@ struct VIDLHandler
         case 0xDBB4E9AB:
             HandleLogFunction("Handle_vhBuildBLAS");
             Handle_vhBuildBLAS( (VIDL_vhBuildBLAS*) cmd );
+            break;
+        case 0x6F4120B6:
+            HandleLogFunction("Handle_vhBuildIndexedTriangleBLAS");
+            Handle_vhBuildIndexedTriangleBLAS( (VIDL_vhBuildIndexedTriangleBLAS*) cmd );
             break;
         case 0xBAF93377:
             HandleLogFunction("Handle_vhBuildTLAS");

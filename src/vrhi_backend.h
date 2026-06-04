@@ -376,6 +376,7 @@ public:
     void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) override;
     void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) override;
     void Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd ) override;
+    void Handle_vhBuildIndexedTriangleBLAS( VIDL_vhBuildIndexedTriangleBLAS* cmd ) override;
     void Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd ) override;
     void Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd ) override;
     void Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer* cmd ) override;

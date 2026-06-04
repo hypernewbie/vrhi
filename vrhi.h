@@ -143,7 +143,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 #define VRHI_VERSION_MAJOR 0
 #define VRHI_VERSION_MINOR 5
-#define VRHI_VERSION_PATCH 5
+#define VRHI_VERSION_PATCH 6
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
@@ -1467,6 +1467,27 @@ void vhDestroyAS( vhAccelStruct as );
 // `geometryCount` is the number of geometries.
 // VIDL_GENERATE
 void vhBuildBLAS( vhAccelStruct blas, std::vector< nvrhi::rt::GeometryDesc > geometries );
+
+// Enqueues a command to build a bottom-level acceleration structure from indexed triangle geometry.
+//
+// Carries vhBuffer handles through the command queue; the backend thread resolves them after FIFO
+// processing. No vhFlush() barrier is needed between buffer/AS creation and this call.
+//
+// `blas` is the handle to the BLAS (must be created with vhCreateAS as non-top-level).
+// `vertexBuffer` is a GPU buffer containing vertex data.
+// `indexBuffer` is a GPU buffer containing index data, or VRHI_INVALID_HANDLE for non-indexed geometry.
+//   When VRHI_INVALID_HANDLE, `indexFormat` and `indexCount` are ignored (treated as UNKNOWN / 0).
+// `vertexFormat` is the format of the vertex position (e.g. nvrhi::Format::RGB32_FLOAT).
+// `indexFormat` is the format of indices (e.g. nvrhi::Format::R32_UINT); ignored if non-indexed.
+// `vertexStride` is the byte stride between vertices in the vertex buffer.
+// `vertexCount` is the number of vertices.
+// `indexCount` is the number of indices; ignored if non-indexed.
+// `flags` are geometry flags (e.g. nvrhi::rt::GeometryFlags::Opaque).
+//
+// Vertex/index buffer offsets default to 0; to build from a sub-range of a shared buffer use
+// vhBuildBLAS with an explicit nvrhi::rt::GeometryDesc instead.
+// VIDL_GENERATE
+void vhBuildIndexedTriangleBLAS( vhAccelStruct blas, vhBuffer vertexBuffer, vhBuffer indexBuffer, nvrhi::Format vertexFormat, nvrhi::Format indexFormat, uint32_t vertexStride, uint32_t vertexCount, uint32_t indexCount, nvrhi::rt::GeometryFlags flags );
 
 // Enqueues a command to build or rebuild a top-level acceleration structure.
 //

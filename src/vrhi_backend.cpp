@@ -3546,6 +3546,83 @@ void vhCmdBackendState::Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd )
     }
 }
 
+void vhCmdBackendState::Handle_vhBuildIndexedTriangleBLAS( VIDL_vhBuildIndexedTriangleBLAS* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+
+    // Resolve BLAS handle
+    auto it = backendAccelStructs.find( cmd->blas );
+    if ( it == backendAccelStructs.end() )
+    {
+        VRHI_ERR( "vhBuildIndexedTriangleBLAS() : BLAS %d not found!\n", cmd->blas );
+        return;
+    }
+
+    auto backend = it->second.get();
+    if ( !backend->handle )
+    {
+        VRHI_ERR( "vhBuildIndexedTriangleBLAS() : BLAS %d has no valid handle!\n", cmd->blas );
+        return;
+    }
+
+    // Resolve vertex buffer handle
+    auto vbIt = backendBuffers.find( cmd->vertexBuffer );
+    if ( vbIt == backendBuffers.end() )
+    {
+        VRHI_ERR( "vhBuildIndexedTriangleBLAS() : Vertex buffer %d not found!\n", cmd->vertexBuffer );
+        return;
+    }
+
+    // Resolve index buffer handle (optional — VRHI_INVALID_HANDLE means non-indexed).
+    // The NVRHI/Vulkan backend decides indexed-vs-non-indexed solely from indexFormat == UNKNOWN
+    // (it never inspects whether indexBuffer is null), so for the non-indexed path we must force
+    // indexFormat = UNKNOWN and indexCount = 0 regardless of what the caller passed. Otherwise the
+    // driver would try to read indices from a null device address and crash the GPU.
+    nvrhi::IBuffer* indexBuffer = nullptr;
+    nvrhi::Format   indexFormat = nvrhi::Format::UNKNOWN;
+    uint32_t        indexCount  = 0;
+    if ( cmd->indexBuffer != VRHI_INVALID_HANDLE )
+    {
+        auto ibIt = backendBuffers.find( cmd->indexBuffer );
+        if ( ibIt == backendBuffers.end() )
+        {
+            VRHI_ERR( "vhBuildIndexedTriangleBLAS() : Index buffer %d not found!\n", cmd->indexBuffer );
+            return;
+        }
+        indexBuffer = ibIt->second->handle.Get();
+        indexFormat = cmd->indexFormat;
+        indexCount  = cmd->indexCount;
+        if ( indexFormat == nvrhi::Format::UNKNOWN )
+        {
+            // Index buffer supplied but no index format — contradictory. Fall back to a non-indexed
+            // build rather than emitting a non-null index buffer with UNKNOWN format (which NVRHI's
+            // validation rejects) or fetching indices through a mismatched type.
+            VRHI_ERR( "vhBuildIndexedTriangleBLAS() : index buffer %d supplied with UNKNOWN indexFormat; building non-indexed!\n", cmd->indexBuffer );
+            indexBuffer = nullptr;
+            indexCount  = 0;
+        }
+    }
+
+    // Build the geometry descriptor on the stack
+    nvrhi::rt::GeometryDesc geo;
+    geo.geometryType = nvrhi::rt::GeometryType::Triangles;
+    geo.geometryData.triangles.vertexBuffer = vbIt->second->handle.Get();
+    geo.geometryData.triangles.indexBuffer  = indexBuffer;
+    geo.geometryData.triangles.vertexFormat = cmd->vertexFormat;
+    geo.geometryData.triangles.indexFormat  = indexFormat;
+    geo.geometryData.triangles.vertexStride = cmd->vertexStride;
+    geo.geometryData.triangles.vertexCount  = cmd->vertexCount;
+    geo.geometryData.triangles.indexCount   = indexCount;
+    geo.flags = cmd->flags;
+
+    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        BE_EndRenderPassBeforeAS( cmdlist );
+        cmdlist->buildBottomLevelAccelStruct( backend->handle, &geo, 1, backend->desc.buildFlags );
+    }
+}
+
 void vhCmdBackendState::Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );

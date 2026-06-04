@@ -921,6 +921,13 @@ void vhBuildBLAS( vhAccelStruct blas, std::vector< nvrhi::rt::GeometryDesc > geo
     vhCmdEnqueue( cmd );
 }
 
+void vhBuildIndexedTriangleBLAS( vhAccelStruct blas, vhBuffer vertexBuffer, vhBuffer indexBuffer, nvrhi::Format vertexFormat, nvrhi::Format indexFormat, uint32_t vertexStride, uint32_t vertexCount, uint32_t indexCount, nvrhi::rt::GeometryFlags flags )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhBuildIndexedTriangleBLAS >( blas, vertexBuffer, indexBuffer, vertexFormat, indexFormat, vertexStride, vertexCount, indexCount, flags );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
 void vhBuildTLAS( vhAccelStruct tlas, std::vector< nvrhi::rt::InstanceDesc > instances, nvrhi::rt::AccelStructBuildFlags buildFlags )
 {
     auto cmd = vhCmdAlloc< VIDL_vhBuildTLAS >( tlas, std::move( instances ), buildFlags );
