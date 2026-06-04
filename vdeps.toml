@@ -35,3 +35,41 @@ libs = ["SPIRV-Tools-opt", "SPIRV-Tools"]
 cmake_options = [
     "-DBUILD_SHARED_LIBS=OFF",
 ]
+
+# Patch the BlockMergePass forward-scan crash in SPIRV-Tools (pinned at 262bdab /
+# v2025.5.rc1; still unfixed on upstream origin/main as of v2026.2). The optimizer's
+# RegisterPerformancePasses() path runs BlockMergePass; MergeWithSuccessor scans
+# forward from `block` to find its successor and asserts it is found
+# (block_merge_util.cpp: `assert(sbi != func->end());`). For legal SPIR-V where the
+# successor precedes `block` in function order, that search hits func->end() and the
+# assert fires (SIGABRT). We add an ordering guard in CanMergeWithSuccessor so the
+# merge is cleanly skipped *before* any mutation. NOTE: do not "fix" this at the assert
+# itself by early-returning -- KillInst(br) has already run there, so returning would
+# leave a terminator-less, unmerged block (corrupt IR). The dep dir is the submodule
+# root vdeps/SPIRV-Tools. NOTE: this dep's rel_path is the shim (vdeps/spirv-tools-shim),
+# so the patch dep_dir is the shim -- `file` must hop up to the real source tree.
+[[dependency.patches]]
+file = "../SPIRV-Tools/source/opt/block_merge_util.cpp"
+search = '''
+  const uint32_t lab_id = br->GetSingleWordInOperand(0);
+  if (context->cfg()->preds(lab_id).size() != 1) {
+    return false;
+  }
+'''
+replace = '''
+  const uint32_t lab_id = br->GetSingleWordInOperand(0);
+  if (context->cfg()->preds(lab_id).size() != 1) {
+    return false;
+  }
+  // vrhi-patch: BlockMergePass forward-scan crash (SPIRV-Tools 262bdab / v2025.5.rc1,
+  // still unfixed on origin/main). MergeWithSuccessor scans forward from `block` for
+  // the successor and asserts it is found; legal SPIR-V where the successor precedes
+  // `block` in function order makes that search hit func->end(). Skip the merge.
+  {
+    Function* vrhi_func = block->GetParent();
+    for (auto& vrhi_blk : *vrhi_func) {
+      if (&vrhi_blk == block) break;
+      if (vrhi_blk.id() == lab_id) return false;
+    }
+  }
+'''
