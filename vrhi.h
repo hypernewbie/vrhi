@@ -41,6 +41,18 @@
 // Init
 // --------------------------------------------------------------------------
 
+// Identifies the GPU and driver a pipeline cache was built for (the same identity the Vulkan cache
+// header carries). Stamp a persisted vhGetPSOCache() blob with this (from vhGetPSOCacheKey()) and
+// feed it back via vhInitData::psoCacheValidateKey so a blob from a different device is discarded.
+struct vhPSOCacheKey
+{
+    uint8_t  pipelineCacheUUID[16] = {};
+    uint32_t vendorID      = 0;
+    uint32_t deviceID      = 0;
+    uint32_t driverVersion = 0;
+    uint32_t apiVersion    = 0;
+};
+
 struct vhInitData
 {
     // Application identity for Vulkan instance creation.
@@ -117,6 +129,14 @@ struct vhInitData
 
     // Seeds the Vulkan driver pipeline cache. Obtained from a previous vhGetPSOCache().
     std::vector< uint8_t > psoCacheInitialData;
+
+    // Optional integrity guard for psoCacheInitialData. Stamp this with the vhGetPSOCacheKey() taken
+    // when the blob was saved; vhInit() compares it against the GPU/driver it actually selects and
+    // skips seeding on mismatch, so a cache from a different device is never fed to the driver. Leave
+    // zero-initialised (the default) to seed unconditionally. Even when skipped the driver rejects a
+    // foreign blob safely, so this only saves the wasted parse. Ignored when psoCacheInitialData is
+    // empty. vhInit() never clears psoCacheInitialData; the caller still owns and frees it as usual.
+    vhPSOCacheKey psoCacheValidateKey;
 };
 
 typedef uint32_t vhTexture;
@@ -144,7 +164,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 #define VRHI_VERSION_MAJOR 0
 #define VRHI_VERSION_MINOR 6
-#define VRHI_VERSION_PATCH 2
+#define VRHI_VERSION_PATCH 3
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
@@ -758,17 +778,9 @@ bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush = true );
 // Diff against the last saved size to skip redundant vhGetPSOCache() saves. Returns 0 on error.
 size_t vhGetPSOCacheSize();
 
-// Identifies the GPU and driver the pipeline cache was built for. Stamp a persisted vhGetPSOCache()
-// blob with this and re-check on load; discard the blob on mismatch instead of seeding stale data.
-struct vhPSOCacheKey
-{
-    uint8_t  pipelineCacheUUID[16] = {};
-    uint32_t vendorID      = 0;
-    uint32_t deviceID      = 0;
-    uint32_t driverVersion = 0;
-    uint32_t apiVersion    = 0;
-};
-
+// Returns the vhPSOCacheKey for the active device. Valid only after vhInit(); returns a zero key in
+// null mode or before init. Save it alongside a vhGetPSOCache() blob and pass it back next run via
+// vhInitData::psoCacheValidateKey.
 vhPSOCacheKey vhGetPSOCacheKey();
 
 // Presents the current frame and advances the swapchain.

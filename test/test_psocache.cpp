@@ -21,15 +21,16 @@
 
 // Tests + benchmark for vhGetPSOCache / vhInitData::psoCacheInitialData (Vulkan driver pipeline cache).
 //
-// Five tests:
+// Six tests:
 //   1. RHI.PSOCache_RoundTrip              — extract blob, re-init with it, ensure device/PSOs work.
 //   2. RHI.PSOCache_StaleBlobIgnored       — feed garbage blob, init must still succeed.
 //   3. RHI.PSOCache_NoFlushSizeMatchesBlob — flush-free snapshot and size query agree with the blob.
 //   4. RHI.PSOCache_KeyStable              — device cache key is populated and deterministic.
 //   5. RHI.PSOCache_ConcurrentQueryDuringPipelineCreation — query off-thread while the backend compiles.
+//   6. RHI.PSOCache_ValidateKeyMismatchDiscardsSeed — psoCacheValidateKey rejects a foreign blob.
 //
 // One benchmark:
-//   6. Bench.PSOCache_ColdVsWarm    — compile N compute PSOs cold, again warm with seeded cache,
+//   7. Bench.PSOCache_ColdVsWarm    — compile N compute PSOs cold, again warm with seeded cache,
 //                                     print timings.
 
 #include <atomic>
@@ -320,6 +321,59 @@ UTEST( RHI, PSOCache_ConcurrentQueryDuringPipelineCreation )
 
     vhShutdown( g_testInitQuiet );
     g_vhInit.psoCacheInitialData.clear();
+}
+
+// --------------------------------------------------------------------------
+// psoCacheValidateKey discards a seed blob whose key doesn't match the device.
+// --------------------------------------------------------------------------
+
+UTEST( RHI, PSOCache_ValidateKeyMismatchDiscardsSeed )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+    }
+
+    TestEnsureShutdown();
+
+    // Cold pass: build PSOs, capture a blob valid for this device plus its key.
+    g_vhInit.psoCacheInitialData.clear();
+    g_vhInit.psoCacheValidateKey = {};
+    vhInit( g_testInitQuiet );
+    ASSERT_NE( g_vhDevice.Get(), nullptr );
+    ASSERT_TRUE( BuildNComputePSOsDirect( 8 ) );
+
+    std::vector< uint8_t > blob;
+    bool got = vhGetPSOCache( blob );
+    vhPSOCacheKey key = vhGetPSOCacheKey();
+    vhShutdown( g_testInitQuiet );
+
+    ASSERT_TRUE( got );
+    ASSERT_GT( blob.size(), ( size_t ) 0 );
+
+    // Matching key: the blob is seeded, so the driver cache starts populated.
+    g_vhInit.psoCacheInitialData = blob;
+    g_vhInit.psoCacheValidateKey = key;
+    vhInit( g_testInitQuiet );
+    ASSERT_NE( g_vhDevice.Get(), nullptr );
+    size_t matchedSize = vhGetPSOCacheSize();
+    vhShutdown( g_testInitQuiet );
+
+    // Mismatching key: vrhi drops the seed, so the driver cache starts empty.
+    vhPSOCacheKey wrongKey = key;
+    wrongKey.pipelineCacheUUID[0] ^= 0xFF;
+    g_vhInit.psoCacheInitialData = blob;
+    g_vhInit.psoCacheValidateKey = wrongKey;
+    vhInit( g_testInitQuiet );
+    ASSERT_NE( g_vhDevice.Get(), nullptr );
+    size_t mismatchedSize = vhGetPSOCacheSize();
+    EXPECT_TRUE( BuildNComputePSOsDirect( 1 ) );
+    vhShutdown( g_testInitQuiet );
+
+    EXPECT_GT( matchedSize, mismatchedSize );
+
+    g_vhInit.psoCacheInitialData.clear();
+    g_vhInit.psoCacheValidateKey = {};
 }
 
 // --------------------------------------------------------------------------

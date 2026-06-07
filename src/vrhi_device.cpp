@@ -762,8 +762,24 @@ void vhInit( bool quiet )
 
         if ( !g_vhInit.psoCacheInitialData.empty() )
         {
-            nvrhiDesc.pipelineCacheInitialData = g_vhInit.psoCacheInitialData.data();
-            nvrhiDesc.pipelineCacheInitialDataSize = g_vhInit.psoCacheInitialData.size();
+            vhPSOCacheKey zeroKey = {};
+            bool keySet = memcmp( &g_vhInit.psoCacheValidateKey, &zeroKey, sizeof( zeroKey ) ) != 0;
+            bool keyMismatch = false;
+            if ( keySet )
+            {
+                vhPSOCacheKey actualKey = vhGetPSOCacheKey();
+                keyMismatch = memcmp( &actualKey, &g_vhInit.psoCacheValidateKey, sizeof( actualKey ) ) != 0;
+            }
+
+            if ( keyMismatch )
+            {
+                if ( !quiet ) VRHI_LOG( "    PSO cache key mismatch; discarding seed blob.\n" );
+            }
+            else
+            {
+                nvrhiDesc.pipelineCacheInitialData = g_vhInit.psoCacheInitialData.data();
+                nvrhiDesc.pipelineCacheInitialDataSize = g_vhInit.psoCacheInitialData.size();
+            }
         }
 
         g_vhDevice = nvrhi::vulkan::createDevice( nvrhiDesc );
