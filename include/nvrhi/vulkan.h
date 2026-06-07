@@ -49,6 +49,7 @@ namespace nvrhi::vulkan
         // Returns false if extraction failed (cache empty or driver error). outData is cleared on failure.
         // Not safe to call concurrently with pipeline creation.
         virtual bool getPipelineCacheData(std::vector<uint8_t>& outData) = 0;
+        virtual size_t getPipelineCacheDataSize() = 0; // [UAA] cheap size-only query, no full serialise
     };
 
     typedef RefCountPtr<IDevice> DeviceHandle;

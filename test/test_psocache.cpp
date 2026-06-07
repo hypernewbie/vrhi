@@ -21,12 +21,14 @@
 
 // Tests + benchmark for vhGetPSOCache / vhInitData::psoCacheInitialData (Vulkan driver pipeline cache).
 //
-// Two tests:
-//   1. RHI.PSOCache_RoundTrip       — extract blob, re-init with it, ensure device/PSOs work.
-//   2. RHI.PSOCache_StaleBlobIgnored — feed garbage blob, init must still succeed.
+// Four tests:
+//   1. RHI.PSOCache_RoundTrip              — extract blob, re-init with it, ensure device/PSOs work.
+//   2. RHI.PSOCache_StaleBlobIgnored       — feed garbage blob, init must still succeed.
+//   3. RHI.PSOCache_NoFlushSizeMatchesBlob — flush-free snapshot and size query agree with the blob.
+//   4. RHI.PSOCache_KeyStable              — device cache key is populated and deterministic.
 //
 // One benchmark:
-//   3. Bench.PSOCache_ColdVsWarm    — compile N compute PSOs cold, again warm with seeded cache,
+//   5. Bench.PSOCache_ColdVsWarm    — compile N compute PSOs cold, again warm with seeded cache,
 //                                     print timings.
 
 #include <chrono>
@@ -179,6 +181,69 @@ UTEST( RHI, PSOCache_StaleBlobIgnored )
     // Device must remain usable: build a PSO.
     EXPECT_TRUE( BuildNComputePSOsDirect( 1 ) );
     vhShutdown( g_testInitQuiet );
+
+    g_vhInit.psoCacheInitialData.clear();
+}
+
+// --------------------------------------------------------------------------
+// Flush-free snapshot and size query agree with the flushed blob.
+// --------------------------------------------------------------------------
+
+UTEST( RHI, PSOCache_NoFlushSizeMatchesBlob )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+    }
+
+    TestEnsureShutdown();
+
+    g_vhInit.psoCacheInitialData.clear();
+    vhInit( g_testInitQuiet );
+    ASSERT_NE( g_vhDevice.Get(), nullptr );
+    ASSERT_TRUE( BuildNComputePSOsDirect( 4 ) );
+
+    std::vector< uint8_t > blob;
+    bool got = vhGetPSOCache( blob, false );   // no device idle
+    size_t querySize = vhGetPSOCacheSize();
+
+    vhShutdown( g_testInitQuiet );
+
+    ASSERT_TRUE( got );
+    ASSERT_GT( blob.size(), ( size_t ) 0 );
+    EXPECT_EQ( querySize, blob.size() );
+
+    g_vhInit.psoCacheInitialData.clear();
+}
+
+// --------------------------------------------------------------------------
+// Device cache key is populated and stable across calls.
+// --------------------------------------------------------------------------
+
+UTEST( RHI, PSOCache_KeyStable )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+    }
+
+    TestEnsureShutdown();
+
+    g_vhInit.psoCacheInitialData.clear();
+    vhInit( g_testInitQuiet );
+    ASSERT_NE( g_vhDevice.Get(), nullptr );
+
+    vhPSOCacheKey a = vhGetPSOCacheKey();
+    vhPSOCacheKey b = vhGetPSOCacheKey();
+
+    vhShutdown( g_testInitQuiet );
+
+    EXPECT_NE( a.vendorID, 0u );
+    EXPECT_EQ( a.vendorID, b.vendorID );
+    EXPECT_EQ( a.deviceID, b.deviceID );
+    EXPECT_EQ( a.driverVersion, b.driverVersion );
+    EXPECT_EQ( a.apiVersion, b.apiVersion );
+    EXPECT_EQ( 0, memcmp( a.pipelineCacheUUID, b.pipelineCacheUUID, sizeof( a.pipelineCacheUUID ) ) );
 
     g_vhInit.psoCacheInitialData.clear();
 }

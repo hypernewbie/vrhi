@@ -142,8 +142,8 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 // --------------------------------------------------------------------------
 
 #define VRHI_VERSION_MAJOR 0
-#define VRHI_VERSION_MINOR 5
-#define VRHI_VERSION_PATCH 6
+#define VRHI_VERSION_MINOR 6
+#define VRHI_VERSION_PATCH 0
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
@@ -744,9 +744,28 @@ void vhInit( bool quiet = false );
 // Cleans up all resources and waits for the GPU to finish.
 void vhShutdown( bool quiet = false );
 
-// Extracts the Vulkan driver pipeline cache. Flushes pending RHI work first.
-// Returns false in null mode or on driver error; outData is cleared on failure.
-bool vhGetPSOCache( std::vector< uint8_t >& outData );
+// Extracts the Vulkan driver pipeline cache into `outData`.
+// With `flush` (the default) waits for the device to idle first, for shutdown and load-time saves.
+// Pass flush=false to snapshot off-thread mid-frame: takes only the pipeline lock, never idles the
+// GPU. Callable from any thread. Returns false in null mode or on driver error; outData is cleared on failure.
+bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush = true );
+
+// Serialised size of the driver pipeline cache in bytes, without copying it.
+// Diff against the last saved size to skip redundant vhGetPSOCache() saves. Callable from any thread.
+size_t vhGetPSOCacheSize();
+
+// Identifies the GPU and driver the pipeline cache was built for. Stamp a persisted vhGetPSOCache()
+// blob with this and re-check on load; discard the blob on mismatch instead of seeding stale data.
+struct vhPSOCacheKey
+{
+    uint8_t  pipelineCacheUUID[16] = {};
+    uint32_t vendorID      = 0;
+    uint32_t deviceID      = 0;
+    uint32_t driverVersion = 0;
+    uint32_t apiVersion    = 0;
+};
+
+vhPSOCacheKey vhGetPSOCacheKey();
 
 // Presents the current frame and advances the swapchain.
 // Returns false if the swapchain is invalid or window is resized.

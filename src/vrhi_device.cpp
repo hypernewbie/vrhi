@@ -919,13 +919,38 @@ void vhShutdown( bool quiet )
     g_vhNullMode = false;
 }
 
-bool vhGetPSOCache( std::vector< uint8_t >& outData )
+bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush )
 {
     outData.clear();
     if ( g_vhNullMode || !g_vhVulkanDevice ) return false;
-    vhFinish();
-    g_vhDevice->waitForIdle();
+    if ( flush )
+    {
+        vhFinish();
+        g_vhDevice->waitForIdle();
+    }
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
     return g_vhVulkanDevice->getPipelineCacheData( outData );
+}
+
+size_t vhGetPSOCacheSize()
+{
+    if ( g_vhNullMode || !g_vhVulkanDevice ) return 0;
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    return g_vhVulkanDevice->getPipelineCacheDataSize();
+}
+
+vhPSOCacheKey vhGetPSOCacheKey()
+{
+    vhPSOCacheKey key = {};
+    if ( g_vhNullMode || g_vulkanPhysicalDevice == VK_NULL_HANDLE ) return key;
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties( g_vulkanPhysicalDevice, &props );
+    memcpy( key.pipelineCacheUUID, props.pipelineCacheUUID, VK_UUID_SIZE );
+    key.vendorID      = props.vendorID;
+    key.deviceID      = props.deviceID;
+    key.driverVersion = props.driverVersion;
+    key.apiVersion    = props.apiVersion;
+    return key;
 }
 
 vhMemoryStats vhStatsMemory()
