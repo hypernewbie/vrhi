@@ -482,6 +482,10 @@ void vhInit( bool quiet )
         {
             robustness2Enabled = vkbPhys.enable_extension_if_present( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
         }
+        bool fragmentShadingRateEnabled = false;
+        if ( g_vhInit.fragmentShadingRate )
+            fragmentShadingRateEnabled = vkbPhys.enable_extension_if_present( VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME );
+
         bool shaderDrawParametersEnabled = vkbPhys.enable_extension_if_present( "VK_KHR_shader_draw_parameters" );
         if ( shaderDrawParametersEnabled && !quiet ) VRHI_LOG( "    Enabled VK_KHR_shader_draw_parameters extension.\n" );
 
@@ -563,6 +567,7 @@ void vhInit( bool quiet )
         }
 
         VkPhysicalDeviceRobustness2FeaturesEXT robustness2Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT };
+        VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragmentShadingRateFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR };
         if ( robustness2Enabled )
         {
             // Query supported features first!
@@ -581,6 +586,20 @@ void vhInit( bool quiet )
         else
         {
             if ( !quiet && g_vhInit.robust ) VRHI_LOG( "    Robustness2 extension missing or disabled.\n" );
+        }
+
+        if ( fragmentShadingRateEnabled )
+        {
+            VkPhysicalDeviceFragmentShadingRateFeaturesKHR supported = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR };
+            VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features2.pNext = &supported;
+            vkGetPhysicalDeviceFeatures2( vkbPhys.physical_device, &features2 );
+
+            if ( supported.pipelineFragmentShadingRate )   fragmentShadingRateFeatures.pipelineFragmentShadingRate   = VK_TRUE;
+            if ( supported.attachmentFragmentShadingRate ) fragmentShadingRateFeatures.attachmentFragmentShadingRate = VK_TRUE;
+
+            devBuilder.add_pNext( &fragmentShadingRateFeatures );
+            if ( !quiet ) VRHI_LOG( "    Fragment shading rate (VRS) extension enabled.\n" );
         }
 
         VkPhysicalDeviceVulkan11Features v11Feat = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
@@ -678,6 +697,10 @@ void vhInit( bool quiet )
         if ( robustness2Enabled )
         {
             s_enabledExtensions.push_back( VK_EXT_ROBUSTNESS_2_EXTENSION_NAME );
+        }
+        if ( fragmentShadingRateEnabled )
+        {
+            s_enabledExtensions.push_back( VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME );
         }
         if ( shaderDrawParametersEnabled )
         {

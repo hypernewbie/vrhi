@@ -3365,6 +3365,13 @@ UTEST_F( Graphics, DepthClipDisable )
 UTEST_F( Graphics, VRS_Smoke )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    if ( !g_vhInit.fragmentShadingRate && !TestIsSoftwareVulkan() )
+    {
+        TestEnsureShutdown();
+        g_vhInit.fragmentShadingRate = true;
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
     if ( !g_vhDeviceInfo.vrs ) { UTEST_SKIP( "VRS not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
