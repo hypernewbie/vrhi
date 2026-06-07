@@ -802,6 +802,20 @@ struct VIDL_vhFlushInternal
         : fence(_fence), waitForGPU(_waitForGPU) {}
 };
 
+struct VIDL_vhGetPSOCacheInternal
+{
+    static constexpr uint64_t kMagic = 0xA435BC09;
+    uint64_t MAGIC = kMagic;
+    std::atomic<bool>* fence;
+    std::vector<uint8_t>* outData;
+    size_t* outSize;
+
+    VIDL_vhGetPSOCacheInternal() = default;
+
+    VIDL_vhGetPSOCacheInternal(std::atomic<bool>* _fence, std::vector<uint8_t>* _outData, size_t* _outSize)
+        : fence(_fence), outData(_outData), outSize(_outSize) {}
+};
+
 struct VIDL_vhCmdSetStateViewRect
 {
     static constexpr uint64_t kMagic = 0x25DC7E64;
@@ -1239,6 +1253,7 @@ struct VIDLHandler
     virtual void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) { (void) cmd; };
     virtual void Handle_vhClear( VIDL_vhClear* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
+    virtual void Handle_vhGetPSOCacheInternal( VIDL_vhGetPSOCacheInternal* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) { (void) cmd; };
@@ -1505,6 +1520,10 @@ struct VIDLHandler
         case 0x83140D26:
             HandleLogFunction("Handle_vhFlushInternal");
             Handle_vhFlushInternal( (VIDL_vhFlushInternal*) cmd );
+            break;
+        case 0xA435BC09:
+            HandleLogFunction("Handle_vhGetPSOCacheInternal");
+            Handle_vhGetPSOCacheInternal( (VIDL_vhGetPSOCacheInternal*) cmd );
             break;
         case 0x25DC7E64:
             HandleLogFunction("Handle_vhCmdSetStateViewRect");

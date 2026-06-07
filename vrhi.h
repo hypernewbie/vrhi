@@ -144,7 +144,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 
 #define VRHI_VERSION_MAJOR 0
 #define VRHI_VERSION_MINOR 6
-#define VRHI_VERSION_PATCH 1
+#define VRHI_VERSION_PATCH 2
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
 #define VRHI_MIPMAP_COMPLETE -1
@@ -746,13 +746,16 @@ void vhInit( bool quiet = false );
 void vhShutdown( bool quiet = false );
 
 // Extracts the Vulkan driver pipeline cache into `outData`.
-// With `flush` (the default) waits for the device to idle first, for shutdown and load-time saves.
-// Pass flush=false to snapshot off-thread mid-frame: takes only the pipeline lock, never idles the
-// GPU. Callable from any thread. Returns false in null mode or on driver error; outData is cleared on failure.
+// Marshalled to the RHI backend thread that owns the device, so it is safe to call from any other
+// thread while rendering continues; it blocks until the backend processes it, like vhFinish().
+// With `flush` (the default) drains pending work and waits for the GPU first, for shutdown and
+// load-time saves. Do not call from a backend or native callback. Returns false in null mode or on
+// driver error; outData is cleared on failure.
 bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush = true );
 
 // Serialised size of the driver pipeline cache in bytes, without copying it.
-// Diff against the last saved size to skip redundant vhGetPSOCache() saves. Callable from any thread.
+// Marshalled to the RHI backend thread; safe from any other thread, blocks until processed.
+// Diff against the last saved size to skip redundant vhGetPSOCache() saves. Returns 0 on error.
 size_t vhGetPSOCacheSize();
 
 // Identifies the GPU and driver the pipeline cache was built for. Stamp a persisted vhGetPSOCache()
@@ -2763,6 +2766,8 @@ public:
 
 // VIDL_GENERATE
 void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU = false );
+// VIDL_GENERATE
+void vhGetPSOCacheInternal( std::atomic<bool>* fence, std::vector<uint8_t>* outData, size_t* outSize );
 // VIDL_GENERATE
 void vhCmdSetStateViewRect( vhStateId id, glm::vec4 rect );
 // VIDL_GENERATE

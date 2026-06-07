@@ -21,19 +21,22 @@
 
 // Tests + benchmark for vhGetPSOCache / vhInitData::psoCacheInitialData (Vulkan driver pipeline cache).
 //
-// Four tests:
+// Five tests:
 //   1. RHI.PSOCache_RoundTrip              — extract blob, re-init with it, ensure device/PSOs work.
 //   2. RHI.PSOCache_StaleBlobIgnored       — feed garbage blob, init must still succeed.
 //   3. RHI.PSOCache_NoFlushSizeMatchesBlob — flush-free snapshot and size query agree with the blob.
 //   4. RHI.PSOCache_KeyStable              — device cache key is populated and deterministic.
+//   5. RHI.PSOCache_ConcurrentQueryDuringPipelineCreation — query off-thread while the backend compiles.
 //
 // One benchmark:
-//   5. Bench.PSOCache_ColdVsWarm    — compile N compute PSOs cold, again warm with seeded cache,
+//   6. Bench.PSOCache_ColdVsWarm    — compile N compute PSOs cold, again warm with seeded cache,
 //                                     print timings.
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -245,6 +248,77 @@ UTEST( RHI, PSOCache_KeyStable )
     EXPECT_EQ( a.apiVersion, b.apiVersion );
     EXPECT_EQ( 0, memcmp( a.pipelineCacheUUID, b.pipelineCacheUUID, sizeof( a.pipelineCacheUUID ) ) );
 
+    g_vhInit.psoCacheInitialData.clear();
+}
+
+// --------------------------------------------------------------------------
+// Querying the cache off-thread while the backend compiles pipelines must not crash.
+// --------------------------------------------------------------------------
+
+UTEST( RHI, PSOCache_ConcurrentQueryDuringPipelineCreation )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+    }
+
+    TestEnsureShutdown();
+    g_vhInit.psoCacheInitialData.clear();
+    vhInit( g_testInitQuiet );
+    ASSERT_NE( g_vhDevice.Get(), nullptr );
+
+    // Distinct compute programs; each first dispatch makes the backend thread compile a new driver
+    // pipeline, mutating the same cache the worker thread queries.
+    const int N = 24;
+    std::vector< vhShader > shaders;
+    for ( int i = 0; i < N; ++i )
+    {
+        char name[64];
+        std::snprintf( name, sizeof( name ), "CS_Concurrent_%d", i );
+        std::vector< uint32_t > spirv;
+        std::string err;
+        ASSERT_TRUE( vhCompileShader( name, MakeUniqueComputeSource( i ).c_str(),
+            VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &err ) );
+        vhShader cs = vhAllocShader();
+        vhCreateShader( cs, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        shaders.push_back( cs );
+    }
+
+    std::atomic< bool > stop = false;
+    std::atomic< int > queries = 0;
+    std::thread worker( [&]() {
+        std::vector< uint8_t > blob;
+        while ( !stop.load() )
+        {
+            vhGetPSOCacheSize();
+            vhGetPSOCache( blob, false );
+            queries.fetch_add( 1 );
+        }
+    } );
+
+    for ( int pass = 0; pass < 4; ++pass )
+    {
+        for ( int i = 0; i < N; ++i )
+        {
+            vhState state;
+            state.SetProgram( vhCreateComputeProgram( shaders[i] ) );
+            vhStateId sid = 9000 + i;
+            vhSetState( sid, state );
+            vhDispatch( sid, { 1, 1, 1 } );
+        }
+        vhFinish();
+    }
+
+    stop.store( true );
+    worker.join();
+
+    EXPECT_GT( queries.load(), 0 );
+
+    std::vector< uint8_t > finalBlob;
+    EXPECT_TRUE( vhGetPSOCache( finalBlob, true ) );
+    EXPECT_GT( finalBlob.size(), ( size_t ) 0 );
+
+    vhShutdown( g_testInitQuiet );
     g_vhInit.psoCacheInitialData.clear();
 }
 

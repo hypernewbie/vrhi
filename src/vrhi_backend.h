@@ -401,6 +401,7 @@ public:
     void Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd ) override;
     void Handle_vhClear( VIDL_vhClear* cmd ) override;
     void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) override;
+    void Handle_vhGetPSOCacheInternal( VIDL_vhGetPSOCacheInternal* cmd ) override;
     void Handle_vhPrecompilePSO( VIDL_vhPrecompilePSO* cmd ) override;
     void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) override;
     void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) override;

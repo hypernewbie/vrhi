@@ -946,20 +946,21 @@ bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush )
 {
     outData.clear();
     if ( g_vhNullMode || !g_vhVulkanDevice ) return false;
-    if ( flush )
-    {
-        vhFinish();
-        g_vhDevice->waitForIdle();
-    }
-    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    return g_vhVulkanDevice->getPipelineCacheData( outData );
+    if ( flush ) vhFinish();
+    std::atomic<bool> fence = false;
+    vhGetPSOCacheInternal( &fence, &outData, nullptr );
+    fence.wait( false, std::memory_order_acquire );
+    return !outData.empty();
 }
 
 size_t vhGetPSOCacheSize()
 {
     if ( g_vhNullMode || !g_vhVulkanDevice ) return 0;
-    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    return g_vhVulkanDevice->getPipelineCacheDataSize();
+    std::atomic<bool> fence = false;
+    size_t size = 0;
+    vhGetPSOCacheInternal( &fence, nullptr, &size );
+    fence.wait( false, std::memory_order_acquire );
+    return size;
 }
 
 vhPSOCacheKey vhGetPSOCacheKey()
@@ -1191,6 +1192,14 @@ void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU )
     // Fence memory must be valid until signaled! 
     // Usually stack memory of the caller waiting on it.
     VIDL_vhFlushInternal* cmd = vhCmdAlloc<VIDL_vhFlushInternal>( fence, waitForGPU );
+    vhCmdEnqueue( cmd, false );
+}
+
+void vhGetPSOCacheInternal( std::atomic<bool>* fence, std::vector<uint8_t>* outData, size_t* outSize )
+{
+    // Pointers must be valid until signaled!
+    // Usually stack memory of the caller waiting on it.
+    VIDL_vhGetPSOCacheInternal* cmd = vhCmdAlloc<VIDL_vhGetPSOCacheInternal>( fence, outData, outSize );
     vhCmdEnqueue( cmd, false );
 }
 

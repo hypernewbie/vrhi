@@ -4542,6 +4542,24 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
     }
 }
 
+void vhCmdBackendState::Handle_vhGetPSOCacheInternal( VIDL_vhGetPSOCacheInternal* cmd )
+{
+    std::atomic<bool>* fence = cmd->fence;
+    {
+        BE_CmdRAII cmdRAII( cmd );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        if ( cmd->outData )
+            g_vhVulkanDevice->getPipelineCacheData( *cmd->outData );
+        else if ( cmd->outSize )
+            *cmd->outSize = g_vhVulkanDevice->getPipelineCacheDataSize();
+    }
+    if ( fence )
+    {
+        fence->store( true, std::memory_order_release );
+        fence->notify_one();
+    }
+}
+
 void vhCmdBackendState::Handle_vhDispatch( VIDL_vhDispatch* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
