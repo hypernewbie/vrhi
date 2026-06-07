@@ -333,6 +333,7 @@ UTEST( RHI, PSOCache_ValidateKeyMismatchDiscardsSeed )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( TestIsSoftwareVulkan() ) { UTEST_SKIP( "Seeded vs cold cache size is not observable on software Vulkan." ); }
 
     TestEnsureShutdown();
 
