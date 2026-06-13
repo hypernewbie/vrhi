@@ -407,7 +407,7 @@ endif()
      add_executable(vrhi_test ${TEST_SOURCES})
  
      target_link_libraries(vrhi_test PRIVATE vrhi)
-     target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW")
+     target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW" "${SPIRV_TOOLS_INCLUDE_DIR}")
  endif()
  
  # NVRHI and related libraries (shared by tests and examples)

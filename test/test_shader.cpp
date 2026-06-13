@@ -29,6 +29,8 @@
 #include "test.h"
 #include <vrhi_internal.h>
 #include <vrhi.h>
+#include <spirv-tools/optimizer.hpp>
+#include <spirv-tools/libspirv.hpp>
 
 extern bool g_testInit;
 extern bool g_testInitQuiet;
@@ -1632,4 +1634,114 @@ UTEST_F( Shader, CompileWithO3Optimisation )
 
     // Restore previous force recompile setting
     g_vhInit.forceShaderRecompile = oldForceRecompile;
+}
+
+UTEST_F( Shader, UnrollAccumulator_OptimiserPreservesUseBeforeDef )
+{
+    // Layout:
+    //   2x2 [unroll] loop with three parallel FAdd accumulators (scalar, vec3, scalar),
+    //   inner body depends on (dx,dy) and has a conditional that produces re-orderable
+    //   branches (the trigger shape for the BlockMergePass / DeadBranchElim interaction
+    //   that produced an ID-N-not-defined OpFAdd on a previous SPIRV-Tools pin).
+
+    static const char* src = R"HLSL(
+        [numthreads(8, 8, 1)]
+        void main(uint3 dtid : SV_DispatchThreadID)
+        {
+            float  aoSum = 0.0f;
+            float3 giSum = float3(0.0, 0.0, 0.0);
+            float  wSum  = 0.0f;
+
+            [unroll]
+            for (int dy = 0; dy < 2; dy++)
+            {
+                [unroll]
+                for (int dx = 0; dx < 2; dx++)
+                {
+                    float wTap = saturate( float(dx + dy) * 0.5f + 0.1f );
+                    if (wTap < 0.0001f) wTap = 0.0001f;
+
+                    aoSum += wTap;
+                    giSum += wTap.xxx;
+                    wSum  += wTap;
+                }
+            }
+
+            if (aoSum > 100.0f) aoSum = giSum.x + wSum;
+        }
+    )HLSL";
+
+    std::vector< uint32_t > spirvDebug;
+    std::string error;
+    bool compiled = vhCompileShader(
+        "UnrollAccumRepro",
+        src,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0 | VRHI_SHADER_DEBUG,
+        spirvDebug,
+        "main",
+        {},
+        {},
+        &error
+    );
+    ASSERT_TRUE_MSG( compiled, error.c_str() );
+    ASSERT_GT( spirvDebug.size(), 0u );
+    EXPECT_EQ( spirvDebug[0], 0x07230203u );
+
+    std::string preOptError;
+    spvtools::SpirvTools preOpt( SPV_ENV_VULKAN_1_3 );
+    preOpt.SetMessageConsumer(
+        [&preOptError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
+        {
+            if ( !preOptError.empty() ) preOptError += "\n";
+            preOptError += message;
+        } );
+    ASSERT_TRUE_MSG( preOpt.Validate( spirvDebug.data(), spirvDebug.size() ), preOptError.c_str() );
+
+    std::vector< uint32_t > spirvOptimised;
+    std::string optError;
+    {
+        spvtools::Optimizer optimiser( SPV_ENV_VULKAN_1_3 );
+        optimiser.SetMessageConsumer(
+            [&optError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
+            {
+                if ( !optError.empty() ) optError += "\n";
+                optError += message;
+            } );
+        optimiser.RegisterPerformancePasses();
+        ASSERT_TRUE_MSG( optimiser.Run( spirvDebug.data(), spirvDebug.size(), &spirvOptimised ), optError.c_str() );
+    }
+
+    std::string postOptError;
+    spvtools::SpirvTools postOpt( SPV_ENV_VULKAN_1_3 );
+    postOpt.SetMessageConsumer(
+        [&postOptError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
+        {
+            if ( !postOptError.empty() ) postOptError += "\n";
+            postOptError += message;
+        } );
+    ASSERT_TRUE_MSG( postOpt.Validate( spirvOptimised.data(), spirvOptimised.size() ), postOptError.c_str() );
+
+    std::vector< uint32_t > spirvFull;
+    compiled = vhCompileShader(
+        "UnrollAccumRepro",
+        src,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0,
+        spirvFull,
+        "main",
+        {},
+        {},
+        &error
+    );
+    ASSERT_TRUE_MSG( compiled, error.c_str() );
+    ASSERT_GT( spirvFull.size(), 0u );
+
+    std::string fullError;
+    spvtools::SpirvTools fullVal( SPV_ENV_VULKAN_1_3 );
+    fullVal.SetMessageConsumer(
+        [&fullError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
+        {
+            if ( !fullError.empty() ) fullError += "\n";
+            fullError += message;
+        } );
+    ASSERT_TRUE_MSG( fullVal.Validate( spirvFull.data(), spirvFull.size() ), fullError.c_str() );
 }
