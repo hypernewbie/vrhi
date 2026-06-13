@@ -679,7 +679,7 @@ bool vhCompileShader(
 
     // Hash input into cache key
 
-    std::string hashInput = std::string( name ) + "@@SRC@@" + source + "@@CACHESALT_V4@@" + std::to_string(flags) + "@@ENTRY@@" + entry;
+    std::string hashInput = std::string( name ) + "@@SRC@@" + source + "@@CACHESALT_V5@@" + std::to_string(flags) + "@@ENTRY@@" + entry;
     hashInput += "@@DEFINES@@";
     for ( const auto& d : defines ) hashInput += d;
     hashInput += "@@INCLUDES@@";
