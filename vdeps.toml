@@ -36,8 +36,8 @@ cmake_options = [
     "-DBUILD_SHARED_LIBS=OFF",
 ]
 
-# Patch the BlockMergePass forward-scan crash in SPIRV-Tools (pinned at 262bdab /
-# v2025.5.rc1; still unfixed on upstream origin/main as of v2026.2). The optimizer's
+# Patch the BlockMergePass forward-scan crash in SPIRV-Tools (pinned at 0539c81f /
+# v2026.2; still unfixed on upstream origin/main as of v2026.2). The optimizer's
 # RegisterPerformancePasses() path runs BlockMergePass; MergeWithSuccessor scans
 # forward from `block` to find its successor and asserts it is found
 # (block_merge_util.cpp: `assert(sbi != func->end());`). For legal SPIR-V where the
