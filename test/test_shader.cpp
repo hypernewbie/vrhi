@@ -1687,39 +1687,18 @@ UTEST_F( Shader, UnrollAccumulator_OptimiserPreservesUseBeforeDef )
     ASSERT_GT( spirvDebug.size(), 0u );
     EXPECT_EQ( spirvDebug[0], 0x07230203u );
 
-    std::string preOptError;
     spvtools::SpirvTools preOpt( SPV_ENV_VULKAN_1_3 );
-    preOpt.SetMessageConsumer(
-        [&preOptError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
-        {
-            if ( !preOptError.empty() ) preOptError += "\n";
-            preOptError += message;
-        } );
-    ASSERT_TRUE_MSG( preOpt.Validate( spirvDebug.data(), spirvDebug.size() ), preOptError.c_str() );
+    ASSERT_TRUE( preOpt.Validate( spirvDebug.data(), spirvDebug.size() ) );
 
     std::vector< uint32_t > spirvOptimised;
-    std::string optError;
     {
         spvtools::Optimizer optimiser( SPV_ENV_VULKAN_1_3 );
-        optimiser.SetMessageConsumer(
-            [&optError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
-            {
-                if ( !optError.empty() ) optError += "\n";
-                optError += message;
-            } );
         optimiser.RegisterPerformancePasses();
-        ASSERT_TRUE_MSG( optimiser.Run( spirvDebug.data(), spirvDebug.size(), &spirvOptimised ), optError.c_str() );
+        ASSERT_TRUE( optimiser.Run( spirvDebug.data(), spirvDebug.size(), &spirvOptimised ) );
     }
 
-    std::string postOptError;
     spvtools::SpirvTools postOpt( SPV_ENV_VULKAN_1_3 );
-    postOpt.SetMessageConsumer(
-        [&postOptError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
-        {
-            if ( !postOptError.empty() ) postOptError += "\n";
-            postOptError += message;
-        } );
-    ASSERT_TRUE_MSG( postOpt.Validate( spirvOptimised.data(), spirvOptimised.size() ), postOptError.c_str() );
+    ASSERT_TRUE( postOpt.Validate( spirvOptimised.data(), spirvOptimised.size() ) );
 
     std::vector< uint32_t > spirvFull;
     compiled = vhCompileShader(
@@ -1735,13 +1714,6 @@ UTEST_F( Shader, UnrollAccumulator_OptimiserPreservesUseBeforeDef )
     ASSERT_TRUE_MSG( compiled, error.c_str() );
     ASSERT_GT( spirvFull.size(), 0u );
 
-    std::string fullError;
     spvtools::SpirvTools fullVal( SPV_ENV_VULKAN_1_3 );
-    fullVal.SetMessageConsumer(
-        [&fullError]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
-        {
-            if ( !fullError.empty() ) fullError += "\n";
-            fullError += message;
-        } );
-    ASSERT_TRUE_MSG( fullVal.Validate( spirvFull.data(), spirvFull.size() ), fullError.c_str() );
+    ASSERT_TRUE( fullVal.Validate( spirvFull.data(), spirvFull.size() ) );
 }
