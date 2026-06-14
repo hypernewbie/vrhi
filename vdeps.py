@@ -198,6 +198,58 @@ def get_llvm_tool_path(name):
     return path if path else name
 
 
+def get_compiler_info(use_llvm):
+    """Resolve (path, version) for the compiler vdeps would invoke.
+
+    Returns (None, None) when the compiler cannot be located or its
+    --version output cannot be captured. Never raises.
+    """
+    if IS_WINDOWS:
+        exe_name = "clang-cl.exe" if use_llvm else "cl.exe"
+    else:
+        exe_name = "clang"
+
+    raw_path = shutil.which(exe_name)
+    if not raw_path:
+        return None, None
+
+    path = raw_path.replace("\\", "/")
+
+    try:
+        result = subprocess.run(
+            [exe_name, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return path, None
+
+    if result.returncode != 0 or not result.stdout:
+        return path, None
+
+    first_line = result.stdout.splitlines()[0].strip()
+    return path, (first_line[:256] if first_line else None)
+
+
+def get_toolchain_fingerprint(use_llvm, use_dynamic_runtime):
+    """Build a toolchain identity dict for the current vdeps invocation.
+
+    The dict is compared for equality against the ``toolchain`` field of a
+    cached state record; any mismatch forces a rebuild. ``compiler_path`` and
+    ``compiler_version`` capture which compiler was actually invoked, while
+    ``use_llvm`` / ``use_dynamic_runtime`` mirror the effective toolchain
+    flags for self-contained inspection.
+    """
+    compiler_path, compiler_version = get_compiler_info(use_llvm)
+    return {
+        "compiler_path": compiler_path,
+        "compiler_version": compiler_version,
+        "use_llvm": use_llvm,
+        "use_dynamic_runtime": use_dynamic_runtime,
+    }
+
+
 def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime=False):
     """Returns CMake arguments specific to the current operating system."""
     common_args = [
@@ -633,6 +685,7 @@ def update_state_record(
     head,
     outputs,
     use_dynamic_runtime=False,
+    toolchain=None,
 ):
     key = get_state_record_key(
         dep_name, rel_path, platform_subdir, config_name, use_dynamic_runtime
@@ -645,6 +698,7 @@ def update_state_record(
         "use_dynamic_runtime": use_dynamic_runtime,
         "head": head,
         "outputs": dedupe_paths(outputs),
+        "toolchain": dict(toolchain) if toolchain is not None else None,
         "updated_at": datetime.now(timezone.utc)
         .replace(microsecond=0)
         .isoformat()
@@ -736,6 +790,7 @@ def evaluate_auto_skip(
     git_head,
     git_reason,
     use_dynamic_runtime=False,
+    toolchain_fingerprint=None,
 ):
     if not dep.build:
         return False, "dependency build=false"
@@ -754,6 +809,13 @@ def evaluate_auto_skip(
     )
     if record is None:
         return False, "no cached state"
+
+    record_toolchain = record.get("toolchain")
+    if not isinstance(record_toolchain, dict) or record_toolchain != (
+        toolchain_fingerprint or {}
+    ):
+        return False, "toolchain changed"
+
     if record.get("head") != git_head:
         return False, "HEAD changed"
 
@@ -910,6 +972,8 @@ def main():
 
     state_data = load_state_data(root_dir)
 
+    toolchain_fingerprint = get_toolchain_fingerprint(args.llvm, args.md)
+
     if args.dependencies:
         # Validate dependency names: trim whitespace and filter valid names
         requested_names = []
@@ -1029,6 +1093,7 @@ def main():
                         git_head,
                         git_reason,
                         args.md,
+                        toolchain_fingerprint,
                     )
                     if should_skip:
                         print(
@@ -1330,6 +1395,7 @@ def main():
                             git_head,
                             copied_outputs,
                             args.md,
+                            toolchain_fingerprint,
                         )
                         write_state_data(root_dir, state_data)
         finally:
