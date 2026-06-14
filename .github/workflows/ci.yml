@@ -16,17 +16,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Use the image's default Visual Studio generator (cl). The runner no
+          # longer ships the hardcoded "Visual Studio 17 2022" generator, and a bare
+          # Ninja generator picks up MinGW g++ which cannot link the MSVC deps.
           - name: Windows
             os: windows-latest
-            cmake_gen: "-G Ninja"
+            cmake_gen: ""
             cmake_extra_args: ""
+            lib_tag: win
+            vdeps_args: ""
             install_swiftshader: true
             install_llvm: false
 
+          # Clang/LLVM must build AND link its own deps (lib/win_llvm). Mixing a
+          # clang-cl app with cl-built deps mismatches the MSVC STL ABI and aborts
+          # in debug std::sort ("invalid comparator") during device selection.
           - name: Windows LLVM
             os: windows-latest
             cmake_gen: "-G Ninja"
-            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe -DVDEPS_USE_LLVM=ON"
+            lib_tag: win_llvm
+            vdeps_args: "--llvm"
             install_swiftshader: true
             install_llvm: true
 
@@ -35,6 +45,8 @@ jobs:
             cmake_gen: "-G Ninja"
             # Installing Clang 21 as per user's environment
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21"
+            lib_tag: linux
+            vdeps_args: ""
             install_swiftshader: false
             install_llvm: false
 
@@ -43,6 +55,8 @@ jobs:
             cmake_gen: "-G Ninja"
             # Explicitly using Homebrew Clang 17
             cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
+            lib_tag: mac
+            vdeps_args: ""
             install_swiftshader: false
             install_llvm: false
 
@@ -100,9 +114,11 @@ jobs:
           path: |
             lib
             tools
-          key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
+          # Key on lib_tag, not runner.os: the Windows (cl) and Windows LLVM
+          # (clang-cl) jobs produce different ABIs and must not share a cache.
+          key: ${{ matrix.lib_tag }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
           restore-keys: |
-            ${{ runner.os }}-vdeps-
+            ${{ matrix.lib_tag }}-vdeps-
 
       - name: Cache ccache (Linux/macOS)
         if: runner.os != 'Windows'
@@ -115,7 +131,7 @@ jobs:
 
       - name: Build Dependencies
         if: steps.deps-cache.outputs.cache-hit != 'true'
-        run: python vdeps.py
+        run: python vdeps.py ${{ matrix.vdeps_args }}
 
       # Temporarily disabled LFS due to budget exhaustion
       # - name: Create LFS file list
@@ -260,7 +276,8 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            cmake_gen: "-G Ninja"
+            # Default Visual Studio generator (cl); Ninja here would pick MinGW g++.
+            cmake_gen: ""
             cmake_extra_args: ""
             zip_name: vrhi-${{ github.ref_name }}-windows-x64
             platform_lib_subdir: "win"
@@ -351,9 +368,10 @@ jobs:
           path: |
             lib
             tools
-          key: ${{ runner.os }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
+          # Key on platform_lib_subdir so win / win_llvm variants don't share a cache.
+          key: ${{ matrix.platform_lib_subdir }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
           restore-keys: |
-            ${{ runner.os }}-vdeps-
+            ${{ matrix.platform_lib_subdir }}-vdeps-
 
       - name: Configure Dependencies (Windows)
         if: matrix.is_windows

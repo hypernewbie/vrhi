@@ -1687,18 +1687,33 @@ UTEST_F( Shader, UnrollAccumulator_OptimiserPreservesUseBeforeDef )
     ASSERT_GT( spirvDebug.size(), 0u );
     EXPECT_EQ( spirvDebug[0], 0x07230203u );
 
+    auto fnCollectError = []( std::string& sink )
+    {
+        return [&sink]( spv_message_level_t, const char*, const spv_position_t&, const char* message )
+        {
+            if ( !sink.empty() ) sink += "\n";
+            sink += message;
+        };
+    };
+
+    std::string preOptError;
     spvtools::SpirvTools preOpt( SPV_ENV_VULKAN_1_3 );
-    ASSERT_TRUE( preOpt.Validate( spirvDebug.data(), spirvDebug.size() ) );
+    preOpt.SetMessageConsumer( fnCollectError( preOptError ) );
+    ASSERT_TRUE_MSG( preOpt.Validate( spirvDebug.data(), spirvDebug.size() ), preOptError.c_str() );
 
     std::vector< uint32_t > spirvOptimised;
+    std::string optError;
     {
         spvtools::Optimizer optimiser( SPV_ENV_VULKAN_1_3 );
+        optimiser.SetMessageConsumer( fnCollectError( optError ) );
         optimiser.RegisterPerformancePasses();
-        ASSERT_TRUE( optimiser.Run( spirvDebug.data(), spirvDebug.size(), &spirvOptimised ) );
+        ASSERT_TRUE_MSG( optimiser.Run( spirvDebug.data(), spirvDebug.size(), &spirvOptimised ), optError.c_str() );
     }
 
+    std::string postOptError;
     spvtools::SpirvTools postOpt( SPV_ENV_VULKAN_1_3 );
-    ASSERT_TRUE( postOpt.Validate( spirvOptimised.data(), spirvOptimised.size() ) );
+    postOpt.SetMessageConsumer( fnCollectError( postOptError ) );
+    ASSERT_TRUE_MSG( postOpt.Validate( spirvOptimised.data(), spirvOptimised.size() ), postOptError.c_str() );
 
     std::vector< uint32_t > spirvFull;
     compiled = vhCompileShader(
@@ -1714,6 +1729,8 @@ UTEST_F( Shader, UnrollAccumulator_OptimiserPreservesUseBeforeDef )
     ASSERT_TRUE_MSG( compiled, error.c_str() );
     ASSERT_GT( spirvFull.size(), 0u );
 
+    std::string fullError;
     spvtools::SpirvTools fullVal( SPV_ENV_VULKAN_1_3 );
-    ASSERT_TRUE( fullVal.Validate( spirvFull.data(), spirvFull.size() ) );
+    fullVal.SetMessageConsumer( fnCollectError( fullError ) );
+    ASSERT_TRUE_MSG( fullVal.Validate( spirvFull.data(), spirvFull.size() ), fullError.c_str() );
 }
