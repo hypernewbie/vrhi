@@ -85,9 +85,11 @@ struct vhInitData
     // Platform Window Handles
     // On Windows, set windowHandle to (void*)HWND.
     // On Linux (X11), set windowHandle to (void*)Window and displayHandle to (void*)Display.
+    // On Linux (Wayland), set windowHandle to (void*)wl_surface*, displayHandle to (void*)wl_display*, and linuxUseWayland = true.
     // On macOS, set windowHandle to (void*)CAMetalLayer* by default, or (void*)NSView* with macOSWindowIsNSView = true.
     void* windowHandle = nullptr;
     void* displayHandle = nullptr;
+    bool linuxUseWayland = false;
     bool macOSWindowIsNSView = false;
     bool headless = true;
     bool vsync = true;

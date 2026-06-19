@@ -320,14 +320,29 @@ void vhInit( bool quiet )
                 exit( 1 );
             }
 #elif defined(VK_USE_PLATFORM_XLIB_KHR)
-            VkXlibSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
-            sci.dpy = ( Display* ) g_vhInit.displayHandle;
-            sci.window = ( Window ) g_vhInit.windowHandle;
-            auto res = vkCreateXlibSurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
-            if ( res != VK_SUCCESS )
+            if ( g_vhInit.linuxUseWayland )
             {
-                VRHI_LOG( "Failed to create Xlib surface: %d\n", res );
-                exit( 1 );
+                VkWaylandSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR };
+                sci.display = ( struct wl_display* ) g_vhInit.displayHandle;
+                sci.surface = ( struct wl_surface* ) g_vhInit.windowHandle;
+                auto res = vkCreateWaylandSurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
+                if ( res != VK_SUCCESS )
+                {
+                    VRHI_LOG( "Failed to create Wayland surface: %d\n", res );
+                    exit( 1 );
+                }
+            }
+            else
+            {
+                VkXlibSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
+                sci.dpy = ( Display* ) g_vhInit.displayHandle;
+                sci.window = ( Window ) g_vhInit.windowHandle;
+                auto res = vkCreateXlibSurfaceKHR( g_vulkanInstance, &sci, nullptr, &surface );
+                if ( res != VK_SUCCESS )
+                {
+                    VRHI_LOG( "Failed to create Xlib surface: %d\n", res );
+                    exit( 1 );
+                }
             }
 #elif defined(__APPLE__)
             const CAMetalLayer* metalLayer = nullptr;
