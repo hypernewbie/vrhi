@@ -800,9 +800,9 @@ bool vhFrame();
 // Returns VRHI_INVALID_HANDLE if in headless mode.
 vhTexture vhGetBackbuffer();
 
-// Waits up to timeoutNs for the present identified by presentId to complete on swapchain.
+// Waits up to timeoutNs for the present identified by presentId to complete on vrhi's swapchain.
 // Returns VK_ERROR_EXTENSION_NOT_PRESENT if VK_KHR_present_wait was not enabled at init.
-VkResult vhWaitForPresentKHR( VkSwapchainKHR swapchain, uint64_t presentId, uint64_t timeoutNs );
+VkResult vhWaitForPresentKHR( uint64_t presentId, uint64_t timeoutNs );
 
 struct vhMemoryStats
 {

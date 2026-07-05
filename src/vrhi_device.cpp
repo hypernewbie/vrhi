@@ -1051,13 +1051,13 @@ vhPSOCacheKey vhGetPSOCacheKey()
     return key;
 }
 
-VkResult vhWaitForPresentKHR( VkSwapchainKHR swapchain, uint64_t presentId, uint64_t timeoutNs )
+VkResult vhWaitForPresentKHR( uint64_t presentId, uint64_t timeoutNs )
 {
     if ( !g_vhPresentWaitEnabled ) return VK_ERROR_EXTENSION_NOT_PRESENT;
     static PFN_vkWaitForPresentKHR s_fn =
         ( PFN_vkWaitForPresentKHR ) vkGetDeviceProcAddr( g_vulkanDevice, "vkWaitForPresentKHR" );
     if ( !s_fn ) return VK_ERROR_EXTENSION_NOT_PRESENT;
-    return s_fn( g_vulkanDevice, swapchain, presentId, timeoutNs );
+    return s_fn( g_vulkanDevice, g_vhSwapchain, presentId, timeoutNs );
 }
 
 vhMemoryStats vhStatsMemory()
