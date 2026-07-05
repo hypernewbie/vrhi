@@ -89,6 +89,7 @@ static void vhResetGraphicsState( nvrhi::GraphicsState& state )
     state.vertexBuffers.resize( 0 );
     state.indexBuffer = nvrhi::IndexBufferBinding{};
     state.indirectParams = nullptr;
+    state.indirectCountBuffer = nullptr;
 }
 
 static void vhResetComputePipelineDesc( nvrhi::ComputePipelineDesc& desc )
@@ -2035,6 +2036,16 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         }
     }
 
+    // Bind Indirect Count buffer (graphics-only — nvrhi::ComputeState has no indirectCountBuffer).
+    if ( state.indirectCountBuffer.buffer != VRHI_INVALID_HANDLE )
+    {
+        auto it = backendBuffers.find( state.indirectCountBuffer.buffer );
+        if ( it != backendBuffers.end() && it->second->handle )
+        {
+            if ( graphicsState ) graphicsState->setIndirectCountBuffer( it->second->handle );
+        }
+    }
+
     if ( graphicsState )
     {
         vhProfile( "BE_PreSubmitCommon_State_GraphicsStateSetup", false );
@@ -2314,7 +2325,12 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
         if ( flags & VRHI_DRAW_INDIRECT )
         {
             uint32_t offset = ( uint32_t ) state.indirectParams.byteOffset;
-            if ( flags & VRHI_DRAW_INDEXED )
+            if ( flags & VRHI_DRAW_INDIRECT_COUNT )
+            {
+                uint32_t countOffset = ( uint32_t ) state.indirectCountBuffer.byteOffset;
+                cmdlist->drawIndexedIndirectCount( offset, countOffset, drawCount );
+            }
+            else if ( flags & VRHI_DRAW_INDEXED )
                 cmdlist->drawIndexedIndirect( offset, drawCount );
             else
                 cmdlist->drawIndirect( offset, drawCount );
@@ -4456,6 +4472,17 @@ void vhCmdBackendState::Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIn
     {
         it->second.indirectParams.buffer = cmd->buffer;
         it->second.indirectParams.byteOffset = cmd->offset;
+    }
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateIndirectCountBuffer( VIDL_vhCmdSetStateIndirectCountBuffer* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto it = backendStates.find( cmd->id );
+    if ( it != backendStates.end() )
+    {
+        it->second.indirectCountBuffer.buffer = cmd->buffer;
+        it->second.indirectCountBuffer.byteOffset = cmd->offset;
     }
 }
 

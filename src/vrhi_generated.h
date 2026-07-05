@@ -1148,6 +1148,20 @@ struct VIDL_vhCmdSetStateIndirectParams
         : id(_id), buffer(_buffer), offset(_offset) {}
 };
 
+struct VIDL_vhCmdSetStateIndirectCountBuffer
+{
+    static constexpr uint64_t kMagic = 0x6DE41E75;
+    uint64_t MAGIC = kMagic;
+    vhStateId id;
+    vhBuffer buffer;
+    uint64_t offset;
+
+    VIDL_vhCmdSetStateIndirectCountBuffer() = default;
+
+    VIDL_vhCmdSetStateIndirectCountBuffer(vhStateId _id, vhBuffer _buffer, uint64_t _offset)
+        : id(_id), buffer(_buffer), offset(_offset) {}
+};
+
 struct VIDL_vhCmdSetStateAccelStructs
 {
     static constexpr uint64_t kMagic = 0x16DF2363;
@@ -1278,6 +1292,7 @@ struct VIDLHandler
     virtual void Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdSetStateIndirectCountBuffer( VIDL_vhCmdSetStateIndirectCountBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetStateDescriptorTables* cmd ) { (void) cmd; };
     virtual void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) { (void) cmd; };
@@ -1620,6 +1635,10 @@ struct VIDLHandler
         case 0xE435C0DD:
             HandleLogFunction("Handle_vhCmdSetStateIndirectParams");
             Handle_vhCmdSetStateIndirectParams( (VIDL_vhCmdSetStateIndirectParams*) cmd );
+            break;
+        case 0x6DE41E75:
+            HandleLogFunction("Handle_vhCmdSetStateIndirectCountBuffer");
+            Handle_vhCmdSetStateIndirectCountBuffer( (VIDL_vhCmdSetStateIndirectCountBuffer*) cmd );
             break;
         case 0x16DF2363:
             HandleLogFunction("Handle_vhCmdSetStateAccelStructs");

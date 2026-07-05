@@ -528,6 +528,10 @@ void vhInit( bool quiet )
         uabFeatures.descriptorBindingUpdateUnusedWhilePending = supportedV12.descriptorBindingUpdateUnusedWhilePending;
         vkbPhys.enable_extension_features_if_present( uabFeatures );
 
+        VkPhysicalDeviceVulkan12Features drawIndirectCountFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        drawIndirectCountFeatures.drawIndirectCount = VK_TRUE;
+        vkbPhys.enable_extension_features_if_present( drawIndirectCountFeatures );
+
         g_vhDeviceInfo.shaderFloat16 = false;
         if ( g_vhInit.shaderFloat16 )
         {
@@ -1227,6 +1231,17 @@ void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount )
         VRHI_DRAW_INDEXED | VRHI_DRAW_INDIRECT,
         0, 0, 0, 0, 0, // unused direct args
         drawCount
+    );
+}
+
+void vhDrawIndexedIndirectCount( vhStateId state, uint32_t maxDrawCount )
+{
+    g_vhDrawCallsAccumulator.fetch_add( 1, std::memory_order_relaxed );
+    vhDrawCommonInternal(
+        state,
+        VRHI_DRAW_INDEXED | VRHI_DRAW_INDIRECT | VRHI_DRAW_INDIRECT_COUNT,
+        0, 0, 0, 0, 0, // unused direct args
+        maxDrawCount
     );
 }
 

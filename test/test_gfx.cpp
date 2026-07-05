@@ -2428,6 +2428,85 @@ UTEST_F( Graphics, DrawIndexedIndirect )
 }
 
 // --------------------------------------------------------------------------
+// DrawIndexedIndirectCount
+// --------------------------------------------------------------------------
+
+UTEST_F( Graphics, DrawIndexedIndirectCount )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    // 6 vertices forming a 2x2 grid: top-left, top-right, bottom-left, bottom-right (left half),
+    // then top-left, top-right, bottom-left, bottom-right (right half). Each quad is one colour.
+    struct Vertex { glm::vec3 pos; glm::vec4 col; };
+    Vertex verts[6] = {
+        { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+        { {  1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+        { {  0.0f,  1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+    };
+    uint32_t indices[6] = { 0, 1, 2, 3, 4, 5 };
+
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhBuffer ib = CreateTestIB( indices, sizeof( indices ), VRHI_BUFFER_INDEX32 );
+
+    // Two distinct draws: first is red (left half), second is blue (right half).
+    nvrhi::DrawIndexedIndirectArguments args[2] = {};
+    args[0].indexCount = 3;
+    args[0].instanceCount = 1;
+    args[0].startIndexLocation = 0;
+    args[1].indexCount = 3;
+    args[1].instanceCount = 1;
+    args[1].startIndexLocation = 3;
+
+    vhBuffer argBuf = vhAllocBuffer();
+    vhMem* argMem = vhAllocMem( sizeof( args ) );
+    memcpy( argMem->data(), args, sizeof( args ) );
+    vhCreateStorageBuffer( argBuf, "IndirectArgs", argMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
+    vhFinish();
+
+    // Count buffer holds a single uint32 = 1: only the first draw should execute.
+    uint32_t initialCount = 1;
+    vhBuffer countBuf = vhAllocBuffer();
+    vhMem* countMem = vhAllocMem( sizeof( uint32_t ) );
+    memcpy( countMem->data(), &initialCount, sizeof( uint32_t ) );
+    vhCreateStorageBuffer( countBuf, "IndirectCount", countMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
+    vhFinish();
+
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb, 0 )
+         .SetIndexBuffer( ib )
+         .SetIndirectParams( argBuf )
+         .SetIndirectCountBuffer( countBuf )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+
+    vhStateId sid = 1601;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDrawIndexedIndirectCount( sid, /*maxDrawCount=*/ 2 );
+    vhFinish();
+
+    // Left half (draw 0, red) renders; right half (draw 1, blue) is clamped to black.
+    EXPECT_TRUE( VerifyPixel( rt,  8, 32, 0xFF0000FF ) );  // red
+    EXPECT_TRUE( VerifyPixel( rt, 56, 32, 0xFF000000 ) );  // untouched black
+
+    vhDestroyTexture( rt ); vhDestroyBuffer( vb ); vhDestroyBuffer( ib );
+    vhDestroyBuffer( argBuf ); vhDestroyBuffer( countBuf );
+    vhDestroyShader( vs ); vhDestroyShader( ps );
+    vhFinish();
+}
+
+// --------------------------------------------------------------------------
 // ClearUIntTexture
 // --------------------------------------------------------------------------
 

@@ -160,6 +160,11 @@ void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset
     vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateIndirectParams >( id, buffer, offset ) );
 }
 
+void vhCmdSetStateIndirectCountBuffer( vhStateId id, vhBuffer buffer, uint64_t offset )
+{
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateIndirectCountBuffer >( id, buffer, offset ) );
+}
+
 bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
 {
     uint64_t dirty = state.dirty | dirtyForceMask;
@@ -264,6 +269,10 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     if ( dirty & VRHI_DIRTY_INDIRECT )
     {
         vhCmdSetStateIndirectParams( id, state.indirectParams.buffer, state.indirectParams.byteOffset );
+    }
+    if ( dirty & VRHI_DIRTY_INDIRECT_COUNT )
+    {
+        vhCmdSetStateIndirectCountBuffer( id, state.indirectCountBuffer.buffer, state.indirectCountBuffer.byteOffset );
     }
 
     state.dirty = 0x0ull;

@@ -427,6 +427,7 @@ public:
     void Handle_vhCmdSetStateViewDepthRange( VIDL_vhCmdSetStateViewDepthRange* cmd ) override;
     void Handle_vhCmdSetStateShadingRate( VIDL_vhCmdSetStateShadingRate* cmd ) override;
     void Handle_vhCmdSetStateIndirectParams( VIDL_vhCmdSetStateIndirectParams* cmd ) override;
+    void Handle_vhCmdSetStateIndirectCountBuffer( VIDL_vhCmdSetStateIndirectCountBuffer* cmd ) override;
     void Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAccelStructs* cmd ) override;
     void Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetStateDescriptorTables* cmd ) override;
     void Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd ) override;

@@ -715,10 +715,12 @@ constexpr uint64_t VRHI_DIRTY_INDIRECT         = ( 1ULL << 13 );
 constexpr uint64_t VRHI_DIRTY_DEPTH_BIAS       = ( 1ULL << 14 );
 constexpr uint64_t VRHI_DIRTY_ACCEL_STRUCT     = ( 1ULL << 15 );
 constexpr uint64_t VRHI_DIRTY_DESCRIPTOR_TABLES = ( 1ULL << 16 );
+constexpr uint64_t VRHI_DIRTY_INDIRECT_COUNT  = ( 1ULL << 17 );
 constexpr uint64_t VRHI_DIRTY_ALL              = 0xFFFFFFFFFFFFFFFF;
 
 constexpr uint32_t VRHI_DRAW_INDEXED  = ( 1u << 0 );
 constexpr uint32_t VRHI_DRAW_INDIRECT = ( 1u << 1 );
+constexpr uint32_t VRHI_DRAW_INDIRECT_COUNT = ( 1u << 2 );
 
 // Render target blend helper macros (cannot be constexpr)
 #define VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst) (0         \
@@ -2060,6 +2062,13 @@ struct vhState
     };
     IndirectParams indirectParams;
 
+    struct IndirectCountBufferParams
+    {
+        vhBuffer buffer = VRHI_INVALID_HANDLE;
+        uint64_t byteOffset = 0;
+    };
+    IndirectCountBufferParams indirectCountBuffer;
+
     struct VertexBinding
     {
         vhBuffer buffer = VRHI_INVALID_HANDLE;
@@ -2348,6 +2357,13 @@ struct vhState
         dirty |= VRHI_DIRTY_INDIRECT;
         return *this;
     }
+    vhState& SetIndirectCountBuffer( vhBuffer buffer, uint64_t offset = 0 )
+    {
+        indirectCountBuffer.buffer = buffer;
+        indirectCountBuffer.byteOffset = offset;
+        dirty |= VRHI_DIRTY_INDIRECT_COUNT;
+        return *this;
+    }
     vhState& SetSamplers( const std::vector< SamplerDefinition >& samplers_ )
     {
         samplers = samplers_;
@@ -2616,6 +2632,11 @@ void vhDrawIndirect( vhStateId state, uint32_t drawCount = 1 );
 // `drawCount` is the number of draw calls in the indirect buffer (default 1).
 void vhDrawIndexedIndirect( vhStateId state, uint32_t drawCount = 1 );
 
+// Draws indexed primitives using an indirect buffer with a GPU-driven draw count.
+// Indirect buffer must be set via state.SetIndirectParams(). Count buffer via state.SetIndirectCountBuffer().
+// `maxDrawCount` caps the number of draws actually issued (default 1).
+void vhDrawIndexedIndirectCount( vhStateId state, uint32_t maxDrawCount = 1 );
+
 // Clears the attachments bound in the state.
 // `state` is the state ID containing bound colour and depth attachments to clear.
 // `clearFlags` specifies what to clear (VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH | VRHI_CLEAR_STENCIL).
@@ -2848,6 +2869,8 @@ void vhCmdSetStateViewDepthRange( vhStateId id, float minZ, float maxZ );
 void vhCmdSetStateShadingRate( vhStateId id, uint32_t flags, vhTexture image );
 // VIDL_GENERATE
 void vhCmdSetStateIndirectParams( vhStateId id, vhBuffer buffer, uint64_t offset );
+// VIDL_GENERATE
+void vhCmdSetStateIndirectCountBuffer( vhStateId id, vhBuffer buffer, uint64_t offset );
 // VIDL_GENERATE
 // VIDL_STORAGE: accelStructs = vhArenaSpan< vhState::AccelStructBinding >
 void vhCmdSetStateAccelStructs( vhStateId id, const std::vector< vhState::AccelStructBinding >& accelStructs );
