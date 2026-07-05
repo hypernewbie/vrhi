@@ -145,6 +145,29 @@
         },
 
         {
+            "name": "windows-llvm-address-debug",
+            "displayName": "Windows LLVM ASan Debug (/MT)",
+            "inherits": "win-llvm",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VDEPS_DYNAMIC_RUNTIME": "OFF",
+                "VDEPS_USE_LLVM": "ON",
+                "VDEPS_SANITIZE": "address"
+            }
+        },
+        {
+            "name": "windows-llvm-address-release",
+            "displayName": "Windows LLVM ASan Release (/MT)",
+            "inherits": "win-llvm",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "VDEPS_DYNAMIC_RUNTIME": "OFF",
+                "VDEPS_USE_LLVM": "ON",
+                "VDEPS_SANITIZE": "address"
+            }
+        },
+
+        {
             "name": "linux-debug",
             "displayName": "Linux Debug (clang-21)",
             "inherits": "linux-clang",
@@ -158,6 +181,43 @@
             "inherits": "linux-clang",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+
+        {
+            "name": "linux-address-debug",
+            "displayName": "Linux ASan+UBSan Debug (clang-21)",
+            "inherits": "linux-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VDEPS_SANITIZE": "address,undefined"
+            }
+        },
+        {
+            "name": "linux-address-release",
+            "displayName": "Linux ASan+UBSan Release (clang-21)",
+            "inherits": "linux-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "VDEPS_SANITIZE": "address,undefined"
+            }
+        },
+        {
+            "name": "linux-thread-debug",
+            "displayName": "Linux TSan Debug (clang-21)",
+            "inherits": "linux-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VDEPS_SANITIZE": "thread"
+            }
+        },
+        {
+            "name": "linux-thread-release",
+            "displayName": "Linux TSan Release (clang-21)",
+            "inherits": "linux-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "VDEPS_SANITIZE": "thread"
             }
         },
 
@@ -176,6 +236,25 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        },
+
+        {
+            "name": "macos-address-debug",
+            "displayName": "macOS ASan+UBSan Debug (llvm@17)",
+            "inherits": "macos-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VDEPS_SANITIZE": "address,undefined"
+            }
+        },
+        {
+            "name": "macos-address-release",
+            "displayName": "macOS ASan+UBSan Release (llvm@17)",
+            "inherits": "macos-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "VDEPS_SANITIZE": "address,undefined"
+            }
         }
     ],
     "buildPresets": [
@@ -187,10 +266,18 @@
         { "name": "windows-llvm-release",     "configurePreset": "windows-llvm-release" },
         { "name": "windows-llvm-md-debug",    "configurePreset": "windows-llvm-md-debug" },
         { "name": "windows-llvm-md-release",  "configurePreset": "windows-llvm-md-release" },
+        { "name": "windows-llvm-address-debug",   "configurePreset": "windows-llvm-address-debug" },
+        { "name": "windows-llvm-address-release", "configurePreset": "windows-llvm-address-release" },
         { "name": "linux-debug",              "configurePreset": "linux-debug" },
         { "name": "linux-release",            "configurePreset": "linux-release" },
+        { "name": "linux-address-debug",      "configurePreset": "linux-address-debug" },
+        { "name": "linux-address-release",    "configurePreset": "linux-address-release" },
+        { "name": "linux-thread-debug",       "configurePreset": "linux-thread-debug" },
+        { "name": "linux-thread-release",     "configurePreset": "linux-thread-release" },
         { "name": "macos-debug",              "configurePreset": "macos-debug" },
-        { "name": "macos-release",            "configurePreset": "macos-release" }
+        { "name": "macos-release",            "configurePreset": "macos-release" },
+        { "name": "macos-address-debug",      "configurePreset": "macos-address-debug" },
+        { "name": "macos-address-release",    "configurePreset": "macos-address-release" }
     ],
     "testPresets": [
         { "name": "windows-msvc-debug",       "configurePreset": "windows-msvc-debug",       "configuration": "Debug" },
@@ -201,9 +288,17 @@
         { "name": "windows-llvm-release",     "configurePreset": "windows-llvm-release" },
         { "name": "windows-llvm-md-debug",    "configurePreset": "windows-llvm-md-debug" },
         { "name": "windows-llvm-md-release",  "configurePreset": "windows-llvm-md-release" },
+        { "name": "windows-llvm-address-debug",   "configurePreset": "windows-llvm-address-debug" },
+        { "name": "windows-llvm-address-release", "configurePreset": "windows-llvm-address-release" },
         { "name": "linux-debug",              "configurePreset": "linux-debug" },
         { "name": "linux-release",            "configurePreset": "linux-release" },
+        { "name": "linux-address-debug",      "configurePreset": "linux-address-debug" },
+        { "name": "linux-address-release",    "configurePreset": "linux-address-release" },
+        { "name": "linux-thread-debug",       "configurePreset": "linux-thread-debug" },
+        { "name": "linux-thread-release",     "configurePreset": "linux-thread-release" },
         { "name": "macos-debug",              "configurePreset": "macos-debug" },
-        { "name": "macos-release",            "configurePreset": "macos-release" }
+        { "name": "macos-release",            "configurePreset": "macos-release" },
+        { "name": "macos-address-debug",      "configurePreset": "macos-address-debug" },
+        { "name": "macos-address-release",    "configurePreset": "macos-address-release" }
     ]
 }

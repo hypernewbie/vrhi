@@ -54,6 +54,40 @@ endif()
   option(VDEPS_DYNAMIC_RUNTIME "Use dynamic MSVC runtime (/MD) instead of static (/MT)" OFF)
   option(VRHI_BUILD_VDEPS "Build vdeps as part of VRHI configure" OFF)
 
+  # Sanitizers to enable on the consumer + dep build (e.g. "address", "thread",
+  # "address,undefined"). Mirrors vdeps.py's --sanitize contract; empty disables.
+  set( VDEPS_SANITIZE "" CACHE STRING "Sanitizers for consumer + dep build (e.g. address,undefined). Empty disables." )
+
+  set( VDEPS_SANITIZE_ACTIVE FALSE )
+  set( _VH_SANITIZE_TAG "" )
+  if( VDEPS_SANITIZE )
+      set( VDEPS_SANITIZE_ACTIVE TRUE )
+      # Mirror vdeps.py's _normalize_sanitize_tag(): strip, drop empties, join with '_'.
+      string( REPLACE "," ";" _vh_san_list "${VDEPS_SANITIZE}" )
+      foreach( _part IN LISTS _vh_san_list )
+          string( STRIP "${_part}" _part )
+          if( _part )
+              if( _VH_SANITIZE_TAG )
+                  set( _VH_SANITIZE_TAG "${_VH_SANITIZE_TAG}_${_part}" )
+              else()
+                  set( _VH_SANITIZE_TAG "${_part}" )
+              endif()
+          endif()
+      endforeach()
+
+      if( WIN32 )
+          if( NOT VDEPS_USE_LLVM )
+              message( FATAL_ERROR "VDEPS_SANITIZE on Windows requires clang-cl (VDEPS_USE_LLVM=ON)." )
+          endif()
+          if( VDEPS_SANITIZE MATCHES "thread|memory" )
+              message( FATAL_ERROR "thread/memory sanitizers are unavailable on Windows; use address." )
+          endif()
+      endif()
+      if( VDEPS_SANITIZE MATCHES "memory" AND VDEPS_SANITIZE MATCHES "address" )
+          message( FATAL_ERROR "memory and address sanitizers are mutually exclusive." )
+      endif()
+  endif()
+
   # -----------------------------------------------------------------------------
   # Platform Detection
   # -----------------------------------------------------------------------------
@@ -75,14 +109,21 @@ endif()
 if(MSVC AND VDEPS_DYNAMIC_RUNTIME)
        set(_vrhi_lib_platform "${_vrhi_lib_platform}_md")
    endif()
+  if( _VH_SANITIZE_TAG )
+      set( _vrhi_lib_platform "${_vrhi_lib_platform}_${_VH_SANITIZE_TAG}" )
+  endif()
   set(VRHI_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_vrhi_lib_platform}_$<IF:$<CONFIG:RelWithDebInfo>,release,$<LOWER_CASE:$<CONFIG>>>")
  
    # -----------------------------------------------------------------------------
    # Compiler Options
    # -----------------------------------------------------------------------------
 if(MSVC)
-       # MSVC C Runtime: /MT or /MTd for static, /MD or /MDd for dynamic
-       if(VDEPS_DYNAMIC_RUNTIME)
+       # MSVC C Runtime: /MT or /MTd for static, /MD or /MDd for dynamic.
+       # Under a sanitizer, force plain /MT (non-debug, all configs) -- clang-cl's
+       # ASan rejects debug CRTs (/MTd, /MDd) outright. Mirrors vdeps.py.
+       if(VDEPS_SANITIZE_ACTIVE)
+          set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+      elseif(VDEPS_DYNAMIC_RUNTIME)
           set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
       else()
           set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -103,6 +144,14 @@ if(MSVC)
   else()
       # GCC or other: suppress warnings only
       add_compile_options(-w)
+  endif()
+
+  # Sanitizer flags: raw VDEPS_SANITIZE string straight into -fsanitize= so
+  # comma-separated combos (e.g. address,undefined) work. Guarded above so this
+  # only reaches Clang/clang-cl (plain MSVC + sanitizer is rejected earlier).
+  if( VDEPS_SANITIZE_ACTIVE )
+      add_compile_options( -fsanitize=${VDEPS_SANITIZE} )
+      add_link_options( -fsanitize=${VDEPS_SANITIZE} )
   endif()
  
  # -----------------------------------------------------------------------------
@@ -208,7 +257,7 @@ if( WIN32 )
 elseif( UNIX AND NOT APPLE )
     set( VRHI_PLATFORM_TAG "linux" )
 else()
-    set( VRHI_PLATFORM_TAG "macosx" )
+    set( VRHI_PLATFORM_TAG "mac" )
 endif()
 
 # Set up per-config library paths
@@ -217,6 +266,9 @@ endif()
 set(_spirv_lib_platform "${VRHI_PLATFORM_TAG}")
 if(MSVC AND VDEPS_DYNAMIC_RUNTIME)
     set(_spirv_lib_platform "${_spirv_lib_platform}_md")
+endif()
+if( _VH_SANITIZE_TAG )
+    set( _spirv_lib_platform "${_spirv_lib_platform}_${_VH_SANITIZE_TAG}" )
 endif()
 set( SPIRV_TOOLS_DEBUG_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_spirv_lib_platform}_debug" CACHE PATH "Path to SPIRV-Tools debug libraries" )
 set( SPIRV_TOOLS_RELEASE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${_spirv_lib_platform}_release" CACHE PATH "Path to SPIRV-Tools release libraries" )
@@ -440,6 +492,10 @@ endif()
      # -----------------------------------------------------------------------------
      enable_testing()
      add_test(NAME vrhi_test COMMAND vrhi_test)
+     if( VDEPS_SANITIZE_ACTIVE )
+         set_tests_properties( vrhi_test PROPERTIES ENVIRONMENT
+             "ASAN_OPTIONS=halt_on_error=0;UBSAN_OPTIONS=print_stacktrace=1;TSAN_OPTIONS=halt_on_error=0 ignore_noninstrumented_modules=1" )
+     endif()
  endif()
  
  # -----------------------------------------------------------------------------
