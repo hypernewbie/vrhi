@@ -33,6 +33,7 @@
 extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
+extern nvrhi::Format vhNvFormatFromVkFormat( VkFormat vkFormat );
 extern vhCmdBackendState g_vhCmdBackendState;
 
 class vhCmdBackendStateTest
@@ -202,6 +203,16 @@ UTEST( BackendInternal, ShaderStageMatches )
     EXPECT_FALSE( vhCmdBackendStateTest::Util_ShaderStageMatches( VRHI_SHADER_STAGE_VERTEX, true, false ) );
 
     // Mixed/Invalid flags (should fail strict checks if implemented, but primarily focusing on basic routing)
+}
+
+UTEST( BackendInternal, VhNvFormatFromVkFormat_CoversSwapchainFormats )
+{
+    EXPECT_EQ( vhNvFormatFromVkFormat( VK_FORMAT_B8G8R8A8_UNORM ),           nvrhi::Format::BGRA8_UNORM );
+    EXPECT_EQ( vhNvFormatFromVkFormat( VK_FORMAT_R8G8B8A8_UNORM ),           nvrhi::Format::RGBA8_UNORM );
+    EXPECT_EQ( vhNvFormatFromVkFormat( VK_FORMAT_A2B10G10R10_UNORM_PACK32 ), nvrhi::Format::R10G10B10A2_UNORM );
+    EXPECT_EQ( vhNvFormatFromVkFormat( VK_FORMAT_R16G16B16A16_SFLOAT ),      nvrhi::Format::RGBA16_FLOAT );
+    EXPECT_EQ( vhNvFormatFromVkFormat( VK_FORMAT_B10G11R11_UFLOAT_PACK32 ),  nvrhi::Format::R11G11B10_FLOAT );
+    EXPECT_EQ( vhNvFormatFromVkFormat( VK_FORMAT_R32G32B32A32_UINT ),        nvrhi::Format::UNKNOWN );
 }
 
 UTEST( BackendInternal, ResolveBindingSlot )

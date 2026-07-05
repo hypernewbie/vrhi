@@ -94,6 +94,12 @@ struct vhInitData
     bool headless = true;
     bool vsync = true;
 
+    // Display configuration. Format and present-mode requests are best-effort; vkb falls back to its default if the surface doesn't expose them.
+    bool hdr10 = false;
+    bool scrgb = false;
+    bool mailbox = false;
+    bool presentWait = false;
+
     // Shader compilation configuration.
     std::string shaderCompileTempDir = "./tmp/shader_cache/";
     std::string shaderMakePath = "./tools/linux_release";
@@ -794,6 +800,10 @@ bool vhFrame();
 // Returns VRHI_INVALID_HANDLE if in headless mode.
 vhTexture vhGetBackbuffer();
 
+// Waits up to timeoutNs for the present identified by presentId to complete on swapchain.
+// Returns VK_ERROR_EXTENSION_NOT_PRESENT if VK_KHR_present_wait was not enabled at init.
+VkResult vhWaitForPresentKHR( VkSwapchainKHR swapchain, uint64_t presentId, uint64_t timeoutNs );
+
 struct vhMemoryStats
 {
     uint64_t heapBudget[16] = {};    // Available budget per heap (bytes)
@@ -849,6 +859,7 @@ struct vhDeviceInfo
     bool memoryBudget = false;
     bool shaderFloat16 = false;
     bool shaderInt16 = false;
+    bool presentWait = false;
 
     uint32_t maxTextureSize = 0;
     uint32_t maxColorAttachments = 0;

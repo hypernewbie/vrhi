@@ -52,6 +52,7 @@ static vhTexture g_vhHeadlessBackbuffer = VRHI_INVALID_HANDLE;
 static nvrhi::TextureHandle g_vhHeadlessBackbufferHandle;
 
 bool g_vhMemoryBudgetEnabled = false;
+bool g_vhPresentWaitEnabled = false;
 std::atomic<uint64_t> g_vhDrawCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhDispatchCallsAccumulator = 0;
 std::atomic<uint64_t> g_vhFrameCount = 0;
@@ -501,6 +502,14 @@ void vhInit( bool quiet )
         if ( g_vhInit.fragmentShadingRate )
             fragmentShadingRateEnabled = vkbPhys.enable_extension_if_present( VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME );
 
+        bool presentWaitEnabled = false;
+        if ( g_vhInit.presentWait )
+        {
+            bool haveId   = vkbPhys.enable_extension_if_present( VK_KHR_PRESENT_ID_EXTENSION_NAME );
+            bool haveWait = vkbPhys.enable_extension_if_present( VK_KHR_PRESENT_WAIT_EXTENSION_NAME );
+            presentWaitEnabled = haveId && haveWait;
+        }
+
         bool shaderDrawParametersEnabled = vkbPhys.enable_extension_if_present( "VK_KHR_shader_draw_parameters" );
         if ( shaderDrawParametersEnabled && !quiet ) VRHI_LOG( "    Enabled VK_KHR_shader_draw_parameters extension.\n" );
 
@@ -617,6 +626,33 @@ void vhInit( bool quiet )
             if ( !quiet ) VRHI_LOG( "    Fragment shading rate (VRS) extension enabled.\n" );
         }
 
+        VkPhysicalDevicePresentIdFeaturesKHR   presentIdFeatures   = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR };
+        VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR };
+        if ( presentWaitEnabled )
+        {
+            VkPhysicalDevicePresentIdFeaturesKHR   supId   = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR };
+            VkPhysicalDevicePresentWaitFeaturesKHR supWait = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR };
+            supId.pNext = &supWait;
+            VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features2.pNext = &supId;
+            vkGetPhysicalDeviceFeatures2( vkbPhys.physical_device, &features2 );
+
+            if ( supId.presentId && supWait.presentWait )
+            {
+                presentIdFeatures.presentId     = VK_TRUE;
+                presentWaitFeatures.presentWait = VK_TRUE;
+                // Two separate add_pNext calls: vkb's setup_pNext_chain overwrites every struct's
+                // pNext field from its vector ordering; the struct's own pNext is not consulted.
+                devBuilder.add_pNext( &presentIdFeatures );
+                devBuilder.add_pNext( &presentWaitFeatures );
+                if ( !quiet ) VRHI_LOG( "    Present wait (VK_KHR_present_id/present_wait) enabled.\n" );
+            }
+            else
+            {
+                presentWaitEnabled = false;
+            }
+        }
+
         VkPhysicalDeviceVulkan11Features v11Feat = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
         if ( shaderDrawParametersEnabled )
         {
@@ -645,6 +681,7 @@ void vhInit( bool quiet )
             }
         }
         g_vhRayTracingEnabled = rtExtEnabled;
+        g_vhPresentWaitEnabled = presentWaitEnabled;
 
         // Get Queues
         auto graphicsQueueRet = g_vulkanBDevice->get_queue( vkb::QueueType::graphics );
@@ -717,6 +754,11 @@ void vhInit( bool quiet )
         {
             s_enabledExtensions.push_back( VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME );
         }
+        if ( presentWaitEnabled )
+        {
+            s_enabledExtensions.push_back( VK_KHR_PRESENT_ID_EXTENSION_NAME );
+            s_enabledExtensions.push_back( VK_KHR_PRESENT_WAIT_EXTENSION_NAME );
+        }
         if ( shaderDrawParametersEnabled )
         {
             s_enabledExtensions.push_back( VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME );
@@ -742,6 +784,7 @@ void vhInit( bool quiet )
         // Store features we know from extension checking
         g_vhDeviceInfo.raytracing = g_vhRayTracingEnabled;
         g_vhDeviceInfo.memoryBudget = memoryBudgetEnabled;
+        g_vhDeviceInfo.presentWait = g_vhPresentWaitEnabled;
 
         if ( !quiet ) VRHI_LOG( "    Created VK Logical Device.\n" );
 
@@ -1006,6 +1049,15 @@ vhPSOCacheKey vhGetPSOCacheKey()
     key.driverVersion = props.driverVersion;
     key.apiVersion    = props.apiVersion;
     return key;
+}
+
+VkResult vhWaitForPresentKHR( VkSwapchainKHR swapchain, uint64_t presentId, uint64_t timeoutNs )
+{
+    if ( !g_vhPresentWaitEnabled ) return VK_ERROR_EXTENSION_NOT_PRESENT;
+    static PFN_vkWaitForPresentKHR s_fn =
+        ( PFN_vkWaitForPresentKHR ) vkGetDeviceProcAddr( g_vulkanDevice, "vkWaitForPresentKHR" );
+    if ( !s_fn ) return VK_ERROR_EXTENSION_NOT_PRESENT;
+    return s_fn( g_vulkanDevice, swapchain, presentId, timeoutNs );
 }
 
 vhMemoryStats vhStatsMemory()
@@ -1458,6 +1510,38 @@ glm::uvec2 vhGetWindowSize()
     return g_vhWindowSize;
 }
 
+static VkSurfaceFormatKHR vhPickSwapchainFormat()
+{
+    if ( g_vhInit.scrgb )
+    {
+        if ( g_vhInit.hdr10 )
+            VRHI_LOG( "vhInit: scrgb and hdr10 both set; using scRGB.\n" );
+        return { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT };
+    }
+    if ( g_vhInit.hdr10 )
+        return { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT };
+    return { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+}
+
+static VkPresentModeKHR vhPickPresentMode()
+{
+    if ( g_vhInit.mailbox ) return VK_PRESENT_MODE_MAILBOX_KHR;
+    return g_vhInit.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+}
+
+nvrhi::Format vhNvFormatFromVkFormat( VkFormat vkFormat )
+{
+    switch ( vkFormat )
+    {
+        case VK_FORMAT_B8G8R8A8_UNORM:           return nvrhi::Format::BGRA8_UNORM;
+        case VK_FORMAT_R8G8B8A8_UNORM:           return nvrhi::Format::RGBA8_UNORM;
+        case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return nvrhi::Format::R10G10B10A2_UNORM;
+        case VK_FORMAT_R16G16B16A16_SFLOAT:      return nvrhi::Format::RGBA16_FLOAT;
+        case VK_FORMAT_B10G11R11_UFLOAT_PACK32:  return nvrhi::Format::R11G11B10_FLOAT;
+        default:                                 return nvrhi::Format::UNKNOWN;
+    }
+}
+
 void vhSwapchainCreate_Internal( int width, int height )
 {
     // Destroy old image views (if any)
@@ -1474,8 +1558,8 @@ void vhSwapchainCreate_Internal( int width, int height )
     vkb::SwapchainBuilder builder( *g_vulkanBDevice, g_vhSurface );
     builder
         .set_desired_extent( width, height )
-        .set_desired_format( { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR } )
-        .set_desired_present_mode( g_vhInit.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR )
+        .set_desired_format( vhPickSwapchainFormat() )
+        .set_desired_present_mode( vhPickPresentMode() )
         .add_image_usage_flags( VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT )
         .set_old_swapchain( g_vhSwapchain );
 
@@ -1497,6 +1581,14 @@ void vhSwapchainCreate_Internal( int width, int height )
     g_vhSwapchainImages = vkbSwapchain.get_images().value();
     g_vhSwapchainImageViews = vkbSwapchain.get_image_views().value();
 
+    nvrhi::Format scFormat = vhNvFormatFromVkFormat( vkbSwapchain.image_format );
+    if ( scFormat == nvrhi::Format::UNKNOWN )
+    {
+        VRHI_LOG( "vhSwapchainCreate_Internal: VkFormat %d not in wrap table; falling back to BGRA8_UNORM.\n",
+            ( int ) vkbSwapchain.image_format );
+        scFormat = nvrhi::Format::BGRA8_UNORM;
+    }
+
     // Wrap images into nvrhi::TextureHandles
     g_vhSwapchainTextures.clear();
     g_vhSwapchainNVRHIHandles.clear();
@@ -1508,7 +1600,7 @@ void vhSwapchainCreate_Internal( int width, int height )
         nvrhi::TextureDesc tDesc;
         tDesc.width = vkbSwapchain.extent.width;
         tDesc.height = vkbSwapchain.extent.height;
-        tDesc.format = nvrhi::Format::BGRA8_UNORM;
+        tDesc.format = scFormat;
         tDesc.initialState = nvrhi::ResourceStates::Present;
         tDesc.keepInitialState = true;
         tDesc.setIsRenderTarget( true );
