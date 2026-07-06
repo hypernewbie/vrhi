@@ -373,10 +373,11 @@ jobs:
       # Linux/Mac: the test executable relies on -fsanitize=... only; no DLL
       # discovery needed (everything is statically linked). Sanitizer runs add
       # 5-10x overhead so we bump --timeout to 2400s (40 min); matches the
-      # worst observed run on macOS Address.
+      # worst observed run on macOS Address. -V + --output-on-failure keeps the
+      # runner's log useful when ctest is killed at the timeout boundary.
       - name: Test
         if: runner.os != 'Windows'
-        run: ctest --test-dir build -C Debug --timeout 2400
+        run: ctest --test-dir build -C Debug --timeout 2400 -V --output-on-failure
 
       # Windows: the consumer project's CMakeLists.txt wires the ASan runtime
       # DLL into the test's ENVIRONMENT at configure time (resolving clang's
@@ -385,7 +386,7 @@ jobs:
       # with the local expected invocation.
       - name: Test (Windows)
         if: runner.os == 'Windows'
-        run: ctest --test-dir build -C Debug --timeout 2400
+        run: ctest --test-dir build -C Debug --timeout 2400 -V --output-on-failure
 
   # ==========================================================================
   # Release Job - runs on tag pushes only
