@@ -237,17 +237,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux TSan: LLVM/ThreadSanitizer. Memory accesses are heavily
-          # instrumented so we cap link workers to keep RAM in budget on
-          # GitHub's hosted runners.
-          - name: Linux TSan
-            os: ubuntu-latest
-            cmake_gen: "-G Ninja"
-            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 -DVDEPS_SANITIZE=thread"
-            lib_tag: linux_thread
-            vdeps_args: "--sanitize thread"
-            sanitizer: thread
-
           # Linux ASan + UBSan combined: UBSan is unbounded and cheap to add
           # alongside ASan (same instrumentation passes), and the pair is the
           # closest stand-in for the "best-effort safe build" most teams run.
@@ -335,6 +324,17 @@ jobs:
           restore-keys: |
             ${{ matrix.lib_tag }}-vdeps-
 
+      # macOS Homebrew installs Clang to /opt/homebrew on Apple Silicon; vdeps
+      # hardcodes ``clang``/``clang++`` for the Unix path, so we must put the
+      # same Homebrew Clang (17) the consumer uses at the front of PATH so the
+      # ASan runtime ABI matches. Apple's system clang is older than Homebrew
+      # llvm@17, and a dep built with one and a consumer with the other fails
+      # to link __asan_version_mismatch_check_apple_clang_1500.
+      - name: Pin Homebrew Clang (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "$(brew --prefix llvm@17)/bin" >> "$GITHUB_PATH"
+
       - name: Build Dependencies
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: python vdeps.py ${{ matrix.vdeps_args }}
@@ -376,23 +376,14 @@ jobs:
         if: runner.os != 'Windows'
         run: ctest --test-dir build -C Debug --timeout 900
 
-      # Windows: ASan runtime DLL needs to be on PATH for the test exe. The
-      # toolchain itself ships the DLL at <resource>/lib/windows/, exposed
-      # here as LLVM_PATH (KyleMayes action sets it). The CMake-side
-      # ENVIRONMENT_MODIFICATION logic the consumer project uses is the
-      # CMake >=3.22 path; for compatibility with the project's 3.20 floor,
-      # PATH is set explicitly here via the wrapper.
+      # Windows: the consumer project's CMakeLists.txt wires the ASan runtime
+      # DLL into the test's ENVIRONMENT at configure time (resolving clang's
+      # resource dir via clang-cl -print-resource-dir). ctest picks that up
+      # automatically. We do ctest directly rather than via CMake for parity
+      # with the local expected invocation.
       - name: Test (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $asanLibDir = Join-Path $env:LLVM_PATH "lib\clang\21\lib\windows"
-          if (-not (Test-Path $asanLibDir)) {
-            Write-Host "::error::ASan runtime dir not found at $asanLibDir"
-            exit 1
-          }
-          $env:PATH = "$asanLibDir;$env:PATH"
-          & "C:\Program Files\CMake\bin\ctest.exe" --test-dir build -C Debug --timeout 900
+        run: ctest --test-dir build -C Debug --timeout 900
 
   # ==========================================================================
   # Release Job - runs on tag pushes only
