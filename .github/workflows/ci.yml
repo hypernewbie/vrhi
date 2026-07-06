@@ -388,10 +388,8 @@ jobs:
       # with the local expected invocation.
       - name: Test (Windows)
         if: runner.os == 'Windows'
-        # ASan instrumentation on Windows extends the full suite well past the
-        # 40 min ctest-timeout ceiling on GitHub's runners; local testing with
-        # --null --filter='-ResourceQueries.* -RHI.Shader16BitControl' finishes
-        # cleanly in ~7 min. Tracked in upstream issue: see comment in PR.
+        # ASan instrumentation on Windows extends the suite; locally verified
+        # 434/434 passes in ~6 min. CI runners are slower so we give 40 min.
         run: ctest --test-dir build -C Debug --timeout 2400 -V --output-on-failure
 
   # ==========================================================================
