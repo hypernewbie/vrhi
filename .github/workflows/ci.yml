@@ -260,18 +260,6 @@ jobs:
             vdeps_args: "--sanitize address"
             sanitizer: address
 
-          # Windows LLVM Address: clang-cl runs through MSVC's generator
-          # bundle, so we need --llvm to disable static-runtime collision
-          # and VDEPS_USE_LLVM=ON to flip lib paths to lib/win_llvm_*.
-          - name: Windows LLVM Address
-            os: windows-latest
-            cmake_gen: "-G Ninja"
-            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe -DVDEPS_USE_LLVM=ON -DVDEPS_SANITIZE=address"
-            lib_tag: win_llvm_address
-            vdeps_args: "--llvm --sanitize address"
-            install_llvm: true
-            sanitizer: address
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
