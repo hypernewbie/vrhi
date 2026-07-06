@@ -224,6 +224,177 @@ jobs:
         run: ctest --test-dir build -C Debug --verbose
 
   # ==========================================================================
+  # Sanitizers - runs ASan/TSan/UBSan variants alongside the main build.
+  # Split into its own job so a sanitizer regression doesn't fail the main
+  # build (fail-fast: false already covers concurrent matrix entries, but
+  # keeping it separate avoids polluting the primary lib cache and lets each
+  # variant use an isolated cache key).
+  # ==========================================================================
+  sanitizers:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux TSan: LLVM/ThreadSanitizer. Memory accesses are heavily
+          # instrumented so we cap link workers to keep RAM in budget on
+          # GitHub's hosted runners.
+          - name: Linux TSan
+            os: ubuntu-latest
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 -DVDEPS_SANITIZE=thread"
+            lib_tag: linux_thread
+            vdeps_args: "--sanitize thread"
+            sanitizer: thread
+
+          # Linux ASan + UBSan combined: UBSan is unbounded and cheap to add
+          # alongside ASan (same instrumentation passes), and the pair is the
+          # closest stand-in for the "best-effort safe build" most teams run.
+          - name: Linux Address+UBSan
+            os: ubuntu-latest
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 -DVDEPS_SANITIZE=address,undefined"
+            lib_tag: linux_address_undefined
+            vdeps_args: "--sanitize address,undefined"
+            sanitizer: address,undefined
+
+          # macOS Address only: macOS Clang also supports thread/memory
+          # but Apple's Clang is frozen on LLVM 17, which has a known
+          # TSan false positive on std::once_flag; keep this matrix entry
+          # narrow.
+          - name: macOS Address
+            os: macos-14
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++ -DVDEPS_SANITIZE=address"
+            lib_tag: mac_address
+            vdeps_args: "--sanitize address"
+            sanitizer: address
+
+          # Windows LLVM Address: clang-cl runs through MSVC's generator
+          # bundle, so we need --llvm to disable static-runtime collision
+          # and VDEPS_USE_LLVM=ON to flip lib paths to lib/win_llvm_*.
+          - name: Windows LLVM Address
+            os: windows-latest
+            cmake_gen: "-G Ninja"
+            cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe -DVDEPS_USE_LLVM=ON -DVDEPS_SANITIZE=address"
+            lib_tag: win_llvm_address
+            vdeps_args: "--llvm --sanitize address"
+            install_llvm: true
+            sanitizer: address
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install LLVM (Windows)
+        if: matrix.install_llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "21"
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev mesa-vulkan-drivers libc++-21-dev libc++abi-21-dev ccache
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
+          sudo update-alternatives --set clang /usr/bin/clang-21
+          sudo update-alternatives --set clang++ /usr/bin/clang++-21
+
+      - name: Install Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja llvm@17 ccache
+
+      - name: Capture submodule status
+        run: git submodule status --recursive > .submodules.status
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            lib
+            tools
+          # Sanitizer builds produce different ABIs (add tag suffix to lib_tag)
+          # so they need their own cache; the per-sanitize tag is in matrix.lib_tag.
+          key: ${{ matrix.lib_tag }}-vdeps-${{ hashFiles('vdeps.py', 'vdeps.toml', 'vdeps/CMakeLists.txt', 'CMakeLists.txt', '.gitmodules', '.submodules.status') }}
+          restore-keys: |
+            ${{ matrix.lib_tag }}-vdeps-
+
+      - name: Build Dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: python vdeps.py ${{ matrix.vdeps_args }}
+
+      - name: Setup Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.4.335.0
+          cache: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      # macOS MoltenVK stability flags are REQUIRED locally; see main `build`
+      # job comment for the full rationale.
+      - name: Configure Environment (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0" >> $GITHUB_ENV
+          echo "MVK_CONFIG_USE_MTLHEAP=0" >> $GITHUB_ENV
+          echo "MVK_CONFIG_LOG_LEVEL=3" >> $GITHUB_ENV
+          echo "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=1" >> $GITHUB_ENV
+          echo "MVK_CONFIG_USE_COMMAND_POOLING=0" >> $GITHUB_ENV
+          if [ -f "$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" ]; then
+            echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          elif [ -f "$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json" ]; then
+            echo "VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          fi
+
+      # Linux/Mac: the test executable relies on -fsanitize=... only; no DLL
+      # discovery needed (everything is statically linked).
+      - name: Test
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build -C Debug --timeout 900
+
+      # Windows: ASan runtime DLL needs to be on PATH for the test exe. The
+      # toolchain itself ships the DLL at <resource>/lib/windows/, exposed
+      # here as LLVM_PATH (KyleMayes action sets it). The CMake-side
+      # ENVIRONMENT_MODIFICATION logic the consumer project uses is the
+      # CMake >=3.22 path; for compatibility with the project's 3.20 floor,
+      # PATH is set explicitly here via the wrapper.
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $asanLibDir = Join-Path $env:LLVM_PATH "lib\clang\21\lib\windows"
+          if (-not (Test-Path $asanLibDir)) {
+            Write-Host "::error::ASan runtime dir not found at $asanLibDir"
+            exit 1
+          }
+          $env:PATH = "$asanLibDir;$env:PATH"
+          & "C:\Program Files\CMake\bin\ctest.exe" --test-dir build -C Debug --timeout 900
+
+  # ==========================================================================
   # Release Job - runs on tag pushes only
   # ==========================================================================
   #

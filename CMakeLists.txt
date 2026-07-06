@@ -153,7 +153,33 @@ if(MSVC)
       add_compile_options( -fsanitize=${VDEPS_SANITIZE} )
       add_link_options( -fsanitize=${VDEPS_SANITIZE} )
   endif()
- 
+
+  # Mirror vdeps.py's get_windows_llvm_sanitizer_link_args(): lld-link skips the
+  # ASan runtime that clang-cl's driver would inject, so force-link it ourselves.
+  if( VDEPS_SANITIZE_ACTIVE AND WIN32 AND VDEPS_SANITIZE MATCHES "address" )
+      execute_process(
+          COMMAND "${CMAKE_CXX_COMPILER}" /clang:-print-resource-dir
+          OUTPUT_VARIABLE _vh_clang_resource_dir
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+      )
+      if( _vh_clang_resource_dir )
+          file( TO_CMAKE_PATH "${_vh_clang_resource_dir}/lib/windows" _vh_asan_lib_dir )
+          file( GLOB _vh_asan_thunk_libs "${_vh_asan_lib_dir}/clang_rt.asan_static_runtime_thunk-*.lib" )
+          file( GLOB _vh_asan_dynamic_libs "${_vh_asan_lib_dir}/clang_rt.asan_dynamic-*.lib" )
+          if( _vh_asan_thunk_libs AND _vh_asan_dynamic_libs )
+              list( GET _vh_asan_thunk_libs 0 _vh_asan_thunk_lib )
+              list( GET _vh_asan_dynamic_libs 0 _vh_asan_dynamic_lib )
+              get_filename_component( _vh_asan_thunk_name "${_vh_asan_thunk_lib}" NAME )
+              get_filename_component( _vh_asan_dynamic_name "${_vh_asan_dynamic_lib}" NAME )
+              add_link_options(
+                  "/libpath:${_vh_asan_lib_dir}"
+                  "/wholearchive:${_vh_asan_thunk_name}"
+                  "${_vh_asan_dynamic_name}"
+              )
+          endif()
+      endif()
+  endif()
+
  # -----------------------------------------------------------------------------
  # Helper Functions
  # -----------------------------------------------------------------------------
