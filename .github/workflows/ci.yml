@@ -386,6 +386,21 @@ jobs:
       # resource dir via clang-cl -print-resource-dir). ctest picks that up
       # automatically. We do ctest directly rather than via CMake for parity
       # with the local expected invocation.
+      - name: Configure Environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $swiftShaderDll = "C:\hostedtoolcache\windows\swiftshader\5.0.0.1\x64\vk_swiftshader.dll"
+          $targetDir = if (Test-Path "build\Debug") { "build\Debug" } else { "build" }
+          $targetDll = Join-Path $targetDir "vulkan-1.dll"
+          if (Test-Path $swiftShaderDll) {
+            Copy-Item $swiftShaderDll $targetDll -Force
+            echo "Copied SwiftShader to $targetDll to bypass elevated loader restrictions."
+          } else {
+            echo "::error::SwiftShader DLL not found at $swiftShaderDll"
+            exit 1
+          }
+
       - name: Test (Windows)
         if: runner.os == 'Windows'
         # ASan instrumentation on Windows extends the suite; locally verified
