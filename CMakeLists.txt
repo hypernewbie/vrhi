@@ -519,8 +519,20 @@ endif()
      enable_testing()
      add_test(NAME vrhi_test COMMAND vrhi_test)
      if( VDEPS_SANITIZE_ACTIVE )
-         set_tests_properties( vrhi_test PROPERTIES ENVIRONMENT
-             "ASAN_OPTIONS=halt_on_error=0;UBSAN_OPTIONS=print_stacktrace=1;TSAN_OPTIONS=halt_on_error=0 ignore_noninstrumented_modules=1" )
+         set( _vh_test_env
+             "ASAN_OPTIONS=halt_on_error=0"
+             "UBSAN_OPTIONS=print_stacktrace=1"
+             "TSAN_OPTIONS=halt_on_error=0 ignore_noninstrumented_modules=1"
+         )
+         # lld-link doesn't rpath the ASan runtime DLL it force-links, so prepend
+         # its directory to PATH for the test. ; inside the PATH value is escaped
+         # (\;) so CMake's ;-list ENVIRONMENT property keeps it as one element.
+         if( _vh_asan_lib_dir )
+             file( TO_NATIVE_PATH "${_vh_asan_lib_dir}" _vh_asan_lib_dir_native )
+             string( REPLACE ";" "\;" _vh_parent_path "$ENV{PATH}" )
+             list( APPEND _vh_test_env "PATH=${_vh_asan_lib_dir_native}\;${_vh_parent_path}" )
+         endif()
+         set_tests_properties( vrhi_test PROPERTIES ENVIRONMENT "${_vh_test_env}" )
      endif()
  endif()
  
