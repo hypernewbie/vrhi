@@ -272,6 +272,7 @@ jobs:
             lib_tag: win_llvm_address
             vdeps_args: "--llvm --sanitize address"
             install_llvm: true
+            install_swiftshader: true
             sanitizer: address
 
     steps:
@@ -346,6 +347,7 @@ jobs:
         with:
           vulkan_version: 1.4.335.0
           cache: true
+          install_swiftshader: ${{ matrix.install_swiftshader }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
