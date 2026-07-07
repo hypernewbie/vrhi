@@ -432,6 +432,16 @@ glm::u64vec2 vhGetBufferMemoryRequirements( vhBuffer buffer )
     return vhBackendQueryBufferMemoryRequirements( buffer );
 }
 
+glm::u64vec2 vhGetAccelStructMemoryRequirements( vhAccelStruct as )
+{
+    if ( as == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhGetAccelStructMemoryRequirements(): Invalid accel struct handle\n" );
+        return glm::u64vec2( 0 );
+    }
+    return vhBackendQueryAccelStructMemoryRequirements( as );
+}
+
 void vhBindBufferMemory( vhBuffer buffer, vhHeap heap, uint64_t offset )
 {
     if ( buffer == VRHI_INVALID_HANDLE || heap == VRHI_INVALID_HANDLE )

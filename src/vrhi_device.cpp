@@ -1112,6 +1112,16 @@ vhRenderStats vhGetStats()
 {
     return g_vhLastFrameStats;
 }
+
+vhResourceBreakdown vhStatsBreakdown()
+{
+    if ( !g_vhDevice )
+    {
+        VRHI_ERR( "vhStatsBreakdown(): Device not initialised.\n" );
+        return {};
+    }
+    return vhBackendQueryStatsBreakdown();
+}
  
 uint64_t vhGetFrameNumber()
 {

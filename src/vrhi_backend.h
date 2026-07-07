@@ -489,4 +489,6 @@ public:
     glm::u64vec2 AllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment );
     void FreeTextureMemory( vhHeap heap, uint64_t offset );
     glm::u64vec2 QueryBufferMemoryRequirements( vhBuffer buffer );
+    glm::u64vec2 QueryAccelStructMemoryRequirements( vhAccelStruct as );
+    vhResourceBreakdown QueryStatsBreakdown();
 };

@@ -5031,6 +5031,76 @@ glm::u64vec2 vhCmdBackendState::QueryTextureMemoryRequirements( vhTexture textur
     return glm::u64vec2( size, alignment );
 }
 
+glm::u64vec2 vhCmdBackendState::QueryAccelStructMemoryRequirements( vhAccelStruct as )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto asIt = backendAccelStructs.find( as );
+    if ( asIt == backendAccelStructs.end() || !asIt->second->handle )
+    {
+        return glm::u64vec2( 0 );
+    }
+
+    uint64_t size = 0;
+    uint64_t alignment = 0;
+    {
+        std::lock_guard< std::mutex > lockDevice( g_nvRHIStateMutex );
+        nvrhi::MemoryRequirements req = g_vhDevice->getAccelStructMemoryRequirements( asIt->second->handle );
+        size = req.size;
+        alignment = req.alignment;
+    }
+    return glm::u64vec2( size, alignment );
+}
+
+vhResourceBreakdown vhCmdBackendState::QueryStatsBreakdown()
+{
+    vhResourceBreakdown out = {};
+
+    std::lock_guard< std::mutex > lock( backendMutex );
+
+    out.textureCount         = ( uint32_t ) backendTextures.size();
+    out.bufferCount          = ( uint32_t ) backendBuffers.size();
+    out.shaderCount          = ( uint32_t ) backendShaders.size();
+    out.accelStructCount     = ( uint32_t ) backendAccelStructs.size();
+    out.rtPipelineCount      = ( uint32_t ) backendRTPipelines.size();
+    out.shaderTableCount     = ( uint32_t ) backendShaderTables.size();
+    out.descriptorTableCount = ( uint32_t ) backendDescriptorTables.size();
+    out.timerQueryCount      = ( uint32_t ) backendTimerQueries.size();
+    out.heapCount            = ( uint32_t ) backendHeaps.size();
+
+    for ( const auto& texPair : backendTextures )
+        out.textureMemory += ( uint64_t ) texPair.second->pitchSize;
+
+    for ( const auto& bufPair : backendBuffers )
+        out.bufferMemory += bufPair.second->desc.byteSize;
+
+    for ( const auto& heapPair : backendHeaps )
+        out.heapMemory += heapPair.second->desc.capacity;
+
+    for ( const auto& dtPair : backendDescriptorTables )
+    {
+        out.descriptorTableSlots       += dtPair.second->capacity;
+        out.descriptorTableMaxCapacity += dtPair.second->desc.maxCapacity;
+    }
+
+    for ( const auto& asPair : backendAccelStructs )
+    {
+        if ( asPair.second->desc.isTopLevel ) out.topLevelASCount++;
+        else                                 out.bottomLevelASCount++;
+    }
+
+    {
+        std::lock_guard< std::mutex > lockDevice( g_nvRHIStateMutex );
+        for ( const auto& asPair : backendAccelStructs )
+        {
+            if ( !asPair.second->handle ) continue;
+            nvrhi::MemoryRequirements req = g_vhDevice->getAccelStructMemoryRequirements( asPair.second->handle );
+            out.accelStructMemory += req.size;
+        }
+    }
+
+    return out;
+}
+
 glm::u64vec2 vhCmdBackendState::AllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
@@ -5264,6 +5334,16 @@ void vhBackendFreeTextureMemory( vhHeap heap, uint64_t offset )
 glm::u64vec2 vhBackendQueryBufferMemoryRequirements( vhBuffer buffer )
 {
     return g_vhCmdBackendState.QueryBufferMemoryRequirements( buffer );
+}
+
+glm::u64vec2 vhBackendQueryAccelStructMemoryRequirements( vhAccelStruct as )
+{
+    return g_vhCmdBackendState.QueryAccelStructMemoryRequirements( as );
+}
+
+vhResourceBreakdown vhBackendQueryStatsBreakdown()
+{
+    return g_vhCmdBackendState.QueryStatsBreakdown();
 }
 
 nvrhi::rt::AccelStructHandle vhBackendQueryAccelStructHandle( vhAccelStruct as )

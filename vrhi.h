@@ -821,6 +821,30 @@ struct vhRenderStats
     uint64_t dispatchCalls = 0;  // Accumulated dispatch calls (both direct and indirect)
 };
 
+struct vhResourceBreakdown
+{
+    uint32_t textureCount         = 0;
+    uint32_t bufferCount          = 0;
+    uint32_t shaderCount          = 0;
+    uint32_t accelStructCount     = 0;
+    uint32_t rtPipelineCount      = 0;
+    uint32_t shaderTableCount     = 0;
+    uint32_t descriptorTableCount = 0;
+    uint32_t timerQueryCount      = 0;
+    uint32_t heapCount            = 0;
+
+    uint32_t topLevelASCount      = 0;
+    uint32_t bottomLevelASCount   = 0;
+
+    uint64_t textureMemory        = 0;     // bytes
+    uint64_t bufferMemory         = 0;     // bytes
+    uint64_t accelStructMemory    = 0;     // bytes
+    uint64_t heapMemory           = 0;     // bytes
+
+    uint32_t descriptorTableSlots       = 0;
+    uint32_t descriptorTableMaxCapacity = 0;
+};
+
 // Hot-path diagnostic counters. Bumped via relaxed atomics; vhPerfCheck() dumps + clears.
 struct vhPerfCounters
 {
@@ -892,6 +916,10 @@ vhMemoryStats vhStatsMemory();
 // Returns current frame or previous frame completed statistics.
 // Counters are reset at the start of vhFrame().
 vhRenderStats vhGetStats();
+
+// Aggregates live resource counts and per-type GPU memory totals across the backend.
+// Requires a preceding vhFlush() to reflect recently enqueued create/destroy commands.
+vhResourceBreakdown vhStatsBreakdown();
 
 // Returns the total number of frames presented (or flushed in headless mode) since initialisation.
 // This counter starts at 0 and increments at the end of every vhFrame() call.
@@ -1468,6 +1496,12 @@ glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
 // Requires the buffer to exist on the backend (call vhFlush after vhCreate*Buffer).
 // Returns {0, 0} if buffer not found or invalid.
 glm::u64vec2 vhGetBufferMemoryRequirements( vhBuffer buffer );
+
+// Returns memory requirements for an acceleration structure.
+// x = size, y = alignment.
+// Requires the AS to exist on the backend (call vhFlush after vhCreateAS).
+// Returns {0, 0} if as not found or invalid.
+glm::u64vec2 vhGetAccelStructMemoryRequirements( vhAccelStruct as );
 
 // Binds a virtual buffer to a specific heap at a specific offset.
 // The buffer must have been created with VRHI_BUFFER_VIRTUAL flag.

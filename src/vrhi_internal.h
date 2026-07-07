@@ -260,6 +260,8 @@ glm::u64vec2 vhBackendQueryTextureMemoryRequirements( vhTexture texture );
 glm::u64vec2 vhBackendAllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment );
 void vhBackendFreeTextureMemory( vhHeap heap, uint64_t offset );
 glm::u64vec2 vhBackendQueryBufferMemoryRequirements( vhBuffer buffer );
+glm::u64vec2 vhBackendQueryAccelStructMemoryRequirements( vhAccelStruct as );
+vhResourceBreakdown vhBackendQueryStatsBreakdown();
 
 // Dummy Resources
 void vhInitDummyResources();
