@@ -3101,6 +3101,121 @@ UTEST_F( Graphics, StencilIncrDecr )
     vhFinish();
 }
 
+UTEST_F( Graphics, StencilTwoSidedResolve )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+
+    vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32S8, VRHI_TEXTURE_RT );
+
+    struct Vertex { glm::vec3 pos; glm::vec4 colour; };
+    Vertex verts[6] =
+    {
+        { { -1.0f, -1.0f, 0.0f }, { 1, 0, 0, 1 } },
+        { {  0.0f, -1.0f, 0.0f }, { 1, 0, 0, 1 } },
+        { { -1.0f,  1.0f, 0.0f }, { 1, 0, 0, 1 } },
+        { {  0.0f, -1.0f, 0.0f }, { 0, 1, 0, 1 } },
+        { {  1.0f,  1.0f, 0.0f }, { 0, 1, 0, 1 } },
+        { {  1.0f, -1.0f, 0.0f }, { 0, 1, 0, 1 } }
+    };
+
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    vhProgram program = vhCreateGfxProgram( vs, ps );
+
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetDepthAttachment( ds )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetVertexBuffer( vb, 0 )
+         .SetProgram( program );
+
+    vhStateId sid = 1711;
+    state.SetViewClear( VRHI_CLEAR_COLOR | VRHI_CLEAR_STENCIL, glm::vec4( 0, 0, 0, 1 ), 1.0f, 0 )
+         .SetStateFlags( VRHI_STATE_WRITE_RGB | VRHI_STATE_WRITE_A | VRHI_STATE_CULL_NONE )
+         .SetStencil(
+             0, 0xFF, 0xFF,
+             VRHI_STENCIL_TEST_ALWAYS,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_INCR,
+             VRHI_STENCIL_TEST_ALWAYS,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_DECR );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR | VRHI_CLEAR_STENCIL );
+    vhDraw( sid, 6 );
+    vhFinish();
+
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_RGB | VRHI_STATE_WRITE_A | VRHI_STATE_CULL_NONE )
+         .SetStencil(
+             1, 0xFF, 0xFF,
+             VRHI_STENCIL_TEST_EQUAL,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_KEEP,
+             VRHI_STENCIL_TEST_EQUAL,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_KEEP );
+    vhSetState( sid, state.DirtyAll() );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 6 );
+    vhFinish();
+    EXPECT_TRUE( VerifyPixel( rt, 8, 32, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 56, 32, 0xFF000000 ) );
+
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
+         .SetStencil(
+             255, 0xFF, 0xFF,
+             VRHI_STENCIL_TEST_EQUAL,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_KEEP,
+             VRHI_STENCIL_TEST_EQUAL,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_KEEP );
+    vhSetState( sid, state.DirtyAll() );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 6 );
+    vhFinish();
+    EXPECT_TRUE( VerifyPixel( rt, 8, 32, 0xFF000000 ) );
+    EXPECT_TRUE( VerifyPixel( rt, 56, 32, 0xFF00FF00 ) );
+
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
+         .SetStencil(
+             0, 0xFF, 0xFF,
+             VRHI_STENCIL_TEST_NOTEQUAL,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_ZERO,
+             VRHI_STENCIL_TEST_NOTEQUAL,
+             VRHI_STENCIL_OP_FAIL_S_KEEP,
+             VRHI_STENCIL_OP_FAIL_Z_KEEP,
+             VRHI_STENCIL_OP_PASS_Z_ZERO );
+    vhSetState( sid, state.DirtyAll() );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 6 );
+    vhFinish();
+    EXPECT_TRUE( VerifyPixel( rt, 8, 32, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 56, 32, 0xFF00FF00 ) );
+
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 6 );
+    vhFinish();
+    EXPECT_TRUE( VerifyPixel( rt, 8, 32, 0xFF000000 ) );
+    EXPECT_TRUE( VerifyPixel( rt, 56, 32, 0xFF000000 ) );
+
+    vhDestroyTexture( rt ); vhDestroyTexture( ds );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs ); vhDestroyShader( ps );
+    vhFinish();
+}
+
 // --------------------------------------------------------------------------
 // IndependentBlend
 // --------------------------------------------------------------------------

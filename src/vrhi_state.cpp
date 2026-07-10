@@ -535,8 +535,7 @@ nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint
 
         bool backFaceSet = false;
 
-        // Check if stencilState contains baked Back Face bits (mask 0x0FFFF000000000000)
-        if ( ( stencilState & 0x0FFFF000000000000ULL ) != 0 )
+        if ( ( stencilState & VRHI_STENCIL_BACK_MASK ) != 0 )
         {
             fnUnpackStencilBack( stencilState, dsState.backFaceStencil );
             backFaceSet = true;

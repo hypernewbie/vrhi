@@ -152,15 +152,12 @@ UTEST( ShaderInternal, StateToDesc )
         EXPECT_EQ( ds.backFaceStencil.passOp, nvrhi::StencilOp::IncrementAndWrap );
     }
 
-    // Test Stencil Separate (manually packed into single uint64_t)
+    // Test Stencil Separate
     {
-        uint64_t front = VRHI_STENCIL_TEST_ALWAYS | VRHI_STENCIL_OP_PASS_Z_KEEP;
-        uint64_t back = VRHI_STENCIL_TEST_NEVER | VRHI_STENCIL_OP_PASS_Z_REPLACE;
-        
-        // Pack back face bits into the unified format
-        uint64_t packedStencil = front |
-            ((back & VRHI_STENCIL_TEST_MASK) << (VRHI_STENCIL_BACK_TEST_SHIFT - VRHI_STENCIL_TEST_SHIFT)) |
-            ((back & VRHI_STENCIL_OP_PASS_Z_MASK) << (VRHI_STENCIL_BACK_OP_PASS_Z_SHIFT - VRHI_STENCIL_OP_PASS_Z_SHIFT));
+        uint64_t packedStencil = VRHI_STENCIL_TEST_ALWAYS |
+            VRHI_STENCIL_BACK_TEST( VRHI_STENCIL_TEST_NEVER ) |
+            VRHI_STENCIL_OP_PASS_Z_KEEP |
+            VRHI_STENCIL_BACK_OP_PASS_Z( VRHI_STENCIL_OP_PASS_Z_REPLACE );
 
         nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, packedStencil );
 
@@ -210,6 +207,22 @@ UTEST_F( Shader, StencilMaskShiftConsistency )
         EXPECT_EQ( (VRHI_STENCIL_FUNC_RMASK(0xFF) & VRHI_STENCIL_FUNC_RMASK_MASK) >> VRHI_STENCIL_FUNC_RMASK_SHIFT, 0xFF );
         EXPECT_EQ( (VRHI_STENCIL_FUNC_WMASK(0x7F) & VRHI_STENCIL_FUNC_WMASK_MASK) >> VRHI_STENCIL_FUNC_WMASK_SHIFT, 0x7F );
     }
+
+    EXPECT_EQ( VRHI_STENCIL_BACK_TEST_MASK, ( uint64_t ) 0x00000f0000000000 );
+    EXPECT_EQ( VRHI_STENCIL_BACK_OP_FAIL_S_MASK, ( uint64_t ) 0x0000f00000000000 );
+    EXPECT_EQ( VRHI_STENCIL_BACK_OP_FAIL_Z_MASK, ( uint64_t ) 0x000f000000000000 );
+    EXPECT_EQ( VRHI_STENCIL_BACK_OP_PASS_Z_MASK, ( uint64_t ) 0x00f0000000000000 );
+    EXPECT_EQ( VRHI_STENCIL_BACK_MASK,
+               VRHI_STENCIL_BACK_TEST_MASK |
+               VRHI_STENCIL_BACK_OP_FAIL_S_MASK |
+               VRHI_STENCIL_BACK_OP_FAIL_Z_MASK |
+               VRHI_STENCIL_BACK_OP_PASS_Z_MASK );
+    EXPECT_EQ( VRHI_STENCIL_BACK_TEST_MASK & VRHI_STENCIL_BACK_OP_FAIL_S_MASK, 0ull );
+    EXPECT_EQ( VRHI_STENCIL_BACK_TEST_MASK & VRHI_STENCIL_BACK_OP_FAIL_Z_MASK, 0ull );
+    EXPECT_EQ( VRHI_STENCIL_BACK_TEST_MASK & VRHI_STENCIL_BACK_OP_PASS_Z_MASK, 0ull );
+    EXPECT_EQ( VRHI_STENCIL_BACK_OP_FAIL_S_MASK & VRHI_STENCIL_BACK_OP_FAIL_Z_MASK, 0ull );
+    EXPECT_EQ( VRHI_STENCIL_BACK_OP_FAIL_S_MASK & VRHI_STENCIL_BACK_OP_PASS_Z_MASK, 0ull );
+    EXPECT_EQ( VRHI_STENCIL_BACK_OP_FAIL_Z_MASK & VRHI_STENCIL_BACK_OP_PASS_Z_MASK, 0ull );
 }
 
 // Test that verifies unified stencil packing of separate front/back states
@@ -229,23 +242,31 @@ UTEST_F( Shader, StencilUnifiedPacking )
         EXPECT_EQ( ds.backFaceStencil.passOp, ds.frontFaceStencil.passOp );
     }
 
-    // Test case 2: Different front and back (manually packed)
+    // Test case 2: Different front and back
     {
-        uint64_t front = VRHI_STENCIL_TEST_ALWAYS | VRHI_STENCIL_OP_PASS_Z_KEEP;
-        uint64_t back = VRHI_STENCIL_TEST_NEVER | VRHI_STENCIL_OP_PASS_Z_REPLACE;
-        
-        // Pack back face bits into the unified format (simulating user packing)
-        uint64_t packedStencil = front |
-            ((back & VRHI_STENCIL_TEST_MASK) << (VRHI_STENCIL_BACK_TEST_SHIFT - VRHI_STENCIL_TEST_SHIFT)) |
-            ((back & VRHI_STENCIL_OP_PASS_Z_MASK) << (VRHI_STENCIL_BACK_OP_PASS_Z_SHIFT - VRHI_STENCIL_OP_PASS_Z_SHIFT));
-        
-        nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, packedStencil );
-        
+        vhState state;
+        state.SetStencil(
+            0, 0xFF, 0xFF,
+            VRHI_STENCIL_TEST_ALWAYS,
+            VRHI_STENCIL_OP_FAIL_S_KEEP,
+            VRHI_STENCIL_OP_FAIL_Z_REPLACE,
+            VRHI_STENCIL_OP_PASS_Z_INCR,
+            VRHI_STENCIL_TEST_NEVER,
+            VRHI_STENCIL_OP_FAIL_S_DECR,
+            VRHI_STENCIL_OP_FAIL_Z_INCRSAT,
+            VRHI_STENCIL_OP_PASS_Z_DECRSAT );
+
+        nvrhi::DepthStencilState ds = vhTranslateDepthStencilState( VRHI_STATE_DEFAULT, state.stencilState );
+
         EXPECT_TRUE( ds.stencilEnable );
         EXPECT_EQ( ds.frontFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Always );
-        EXPECT_EQ( ds.frontFaceStencil.passOp, nvrhi::StencilOp::Keep );
+        EXPECT_EQ( ds.frontFaceStencil.failOp, nvrhi::StencilOp::Keep );
+        EXPECT_EQ( ds.frontFaceStencil.depthFailOp, nvrhi::StencilOp::Replace );
+        EXPECT_EQ( ds.frontFaceStencil.passOp, nvrhi::StencilOp::IncrementAndWrap );
         EXPECT_EQ( ds.backFaceStencil.stencilFunc, nvrhi::ComparisonFunc::Never );
-        EXPECT_EQ( ds.backFaceStencil.passOp, nvrhi::StencilOp::Replace );
+        EXPECT_EQ( ds.backFaceStencil.failOp, nvrhi::StencilOp::DecrementAndWrap );
+        EXPECT_EQ( ds.backFaceStencil.depthFailOp, nvrhi::StencilOp::IncrementAndClamp );
+        EXPECT_EQ( ds.backFaceStencil.passOp, nvrhi::StencilOp::DecrementAndClamp );
     }
 }
 

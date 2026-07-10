@@ -632,14 +632,20 @@ constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_INVERT   = 0x0000007000000000;
 constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_SHIFT    = 36;
 constexpr uint64_t VRHI_STENCIL_OP_PASS_Z_MASK     = 0x000000f000000000;
 
-constexpr uint64_t VRHI_STENCIL_BACK_TEST_SHIFT    = 40;
-constexpr uint64_t VRHI_STENCIL_BACK_TEST_MASK     = 0x00000f0000000000;
+constexpr uint64_t VRHI_STENCIL_BACK_TEST_SHIFT      = 40;
+constexpr uint64_t VRHI_STENCIL_BACK_TEST_MASK       = 0x00000f0000000000;
 constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_S_SHIFT = 44;
-constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_S_MASK  = 0x000f000000000000;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_S_MASK  = 0x0000f00000000000;
 constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_Z_SHIFT = 48;
-constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_Z_MASK  = 0x00f0000000000000;
+constexpr uint64_t VRHI_STENCIL_BACK_OP_FAIL_Z_MASK  = 0x000f000000000000;
 constexpr uint64_t VRHI_STENCIL_BACK_OP_PASS_Z_SHIFT = 52;
 constexpr uint64_t VRHI_STENCIL_BACK_OP_PASS_Z_MASK  = 0x00f0000000000000;
+constexpr uint64_t VRHI_STENCIL_BACK_MASK            = 0x00ffff0000000000;
+
+#define VRHI_STENCIL_BACK_TEST(v)      ( ( ( uint64_t )( v ) << ( VRHI_STENCIL_BACK_TEST_SHIFT      - VRHI_STENCIL_TEST_SHIFT      ) ) & VRHI_STENCIL_BACK_TEST_MASK )
+#define VRHI_STENCIL_BACK_OP_FAIL_S(v) ( ( ( uint64_t )( v ) << ( VRHI_STENCIL_BACK_OP_FAIL_S_SHIFT - VRHI_STENCIL_OP_FAIL_S_SHIFT ) ) & VRHI_STENCIL_BACK_OP_FAIL_S_MASK )
+#define VRHI_STENCIL_BACK_OP_FAIL_Z(v) ( ( ( uint64_t )( v ) << ( VRHI_STENCIL_BACK_OP_FAIL_Z_SHIFT - VRHI_STENCIL_OP_FAIL_Z_SHIFT ) ) & VRHI_STENCIL_BACK_OP_FAIL_Z_MASK )
+#define VRHI_STENCIL_BACK_OP_PASS_Z(v) ( ( ( uint64_t )( v ) << ( VRHI_STENCIL_BACK_OP_PASS_Z_SHIFT - VRHI_STENCIL_OP_PASS_Z_SHIFT ) ) & VRHI_STENCIL_BACK_OP_PASS_Z_MASK )
 
 // --------------------------------------------------------------------------
 // Clear
@@ -2277,6 +2283,21 @@ struct vhState
                        VRHI_STENCIL_FUNC_RMASK( readMask ) |
                        VRHI_STENCIL_FUNC_WMASK( writeMask ) |
                        frontTest | frontFailOp | frontDepthFailOp | frontDepthPassOp;
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    vhState& SetStencil( uint8_t ref, uint8_t readMask, uint8_t writeMask,
+        uint64_t frontTest, uint64_t frontFailOp, uint64_t frontDepthFailOp, uint64_t frontDepthPassOp,
+        uint64_t backTest, uint64_t backFailOp, uint64_t backDepthFailOp, uint64_t backDepthPassOp )
+    {
+        stencilState = VRHI_STENCIL_FUNC_REF( ref ) |
+                       VRHI_STENCIL_FUNC_RMASK( readMask ) |
+                       VRHI_STENCIL_FUNC_WMASK( writeMask ) |
+                       frontTest | frontFailOp | frontDepthFailOp | frontDepthPassOp |
+                       VRHI_STENCIL_BACK_TEST( backTest ) |
+                       VRHI_STENCIL_BACK_OP_FAIL_S( backFailOp ) |
+                       VRHI_STENCIL_BACK_OP_FAIL_Z( backDepthFailOp ) |
+                       VRHI_STENCIL_BACK_OP_PASS_Z( backDepthPassOp );
         dirty |= VRHI_DIRTY_PIPELINE;
         return *this;
     }
