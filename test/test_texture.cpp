@@ -1404,7 +1404,11 @@ UTEST( Sampler, GetSamplerDesc )
 
 UTEST( ResourceQueries, Texture )
 {
-
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
 
     vhTexture tex = vhAllocTexture();
     glm::ivec2 dims( 128, 64 );

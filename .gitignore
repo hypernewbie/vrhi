@@ -72,3 +72,5 @@ tools/win_release/slang-glsl-module.bin
 
 # VRHI package test build directories
 /test_pkg_build_*/
+
+.pi-subagents/
