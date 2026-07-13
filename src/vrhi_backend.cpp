@@ -2543,6 +2543,12 @@ void vhCmdBackendState::RegisterInternalTexture( vhTexture id, const nvrhi::Text
     backendTextures[id] = std::move( btex );
 }
 
+void vhCmdBackendState::UnregisterInternalTexture( vhTexture id )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    backendTextures.erase( id );
+}
+
 // --------------------------------------------------------------------------
 // Backend :: VIDL Command Handlers
 // --------------------------------------------------------------------------

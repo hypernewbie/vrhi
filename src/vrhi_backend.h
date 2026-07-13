@@ -339,6 +339,7 @@ public:
     void HandleLogFunction( const char* str ) override;
 
     void RegisterInternalTexture( vhTexture id, const nvrhi::TextureHandle& handle, const nvrhi::TextureDesc& desc );
+    void UnregisterInternalTexture( vhTexture id );
 
     // --------------------------------------------------------------------------
     // Backend :: VIDL Command Handlers

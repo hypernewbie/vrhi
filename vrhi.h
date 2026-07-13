@@ -152,11 +152,14 @@ typedef uint32_t vhBuffer;
 typedef uint32_t vhShader;
 typedef uint32_t vhUniform;
 typedef uint64_t vhTimerID;
+typedef uint64_t vhSwapchainID;
 typedef std::vector< uint8_t > vhMem;
 typedef std::vector< vhShader > vhProgram;
 typedef uint32_t vhAccelStruct;
 typedef uint32_t vhRTPipeline;
-typedef uint32_t vhShaderTable; 
+typedef uint32_t vhShaderTable;
+
+constexpr vhSwapchainID VRHI_INVALID_SWAPCHAIN = 0;
 typedef uint64_t vhStateId;
 typedef uint32_t vhHeap; 
 typedef uint32_t vhDescriptorTable;
@@ -171,7 +174,7 @@ extern std::atomic<int32_t> g_vhPSOCompileCounter;
 // --------------------------------------------------------------------------
 
 #define VRHI_VERSION_MAJOR 0
-#define VRHI_VERSION_MINOR 7
+#define VRHI_VERSION_MINOR 8
 #define VRHI_VERSION_PATCH 0
 
 #define VRHI_INVALID_HANDLE 0xFFFFFFFF
@@ -967,6 +970,29 @@ void vhResizeCleanup();
 // Resizes the window swapchain to the specified dimensions.
 // This performs a full GPU flush for safety. Performance is not critical during resize operations.
 void vhResize( int width, int height );
+
+// Creates an additional swapchain for a secondary native window. Returns VRHI_INVALID_SWAPCHAIN on failure.
+// Inherits vsync/present-mode/format from g_vhInit. A successful call does an initial acquire so
+// vhGetSwapchainBackbuffer is immediately usable. The primary swapchain (created by vhInit) is unaffected.
+vhSwapchainID vhCreateSwapchain( void* windowHandle, void* displayHandle, int width, int height );
+
+// Destroys a secondary swapchain. Refuses (asserts) on the primary swapchain.
+void vhDestroySwapchain( vhSwapchainID swapchain );
+
+// Returns the texture handle for the current backbuffer of the given swapchain.
+// Returns VRHI_INVALID_HANDLE if invalid, minimized, or the swapchain is in a mode without a real surface.
+vhTexture vhGetSwapchainBackbuffer( vhSwapchainID swapchain );
+
+// Presents the current backbuffer of the given swapchain and acquires the next image.
+// Independent of vhFrame(). Returns false if the swapchain is invalid or the window is in a bad state.
+bool vhPresentSwapchain( vhSwapchainID swapchain );
+
+// Resizes a secondary swapchain. width/height <= 0 marks the swapchain as minimized;
+// all subsequent calls are no-ops until a positive resize is issued.
+void vhResizeSwapchain( vhSwapchainID swapchain, int width, int height );
+
+// Returns the current size of a swapchain. Returns (0,0) if the swapchain is invalid.
+glm::uvec2 vhGetSwapchainSize( vhSwapchainID swapchain );
 
 // Returns the current window size.
 // This is distinct from the initial resolution and reflects the actual swapchain dimensions.

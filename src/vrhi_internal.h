@@ -168,22 +168,11 @@ extern uint32_t g_QueueFamilyGraphics;
 extern uint32_t g_QueueFamilyCompute;
 extern uint32_t g_QueueFamilyTransfer;
 
-// Swapchain State
-extern VkSurfaceKHR g_vhSurface;
-extern VkSwapchainKHR g_vhSwapchain;
-extern std::vector< VkImage > g_vhSwapchainImages;
-extern std::vector< VkImageView > g_vhSwapchainImageViews;
-extern std::vector< vhTexture > g_vhSwapchainTextures;
-extern std::vector< nvrhi::TextureHandle > g_vhSwapchainNVRHIHandles;
-extern uint32_t g_vhCurrentSwapchainIndex;
-extern glm::uvec2 g_vhWindowSize;
-
-// Semaphores for frame synchronisation
-extern std::vector< VkSemaphore > g_vhAcquireSemaphores;
-extern std::vector< VkSemaphore > g_vhPresentSemaphores;
+// Frame pacing (shared across all swapchains)
 extern std::vector< uint64_t > g_vhFrameInstances;
 extern uint32_t g_vhFrameIndex;
 extern int g_vhFramesInFlight;
+extern std::atomic< uint64_t > g_vhFrameCount;
 
 // Pending Queue Sync (Protected by g_nvRHIStateMutex)
 extern std::vector< VkSemaphore > g_vhPendingWaitSemaphores[3]; // Indexed by nvrhi::CommandQueue
@@ -272,7 +261,35 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
 bool vhQueryFeatureSupport_Internal( nvrhi::Feature feature, void* pInfo = nullptr, size_t infoSize = 0 );
 nvrhi::FormatSupport vhQueryFormatSupport_Internal( nvrhi::Format format );
 
-void vhSwapchainCreate_Internal( int width, int height );
+// Swapchain State
+struct vhSwapchain
+{
+    vhSwapchainID           id              = VRHI_INVALID_SWAPCHAIN;
+    VkSurfaceKHR            surface         = VK_NULL_HANDLE;
+    VkSwapchainKHR          swapchain       = VK_NULL_HANDLE;
+    std::vector< VkImage >              images;
+    std::vector< VkImageView >          imageViews;
+    std::vector< vhTexture >            textures;
+    std::vector< nvrhi::TextureHandle > nvrhiHandles;
+    std::vector< VkSemaphore >          acquireSemaphores;
+    std::vector< VkSemaphore >          presentSemaphores;
+    uint32_t                            currentSwapchainIndex = 0;
+    uint32_t                            acquireSemaphoreIndex = 0;
+    glm::uvec2                          windowSize            = glm::uvec2( 0, 0 );
+    vhTexture                           headlessBackbuffer    = VRHI_INVALID_HANDLE;
+    nvrhi::TextureHandle                headlessBackbufferHandle;
+    bool                                isHeadless            = false;
+    bool                                isMinimized           = false;
+};
+
+void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height );
+void vhSwapchainDestroy_Internal( vhSwapchain& sc );
+bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstance );
+void vhSwapchainResizeHeadless_Internal( vhSwapchain& sc, int width, int height );
+
+extern std::unordered_map< vhSwapchainID, vhSwapchain > g_vhSwapchains;
+extern vhSwapchainID g_vhPrimarySwapchain;
+extern vhSwapchainID g_vhNextSwapchainID;
 
 
 // Logging helper
