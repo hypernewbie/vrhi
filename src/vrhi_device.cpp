@@ -1606,7 +1606,7 @@ void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height )
     }
 
     int newImageCount = ( int ) sc.images.size();
-    int acquireSemaphoreCount = std::max( newImageCount, ( int ) g_vhFramesInFlight );
+    int acquireSemaphoreCount = std::min( std::max( newImageCount, ( int ) g_vhFramesInFlight ), VRHI_MAX_FRAMES_INFLIGHT );
     sc.acquireSemaphores.resize( acquireSemaphoreCount );
     sc.acquireInstances.assign( acquireSemaphoreCount, 0 );
     sc.presentSemaphores.resize( newImageCount );

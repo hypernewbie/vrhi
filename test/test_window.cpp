@@ -997,7 +997,8 @@ UTEST( Swapchain, SemaphoreArraysCoverFrameSlots )
     ASSERT_NE( sc, VRHI_INVALID_SWAPCHAIN );
     EXPECT_GE( g_vhSwapchains[sc].acquireSemaphores.size(), ( size_t ) g_vhFramesInFlight );
 
-    for ( uint32_t i = 0; i < 2 * g_vhFramesInFlight + 1; ++i )
+    uint32_t slots = ( uint32_t ) g_vhSwapchains[sc].acquireSemaphores.size();
+    for ( uint32_t i = 0; i < 2 * slots + 1; ++i )
     {
         EXPECT_TRUE( vhPresentSwapchain( sc ) );
         EXPECT_TRUE( vhFrame() );
