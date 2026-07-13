@@ -1608,6 +1608,7 @@ void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height )
     int newImageCount = ( int ) sc.images.size();
     int acquireSemaphoreCount = std::max( newImageCount, ( int ) g_vhFramesInFlight );
     sc.acquireSemaphores.resize( acquireSemaphoreCount );
+    sc.acquireInstances.assign( acquireSemaphoreCount, 0 );
     sc.presentSemaphores.resize( newImageCount );
 
     VkSemaphoreCreateInfo sci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -1630,6 +1631,7 @@ void vhSwapchainDestroy_Internal( vhSwapchain& sc )
             vkDestroySemaphore( g_vulkanDevice, sem, nullptr );
     }
     sc.acquireSemaphores.clear();
+    sc.acquireInstances.clear();
     sc.presentSemaphores.clear();
 
     for ( vhTexture texture : sc.textures )
@@ -1675,6 +1677,7 @@ bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstan
     }
 
     outInstance = vhCmdListFlush( nvrhi::CommandQueue::Graphics );
+    sc.acquireInstances[sc.acquireSemaphoreIndex] = outInstance;
 
     VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     presentInfo.waitSemaphoreCount = 1;
@@ -1698,6 +1701,24 @@ bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstan
         return false;
 
     sc.acquireSemaphoreIndex = ( sc.acquireSemaphoreIndex + 1 ) % sc.acquireSemaphores.size();
+
+    // VUID-vkAcquireNextImageKHR-semaphore-01779: the acquire semaphore being reused must be idle.
+    uint64_t prevInstance = sc.acquireInstances[sc.acquireSemaphoreIndex];
+    if ( prevInstance )
+    {
+        VkSemaphore queueSem;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            queueSem = nvrhiDevice->getQueueSemaphore( nvrhi::CommandQueue::Graphics );
+        }
+        VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+        waitInfo.semaphoreCount = 1;
+        waitInfo.pSemaphores = &queueSem;
+        waitInfo.pValues = &prevInstance;
+        vhProfile( "vhFrame_WaitSemaphore", true );
+        vkWaitSemaphores( g_vulkanDevice, &waitInfo, UINT64_MAX );
+        vhProfile( "vhFrame_WaitSemaphore", false );
+    }
 
     // Acquire next image for this swapchain.
     uint32_t idx = 0;
@@ -1909,6 +1930,8 @@ bool vhPresentSwapchain( vhSwapchainID swapchain )
 {
     auto it = g_vhSwapchains.find( swapchain );
     if ( it == g_vhSwapchains.end() ) return false;
+    // Drain backend so the main thread can use the same nvrhi command list for swapchain semaphore ops below.
+    vhFlush( true );
     uint64_t instance;
     return vhSwapchainPresentAndAcquire_Internal( it->second, instance );
 }

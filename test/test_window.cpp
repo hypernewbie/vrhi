@@ -1003,6 +1003,9 @@ UTEST( Swapchain, SemaphoreArraysCoverFrameSlots )
         EXPECT_TRUE( vhFrame() );
     }
 
+    for ( uint64_t inst : g_vhSwapchains[sc].acquireInstances )
+        EXPECT_GT( inst, 0ull );
+
     vhDestroySwapchain( sc );
     TestEnsureShutdown();
     RGFW_window_close( secondary );

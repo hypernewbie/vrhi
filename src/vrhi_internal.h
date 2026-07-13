@@ -272,6 +272,7 @@ struct vhSwapchain
     std::vector< vhTexture >            textures;
     std::vector< nvrhi::TextureHandle > nvrhiHandles;
     std::vector< VkSemaphore >          acquireSemaphores;
+    std::vector< uint64_t >             acquireInstances;
     std::vector< VkSemaphore >          presentSemaphores;
     uint32_t                            currentSwapchainIndex = 0;
     uint32_t                            acquireSemaphoreIndex = 0;
