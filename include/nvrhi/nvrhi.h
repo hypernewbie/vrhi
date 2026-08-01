@@ -64,7 +64,7 @@ namespace nvrhi
 {
     // Version of the public API provided by NVRHI.
     // Increment this when any changes to the API are made.
-    static constexpr uint32_t c_HeaderVersion = 23;
+    static constexpr uint32_t c_HeaderVersion = 26;
 
     // Verifies that the version of the implementation matches the version of the header.
     // Returns true if they match. Use this when initializing apps using NVRHI as a shared library.
@@ -354,26 +354,28 @@ namespace nvrhi
         VertexBuffer                = 0x00000004,
         IndexBuffer                 = 0x00000008,
         IndirectArgument            = 0x00000010,
-        ShaderResource              = 0x00000020,
-        UnorderedAccess             = 0x00000040,
-        RenderTarget                = 0x00000080,
-        DepthWrite                  = 0x00000100,
-        DepthRead                   = 0x00000200,
-        StreamOut                   = 0x00000400,
-        CopyDest                    = 0x00000800,
-        CopySource                  = 0x00001000,
-        ResolveDest                 = 0x00002000,
-        ResolveSource               = 0x00004000,
-        Present                     = 0x00008000,
-        AccelStructRead             = 0x00010000,
-        AccelStructWrite            = 0x00020000,
-        AccelStructBuildInput       = 0x00040000,
-        AccelStructBuildBlas        = 0x00080000,
-        ShadingRateSurface          = 0x00100000,
-        OpacityMicromapWrite        = 0x00200000,
-        OpacityMicromapBuildInput   = 0x00400000,
-        ConvertCoopVecMatrixInput   = 0x00800000,
-        ConvertCoopVecMatrixOutput  = 0x01000000,
+        PixelShaderResource         = 0x00000020,
+        NonPixelShaderResource      = 0x00000040,
+        ShaderResource              = PixelShaderResource | NonPixelShaderResource,
+        UnorderedAccess             = 0x00000080,
+        RenderTarget                = 0x00000100,
+        DepthWrite                  = 0x00000200,
+        DepthRead                   = 0x00000400,
+        StreamOut                   = 0x00000800,
+        CopyDest                    = 0x00001000,
+        CopySource                  = 0x00002000,
+        ResolveDest                 = 0x00004000,
+        ResolveSource               = 0x00008000,
+        Present                     = 0x00010000,
+        AccelStructRead             = 0x00020000,
+        AccelStructWrite            = 0x00040000,
+        AccelStructBuildInput       = 0x00080000,
+        AccelStructBuildBlas        = 0x00100000,
+        ShadingRateSurface          = 0x00200000,
+        OpacityMicromapWrite        = 0x00400000,
+        OpacityMicromapBuildInput   = 0x00800000,
+        ConvertCoopVecMatrixInput   = 0x01000000,
+        ConvertCoopVecMatrixOutput  = 0x02000000,
     };
 
     NVRHI_ENUM_CLASS_FLAG_OPERATORS(ResourceStates)
@@ -1245,7 +1247,7 @@ namespace nvrhi
         SamplerAddressMode addressV = SamplerAddressMode::Clamp;
         SamplerAddressMode addressW = SamplerAddressMode::Clamp;
         SamplerReductionType reductionType = SamplerReductionType::Standard;
-        ComparisonFunc compareFunc = ComparisonFunc::Always;
+        ComparisonFunc compareFunc = ComparisonFunc::Always; // [UAA]
 
         SamplerDesc& setBorderColor(const Color& color) { borderColor = color; return *this; }
         SamplerDesc& setMaxAnisotropy(float value) { maxAnisotropy = value; return *this; }
@@ -1259,7 +1261,7 @@ namespace nvrhi
         SamplerDesc& setAddressW(SamplerAddressMode mode) { addressW = mode; return *this; }
         SamplerDesc& setAllAddressModes(SamplerAddressMode mode) { addressU = addressV = addressW = mode; return *this; }
         SamplerDesc& setReductionType(SamplerReductionType type) { reductionType = type; return *this; }
-        SamplerDesc& setCompareFunc(ComparisonFunc func) { compareFunc = func; return *this; }
+        SamplerDesc& setCompareFunc(ComparisonFunc func) { compareFunc = func; return *this; } // [UAA]
     };
 
     class ISampler : public IResource
@@ -2055,14 +2057,14 @@ namespace nvrhi
         static_vector<BindingLayoutItem, c_MaxBindlessRegisterSpaces> registerSpaces;
 
         LayoutType layoutType = LayoutType::Immutable;
-        bool updateAfterBind = false;
+        bool updateAfterBind = false; // [UAA]
 
         BindlessLayoutDesc& setVisibility(ShaderType value) { visibility = value; return *this; }
         BindlessLayoutDesc& setFirstSlot(uint32_t value) { firstSlot = value; return *this; }
         BindlessLayoutDesc& setMaxCapacity(uint32_t value) { maxCapacity = value; return *this; }
         BindlessLayoutDesc& addRegisterSpace(const BindingLayoutItem& value) { registerSpaces.push_back(value); return *this; }
         BindlessLayoutDesc& setLayoutType(LayoutType value) { layoutType = value; return *this; }
-        BindlessLayoutDesc& setUpdateAfterBind(bool value) { updateAfterBind = value; return *this; }
+        BindlessLayoutDesc& setUpdateAfterBind(bool value) { updateAfterBind = value; return *this; } // [UAA]
     };
 
     class IBindingLayout : public IResource
@@ -2763,6 +2765,7 @@ namespace nvrhi
         BindingSetVector bindings;
 
         IBuffer* indirectParams = nullptr;
+        IBuffer* indirectCountBuffer = nullptr;
 
         MeshletState& setPipeline(IMeshletPipeline* value) { pipeline = value; return *this; }
         MeshletState& setFramebuffer(IFramebuffer* value) { framebuffer = value; return *this; }
@@ -2770,6 +2773,7 @@ namespace nvrhi
         MeshletState& setBlendColor(const Color& value) { blendConstantColor = value; return *this; }
         MeshletState& addBindingSet(IBindingSet* value) { bindings.push_back(value); return *this; }
         MeshletState& setIndirectParams(IBuffer* value) { indirectParams = value; return *this; }
+        MeshletState& setIndirectCountBuffer(IBuffer* value) { indirectCountBuffer = value; return *this; }
         MeshletState& setDynamicStencilRefValue(uint8_t value) { dynamicStencilRefValue = value; return *this; }
     };
 
@@ -2940,11 +2944,10 @@ namespace nvrhi
             TrainingOptimal
         };
 
-        // Describes a combination of input and output data types for matrix multiplication with Cooperative Vectors.
-        // - DX12: Maps from D3D12_COOPERATIVE_VECTOR_PROPERTIES_MUL.
-        // - Vulkan: Maps from VkCooperativeVectorPropertiesNV.
+        // Describes a combination of input and output data types for CoopVec matrix multiplication.
         struct MatMulFormatCombo
         {
+            // Raw storage element type. May differ from inputInterpretation for packed or interpreted formats.
             DataType inputType;
             DataType inputInterpretation;
             DataType matrixInterpretation;
@@ -2953,19 +2956,37 @@ namespace nvrhi
             bool transposeSupported;
         };
 
+        // Result of queryCoopVecMatMulFormatSupport.
+        struct MatMulFormatSupport
+        {
+            bool supported = false;
+            bool transposeSupported = false;
+            bool emulatedInputs = false;
+        };
+
+        // Result of queryCoopVecTrainingFormatSupport.
+        struct TrainingFormatSupport
+        {
+            // True if the backend supports a complete buffer training path for the queried accumulation type.
+            bool bufferTrainingSupported = false;
+
+            bool threadOuterProductSupported = false;
+            bool bufferAccumulateStoreSupported = false;
+            bool groupSharedAccumulateStoreSupported = false;
+        };
+
+        // Deprecated aggregate CoopVec support information.
+        // New code should use queryCoopVecMatMulFormatSupport(...) and
+        // queryCoopVecTrainingFormatSupport(...) instead.
         struct DeviceFeatures
         {
-            // Format combinations supported by the device for matrix multiplication with Cooperative Vectors.
+            // Format combinations supported by the device for CoopVec matrix multiplication.
             std::vector<MatMulFormatCombo> matMulFormats;
 
-            // - DX12: True if FLOAT16 is supported as accumulation format for both outer product accumulation
-            //         and vector accumulation.
-            // - Vulkan: True if cooperativeVectorTrainingFloat16Accumulation is supported.
+            // True if the backend supports a complete buffer training path for Float16 accumulation.
             bool trainingFloat16 = false;
 
-            // - DX12: True if FLOAT32 is supported as accumulation format for both outer product accumulation
-            //         and vector accumulation.
-            // - Vulkan: True if cooperativeVectorTrainingFloat32Accumulation is supported.
+            // True if the backend supports a complete buffer training path for Float32 accumulation.
             bool trainingFloat32 = false;
         };
 
@@ -3041,7 +3062,8 @@ namespace nvrhi
         VirtualResources,
         WaveLaneCountMinMax,
         CooperativeVectorInferencing,
-        CooperativeVectorTraining
+        CooperativeVectorTraining,
+        EnhancedBarriers, // DX12 only feature
     };
 
     enum class MessageSeverity : uint8_t
@@ -3091,6 +3113,7 @@ namespace nvrhi
     };
     
     class IDevice;
+    class ICommandListLifetimeTracker;
 
     struct CommandListParameters
     {
@@ -3111,13 +3134,40 @@ namespace nvrhi
         // COPY and COMPUTE queues have limited subsets of methods available.
         CommandQueue queueType = CommandQueue::Graphics;
 
+        // Optional external lifetime tracker to use for this command list.
+        // If left nullptr, lifetime will be tracked by the device.
+        ICommandListLifetimeTracker* lifetimeTracker = nullptr;
+
         CommandListParameters& setEnableImmediateExecution(bool value) { enableImmediateExecution = value; return *this; }
         CommandListParameters& setUploadChunkSize(size_t value) { uploadChunkSize = value; return *this; }
         CommandListParameters& setScratchChunkSize(size_t value) { scratchChunkSize = value; return *this; }
         CommandListParameters& setScratchMaxMemory(size_t value) { scratchMaxMemory = value; return *this; }
         CommandListParameters& setQueueType(CommandQueue value) { queueType = value; return *this; }
+        CommandListParameters& setLifetimeTracker(ICommandListLifetimeTracker* value) { lifetimeTracker = value; return *this; }
     };
-    
+
+    //////////////////////////////////////////////////////////////////////////
+    // ICommandListLifetimeTracker
+    //////////////////////////////////////////////////////////////////////////
+
+    // Manages the lifetime of command list objects in a way that is scalable for multithreading.
+    // Each thread that submits work to the GPU (calls IDevice::executeCommandList[s]) should own its own command list tracker
+    // for each queue it submits work to.
+    // - DX11: Multithreaded work submission is not supported.
+    // - DX12, Vulkan: A lifetime tracker can be optionally specified when creating a command list. After submitting a command list,
+    //   internal command lists and their referenced resources will be held by the lifetime tracker until work has finished
+    //   execution on the GPU. Execute runGarbageCollection frequently to poll the GPU and release resources when possible.
+    //   If no lifetime tracker is specified, the Device will add the command list to its own internal lifetime trackers.
+    class ICommandListLifetimeTracker : public IResource
+    {
+    public:
+        // Releases any command lists that have finished executing on the GPU.
+        // This should be called frequently, e.g. once per frame, once per simulation step, etc.
+        virtual void runGarbageCollection() = 0;
+    };
+
+    typedef RefCountPtr<ICommandListLifetimeTracker> CommandListLifetimeTrackerHandle;
+
     //////////////////////////////////////////////////////////////////////////
     // ICommandList
     //////////////////////////////////////////////////////////////////////////
@@ -3369,6 +3419,24 @@ namespace nvrhi
         // - Vulkan: Maps to vkCmdDispatchMesh.
         virtual void dispatchMesh(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
 
+        // Draws meshlet primitives using the parameters provided in the indirect buffer specified in the prior
+        // call to setMeshletState(...). The memory layout in the buffer is the same for all graphics APIs and is
+        // described by the DispatchIndirectArguments structure.
+        // See the comment to dispatchMesh(...) for state information.
+        // - DX11: Not supported.
+        // - DX12: Maps to ExecuteIndirect with a predefined signature.
+        // - Vulkan: Maps to vkCmdDrawMeshTasksIndirectEXT.
+        virtual void dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) = 0;
+
+        // Draws meshlet primitives using the parameters provided in the indirect buffer specified in the prior
+        // call to setMeshletState(...).
+        // The draw count is read from the indirectCountBuffer specified in setMeshletState(...)
+        //   at offset 'countOffsetBytes'.
+        // - DX11: Not supported.
+        // - DX12: Not supported.
+        // - Vulkan: Maps to vkCmdDrawMeshTasksIndirectCountEXT.
+        virtual void dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) = 0;
+
         // Sets the specified ray tracing state on the command list.
         // The state includes the shader table, which references the pipeline, and all bound resources.
         // Not supported on DX11.
@@ -3418,6 +3486,14 @@ namespace nvrhi
         // for compaction. This process is handled by the RTXMU library. If NVRHI is built without RTXMU,
         // this function has no effect.
         virtual void compactBottomLevelAccelStructs() = 0;
+
+        // Copies a ray tracing acceleration structure to another memory location.
+        // This function clones the acceleration structure, creating a copy that can be used independently.
+        // - DX11: Not supported.
+        // - DX12: Maps to ID3D12GraphicsCommandList4::CopyRaytracingAccelerationStructure with 
+        //   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE.
+        // - Vulkan: Maps to vkCmdCopyAccelerationStructureKHR or vkCmdCopyAccelerationStructureToMemoryKHR.
+        virtual void copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) = 0;
 
         // Builds or updates a top-level ray tracing acceleration structure (TLAS).
         // A temporary memory region for the build is suballocated using the scratch buffer manager attached to the
@@ -3689,6 +3765,8 @@ namespace nvrhi
         // returns true if the wait completes successfully, false if detecting a problem (e.g. device removal)
         virtual bool waitForIdle() = 0;
 
+        virtual CommandListLifetimeTrackerHandle createCommandListLifetimeTracker(CommandQueue executionQueue) = 0;
+
         // Releases the resources that were referenced in the command lists that have finished executing.
         // IMPORTANT: Call this method at least once per frame.
         virtual void runGarbageCollection() = 0;
@@ -3697,8 +3775,20 @@ namespace nvrhi
 
         virtual FormatSupport queryFormatSupport(Format format) = 0;
 
-        // Returns a list of supported CoopVec matrix multiplication formats and accumulation capabilities.
+        // Returns aggregate CoopVec support information.
+        // Deprecated for new code: use queryCoopVecMatMulFormatSupport(...) and
+        // queryCoopVecTrainingFormatSupport(...) instead.
+        // Some backends may not populate matMulFormats; use queryCoopVecMatMulFormatSupport(...)
+        // to query specific matrix multiplication combinations.
         virtual coopvec::DeviceFeatures queryCoopVecFeatures() = 0;
+
+        // Queries support for CoopVec matrix multiplication with the given type combination.
+        // combination.transposeSupported is ignored; transpose capability is reported in MatMulFormatSupport.
+        virtual coopvec::MatMulFormatSupport queryCoopVecMatMulFormatSupport(const coopvec::MatMulFormatCombo& combination) = 0;
+
+        // Queries training support for the given accumulation component type (typically Float16 or Float32).
+        // See TrainingFormatSupport for details on what each flag means.
+        virtual coopvec::TrainingFormatSupport queryCoopVecTrainingFormatSupport(coopvec::DataType componentType) = 0;
 
         // Calculates and returns the on-device size for a CoopVec matrix of the given dimensions, type and layout.
         virtual size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) = 0;

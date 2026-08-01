@@ -105,7 +105,7 @@ struct static_vector : private std::array<T, _max_elements>
 
     void swap(static_vector& other) noexcept
     {
-        base::swap(*this);
+        base::swap(other);
         std::swap(current_size, other.current_size);
     }
 

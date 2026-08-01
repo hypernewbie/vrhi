@@ -306,7 +306,7 @@ namespace nvrhi
 
         T** operator&()   // NOLINT(google-runtime-operator)
         {
-            return &ptr_;
+            return ReleaseAndGetAddressOf();
         }
 
         [[nodiscard]] T* const* GetAddressOf() const noexcept
