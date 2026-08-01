@@ -9,6 +9,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ==========================================================================
+  # Vendored header invariants - static check, no build required.
+  #
+  # include/nvrhi and include/vulkan are hand-maintained copies of headers that
+  # nvrhi itself compiles against. Nothing in the build enforces that the copies
+  # agree with the submodule, and drift does not fail the build: a Vulkan-Hpp
+  # version skew instead trips a dispatcher assertion at runtime, surfacing as a
+  # crash in an unrelated Vulkan call. This job makes that drift explicit.
+  #
+  # Runs standalone and takes seconds, so it reports independently of the build
+  # matrix rather than being masked by a slower job.
+  # ==========================================================================
+  vendored-headers:
+    name: Vendored Header Invariants
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check vendored headers
+        run: python3 check_vendored_headers.py
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
