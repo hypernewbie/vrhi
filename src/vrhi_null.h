@@ -228,6 +228,12 @@ public:
     nvrhi::rt::ShaderTableHandle createShaderTable( nvrhi::rt::ShaderTableDesc const& = {} ) override { return new vhNullShaderTable(); }
 };
 
+class vhNullCommandListLifetimeTracker : public vhNullResource< nvrhi::ICommandListLifetimeTracker >
+{
+public:
+    void runGarbageCollection() override {}
+};
+
 class vhNullCommandList : public vhNullResource< nvrhi::ICommandList >
 {
     nvrhi::CommandListParameters m_params;
@@ -263,6 +269,8 @@ public:
     void dispatchIndirect( uint32_t ) override {}
     void setMeshletState( const nvrhi::MeshletState& ) override {}
     void dispatchMesh( uint32_t, uint32_t, uint32_t ) override {}
+    void dispatchMeshIndirect( uint32_t, uint32_t ) override {}
+    void dispatchMeshIndirectCount( uint32_t, uint32_t, uint32_t ) override {}
     void setRayTracingState( const nvrhi::rt::State& ) override {}
     void dispatchRays( const nvrhi::rt::DispatchRaysArguments& ) override {}
     void buildOpacityMicromap( nvrhi::rt::IOpacityMicromap*, const nvrhi::rt::OpacityMicromapDesc& ) override {}
@@ -270,6 +278,7 @@ public:
     void buildBottomLevelAccelStruct( nvrhi::rt::IAccelStruct*, const nvrhi::rt::GeometryDesc*, size_t, nvrhi::rt::AccelStructBuildFlags ) override {}
     void buildTopLevelAccelStructFromBuffer( nvrhi::rt::IAccelStruct*, nvrhi::IBuffer*, uint64_t, size_t, nvrhi::rt::AccelStructBuildFlags ) override {}
     void compactBottomLevelAccelStructs() override {}
+    void copyRaytracingAccelerationStructure( nvrhi::rt::IAccelStruct*, nvrhi::rt::IAccelStruct* ) override {}
     void executeMultiIndirectClusterOperation( const nvrhi::rt::cluster::OperationDesc& ) override {}
     void beginTimerQuery( nvrhi::ITimerQuery* ) override {}
     void endTimerQuery( nvrhi::ITimerQuery* ) override {}
@@ -353,6 +362,7 @@ public:
     uint64_t executeCommandLists( nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists, nvrhi::CommandQueue executionQueue = nvrhi::CommandQueue::Graphics ) override { return ++m_instanceCounter; }
     void queueWaitForCommandList( nvrhi::CommandQueue, nvrhi::CommandQueue, uint64_t ) override {}
     bool waitForIdle() override { return true; }
+    nvrhi::CommandListLifetimeTrackerHandle createCommandListLifetimeTracker( nvrhi::CommandQueue ) override { return new vhNullCommandListLifetimeTracker(); }
     void runGarbageCollection() override {}
     bool queryFeatureSupport( nvrhi::Feature, void*, size_t ) override { return false; }
     nvrhi::FormatSupport queryFormatSupport( nvrhi::Format ) override { return nvrhi::FormatSupport::None; }
@@ -366,6 +376,8 @@ public:
     nvrhi::SamplerFeedbackTextureHandle createSamplerFeedbackTexture( nvrhi::ITexture*, const nvrhi::SamplerFeedbackTextureDesc& ) override { return nullptr; }
     nvrhi::SamplerFeedbackTextureHandle createSamplerFeedbackForNativeTexture( nvrhi::ObjectType, nvrhi::Object, nvrhi::ITexture* ) override { return nullptr; }
     nvrhi::coopvec::DeviceFeatures queryCoopVecFeatures() override { return {}; }
+    nvrhi::coopvec::MatMulFormatSupport queryCoopVecMatMulFormatSupport( const nvrhi::coopvec::MatMulFormatCombo& ) override { return {}; }
+    nvrhi::coopvec::TrainingFormatSupport queryCoopVecTrainingFormatSupport( nvrhi::coopvec::DataType ) override { return {}; }
     size_t getCoopVecMatrixSize( nvrhi::coopvec::DataType, nvrhi::coopvec::MatrixLayout, int, int ) override { return 0; }
     nvrhi::rt::cluster::OperationSizeInfo getClusterOperationSizeInfo( const nvrhi::rt::cluster::OperationParams& ) override { return {}; }
 };
