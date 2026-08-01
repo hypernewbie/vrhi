@@ -225,7 +225,7 @@ class vhNullRTPipeline : public vhNullResource< nvrhi::rt::IPipeline >
 public:
     vhNullRTPipeline( const nvrhi::rt::PipelineDesc& desc ) : m_desc( desc ) {}
     const nvrhi::rt::PipelineDesc& getDesc() const override { return m_desc; }
-    nvrhi::rt::ShaderTableHandle createShaderTable( nvrhi::rt::ShaderTableDesc const& = {} ) override { return new vhNullShaderTable(); }
+    nvrhi::rt::ShaderTableHandle createShaderTable( nvrhi::rt::ShaderTableDesc const& = {} ) override { return nvrhi::rt::ShaderTableHandle::Create( new vhNullShaderTable() ); }
 };
 
 class vhNullCommandListLifetimeTracker : public vhNullResource< nvrhi::ICommandListLifetimeTracker >
@@ -309,60 +309,60 @@ class vhNullDevice : public vhNullResource< nvrhi::IDevice >
     std::atomic< uint64_t > m_instanceCounter = 0;
 
 public:
-    nvrhi::HeapHandle createHeap( const nvrhi::HeapDesc& desc ) override { return new vhNullHeap( desc ); }
-    nvrhi::TextureHandle createTexture( const nvrhi::TextureDesc& desc ) override { return new vhNullTexture( desc ); }
+    nvrhi::HeapHandle createHeap( const nvrhi::HeapDesc& desc ) override { return nvrhi::HeapHandle::Create( new vhNullHeap( desc ) ); }
+    nvrhi::TextureHandle createTexture( const nvrhi::TextureDesc& desc ) override { return nvrhi::TextureHandle::Create( new vhNullTexture( desc ) ); }
     nvrhi::MemoryRequirements getTextureMemoryRequirements( nvrhi::ITexture* ) override { return { 0, 0 }; }
     bool bindTextureMemory( nvrhi::ITexture*, nvrhi::IHeap*, uint64_t ) override { return true; }
-    nvrhi::TextureHandle createHandleForNativeTexture( nvrhi::ObjectType, nvrhi::Object, const nvrhi::TextureDesc& desc ) override { return new vhNullTexture( desc ); }
-    nvrhi::StagingTextureHandle createStagingTexture( const nvrhi::TextureDesc& desc, nvrhi::CpuAccessMode ) override { return new vhNullStagingTexture( desc ); }
+    nvrhi::TextureHandle createHandleForNativeTexture( nvrhi::ObjectType, nvrhi::Object, const nvrhi::TextureDesc& desc ) override { return nvrhi::TextureHandle::Create( new vhNullTexture( desc ) ); }
+    nvrhi::StagingTextureHandle createStagingTexture( const nvrhi::TextureDesc& desc, nvrhi::CpuAccessMode ) override { return nvrhi::StagingTextureHandle::Create( new vhNullStagingTexture( desc ) ); }
     void* mapStagingTexture( nvrhi::IStagingTexture*, const nvrhi::TextureSlice&, nvrhi::CpuAccessMode, size_t* pRowPitch ) override
     {
         if ( pRowPitch ) *pRowPitch = 0;
         return nullptr;
     }
     void unmapStagingTexture( nvrhi::IStagingTexture* ) override {}
-    nvrhi::BufferHandle createBuffer( const nvrhi::BufferDesc& desc ) override { return new vhNullBuffer( desc ); }
+    nvrhi::BufferHandle createBuffer( const nvrhi::BufferDesc& desc ) override { return nvrhi::BufferHandle::Create( new vhNullBuffer( desc ) ); }
     nvrhi::MemoryRequirements getBufferMemoryRequirements( nvrhi::IBuffer* ) override { return { 0, 0 }; }
     bool bindBufferMemory( nvrhi::IBuffer*, nvrhi::IHeap*, uint64_t ) override { return true; }
-    nvrhi::BufferHandle createHandleForNativeBuffer( nvrhi::ObjectType, nvrhi::Object, const nvrhi::BufferDesc& desc ) override { return new vhNullBuffer( desc ); }
+    nvrhi::BufferHandle createHandleForNativeBuffer( nvrhi::ObjectType, nvrhi::Object, const nvrhi::BufferDesc& desc ) override { return nvrhi::BufferHandle::Create( new vhNullBuffer( desc ) ); }
     void* mapBuffer( nvrhi::IBuffer*, nvrhi::CpuAccessMode ) override { return nullptr; }
     void unmapBuffer( nvrhi::IBuffer* ) override {}
-    nvrhi::ShaderHandle createShader( const nvrhi::ShaderDesc& desc, const void*, size_t ) override { return new vhNullShader( desc ); }
-    nvrhi::ShaderHandle createShaderSpecialization( nvrhi::IShader* baseShader, const nvrhi::ShaderSpecialization*, uint32_t ) override { return new vhNullShader( baseShader->getDesc() ); }
-    nvrhi::ShaderLibraryHandle createShaderLibrary( const void*, size_t ) override { return new vhNullShaderLibrary(); }
-    nvrhi::SamplerHandle createSampler( const nvrhi::SamplerDesc& desc ) override { return new vhNullSampler( desc ); }
-    nvrhi::InputLayoutHandle createInputLayout( const nvrhi::VertexAttributeDesc*, uint32_t, nvrhi::IShader* ) override { return new vhNullInputLayout(); }
-    nvrhi::EventQueryHandle createEventQuery() override { return new vhNullEventQuery(); }
+    nvrhi::ShaderHandle createShader( const nvrhi::ShaderDesc& desc, const void*, size_t ) override { return nvrhi::ShaderHandle::Create( new vhNullShader( desc ) ); }
+    nvrhi::ShaderHandle createShaderSpecialization( nvrhi::IShader* baseShader, const nvrhi::ShaderSpecialization*, uint32_t ) override { return nvrhi::ShaderHandle::Create( new vhNullShader( baseShader->getDesc() ) ); }
+    nvrhi::ShaderLibraryHandle createShaderLibrary( const void*, size_t ) override { return nvrhi::ShaderLibraryHandle::Create( new vhNullShaderLibrary() ); }
+    nvrhi::SamplerHandle createSampler( const nvrhi::SamplerDesc& desc ) override { return nvrhi::SamplerHandle::Create( new vhNullSampler( desc ) ); }
+    nvrhi::InputLayoutHandle createInputLayout( const nvrhi::VertexAttributeDesc*, uint32_t, nvrhi::IShader* ) override { return nvrhi::InputLayoutHandle::Create( new vhNullInputLayout() ); }
+    nvrhi::EventQueryHandle createEventQuery() override { return nvrhi::EventQueryHandle::Create( new vhNullEventQuery() ); }
     void setEventQuery( nvrhi::IEventQuery*, nvrhi::CommandQueue ) override {}
     bool pollEventQuery( nvrhi::IEventQuery* ) override { return true; }
     void waitEventQuery( nvrhi::IEventQuery* ) override {}
     void resetEventQuery( nvrhi::IEventQuery* ) override {}
-    nvrhi::TimerQueryHandle createTimerQuery() override { return new vhNullTimerQuery(); }
+    nvrhi::TimerQueryHandle createTimerQuery() override { return nvrhi::TimerQueryHandle::Create( new vhNullTimerQuery() ); }
     bool pollTimerQuery( nvrhi::ITimerQuery* ) override { return true; }
     float getTimerQueryTime( nvrhi::ITimerQuery* ) override { return 0.0f; }
     void resetTimerQuery( nvrhi::ITimerQuery* ) override {}
-    nvrhi::BindingLayoutHandle createBindingLayout( const nvrhi::BindingLayoutDesc& desc ) override { return new vhNullBindingLayout( desc ); }
-    nvrhi::BindingLayoutHandle createBindlessLayout( const nvrhi::BindlessLayoutDesc& ) override { return new vhNullBindingLayout( nvrhi::BindingLayoutDesc() ); }
-    nvrhi::BindingSetHandle createBindingSet( const nvrhi::BindingSetDesc&, nvrhi::IBindingLayout* layout ) override { return new vhNullBindingSet( layout ); }
+    nvrhi::BindingLayoutHandle createBindingLayout( const nvrhi::BindingLayoutDesc& desc ) override { return nvrhi::BindingLayoutHandle::Create( new vhNullBindingLayout( desc ) ); }
+    nvrhi::BindingLayoutHandle createBindlessLayout( const nvrhi::BindlessLayoutDesc& ) override { return nvrhi::BindingLayoutHandle::Create( new vhNullBindingLayout( nvrhi::BindingLayoutDesc() ) ); }
+    nvrhi::BindingSetHandle createBindingSet( const nvrhi::BindingSetDesc&, nvrhi::IBindingLayout* layout ) override { return nvrhi::BindingSetHandle::Create( new vhNullBindingSet( layout ) ); }
     nvrhi::DescriptorTableHandle createDescriptorTable( nvrhi::IBindingLayout* ) override { return nullptr; }
     void resizeDescriptorTable( nvrhi::IDescriptorTable*, uint32_t, bool ) override {}
     bool writeDescriptorTable( nvrhi::IDescriptorTable*, const nvrhi::BindingSetItem& ) override { return true; }
-    nvrhi::FramebufferHandle createFramebuffer( const nvrhi::FramebufferDesc& desc ) override { return new vhNullFramebuffer( desc ); }
-    nvrhi::GraphicsPipelineHandle createGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& info ) override { return new vhNullGraphicsPipeline( desc, info ); }
-    nvrhi::GraphicsPipelineHandle createGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, nvrhi::IFramebuffer* fb ) override { return new vhNullGraphicsPipeline( desc, fb->getFramebufferInfo() ); }
-    nvrhi::ComputePipelineHandle createComputePipeline( const nvrhi::ComputePipelineDesc& desc ) override { return new vhNullComputePipeline( desc ); }
-    nvrhi::MeshletPipelineHandle createMeshletPipeline( const nvrhi::MeshletPipelineDesc& desc, const nvrhi::FramebufferInfo& info ) override { return new vhNullMeshletPipeline( desc, info ); }
-    nvrhi::MeshletPipelineHandle createMeshletPipeline( const nvrhi::MeshletPipelineDesc& desc, nvrhi::IFramebuffer* fb ) override { return new vhNullMeshletPipeline( desc, fb->getFramebufferInfo() ); }
-    nvrhi::rt::OpacityMicromapHandle createOpacityMicromap( const nvrhi::rt::OpacityMicromapDesc& desc ) override { return new vhNullOpacityMicromap( desc ); }
-    nvrhi::rt::AccelStructHandle createAccelStruct( const nvrhi::rt::AccelStructDesc& desc ) override { return new vhNullAccelStruct( desc ); }
+    nvrhi::FramebufferHandle createFramebuffer( const nvrhi::FramebufferDesc& desc ) override { return nvrhi::FramebufferHandle::Create( new vhNullFramebuffer( desc ) ); }
+    nvrhi::GraphicsPipelineHandle createGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& info ) override { return nvrhi::GraphicsPipelineHandle::Create( new vhNullGraphicsPipeline( desc, info ) ); }
+    nvrhi::GraphicsPipelineHandle createGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, nvrhi::IFramebuffer* fb ) override { return nvrhi::GraphicsPipelineHandle::Create( new vhNullGraphicsPipeline( desc, fb->getFramebufferInfo() ) ); }
+    nvrhi::ComputePipelineHandle createComputePipeline( const nvrhi::ComputePipelineDesc& desc ) override { return nvrhi::ComputePipelineHandle::Create( new vhNullComputePipeline( desc ) ); }
+    nvrhi::MeshletPipelineHandle createMeshletPipeline( const nvrhi::MeshletPipelineDesc& desc, const nvrhi::FramebufferInfo& info ) override { return nvrhi::MeshletPipelineHandle::Create( new vhNullMeshletPipeline( desc, info ) ); }
+    nvrhi::MeshletPipelineHandle createMeshletPipeline( const nvrhi::MeshletPipelineDesc& desc, nvrhi::IFramebuffer* fb ) override { return nvrhi::MeshletPipelineHandle::Create( new vhNullMeshletPipeline( desc, fb->getFramebufferInfo() ) ); }
+    nvrhi::rt::OpacityMicromapHandle createOpacityMicromap( const nvrhi::rt::OpacityMicromapDesc& desc ) override { return nvrhi::rt::OpacityMicromapHandle::Create( new vhNullOpacityMicromap( desc ) ); }
+    nvrhi::rt::AccelStructHandle createAccelStruct( const nvrhi::rt::AccelStructDesc& desc ) override { return nvrhi::rt::AccelStructHandle::Create( new vhNullAccelStruct( desc ) ); }
     nvrhi::MemoryRequirements getAccelStructMemoryRequirements( nvrhi::rt::IAccelStruct* ) override { return { 0, 0 }; }
     bool bindAccelStructMemory( nvrhi::rt::IAccelStruct*, nvrhi::IHeap*, uint64_t ) override { return true; }
-    nvrhi::rt::PipelineHandle createRayTracingPipeline( const nvrhi::rt::PipelineDesc& desc ) override { return new vhNullRTPipeline( desc ); }
-    nvrhi::CommandListHandle createCommandList( const nvrhi::CommandListParameters& params ) override { return new vhNullCommandList( params, this ); }
+    nvrhi::rt::PipelineHandle createRayTracingPipeline( const nvrhi::rt::PipelineDesc& desc ) override { return nvrhi::rt::PipelineHandle::Create( new vhNullRTPipeline( desc ) ); }
+    nvrhi::CommandListHandle createCommandList( const nvrhi::CommandListParameters& params ) override { return nvrhi::CommandListHandle::Create( new vhNullCommandList( params, this ) ); }
     uint64_t executeCommandLists( nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists, nvrhi::CommandQueue executionQueue = nvrhi::CommandQueue::Graphics ) override { return ++m_instanceCounter; }
     void queueWaitForCommandList( nvrhi::CommandQueue, nvrhi::CommandQueue, uint64_t ) override {}
     bool waitForIdle() override { return true; }
-    nvrhi::CommandListLifetimeTrackerHandle createCommandListLifetimeTracker( nvrhi::CommandQueue ) override { return new vhNullCommandListLifetimeTracker(); }
+    nvrhi::CommandListLifetimeTrackerHandle createCommandListLifetimeTracker( nvrhi::CommandQueue ) override { return nvrhi::CommandListLifetimeTrackerHandle::Create( new vhNullCommandListLifetimeTracker() ); }
     void runGarbageCollection() override {}
     bool queryFeatureSupport( nvrhi::Feature, void*, size_t ) override { return false; }
     nvrhi::FormatSupport queryFormatSupport( nvrhi::Format ) override { return nvrhi::FormatSupport::None; }

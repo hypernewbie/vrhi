@@ -301,7 +301,7 @@ void vhInit( bool quiet )
         g_vhInit.headless = true;
 
         // Create null device as the NVRHI backend
-        g_vhDevice = nvrhi::DeviceHandle( new vhNullDevice() );
+        g_vhDevice = nvrhi::DeviceHandle::Create( new vhNullDevice() );
         g_vhVulkanDevice = nullptr;
 
         // Populate device info for null mode
