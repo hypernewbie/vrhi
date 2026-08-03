@@ -100,6 +100,45 @@ bool TestIsSoftwareVulkan()
     return false;
 }
 
+TestLogCapture::TestLogCapture()
+{
+    previous = g_vhInit.fnLogCallback;
+    g_vhInit.fnLogCallback = [this]( bool error, const std::string& message )
+    {
+        std::lock_guard< std::mutex > lock( mutex );
+        if ( error ) errorCount++;
+        messages.push_back( message );
+    };
+}
+
+TestLogCapture::~TestLogCapture()
+{
+    g_vhInit.fnLogCallback = previous;
+}
+
+bool TestLogCapture::Contains( const char* substr ) const
+{
+    std::lock_guard< std::mutex > lock( mutex );
+    for ( const auto& message : messages )
+    {
+        if ( message.find( substr ) != std::string::npos ) return true;
+    }
+    return false;
+}
+
+int TestLogCapture::ErrorCount() const
+{
+    std::lock_guard< std::mutex > lock( mutex );
+    return errorCount;
+}
+
+void TestLogCapture::Clear()
+{
+    std::lock_guard< std::mutex > lock( mutex );
+    messages.clear();
+    errorCount = 0;
+}
+
 UTEST_STATE();
 
 int main( int argc, const char* const argv[] )

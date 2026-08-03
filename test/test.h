@@ -31,7 +31,10 @@
 #include "utest.h"
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
+#include <functional>
+#include <mutex>
 #include <string>
+#include <vector>
 
 extern bool g_captureActive;
 extern bool g_testInit;
@@ -41,6 +44,25 @@ void TestEnsureShutdown();
 // Returns true when running on a software Vulkan ICD (llvmpipe/lavapipe/SwiftShader/Microsoft Basic).
 // Used to skip stress benchmarks that race on software command submission paths.
 bool TestIsSoftwareVulkan();
+
+// Captures vrhi log output so negative tests can assert an error was surfaced. Swallows what it
+// captures. Backend thread messages land here too, so call vhFinish() before asserting.
+struct TestLogCapture
+{
+    std::function< void( bool, const std::string& ) > previous;
+    mutable std::mutex mutex;
+    std::vector< std::string > messages;
+    int errorCount = 0;
+
+    TestLogCapture();
+    ~TestLogCapture();
+    TestLogCapture( const TestLogCapture& ) = delete;
+    TestLogCapture& operator=( const TestLogCapture& ) = delete;
+
+    bool Contains( const char* substr ) const;
+    int ErrorCount() const;
+    void Clear();
+};
 
 #if defined(__cplusplus) && (__cplusplus >= 201103L)
 #ifdef __clang__

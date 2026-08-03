@@ -658,6 +658,8 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         if ( binding.table == VRHI_INVALID_HANDLE ) continue;
         auto dtIt = backendDescriptorTables.find( binding.table );
         if ( dtIt == backendDescriptorTables.end() || !dtIt->second->layout ) continue;
+        // Only space8 gets patched to a bindless set, so anything else would land on a stage layout.
+        assert( binding.registerSpace == 0 );
         const uint32_t setIndex = VRHI_DESCRIPTOR_SET_BINDLESS + binding.registerSpace;
         while ( layouts.size() <= setIndex ) layouts.push_back( m_emptyLayout );
         layouts[setIndex] = dtIt->second->layout;
@@ -1871,6 +1873,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         for ( uint32_t i = 0; i < ( uint32_t ) shader->reflection.size(); i++ )
         {
             auto& reflection = shader->reflection[i];
+            if ( reflection.bindless )
+            {
+                if ( ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) && state.descriptorTables.empty() ) VRHI_ERR( "Bindless resource '%s' declared by shader %s but no descriptor table is bound.\n", reflection.name.c_str(), shader->name.c_str() );
+                continue;
+            }
             if ( reflection.slot >= s_slotToReflection.size() )
                 s_slotToReflection.resize( reflection.slot + 1, nullptr );
             assert( s_slotToReflection[reflection.slot] == nullptr );
@@ -3860,9 +3867,16 @@ void vhCmdBackendState::Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorT
         return;
     }
 
+    uint32_t targetSize = cmd->newSize;
+    if ( targetSize > it->second->desc.maxCapacity )
+    {
+        VRHI_ERR( "vhResizeDescriptorTable() : Target size %u exceeds maxCapacity %u! Clamping.\n", targetSize, it->second->desc.maxCapacity );
+        targetSize = it->second->desc.maxCapacity;
+    }
+
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    g_vhDevice->resizeDescriptorTable( it->second->handle, cmd->newSize, cmd->keepContents );
-    it->second->capacity = cmd->newSize;
+    g_vhDevice->resizeDescriptorTable( it->second->handle, targetSize, cmd->keepContents );
+    it->second->capacity = targetSize;
 }
 
 void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd )
@@ -3904,9 +3918,31 @@ void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescrip
         item.resourceHandle = tit->second->handle.Get();
     }
 
+    // nvrhi matches bindless writes by exact resource type and drops undeclared ones silently.
+    if ( item.type != nvrhi::ResourceType::None )
+    {
+        bool typeDeclared = false;
+        for ( const auto& space : backend->desc.registerSpaces )
+        {
+            if ( space.type != item.type ) continue;
+            typeDeclared = true;
+            break;
+        }
+        if ( !typeDeclared )
+        {
+            VRHI_ERR( "vhCmdWriteDescriptorTable() : Table %d does not declare resource type %s, write to slot %d ignored!\n", cmd->table, vhResourceTypeToString( item.type ), item.slot );
+            return;
+        }
+    }
+
     auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    g_vhDevice->writeDescriptorTable( backend->handle, item );
+    bool writeOk = g_vhDevice->writeDescriptorTable( backend->handle, item );
+    if ( !writeOk )
+    {
+        VRHI_ERR( "vhCmdWriteDescriptorTable() : Failed to write descriptor table %d at slot %d!\n", cmd->table, item.slot );
+        return;
+    }
 
     // Bindless resources skip binding-set state tracking, so pin them to a permanent shader-visible state once.
     if ( item.resourceHandle )
@@ -4507,14 +4543,11 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
 void vhCmdBackendState::Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetStateDescriptorTables* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    auto it = backendStates.find( cmd->id );
-    if ( it != backendStates.end() )
-    {
-        vhAssignFromSpan( it->second.descriptorTables, cmd->tables );
-        it->second.dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
-        s_globalResourceVersion++;
-        s_globalPipelineVersion++;
-    }
+    auto& state = backendStates[cmd->id];
+    vhAssignFromSpan( state.descriptorTables, cmd->tables );
+    state.dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
+    s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
