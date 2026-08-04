@@ -762,7 +762,8 @@ vhShader vhCreateShader(
 {
     if ( shader == VRHI_INVALID_HANDLE ) return shader;
 
-    auto cmd = vhCmdAlloc< VIDL_vhCreateShader >( shader, name, flags, spirv, entry );
+    // name/entry are borrowed by the async command, so copy them into the command arena.
+    auto cmd = vhCmdAlloc< VIDL_vhCreateShader >( shader, vhArenaCopyString( name ), flags, spirv, vhArenaCopyString( entry ) );
     assert( cmd );
     vhCmdEnqueue( cmd );
 
@@ -1099,7 +1100,7 @@ void vhDestroyShaderTable( vhShaderTable table )
 void vhShaderTableSetRayGen( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
 {
     if ( !exportName ) exportName = "";
-    auto cmd = vhCmdAlloc< VIDL_vhShaderTableSetRayGen >( table, exportName, bindingSet );
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableSetRayGen >( table, vhArenaCopyString( exportName ), bindingSet );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
@@ -1107,7 +1108,7 @@ void vhShaderTableSetRayGen( vhShaderTable table, const char* exportName, nvrhi:
 void vhShaderTableAddMiss( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
 {
     if ( !exportName ) exportName = "";
-    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddMiss >( table, exportName, bindingSet );
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddMiss >( table, vhArenaCopyString( exportName ), bindingSet );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
@@ -1115,7 +1116,7 @@ void vhShaderTableAddMiss( vhShaderTable table, const char* exportName, nvrhi::B
 void vhShaderTableAddHitGroup( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
 {
     if ( !exportName ) exportName = "";
-    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddHitGroup >( table, exportName, bindingSet );
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddHitGroup >( table, vhArenaCopyString( exportName ), bindingSet );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }
@@ -1123,7 +1124,7 @@ void vhShaderTableAddHitGroup( vhShaderTable table, const char* exportName, nvrh
 void vhShaderTableAddCallable( vhShaderTable table, const char* exportName, nvrhi::BindingSetHandle bindingSet )
 {
     if ( !exportName ) exportName = "";
-    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddCallable >( table, exportName, bindingSet );
+    auto cmd = vhCmdAlloc< VIDL_vhShaderTableAddCallable >( table, vhArenaCopyString( exportName ), bindingSet );
     assert( cmd );
     vhCmdEnqueue( cmd );
 }

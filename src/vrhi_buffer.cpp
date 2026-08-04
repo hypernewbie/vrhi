@@ -380,7 +380,7 @@ vhBuffer vhCreateVertexBuffer(
     if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
     // Queue up command to create vertex buffer
-    auto cmd = vhCmdAlloc<VIDL_vhCreateVertexBuffer>( buffer, name, data, layout, numVerts, flags );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateVertexBuffer>( buffer, vhArenaCopyString( name ), data, layout, numVerts, flags );
     assert( cmd );
     vhCmdEnqueue( cmd );
 
@@ -408,7 +408,7 @@ vhBuffer vhCreateIndexBuffer(
 {
     if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
-    auto cmd = vhCmdAlloc<VIDL_vhCreateIndexBuffer>( buffer, name, data, numIndices, flags );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateIndexBuffer>( buffer, vhArenaCopyString( name ), data, numIndices, flags );
     assert( cmd );
     vhCmdEnqueue( cmd );
 
@@ -436,7 +436,7 @@ vhBuffer vhCreateUniformBuffer(
 {
     if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
-    auto cmd = vhCmdAlloc<VIDL_vhCreateUniformBuffer>( buffer, name, data, size, flags );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateUniformBuffer>( buffer, vhArenaCopyString( name ), data, size, flags );
     assert( cmd );
     vhCmdEnqueue( cmd );
 
@@ -466,7 +466,7 @@ vhBuffer vhCreateStorageBuffer(
 {
     if ( buffer == VRHI_INVALID_HANDLE ) return buffer;
 
-    auto cmd = vhCmdAlloc<VIDL_vhCreateStorageBuffer>( buffer, name, data, size, flags, stride, format );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateStorageBuffer>( buffer, vhArenaCopyString( name ), data, size, flags, stride, format );
     assert( cmd );
     vhCmdEnqueue( cmd );
 

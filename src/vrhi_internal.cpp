@@ -319,7 +319,7 @@ bool vhCreateHeap( vhHeap heap, uint64_t size, const char* name )
         return false;
     }
 
-    auto cmd = vhCmdAlloc<VIDL_vhCreateHeap>( heap, size, name );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateHeap>( heap, size, vhArenaCopyString( name ) );
     assert( cmd );
     vhCmdEnqueue( cmd );
     return true;

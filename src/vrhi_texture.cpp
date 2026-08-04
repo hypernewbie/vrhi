@@ -206,7 +206,7 @@ vhTexture vhCreateTexture(
     }
 
     // Queue up command to create texture
-    auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, name, target, dimensions, numMips, numLayers, format, flag, data );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, vhArenaCopyString( name ), target, dimensions, numMips, numLayers, format, flag, data );
     assert( cmd );
     vhCmdEnqueue( cmd );
 
