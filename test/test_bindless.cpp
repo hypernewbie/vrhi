@@ -45,6 +45,106 @@ UTEST_F_TEARDOWN( Bindless )
     vhEndMarker();
 }
 
+// ---------------------------------------------------------------------------
+// MoltenVK runtime-bindless probe.
+//
+// Vulkan feature bits report descriptor indexing as available on MoltenVK even
+// when the Metal device cannot actually compile unsized descriptor arrays. The
+// GitHub Actions macOS runner (paravirt GPU, argument-buffer tier 1) hits two
+// hard Metal limits that only surface when the pipeline is created:
+//   - a dynamic index into an unsized array fails SPIR-V -> MSL conversion
+//     ("Unsized array of descriptors requires argument buffer tier 2");
+//   - a constant index >= 128 fails Metal compilation ("'texture' attribute
+//     parameter is out of bounds: must be between 0 and 127").
+// The canary below exercises both failure modes in one dispatch. When it cannot
+// run, the sparse-slot and unbound-table tests are skipped as unsupported.
+// ---------------------------------------------------------------------------
+static int g_bindlessCanaryState = -1; // -1 = unprobed, 0 = unsupported, 1 = ok
+
+static bool vhBindlessRuntimeArraysSupported()
+{
+    if ( g_bindlessCanaryState != -1 ) return g_bindlessCanaryState == 1;
+
+    const uint32_t maxCap = std::min< uint32_t >( g_vhDeviceInfo.maxBindlessSampledImages, 256 );
+    const uint32_t slotEnd = maxCap > 1 ? maxCap - 1 : 0;
+
+    vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, maxCap );
+
+    vhTexture tex = vhAllocTexture();
+    {
+        vhMem* data = vhAllocMem( 1 );
+        memset( data->data(), 123, 1 );
+        vhCreateTexture2D( tex, "CanaryTex", { 1, 1 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+    }
+
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "CanaryOut", { 1, 1 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhFinish();
+
+    vhDescriptorTableSetTexture( t, slotEnd, tex );
+
+    std::string csSource = std::string( R"(
+        Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
+        RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            float v = g_Tex[)" ) + std::to_string( slotEnd ) + R"(][id.xy];
+            if ( id.x > 1000 ) v = g_Tex[NonUniformResourceIndex(id.x)][id.xy];
+            g_Out[id.xy] = v;
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    const bool compiled = vhCompileShader( "CS_BindlessCanary", csSource.c_str(), VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if ( !compiled )
+    {
+        // Host-side compile failure is not the MoltenVK device limit we probe;
+        // let the real tests run and fail loudly if their shaders also fail.
+        g_bindlessCanaryState = 1;
+        return true;
+    }
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_BindlessCanary", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = outTex;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+    state.SetDescriptorTable( 0, t );
+
+    vhStateId sid = 9001;
+    vhSetState( sid, state );
+
+    const int32_t errorsBefore = g_vhErrorCounter.load();
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    // The dispatch either ran (no RHI errors, output holds 123) or was skipped
+    // when MoltenVK failed to compile the unsized-array pipeline.
+    const bool canDispatch = g_vhErrorCounter.load() == errorsBefore && readData.size() == 1 && readData[0] == 123;
+
+    vhDestroyTexture( tex );
+    vhDestroyTexture( outTex );
+    vhDestroyDescriptorTable( t );
+    vhDestroyShader( cs );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+
+    g_bindlessCanaryState = canDispatch ? 1 : 0;
+    return canDispatch;
+}
+
 UTEST_F( Bindless, Supported )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Null mode has no real features" );
@@ -2705,6 +2805,7 @@ UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
 UTEST_F( Bindless, MaxCapacityTable_SparseSlots )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( !vhBindlessRuntimeArraysSupported() ) UTEST_SKIP( "MoltenVK without Metal argument-buffer tier 2 cannot compile unsized descriptor arrays" );
 
     uint32_t maxCap = std::min< uint32_t >( g_vhDeviceInfo.maxBindlessSampledImages, 256 );
     vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, maxCap );
@@ -2796,6 +2897,7 @@ UTEST_F( Bindless, MaxCapacityTable_SparseSlots )
 UTEST_F( Bindless, Dispatch_MissingTableBinding )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( !vhBindlessRuntimeArraysSupported() ) UTEST_SKIP( "MoltenVK without Metal argument-buffer tier 2 cannot compile unsized descriptor arrays" );
 
     vhTexture outTex = vhAllocTexture();
     vhCreateTexture2D( outTex, "MissingTableOut", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
