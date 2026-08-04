@@ -345,6 +345,10 @@ void vhInit( bool quiet )
         g_vulkanInstance = vkbInst.instance;
         g_vulkanDebugMessenger = vkbInst.debug_messenger;
 
+#ifdef _WIN32
+        if ( g_vhInit.renderdoc && GetModuleHandleA( "renderdoc.dll" ) ) vhEnableRenderDoc();
+#endif
+
         // Initialise vulkan.hpp dynamic dispatcher with instance functions
         if ( !quiet ) VRHI_LOG( "    Initialising vulkan.hpp dynamic dispatcher with instance functions\n" );
         VULKAN_HPP_DEFAULT_DISPATCHER.init( g_vulkanInstance, vkGetInstanceProcAddr );
