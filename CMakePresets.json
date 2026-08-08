@@ -39,7 +39,8 @@
                 "CMAKE_C_COMPILER": "clang-cl",
                 "CMAKE_CXX_COMPILER": "clang-cl",
                 "CMAKE_C_FLAGS": "/W0",
-                "CMAKE_CXX_FLAGS": "/W0 /EHsc"
+                "CMAKE_CXX_FLAGS": "/W0 /EHsc",
+                "VDEPS_USE_LLVM": "ON"
             }
         },
         {
