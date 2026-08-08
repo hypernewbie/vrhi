@@ -304,6 +304,21 @@ struct VIDL_vhUpdateStorageBuffer
         : buffer(_buffer), data(_data), offset(_offset), size(_size) {}
 };
 
+struct VIDL_vhUpdateStorageBufferSpan
+{
+    static constexpr uint64_t kMagic = 0x1333CF0B;
+    uint64_t MAGIC = kMagic;
+    vhBuffer buffer;
+    const void* data;
+    uint64_t offset;
+    uint64_t size;
+
+    VIDL_vhUpdateStorageBufferSpan() = default;
+
+    VIDL_vhUpdateStorageBufferSpan(vhBuffer _buffer, const void* _data, uint64_t _offset, uint64_t _size)
+        : buffer(_buffer), data(_data), offset(_offset), size(_size) {}
+};
+
 struct VIDL_vhBlitBuffer
 {
     static constexpr uint64_t kMagic = 0x15BFFC71;
@@ -1231,6 +1246,7 @@ struct VIDLHandler
     virtual void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) { (void) cmd; };
+    virtual void Handle_vhUpdateStorageBufferSpan( VIDL_vhUpdateStorageBufferSpan* cmd ) { (void) cmd; };
     virtual void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhReadBufferSlow( VIDL_vhReadBufferSlow* cmd ) { (void) cmd; };
@@ -1391,6 +1407,10 @@ struct VIDLHandler
         case 0x6153A4D9:
             HandleLogFunction("Handle_vhUpdateStorageBuffer");
             Handle_vhUpdateStorageBuffer( (VIDL_vhUpdateStorageBuffer*) cmd );
+            break;
+        case 0x1333CF0B:
+            HandleLogFunction("Handle_vhUpdateStorageBufferSpan");
+            Handle_vhUpdateStorageBufferSpan( (VIDL_vhUpdateStorageBufferSpan*) cmd );
             break;
         case 0x15BFFC71:
             HandleLogFunction("Handle_vhBlitBuffer");

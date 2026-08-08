@@ -223,6 +223,7 @@ class vhCmdBackendState : public VIDLHandler
     void BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size );
 
     void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data );
+    void BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const void* data, uint64_t size );
 
     void BE_ReadBufferSlow( vhBackendBuffer& bbuf, vhMem* outData, uint64_t offset, uint64_t size );
 
@@ -367,6 +368,7 @@ public:
     void Handle_vhUpdateUniformBuffer( VIDL_vhUpdateUniformBuffer* cmd ) override;
     void Handle_vhCreateStorageBuffer( VIDL_vhCreateStorageBuffer* cmd ) override;
     void Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer* cmd ) override;
+    void Handle_vhUpdateStorageBufferSpan( VIDL_vhUpdateStorageBufferSpan* cmd ) override;
     void Handle_vhBlitBuffer( VIDL_vhBlitBuffer* cmd ) override;
     void Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd ) override;
     void Handle_vhReadBufferSlow( VIDL_vhReadBufferSlow* cmd ) override;

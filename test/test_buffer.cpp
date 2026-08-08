@@ -1023,3 +1023,161 @@ UTEST_F( Buffer, UpdateUniform_OffsetAndSize )
     vhDestroyBuffer( ub );
     vhFinish();
 }
+
+UTEST_F( Buffer, UpdateStorageBufferSpan_Basic )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU readback requires GPU" );
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    const uint32_t total = 256;
+    std::vector<uint8_t> src( total );
+    for ( uint32_t i = 0; i < total; i++ ) src[i] = ( uint8_t )( i * 3 + 7 );
+
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateStorageBuffer( buf, "SpanBuf", nullptr, total );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhUpdateStorageBufferSpan( buf, src.data(), 0, total );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhMem readData;
+    vhReadBufferSlow( buf, 0, total, &readData );
+    EXPECT_EQ( ( int ) readData.size(), ( int ) total );
+    for ( uint32_t i = 0; i < total; i++ ) EXPECT_EQ( readData[i], src[i] );
+
+    // Caller storage must be untouched by the borrowed upload.
+    for ( uint32_t i = 0; i < total; i++ ) EXPECT_EQ( src[i], ( uint8_t )( i * 3 + 7 ) );
+
+    vhDestroyBuffer( buf );
+    vhFinish();
+}
+
+UTEST_F( Buffer, UpdateStorageBufferSpan_NonFourByte )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU readback requires GPU" );
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 3 bytes exercises the vhWithPaddedBuffer4 backend copy.
+    uint8_t src[3] = { 0x11, 0x22, 0x33 };
+
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateStorageBuffer( buf, "SpanBuf3", nullptr, 16 );
+    vhFlush();
+
+    vhUpdateStorageBufferSpan( buf, src, 0, 3 );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhMem readData;
+    vhReadBufferSlow( buf, 0, 3, &readData );
+    EXPECT_EQ( ( int ) readData.size(), 3 );
+    for ( int i = 0; i < 3; i++ ) EXPECT_EQ( readData[i], src[i] );
+
+    vhDestroyBuffer( buf );
+    vhFinish();
+}
+
+UTEST_F( Buffer, UpdateStorageBufferSpan_Validation )
+{
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    uint8_t data[4] = { 1, 2, 3, 4 };
+
+    // Invalid sentinel handle.
+    vhUpdateStorageBufferSpan( VRHI_INVALID_HANDLE, data, 0, 4 );
+    vhFlush( true );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    // Missing backend buffer (handle never allocated: vhAllocBuffer() registers a reset entry).
+    startErrors = g_vhErrorCounter.load();
+    vhUpdateStorageBufferSpan( 0xDEADC0DE, data, 0, 4 );
+    vhFlush( true );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateStorageBuffer( buf, "SpanBufVal", nullptr, 64 );
+    vhFlush();
+
+    // Null data with non-zero size.
+    startErrors = g_vhErrorCounter.load();
+    vhUpdateStorageBufferSpan( buf, nullptr, 0, 4 );
+    vhFlush( true );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    // Fixed-buffer out-of-range update.
+    startErrors = g_vhErrorCounter.load();
+    vhUpdateStorageBufferSpan( buf, data, 60, 16 );
+    vhFlush( true );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    // Offset overflow: offset + size would wrap 64-bit.
+    startErrors = g_vhErrorCounter.load();
+    vhUpdateStorageBufferSpan( buf, data, UINT64_MAX, 1 );
+    vhFlush( true );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    // Size too large to enter vhWithPaddedBuffer4 safely.
+    startErrors = g_vhErrorCounter.load();
+    vhUpdateStorageBufferSpan( buf, data, 0, SIZE_MAX - 2 );
+    vhFlush( true );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
+UTEST_F( Buffer, UpdateStorageBufferSpan_ZeroSize )
+{
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // Null data with size == 0 on an existing buffer is a no-op.
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateStorageBuffer( buf, "SpanBufZero", nullptr, 32 );
+    vhFlush();
+    vhUpdateStorageBufferSpan( buf, nullptr, 8, 0 );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    // Size == 0 on a missing buffer still errors: backend existence is validated first.
+    startErrors = g_vhErrorCounter.load();
+    vhUpdateStorageBufferSpan( 0xDEADC0DE, nullptr, 0, 0 );
+    vhFlush( true );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    vhDestroyBuffer( buf );
+    vhFlush();
+}
+
+UTEST_F( Buffer, UpdateStorageBufferSpan_ResizeGrows )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU readback requires GPU" );
+    vhFlush();
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhBuffer buf = vhAllocBuffer();
+    vhCreateStorageBuffer( buf, "SpanBufResize", nullptr, 16, VRHI_BUFFER_ALLOW_RESIZE );
+    vhFlush();
+
+    // Update past the end grows the buffer to offset + size = 40.
+    std::vector<uint8_t> span( 8 );
+    for ( int i = 0; i < 8; i++ ) span[i] = ( uint8_t )( 0xA0 + i );
+    vhUpdateStorageBufferSpan( buf, span.data(), 32, 8 );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    EXPECT_EQ( vhGetBufferInfo( buf ), 40u );
+
+    vhMem readData;
+    vhReadBufferSlow( buf, 32, 8, &readData );
+    EXPECT_EQ( ( int ) readData.size(), 8 );
+    for ( int i = 0; i < 8; i++ ) EXPECT_EQ( readData[i], span[i] );
+
+    vhDestroyBuffer( buf );
+    vhFinish();
+}

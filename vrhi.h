@@ -1446,6 +1446,20 @@ void vhUpdateStorageBuffer(
     uint64_t size = 0
 );
 
+// Enqueues a command to update a storage buffer from caller-owned bytes.
+//
+// `offset` and `size` are bytes. For size > 0, `data` must stay valid and unchanged
+// until vhFlush( true ) or vhFinish() returns from the submitting thread; vhFlush( false )
+// is not a retirement boundary. size == 0 is a no-op once the backend buffer exists.
+// Ranges past a VRHI_BUFFER_ALLOW_RESIZE buffer grow it to the checked end byte offset.
+// VIDL_GENERATE
+void vhUpdateStorageBufferSpan(
+    vhBuffer buffer,
+    const void* data,
+    uint64_t offset,
+    uint64_t size
+);
+
 // Enqueues a command to blit (copy) a region from one buffer to another.
 //
 // `dst` and `src` are the destination and source buffer handles.

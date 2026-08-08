@@ -495,14 +495,20 @@ void vhCmdBackendState::BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size )
 
 void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data )
 {
-    VRHI_PROFILE_FUNCTION();
-    if ( !bbuf.handle || !data || !data->size() ) return;
+    if ( !data ) return;
+    BE_UpdateBuffer( bbuf, offset, data->data(), data->size() );
+}
 
-    if ( offset + data->size() > bbuf.desc.byteSize )
+void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const void* data, uint64_t size )
+{
+    VRHI_PROFILE_FUNCTION();
+    if ( !bbuf.handle || !data || !size ) return;
+
+    if ( offset + size > bbuf.desc.byteSize )
     {
         vhProfile( "BE_UpdateBuffer_ResizeCheck", true );
         assert( bbuf.flags & VRHI_BUFFER_ALLOW_RESIZE );
-        BE_ResizeBuffer( bbuf, offset + data->size() );
+        BE_ResizeBuffer( bbuf, offset + size );
         vhProfile( "BE_UpdateBuffer_ResizeCheck", false );
     }
 
@@ -510,9 +516,9 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
     {
         vhProfile( "BE_UpdateBuffer_Write", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-        vhWithPaddedBuffer4( data->data(), data->size(), [&]( const void* p )
+        vhWithPaddedBuffer4( data, size, [&]( const void* p )
         {
-            cmdlist->writeBuffer( bbuf.handle, p, data->size(), offset );
+            cmdlist->writeBuffer( bbuf.handle, p, size, offset );
         } );
         vhProfile( "BE_UpdateBuffer_Write", false );
     }
@@ -3192,6 +3198,54 @@ void vhCmdBackendState::Handle_vhUpdateStorageBuffer( VIDL_vhUpdateStorageBuffer
 
     // Reuse common update logic (isVertexBuffer = true uses stride from creation)
     Handle_vhUpdateBufferCommon_Internal( "vhUpdateStorageBuffer", cmd->buffer, cmd->offset, cmd->data, cmd->size, true );
+}
+
+void vhCmdBackendState::Handle_vhUpdateStorageBufferSpan( VIDL_vhUpdateStorageBufferSpan* cmd )
+{
+    VRHI_PROFILE_FUNCTION();
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( cmd->buffer == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhUpdateStorageBufferSpan() : Invalid buffer handle!\n" );
+        return;
+    }
+
+    if ( backendBuffers.find( cmd->buffer ) == backendBuffers.end() )
+    {
+        VRHI_ERR( "vhUpdateStorageBufferSpan() : Buffer %u not found!\n", cmd->buffer );
+        return;
+    }
+    auto& bbuf = backendBuffers[cmd->buffer];
+
+    if ( cmd->size == 0 ) return;
+
+    if ( !cmd->data )
+    {
+        VRHI_ERR( "vhUpdateStorageBufferSpan() : data is null with non-zero size %llu!\n", cmd->size );
+        return;
+    }
+
+    if ( cmd->size > ( uint64_t ) ( SIZE_MAX - 3 ) )
+    {
+        VRHI_ERR( "vhUpdateStorageBufferSpan() : Size %llu exceeds the padded writeBuffer limit!\n", cmd->size );
+        return;
+    }
+
+    if ( cmd->offset > ( uint64_t ) ( SIZE_MAX - cmd->size ) )
+    {
+        VRHI_ERR( "vhUpdateStorageBufferSpan() : Update range overflows!\n" );
+        return;
+    }
+    const uint64_t endOffset = cmd->offset + cmd->size;
+    if ( endOffset > bbuf->desc.byteSize && !( bbuf->flags & VRHI_BUFFER_ALLOW_RESIZE ) )
+    {
+        VRHI_ERR( "vhUpdateStorageBufferSpan() : Update range [%llu, %llu] exceeds buffer size %llu!\n",
+            cmd->offset, endOffset, bbuf->desc.byteSize );
+        return;
+    }
+
+    BE_UpdateBuffer( *bbuf, cmd->offset, cmd->data, cmd->size );
 }
 
 void vhCmdBackendState::Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd )
