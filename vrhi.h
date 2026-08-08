@@ -21,7 +21,7 @@
 
 #pragma once
 
-// Define this if you have these in PCH already.
+// Define VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES if the precompiled header includes these dependencies.
 #ifndef VRHI_SKIP_COMMON_DEPENDENCY_INCLUDES
 #include <cstdint>
 #include <cstring>
@@ -754,8 +754,8 @@ constexpr uint32_t VRHI_DRAW_INDIRECT_COUNT = ( 1u << 2 );
 // Interface
 // --------------------------------------------------------------------------
 
-// Manually Regenerate this with py vidl.py vrhi.h src/vrhi_generated.h
-// Cmake should automatically do this already.
+// Regenerate src/vrhi_generated.h with: python3 vidl.py vrhi.h src/vrhi_generated.h
+// CMake regenerates it when vrhi.h changes.
 
 // ************************************************************
 // *** WARNING: POINTER INPUT MEMORY MANAGEMENT REQUIRED! ***
@@ -804,7 +804,7 @@ vhPSOCacheKey vhGetPSOCacheKey();
 
 // Presents the current frame and advances the swapchain.
 // Returns false if the swapchain is invalid or window is resized.
-// If running in headless mode, this simply flushes commands and waits if vsync-like behaviour is desired, always returning true.
+// In headless mode, this flushes commands, waits for the backend, and returns true.
 bool vhFrame();
 
 // Returns the texture handle for the current backbuffer of the swapchain.
@@ -1774,10 +1774,11 @@ struct vhBindlessAllocator
 };
 
 // --------------------------------------------------------------------------
-// Native Vulkan Interop (FSR / DLSS / etc.)
+// Native Vulkan Interop (FSR, DLSS, and similar APIs)
 // --------------------------------------------------------------------------
 
-// Pre-resolved Vulkan objects handed to the callback. cmdbuf is vrhi's open graphics primary — record into it, do not submit or close it.
+// Pre-resolved Vulkan objects handed to the callback. cmdbuf is vrhi's open primary graphics command buffer.
+// Record into it. Do not submit or close it.
 struct vhNativeContext
 {
     VkCommandBuffer         cmdbuf;
@@ -1792,7 +1793,8 @@ struct vhNativeContext
     uint32_t                frameIndex;     // verbatim from vhExecuteNative call
 };
 
-// Per-resource entry. Declare stateBefore/stateAfter; backend fills image/view/format/dims. Texture must not be in a permanent NVRHI state. UAV outputs require VRHI_TEXTURE_COMPUTE_WRITE.
+// Per-resource entry. Declare stateBefore and stateAfter. The backend fills image, view, format, and dimensions.
+// Texture must not be in a permanent NVRHI state. UAV outputs require VRHI_TEXTURE_COMPUTE_WRITE.
 struct vhNativeResource
 {
     vhTexture             texture     = VRHI_INVALID_HANDLE;
@@ -1816,7 +1818,7 @@ VkDevice vhGetVkDevice();
 VkPhysicalDevice vhGetVkPhysicalDevice();
 VkInstance vhGetVkInstance();
 
-// Lock if you're using VkDevice, VkPhysicalDevice or VkInstance outside a native callback. Otherwise dont touch.
+// Use this lock to access VkDevice, VkPhysicalDevice, or VkInstance outside a native callback.
 struct vhNativeDeviceLock
 {
     vhNativeDeviceLock();

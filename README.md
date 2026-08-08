@@ -3,7 +3,7 @@
  [![build](https://github.com/hypernewbie/vrhi/actions/workflows/ci.yml/badge.svg)](https://github.com/hypernewbie/vrhi/actions/workflows/ci.yml)
  
  Vrhi is a high level Vulkan RHI interface for cross-platform graphics and compute rendering. It is inspired by the bgfx library, powered by the NVRHI library.
- It aims to provide a DX11 / DX9 style immediate mode API on top of Vulkan, in a way that is not terribly slow.
+ It provides a DX11 / DX9 style immediate mode API on top of Vulkan, in a way that is not terribly slow.
  
  It is currently in development and is not yet feature complete.
 
@@ -57,7 +57,7 @@
  
  ## Packages
 
-  VRHI provides self-contained release packages for easy integration into your projects.
+  VRHI provides self-contained release packages for integration into your projects.
 
   ### Package Contents
 
@@ -160,7 +160,7 @@
  
  ### Testing Your Package
  
- Validate that your package is complete and functional:
+ Test the package:
  
  ```powershell
  # Test Debug package (validates headers, libraries, basic functionality)
@@ -173,7 +173,7 @@
  The `test_package_vrhi` target will:
  - Configure and build a standalone test using the packaged VRHI
   - Run tests for initialisation, resource creation, and cleanup
-  - **FAIL the build** if tests fail (ensures package integrity)
+  - **FAIL the build** if tests fail
   - Report specific failure reasons (init, buffer, texture, shader)
 
   ## Examples
