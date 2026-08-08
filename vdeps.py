@@ -165,6 +165,11 @@ def revert_patches(dep_dir, patches):
         print(f"Reverted patch: {patch['file']}")
 
 
+def filter_sanitize_patches(patches, sanitize_active):
+    """Keep patches whose optional sanitize=True flag matches the --sanitize state."""
+    return [p for p in patches if not p.get("sanitize") or sanitize_active]
+
+
 def is_build_dir_valid(build_dir):
     """Check if build directory exists and contains CMake cache for building."""
     try:
@@ -303,6 +308,16 @@ def write_force_runtime_project_include(runtime_library):
     return script_path.replace("\\", "/")
 
 
+def write_force_runtime_toolchain_file(runtime_library):
+    """Write a CMAKE_TOOLCHAIN_FILE forcing runtime_library before CMake's ABI/feature-detection try_compiles run; return its path."""
+    script_path = os.path.join(
+        tempfile.gettempdir(), "vdeps_force_msvc_runtime_library_toolchain.cmake"
+    )
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(f'set(CMAKE_MSVC_RUNTIME_LIBRARY "{runtime_library}")\n')
+    return script_path.replace("\\", "/")
+
+
 def get_compiler_info(use_llvm):
     """Resolve (path, version) for the compiler vdeps would invoke.
 
@@ -343,19 +358,19 @@ def get_compiler_info(use_llvm):
     return path, (first_line[:256] if first_line else None)
 
 
-def get_toolchain_fingerprint(use_llvm, use_dynamic_runtime, sanitize=None):
+def get_toolchain_fingerprint(use_llvm, use_dynamic_runtime, sanitize=None, arch=None):
     """Build a toolchain identity dict for the current vdeps invocation.
 
     The dict is compared for equality against the ``toolchain`` field of a
     cached state record; any mismatch forces a rebuild. ``compiler_path`` and
     ``compiler_version`` capture which compiler was actually invoked, while
-    ``use_llvm`` / ``use_dynamic_runtime`` / ``sanitize`` mirror the effective
-    toolchain flags for self-contained inspection.
+    ``use_llvm`` / ``use_dynamic_runtime`` / ``sanitize`` / ``arch`` mirror the
+    effective toolchain flags for self-contained inspection.
 
-    ``sanitize`` is the value passed via ``--sanitize`` (e.g. ``"thread"``) or
-    ``None`` when no sanitizer is active. Falsy values are normalized to
-    ``None`` so ``--sanitize ""`` and the omitted flag produce identical
-    fingerprints (both disable sanitizers functionally).
+    ``sanitize`` and ``arch`` are the values passed via ``--sanitize`` /
+    ``--arch`` (e.g. ``"thread"`` / ``"x64"``) or ``None`` when not active.
+    Falsy values are normalized to ``None`` so ``--sanitize ""`` /
+    ``--arch ""`` and the omitted flag produce identical fingerprints.
     """
     compiler_path, compiler_version = get_compiler_info(use_llvm)
     return {
@@ -364,6 +379,7 @@ def get_toolchain_fingerprint(use_llvm, use_dynamic_runtime, sanitize=None):
         "use_llvm": use_llvm,
         "use_dynamic_runtime": use_dynamic_runtime,
         "sanitize": sanitize or None,
+        "arch": arch or None,
     }
 
 
@@ -378,6 +394,47 @@ def _normalize_sanitize_tag(sanitize):
         return ""
     parts = [p.strip() for p in sanitize.split(",") if p.strip()]
     return "_".join(parts)
+
+
+def _normalize_arch(value):
+    """Return ``(display_tag, cmake_arch)`` for a ``--arch`` value, or ``("", "")``.
+
+    Display tags (``arm64``, ``x64``) flow into ``platform_subdir`` and
+    build-dir names so the on-disk paths stay short and human-readable.
+    The ``cmake_arch`` value (``arm64``, ``x86_64``) is what CMake's
+    ``CMAKE_OSX_ARCHITECTURES`` accepts. Aliases are case-insensitive:
+    ``aarch64`` resolves to ``arm64``; ``x86_64`` and ``amd64`` resolve to
+    ``x64``.
+
+    Returns ``("", "")`` for ``None`` or empty input so the default
+    behavior (no arch suffix in dir names, no arch forced into CMake) is
+    byte-identical to the pre-arch behavior.
+    """
+    if not value:
+        return "", ""
+    key = str(value).strip().lower()
+    aliases = {
+        "arm64": ("arm64", "arm64"),
+        "aarch64": ("arm64", "arm64"),
+        "x64": ("x64", "x86_64"),
+        "x86_64": ("x64", "x86_64"),
+        "amd64": ("x64", "x86_64"),
+    }
+    if key not in aliases:
+        raise ValueError(
+            f"unsupported --arch value {value!r}: expected one of "
+            f"{sorted(aliases.keys())}"
+        )
+    return aliases[key]
+
+
+def _validate_arch(value):
+    """argparse ``type=`` for ``--arch``: normalize or fail."""
+    try:
+        tag, _cmake = _normalize_arch(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+    return tag or None
 
 
 def _validate_parallel(value):
@@ -395,7 +452,7 @@ def _validate_parallel(value):
     return n
 
 
-def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime=False, sanitize=None):
+def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime=False, sanitize=None, arch=None):
     """Returns CMake arguments specific to the current operating system.
 
     ``sanitize`` is the value passed to ``-fsanitize=...`` (or ``None`` to
@@ -405,6 +462,11 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
     flag variables that are normally absent on a given platform are only
     emitted when ``sanitize`` is set -- this keeps the existing default
     build (no sanitizer) byte-identical to today's output.
+
+    ``arch`` is the cmake_arch value (e.g. ``"arm64"`` / ``"x86_64"``)
+    forwarded to ``CMAKE_OSX_ARCHITECTURES`` on macOS so cross-compilation
+    is one flag away. Ignored on non-macOS hosts (the CLI rejects ``--arch``
+    there, but the kwarg is a no-op defensively).
 
     On Windows, ``sanitize`` also forces the non-debug static CRT (``/MT``)
     for every config (clang-cl's ASan rejects ``/MTd``/``/MDd``).
@@ -476,12 +538,11 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
                 args.append(f"-DCMAKE_PROJECT_INCLUDE={project_include}")
                 # A dep can set CMAKE_MSVC_RUNTIME_LIBRARY before its own
                 # project(), too early for CMAKE_PROJECT_INCLUDE to catch;
-                # skip CMake's compiler-works probe and pre-seed its ABI result.
-                args += [
-                    "-DCMAKE_C_COMPILER_WORKS=1",
-                    "-DCMAKE_CXX_COMPILER_WORKS=1",
-                    "-DCMAKE_SIZEOF_VOID_P=8",
-                ]
+                # override it before CMake's ABI/feature-detection try_compiles run.
+                toolchain_file = write_force_runtime_toolchain_file(
+                    msvc_runtime_library
+                )
+                args.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file}")
             return args
 
         args = (
@@ -510,6 +571,13 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
             f"-DCMAKE_CXX_FLAGS=-w -stdlib=libc++{san_flag}",
         ]
 
+        # macOS-only: forward the target architecture so cross-compilation
+        # from an arm64 host to x86_64 (or vice versa) produces the right
+        # binaries in one configure. Ignored on Linux -- arch is a macOS
+        # concept in this codebase today.
+        if IS_MACOS and arch:
+            args.append(f"-DCMAKE_OSX_ARCHITECTURES={arch}")
+
         # Linker flags: macOS libc++ includes abi, Linux often needs explicit -lc++abi.
         # We emit EXE/SHARED unconditionally (matching pre-feature behavior) and
         # MODULE only when sanitizing, mirroring the Windows branch -- MODULE
@@ -526,6 +594,41 @@ def get_platform_cmake_args(cxx_standard=20, use_llvm=False, use_dynamic_runtime
             args.append(f"-DCMAKE_MODULE_LINKER_FLAGS={link_flags}")
 
         return args
+
+
+_MERGEABLE_SANITIZE_FLAG_VARS = (
+    "CMAKE_C_FLAGS",
+    "CMAKE_CXX_FLAGS",
+    "CMAKE_EXE_LINKER_FLAGS",
+    "CMAKE_SHARED_LINKER_FLAGS",
+    "CMAKE_MODULE_LINKER_FLAGS",
+)
+
+
+def merge_duplicate_flag_args(cmake_args):
+    """Concatenate repeated -D<flag var>=... entries instead of last-one-wins silently dropping -fsanitize=."""
+    values = {}
+    for arg in cmake_args:
+        eq = arg.find("=") if arg.startswith("-D") else -1
+        if eq == -1:
+            continue
+        key, value = arg[2:eq], arg[eq + 1 :]
+        if key in _MERGEABLE_SANITIZE_FLAG_VARS:
+            values[key] = f"{values[key]} {value}" if key in values else value
+
+    seen = set()
+    merged = []
+    for arg in cmake_args:
+        eq = arg.find("=") if arg.startswith("-D") else -1
+        key = arg[2:eq] if eq != -1 else None
+        if key in _MERGEABLE_SANITIZE_FLAG_VARS:
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(f"-D{key}={values[key]}")
+        else:
+            merged.append(arg)
+    return merged
 
 
 def run_command(command, cwd=None, env=None):
@@ -628,6 +731,8 @@ def validate_generate_cmake_args(args, parser):
         parser.error("--generate-cmake cannot be used with --sanitize")
     if args.parallel is not None:
         parser.error("--generate-cmake cannot be used with --parallel")
+    if args.arch is not None:
+        parser.error("--generate-cmake cannot be used with --arch")
 
 
 def validate_cli_args(args, parser):
@@ -635,6 +740,8 @@ def validate_cli_args(args, parser):
 
     if args.auto_skip and args.clean:
         parser.error("--auto-skip cannot be used with --clean")
+    if args.arch is not None and not IS_MACOS:
+        parser.error("--arch is only supported on macOS")
 
 
 def sanitize_cmake_target_name(name):
@@ -669,8 +776,10 @@ def render_generated_cmake(dependencies):
         'option(VDEPS_DYNAMIC_RUNTIME "Build with dynamic MSVC runtime (/MD, /MDd)" OFF)',
         # VDEPS_SANITIZE mirrors the --sanitize CLI flag. Empty (default) = off.
         # VDEPS_PARALLEL caps the CMake --parallel worker count; empty = all cores.
+        # VDEPS_ARCH forwards --arch to vdeps.py (macOS only). Empty = host arch.
         'set(VDEPS_SANITIZE "" CACHE STRING "Sanitizer set passed to vdeps.py --sanitize (e.g. thread,address,memory,undefined). Empty disables.")',
         'set(VDEPS_PARALLEL "" CACHE STRING "Cap parallel build workers (forwarded as --parallel N). Empty uses all cores.")',
+        'set(VDEPS_ARCH "" CACHE STRING "Target architecture on macOS passed to vdeps.py --arch (arm64 or x64; x86_64/amd64 aliases accepted). Empty uses host arch.")',
         "",
         "# Default to static if neither runtime is specified",
         "if(NOT VDEPS_STATIC_RUNTIME AND NOT VDEPS_DYNAMIC_RUNTIME)",
@@ -735,27 +844,43 @@ def render_generated_cmake(dependencies):
 
         ``--parallel $VDEPS_PARALLEL`` is appended whenever VDEPS_PARALLEL
         is non-empty, regardless of sanitizer axis.
+
+        ``--arch $VDEPS_ARCH`` is appended (also guarded by an
+        ``if(VDEPS_ARCH)`` check) whenever the consumer sets VDEPS_ARCH.
+        An empty VDEPS_ARCH expands to a bare ``--arch`` after
+        ``separate_arguments`` and crashes argparse; the guard makes the
+        default path byte-identical to the pre-arch wrapper.
         """
         result = [""]
 
-        # Build the EXTRA_ARGS inline. The sanitizer tag, if set, requires
-        # --sanitize and gates the whole block; VDEPS_PARALLEL is independent.
+        # Build the EXTRA_ARGS via sequential appends. The sanitizer tag, if
+        # set, requires --sanitize and gates the whole block; VDEPS_PARALLEL
+        # and VDEPS_ARCH are independent axes appended in either order.
+        # Sequential-append (instead of nested if/else) keeps the
+        # combinatorics flat as optional flags grow.
         if sanitizer_tag:
             result.append(f"# {comment} (sanitized)")
             result.append(f"if(_VDEPS_SANITIZE_TAG)")
+            # Strip any leading space (empty extra_args + ' --sanitize ...' would
+            # otherwise start with a space). separate_arguments tolerates it
+            # either way; keeping the committed artifact clean costs nothing.
             san_extra = (extra_args + " --sanitize ${VDEPS_SANITIZE}").strip()
+            result.append(f"    set(_VDEPS_EXTRA_ARGV \"{san_extra}\")")
             result.append("    if(VDEPS_PARALLEL)")
-            result.append(f"        set(_VDEPS_EXTRA_ARGV \"{san_extra} --parallel ${{VDEPS_PARALLEL}}\")")
-            result.append("    else()")
-            result.append(f"        set(_VDEPS_EXTRA_ARGV \"{san_extra}\")")
+            result.append("        set(_VDEPS_EXTRA_ARGV \"${_VDEPS_EXTRA_ARGV} --parallel ${VDEPS_PARALLEL}\")")
+            result.append("    endif()")
+            result.append("    if(VDEPS_ARCH)")
+            result.append("        set(_VDEPS_EXTRA_ARGV \"${_VDEPS_EXTRA_ARGV} --arch ${VDEPS_ARCH}\")")
             result.append("    endif()")
             indent_outer = "    "
         else:
             result.append(f"# {comment}")
+            result.append("set(_VDEPS_EXTRA_ARGV \"" + extra_args + "\")")
             result.append("if(VDEPS_PARALLEL)")
-            result.append(f"    set(_VDEPS_EXTRA_ARGV \"{extra_args} --parallel ${{VDEPS_PARALLEL}}\")")
-            result.append("else()")
-            result.append(f"    set(_VDEPS_EXTRA_ARGV \"{extra_args}\")")
+            result.append("    set(_VDEPS_EXTRA_ARGV \"${_VDEPS_EXTRA_ARGV} --parallel ${VDEPS_PARALLEL}\")")
+            result.append("endif()")
+            result.append("if(VDEPS_ARCH)")
+            result.append("    set(_VDEPS_EXTRA_ARGV \"${_VDEPS_EXTRA_ARGV} --arch ${VDEPS_ARCH}\")")
             result.append("endif()")
             indent_outer = ""
 
@@ -1127,14 +1252,17 @@ def evaluate_auto_skip(
         return False, "toolchain changed"
 
     current_toolchain = toolchain_fingerprint or {}
-    # Back-compat: records written before --sanitize support lack a "sanitize"
-    # key. Treat missing as None so old records remain valid against a run
-    # without sanitizers (the natural migration path), but invalidate when
-    # the new run actually enables sanitizers.
+    # Back-compat: records written before --sanitize / --arch support lack
+    # the corresponding keys. Treat missing as None so old records remain
+    # valid against a run without sanitizers / explicit arch (the natural
+    # migration path), but invalidate when the new run actually enables
+    # those flags.
     normalized_record = dict(record_toolchain)
     normalized_record.setdefault("sanitize", None)
+    normalized_record.setdefault("arch", None)
     normalized_current = dict(current_toolchain)
     normalized_current.setdefault("sanitize", None)
+    normalized_current.setdefault("arch", None)
     if normalized_record != normalized_current:
         return False, "toolchain changed"
 
@@ -1193,6 +1321,22 @@ def main():
             "omitted disables sanitizers. Auto-skip invalidates when this "
             "changes. Primarily useful on Linux/macOS; on Windows prefer "
             "--llvm for clang's sanitizer runtime."
+        ),
+    )
+    parser.add_argument(
+        "--arch",
+        metavar="ARCH",
+        default=None,
+        type=_validate_arch,
+        help=(
+            "Target CPU architecture on macOS (arm64 or x64; aliases: "
+            "aarch64, x86_64, amd64). Threads CMAKE_OSX_ARCHITECTURES "
+            "through cmake and suffixes lib/ and build/ paths so arm64 and "
+            "x64 outputs do not collide. Explicit values always add a path "
+            "suffix (so '--arch arm64' produces mac_arm64_* even on an "
+            "arm64 host); omitting the flag leaves paths unchanged. "
+            "macOS-only. Cross-compile from an arm64 host to x64 requires "
+            "Rosetta 2 for any host tools the deps run during build."
         ),
     )
     parser.add_argument(
@@ -1294,6 +1438,22 @@ def main():
                                     "build_undefined", "build_tsan", "build_asan",
                                     "build_msan", "build_ubsan", "build_lsan",
                                 ]
+                                if IS_MACOS:
+                                    # arch variants: bare build_<arch> AND
+                                    # build_<arch>_<sanitizer> cross-products.
+                                    # Only enumerate on macOS because arch is
+                                    # macOS-only; Linux doesn't generate these
+                                    # dirs today.
+                                    for arch_tag in ("arm64", "x64"):
+                                        known_prefixes.append(f"build_{arch_tag}")
+                                        for s in (
+                                            "thread", "address", "memory",
+                                            "undefined", "tsan", "asan",
+                                            "msan", "ubsan", "lsan",
+                                        ):
+                                            known_prefixes.append(
+                                                f"build_{arch_tag}_{s}"
+                                            )
                             for prefix in known_prefixes:
                                 build_dir = os.path.join(
                                     dep_dir, f"{prefix}_{config['name']}"
@@ -1331,6 +1491,7 @@ def main():
 
     platform_subdir = PLATFORM_TAG
     sanitize_tag = _normalize_sanitize_tag(args.sanitize)
+    arch_tag, arch_cmake = _normalize_arch(args.arch)
     if IS_WINDOWS:
         suffixes = []
         if args.llvm:
@@ -1342,8 +1503,17 @@ def main():
         if suffixes:
             platform_subdir = "win_" + "_".join(suffixes)
     else:
+        # macOS appends arch before sanitize so the order matches Windows:
+        # target identity first, instrumentation last. Linux ignores arch
+        # entirely today (cross-arch dep builds on Linux aren't a use case
+        # yet), so we only fold it in on macOS.
+        subdir_parts = []
+        if IS_MACOS and arch_tag:
+            subdir_parts.append(arch_tag)
         if sanitize_tag:
-            platform_subdir = f"{PLATFORM_TAG}_{sanitize_tag}"
+            subdir_parts.append(sanitize_tag)
+        if subdir_parts:
+            platform_subdir = "_".join([PLATFORM_TAG] + subdir_parts)
 
     state_data = load_state_data(root_dir)
 
@@ -1352,7 +1522,9 @@ def main():
     # the sanitizer block in get_platform_cmake_args and in the build env.
     sanitize_for_fingerprint = args.sanitize or None
 
-    toolchain_fingerprint = get_toolchain_fingerprint(args.llvm, args.md, sanitize_for_fingerprint)
+    toolchain_fingerprint = get_toolchain_fingerprint(
+        args.llvm, args.md, sanitize_for_fingerprint, arch_tag or None
+    )
 
     if args.dependencies:
         # Validate dependency names: trim whitespace and filter valid names
@@ -1417,6 +1589,7 @@ def main():
         dep.extra_files = (
             filter_platform_items(dep.extra_files or []) if dep.extra_files else None
         )
+        dep.patches = filter_sanitize_patches(dep.patches, bool(args.sanitize))
 
         if dep.patches:
             print(f"--- Applying patches for {dep.name} ---")
@@ -1438,6 +1611,8 @@ def main():
                         build_dir_name += "_llvm"
                     if IS_WINDOWS and args.md:
                         build_dir_name += "_md"
+                    if IS_MACOS and arch_tag:
+                        build_dir_name += f"_{arch_tag}"
                     if sanitize_tag:
                         build_dir_name += f"_{sanitize_tag}"
                     build_dir_name += f"_{config['name']}"
@@ -1450,6 +1625,8 @@ def main():
                         prefix += "_llvm"
                     if IS_WINDOWS and args.md:
                         prefix += "_md"
+                    if IS_MACOS and arch_tag:
+                        prefix += f"_{arch_tag}"
                     if sanitize_tag:
                         prefix += f"_{sanitize_tag}"
                     build_dir = os.path.join(dep_dir, f"{prefix}_{config['name']}")
@@ -1527,10 +1704,13 @@ def main():
                             use_llvm=args.llvm,
                             use_dynamic_runtime=args.md,
                             sanitize=args.sanitize,
+                            arch=arch_cmake,
                         )
                         + [f"-DCMAKE_BUILD_TYPE={build_type}"]
                         + final_cmake_options
                     )
+                    if args.sanitize:
+                        cmake_args = merge_duplicate_flag_args(cmake_args)
 
                     # Resolve library paths for Linker Flags (Bypassing MSBuild env sanitization)
                     link_dirs_abs = [output_lib_dir]
@@ -1637,7 +1817,7 @@ def main():
                             continue
 
                         # Interpolate variables in target
-                        # ${PLATFORM_SUBDIR} -> win, win_llvm, linux, mac
+                        # ${PLATFORM_SUBDIR} -> win, win_llvm[_md[_tsan]], mac[_arm64|_x64][_<sanitize>], linux[_<sanitize>]
                         # ${CONFIG_NAME} -> debug, release
                         # ${ROOT_DIR} -> absolute path to vdeps.py directory
                         target = target.replace("${PLATFORM_SUBDIR}", platform_subdir)
