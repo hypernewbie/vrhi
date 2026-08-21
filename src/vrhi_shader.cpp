@@ -917,6 +917,27 @@ void vhDestroyAS( vhAccelStruct as )
 
 void vhBuildBLAS( vhAccelStruct blas, std::vector< nvrhi::rt::GeometryDesc > geometries )
 {
+    for ( size_t i = 0; i < geometries.size(); i++ )
+    {
+        const auto& g = geometries[ i ];
+        const char* offending = nullptr;
+        switch ( g.geometryType )
+        {
+            case nvrhi::rt::GeometryType::Triangles:
+                if ( !g.geometryData.triangles.vertexBuffer ) offending = "vertex buffer";
+                else if ( !g.geometryData.triangles.indexBuffer && g.geometryData.triangles.indexFormat != nvrhi::Format::UNKNOWN ) offending = "index buffer";
+                break;
+            case nvrhi::rt::GeometryType::AABBs:
+                if ( !g.geometryData.aabbs.buffer ) offending = "aabb buffer"; break;
+            case nvrhi::rt::GeometryType::Spheres:
+                if ( !g.geometryData.spheres.vertexBuffer ) offending = "vertex buffer"; break;
+            case nvrhi::rt::GeometryType::Lss:
+                if ( !g.geometryData.lss.vertexBuffer ) offending = "vertex buffer"; break;
+            default: break;
+        }
+        if ( offending ) { VRHI_ERR( "vhBuildBLAS() : geometry %u has a null %s (buffer not yet created on the backend; use vhBuildIndexedTriangleBLAS or vhFlush() first)\n", ( uint32_t ) i, offending ); assert( false ); return; }
+    }
+
     auto cmd = vhCmdAlloc< VIDL_vhBuildBLAS >( blas, std::move( geometries ) );
     assert( cmd );
     vhCmdEnqueue( cmd );

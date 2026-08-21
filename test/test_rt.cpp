@@ -2563,6 +2563,8 @@ static vhAccelStruct BuildSphereBLAS( float x, float y, float z, float radius )
 {
     float data[4] = { x, y, z, radius };
     vhBuffer buf = CreateTestStorageBuffer( data, sizeof( data ) );
+    // Backend must have created the buffer before we can resolve its NVRHI handle for the desc.
+    vhFlush( true );
 
     nvrhi::rt::GeometryDesc geo;
     geo.geometryType = nvrhi::rt::GeometryType::Spheres;
