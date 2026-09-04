@@ -2429,10 +2429,15 @@ uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLay
 
 static std::unordered_map< uint64_t, nvrhi::BindingSetHandle > s_bindingSetCache;
 
+void vhBindingSetCacheClear_DeviceStateLocked()
+{
+    s_bindingSetCache.clear();
+}
+
 void vhBindingSetCacheClear()
 {
     std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
-    s_bindingSetCache.clear();
+    vhBindingSetCacheClear_DeviceStateLocked();
 }
 
 nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLayout* layout )

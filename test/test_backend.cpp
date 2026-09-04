@@ -2333,6 +2333,61 @@ UTEST( Backend, GCFlushIntervalDebounce )
     vhFinish();
 }
 
+UTEST( Backend, BindingSetCacheEvictedOnGC )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+
+    nvrhi::BufferHandle buffer;
+    {
+        nvrhi::BufferDesc bufDesc;
+        bufDesc.byteSize = 16 * 1024;
+        bufDesc.isConstantBuffer = true;
+        bufDesc.debugName = "TestBSetEvictCB";
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        buffer = g_vhDevice->createBuffer( bufDesc );
+    }
+    ASSERT_NE( buffer, nullptr );
+
+    nvrhi::BindingLayoutHandle layout;
+    {
+        nvrhi::BindingLayoutDesc layoutDesc;
+        layoutDesc.visibility = nvrhi::ShaderType::All;
+        layoutDesc.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( 0 ) );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+    ASSERT_NE( layout, nullptr );
+
+    nvrhi::BindingSetDesc desc;
+    desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( 0, buffer.Get(), nvrhi::BufferRange( 0, 256 ) ) );
+    nvrhi::BindingSetHandle before = vhGetBindingSet( desc, layout.Get() );
+    ASSERT_NE( before, nullptr );
+    EXPECT_EQ( vhGetBindingSet( desc, layout.Get() ).Get(), before.Get() );
+
+    nvrhi::BindingSetDesc churn = desc;
+    churn.bindings[0].range = nvrhi::BufferRange( 256, 256 );
+    EXPECT_NE( vhGetBindingSet( churn, layout.Get() ).Get(), before.Get() );
+
+    const uint32_t savedInterval = g_vhInit.gcFlushInterval;
+    g_vhInit.gcFlushInterval = 1;
+    vhFlush( true );
+
+    nvrhi::BindingSetHandle after = vhGetBindingSet( desc, layout.Get() );
+    EXPECT_NE( after.Get(), before.Get() );
+
+    g_vhInit.gcFlushInterval = savedInterval;
+    vhBindingSetCacheClear();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        before = nullptr;
+        after = nullptr;
+        layout = nullptr;
+        buffer = nullptr;
+    }
+    vhFinish();
+}
+
 UTEST( Backend, ProfileMarkerNesting )
 {
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }

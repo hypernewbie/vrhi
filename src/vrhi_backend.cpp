@@ -4647,6 +4647,7 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
         if ( cmd->waitForGPU || ( m_flushCounter % gcInterval ) == 0 )
         {
             vhProfile( "Handle_vhFlushInternal_GC", true );
+            vhBindingSetCacheClear_DeviceStateLocked();
             g_vhDevice->runGarbageCollection();
             vhProfile( "Handle_vhFlushInternal_GC", false );
         }

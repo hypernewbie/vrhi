@@ -599,6 +599,7 @@ void vhSamplerCacheShutdown();
 nvrhi::ComputePipelineHandle vhPSOCacheGet( const nvrhi::ComputePipelineDesc& desc );
 nvrhi::GraphicsPipelineHandle vhPSOCacheGet( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
 void vhBindingSetCacheClear();
+void vhBindingSetCacheClear_DeviceStateLocked();
 nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLayout* layout );
 nvrhi::FramebufferHandle vhFBOCacheGet( const nvrhi::FramebufferDesc& desc );
 void vhFBOCacheReset();

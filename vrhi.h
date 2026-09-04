@@ -132,7 +132,7 @@ struct vhInitData
     uint32_t maxWorldMatrices = 16 * 1024;         // World-space transform matrices.
     uint32_t maxUserGlobals = 16 * 1024 * 1024;    // User shader parameters (material data, etc).
 
-    // Flushes between nvrhi runGarbageCollection() runs. 0 or 1 forces every flush. vhFinish() always GCs.
+    // Flushes between nvrhi runGarbageCollection() runs. Also bounds binding-set retention. 0 or 1 forces every flush. vhFinish() always GCs.
     uint32_t gcFlushInterval = 16;
 
     // Seeds the Vulkan driver pipeline cache. Obtained from a previous vhGetPSOCache().
