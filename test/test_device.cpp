@@ -149,19 +149,28 @@ UTEST( RHI, Shader16BitControl )
     vhInit( g_testInitQuiet );
     EXPECT_NE( g_vhDevice.Get(), nullptr );
 
-    // Query ground-truth HW support to verify "enabled iff supported".
-    VkPhysicalDeviceFeatures2 feat2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-    feat2.pNext = &v12;
-    vkGetPhysicalDeviceFeatures2( vhGetVkPhysicalDevice(), &feat2 );
+    if ( !g_vhInit.nullMode )
+    {
+        // Query ground-truth HW support to verify "enabled iff supported".
+        VkPhysicalDeviceFeatures2 feat2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        feat2.pNext = &v12;
+        vkGetPhysicalDeviceFeatures2( vhGetVkPhysicalDevice(), &feat2 );
 
-    EXPECT_EQ( g_vhDeviceInfo.shaderFloat16, v12.shaderFloat16 ? true : false );
-    EXPECT_EQ( g_vhDeviceInfo.shaderInt16, feat2.features.shaderInt16 ? true : false );
+        EXPECT_EQ( g_vhDeviceInfo.shaderFloat16, v12.shaderFloat16 ? true : false );
+        EXPECT_EQ( g_vhDeviceInfo.shaderInt16, feat2.features.shaderInt16 ? true : false );
 
-    VRHI_LOG( "shaderFloat16: requested=YES supported=%s enabled=%s\n",
-        v12.shaderFloat16 ? "YES" : "NO", g_vhDeviceInfo.shaderFloat16 ? "YES" : "NO" );
-    VRHI_LOG( "shaderInt16:   requested=YES supported=%s enabled=%s\n",
-        feat2.features.shaderInt16 ? "YES" : "NO", g_vhDeviceInfo.shaderInt16 ? "YES" : "NO" );
+        VRHI_LOG( "shaderFloat16: requested=YES supported=%s enabled=%s\n",
+            v12.shaderFloat16 ? "YES" : "NO", g_vhDeviceInfo.shaderFloat16 ? "YES" : "NO" );
+        VRHI_LOG( "shaderInt16:   requested=YES supported=%s enabled=%s\n",
+            feat2.features.shaderInt16 ? "YES" : "NO", g_vhDeviceInfo.shaderInt16 ? "YES" : "NO" );
+    }
+    else
+    {
+        // Null mode has no physical device - features stay disabled.
+        EXPECT_FALSE( g_vhDeviceInfo.shaderFloat16 );
+        EXPECT_FALSE( g_vhDeviceInfo.shaderInt16 );
+    }
 
     vhShutdown( g_testInitQuiet );
 
