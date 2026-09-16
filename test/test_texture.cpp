@@ -1475,6 +1475,21 @@ UTEST( Sampler, HandleCaching )
     EXPECT_NE( s1, s3 );
 }
 
+UTEST( Sampler, MipBiasHandle )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    // Non-zero bias is only valid when the device reports the capability; create must agree with the flag.
+    nvrhi::SamplerHandle sampler = vhGetSamplerHandle( VRHI_SAMPLER_MIPBIAS( 0.5f ) );
+    EXPECT_EQ( g_vhDeviceInfo.samplerMipLodBias, sampler != nullptr );
+}
+
 UTEST( Texture, GetImageMaxMipCount )
 {
     // Compare vhGetImageMaxMipCount against vhTextureMiplevelInfo (ground truth)

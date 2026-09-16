@@ -411,6 +411,10 @@ set(_vrhi_output_name "vrhi")
  if(WIN32)
      target_compile_definitions(vrhi PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
  endif()
+ if(APPLE)
+     # VkPhysicalDevicePortabilitySubsetFeaturesKHR (MoltenVK) is gated by VK_ENABLE_BETA_EXTENSIONS
+     target_compile_definitions(vrhi PUBLIC VK_ENABLE_BETA_EXTENSIONS)
+ endif()
  
  # Include directories
 target_include_directories(vrhi PUBLIC
