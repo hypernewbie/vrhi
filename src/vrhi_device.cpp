@@ -402,6 +402,12 @@ void vhInit( bool quiet )
         VkPhysicalDeviceProperties2 props2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
         props2.pNext = &driverProps;
         VkPhysicalDeviceVulkan12Features supportedV12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+#if defined(VK_ENABLE_BETA_EXTENSIONS)
+        // Portability drivers (MoltenVK) gate non-zero sampler mip bias behind this feature.
+        bool portabilitySubset = vkbPhys.is_extension_present( VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME );
+        VkPhysicalDevicePortabilitySubsetFeaturesKHR supportedPortability = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR };
+        if ( portabilitySubset ) supportedV12.pNext = &supportedPortability;
+#endif
         VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
         features2.pNext = &supportedV12;
         vkGetPhysicalDeviceProperties2( g_vulkanPhysicalDevice, &props2 );
@@ -651,6 +657,15 @@ void vhInit( bool quiet )
             devBuilder.add_pNext( &v11Feat );
         }
 
+#if defined(VK_ENABLE_BETA_EXTENSIONS)
+        VkPhysicalDevicePortabilitySubsetFeaturesKHR portabilityFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR };
+        if ( portabilitySubset && supportedPortability.samplerMipLodBias )
+        {
+            portabilityFeatures.samplerMipLodBias = VK_TRUE;
+            devBuilder.add_pNext( &portabilityFeatures );
+        }
+#endif
+
         auto devRet = devBuilder.build();
         if ( !devRet )
         {
@@ -850,6 +865,11 @@ void vhInit( bool quiet )
         g_vhDeviceInfo.bindless = supportedV12.descriptorIndexing && supportedV12.runtimeDescriptorArray;
         g_vhDeviceInfo.vrs = vhQueryFeatureSupport_Internal( nvrhi::Feature::VariableRateShading );
         g_vhDeviceInfo.asyncCompute = vhQueryFeatureSupport_Internal( nvrhi::Feature::CopyQueue );
+#if defined(VK_ENABLE_BETA_EXTENSIONS)
+        g_vhDeviceInfo.samplerMipLodBias = !portabilitySubset || supportedPortability.samplerMipLodBias == VK_TRUE;
+#else
+        g_vhDeviceInfo.samplerMipLodBias = true;
+#endif
 
         // Generate summary string for legacy compatibility
         char summaryBuffer[1024];

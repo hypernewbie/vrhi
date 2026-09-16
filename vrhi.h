@@ -895,6 +895,7 @@ struct vhDeviceInfo
     bool shaderFloat16 = false;
     bool shaderInt16 = false;
     bool presentWait = false;
+    bool samplerMipLodBias = false;   // non-zero VRHI_SAMPLER_MIPBIAS is accepted by vhGetSamplerHandle
 
     uint32_t maxTextureSize = 0;
     uint32_t maxColorAttachments = 0;
