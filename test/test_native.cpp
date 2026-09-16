@@ -134,6 +134,8 @@ UTEST_F( Native, BracketAndRebaseline )
 
 UTEST_F( Native, DeviceLock )
 {
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
     vhNativeDeviceLock lock;
     ASSERT_TRUE( vhGetVkDevice() != VK_NULL_HANDLE );
     ASSERT_TRUE( vhGetVkPhysicalDevice() != VK_NULL_HANDLE );

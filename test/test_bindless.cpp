@@ -1331,6 +1331,8 @@ UTEST_F( Bindless, Clear_Characterisation_OldDataPersists )
 
 UTEST_F( Bindless, Resize_SoftContract )
 {
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
     vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 16 );
     vhFinish();
 
@@ -3047,6 +3049,8 @@ UTEST_F( Bindless, Churn_AllocWriteDispatch_64Frames )
 
 UTEST_F( Bindless, RecreateTable_SameHandle_NewCapacity )
 {
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
     vhDescriptorTable t = vhAllocDescriptorTable();
 
     nvrhi::BindlessLayoutDesc desc1;
@@ -3134,6 +3138,8 @@ UTEST_F( Bindless, DestroyTable_ResetState_NoCrash )
 
 UTEST_F( Bindless, CapacityQuery_FreshnessContract )
 {
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
     vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 12 );
     vhFinish();
     EXPECT_EQ( vhDescriptorTableCapacity( t ), 12u );
