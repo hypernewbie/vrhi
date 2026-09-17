@@ -340,6 +340,11 @@ static std::mutex s_samplerCacheMutex;
 nvrhi::SamplerHandle vhGetSamplerHandle( uint64_t samplerFlags )
 {
     nvrhi::SamplerDesc desc = vhGetSamplerDesc( samplerFlags );
+    if ( !g_vhDeviceInfo.samplerMipLodBias && desc.mipBias != 0.f )
+    {
+        return nullptr;
+    }
+
     uint64_t hash = vhHashSamplerDesc( desc );
 
     std::lock_guard< std::mutex > lock( s_samplerCacheMutex );
