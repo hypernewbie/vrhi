@@ -44,11 +44,6 @@ const vhState* vhCmdBackendState::s_submitPSOCacheState = nullptr;
 uint64_t vhCmdBackendState::s_submitPSOCacheVersion = 0;
 nvrhi::GraphicsPipelineHandle vhCmdBackendState::s_submitPSOCachePSO;
 nvrhi::FramebufferHandle vhCmdBackendState::s_submitPSOCacheFB;
-const vhState* vhCmdBackendState::s_lastGfxStateApplied = nullptr;
-uint64_t vhCmdBackendState::s_lastGfxResourceVersionApplied = 0;
-uint64_t vhCmdBackendState::s_lastGfxPipelineVersionApplied = 0;
-uint64_t vhCmdBackendState::s_lastGfxUserGlobalsKeyApplied = 0;
-nvrhi::ICommandList* vhCmdBackendState::s_lastGfxCmdlistApplied = nullptr;
 std::vector< vhShaderReflectionResource* > vhCmdBackendState::s_slotToReflection;
 std::unordered_map< uint64_t, const vhVertexLayoutDef* > vhCmdBackendState::s_layoutLocationTable;
 std::vector< nvrhi::VertexAttributeDesc > vhCmdBackendState::s_attributes;
@@ -265,7 +260,6 @@ void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* d
 {
     VRHI_PROFILE_FUNCTION();
     if ( !btex.handle || !data || !data->size() ) return;
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
 
     // Clamp to texture mip / array boundaries.
     int32_t mipStart = arrayMipUpdateRange.x, mipEnd = arrayMipUpdateRange.y;
@@ -296,6 +290,7 @@ void vhCmdBackendState::BE_UpdateTexture( vhBackendTexture& btex, const vhMem* d
     {
         vhProfile( "BE_UpdateTexture_Write", true );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
 
         for ( int32_t layer = layerStart; layer < layerEnd; ++layer )
         {
@@ -342,10 +337,10 @@ void vhCmdBackendState::BE_BlitTexture( vhBackendTexture& bdst, vhBackendTexture
     vhProfile( "BE_BlitTexture_SliceSetup", false );
 
     // Acquire command list and execute copy
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         vhProfile( "BE_BlitTexture_Execute", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdlist->copyTexture( bdst.handle, dstSlice, bsrc.handle, srcSlice );
         vhProfile( "BE_BlitTexture_Execute", false );
     }
@@ -487,10 +482,13 @@ void vhCmdBackendState::BE_ResizeBuffer( vhBackendBuffer& bbuf, uint64_t size )
         return;
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
-    vhProfile( "BE_ResizeBuffer_Copy", true );
-    cmdlist->copyBuffer( bbuf.handle, 0, oldHandle, 0, glm::min( bbuf.desc.byteSize, oldSize ) );
-    vhProfile( "BE_ResizeBuffer_Copy", false );
+    {
+        vhProfile( "BE_ResizeBuffer_Copy", true );
+        std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        cmdlist->copyBuffer( bbuf.handle, 0, oldHandle, 0, glm::min( bbuf.desc.byteSize, oldSize ) );
+        vhProfile( "BE_ResizeBuffer_Copy", false );
+    }
 }
 
 void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset, const vhMem* data )
@@ -512,10 +510,10 @@ void vhCmdBackendState::BE_UpdateBuffer( vhBackendBuffer& bbuf, uint64_t offset,
         vhProfile( "BE_UpdateBuffer_ResizeCheck", false );
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         vhProfile( "BE_UpdateBuffer_Write", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         vhWithPaddedBuffer4( data, size, [&]( const void* p )
         {
             cmdlist->writeBuffer( bbuf.handle, p, size, offset );
@@ -1643,7 +1641,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
 }
 
 bool vhCmdBackendState::BE_PreSubmitCommon_State(
-    nvrhi::CommandListHandle cmdList,
     vhState& state,
     vhBackendShader* const* shaders,
     int shaderCount,
@@ -2076,22 +2073,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             return false;
     }
 
-    if ( rtState )
-    {
-        if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
-        {
-            for ( auto* shader : s_resolveCache.bshaders )
-            {
-                if ( !shader->pushConstants.empty() )
-                {
-                    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-                    vhSetPushConstant_DeviceStateLocked( cmdList, state, vhPushConstantSize( shader->pushConstants ) );
-                    break;
-                }
-            }
-        }
-        state.dirty = 0;
-    }
     return true;
 }
 
@@ -2100,7 +2081,6 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
 
-    s_lastGfxStateApplied = nullptr;
 
     vhBackendShader* shaderPtr = &computeShader;
     vhResetComputePipelineDesc( s_dispatchDesc );
@@ -2125,11 +2105,10 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
         }
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     s_dispatchCState.setPipeline( pso.Get() );
     {
         VRHI_PROFILE_SCOPE( "BE_Dispatch_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
+        if ( !BE_PreSubmitCommon_State( state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
         {
             VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
             return;
@@ -2138,6 +2117,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdlist->setComputeState( s_dispatchCState );
         
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
@@ -2160,7 +2140,6 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     assert( computeShader.handle );
     assert( indirectBuffer.handle );
 
-    s_lastGfxStateApplied = nullptr;
 
     {
         VRHI_PROFILE_SCOPE( "BE_DispatchIndirect_Validation" );
@@ -2194,12 +2173,10 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
         }
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
-
     s_dispatchCState.setPipeline( pso.Get() );
     {
         VRHI_PROFILE_SCOPE( "BE_DispatchIndirect_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( cmdlist, state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
+        if ( !BE_PreSubmitCommon_State( state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
         {
             VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
             return;
@@ -2212,6 +2189,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
 
     {
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdlist->setComputeState( s_dispatchCState );
         
         if ( ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) ) && !computeShader.pushConstants.empty() )
@@ -2289,35 +2267,20 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
     }
 
     s_submitGState.setPipeline( pso.Get() );
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         VRHI_PROFILE_SCOPE( "BE_Submit_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( cmdlist, state, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
+        if ( !BE_PreSubmitCommon_State( state, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
         {
             VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
-            s_lastGfxStateApplied = nullptr;
-            return;
+                    return;
         }
     }
 
-    const bool gfxStateChanged = s_lastGfxStateApplied != &state
-        || s_lastGfxResourceVersionApplied != s_globalResourceVersion
-        || s_lastGfxPipelineVersionApplied != s_globalPipelineVersion
-        || s_lastGfxUserGlobalsKeyApplied != s_bsetCacheUserGlobalsKey
-        || s_lastGfxCmdlistApplied != cmdlist.Get()
-        || state.dirty != 0;
-
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        if ( gfxStateChanged )
-        {
-            cmdlist->setGraphicsState( s_submitGState );
-            s_lastGfxStateApplied = &state;
-            s_lastGfxResourceVersionApplied = s_globalResourceVersion;
-            s_lastGfxPipelineVersionApplied = s_globalPipelineVersion;
-            s_lastGfxUserGlobalsKeyApplied = s_bsetCacheUserGlobalsKey;
-            s_lastGfxCmdlistApplied = cmdlist.Get();
-        }
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        // Always re-bind graphics state; the cmdlist pointer is persistent across flushes.
+        cmdlist->setGraphicsState( s_submitGState );
 
         if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
         {
@@ -2372,10 +2335,10 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
     assert( dstOffset + size <= dst.desc.byteSize );
     assert( srcOffset + size <= src.desc.byteSize );
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         vhProfile( "BE_BlitBuffer_Execute", true );
         std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdlist->copyBuffer( dst.handle, dstOffset, src.handle, srcOffset, size );
         vhProfile( "BE_BlitBuffer_Execute", false );
     }
@@ -2384,7 +2347,6 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
 void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args )
 {
     VRHI_PROFILE_FUNCTION();
-    s_lastGfxStateApplied = nullptr;
     vhBackendShader* rtShaders[VRHI_SHADER_STAGE_MAX];
     int rtShaderCount = 0;
     vhProfile( "BE_DispatchRays_ShaderSetup", true );
@@ -2402,11 +2364,9 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
     nvrhi::rt::State rtState;
     rtState.shaderTable = shaderTable.handle;
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
-
     {
         VRHI_PROFILE_SCOPE( "BE_DispatchRays_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( cmdlist, state, rtShaders, rtShaderCount, nullptr, nullptr, &rtState, &pipeline.desc.globalBindingLayouts ) )
+        if ( !BE_PreSubmitCommon_State( state, rtShaders, rtShaderCount, nullptr, nullptr, &rtState, &pipeline.desc.globalBindingLayouts ) )
         {
             VRHI_ERR( "BE_DispatchRays(): Failed to set RT state.\n" );
             return;
@@ -2415,7 +2375,22 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdlist->setRayTracingState( rtState );
+        if ( ( state.dirty & VRHI_DIRTY_PUSH_CONSTANTS ) || ( state.dirty & VRHI_DIRTY_WORLD ) )
+        {
+            vhProfile( "BE_DispatchRays_PushConstants", true );
+            for ( auto* shader : s_resolveCache.bshaders )
+            {
+                if ( !shader->pushConstants.empty() )
+                {
+                    vhSetPushConstant_DeviceStateLocked( cmdlist, state, vhPushConstantSize( shader->pushConstants ) );
+                    break;
+                }
+            }
+            vhProfile( "BE_DispatchRays_PushConstants", false );
+        }
+        state.dirty = 0;
         vhProfile( "BE_DispatchRays_Execute", true );
         cmdlist->dispatchRays( args );
         vhProfile( "BE_DispatchRays_Execute", false );
@@ -2517,11 +2492,6 @@ void vhCmdBackendState::shutdown()
     s_submitPSOCacheVersion = 0;
     s_submitPSOCachePSO = nullptr;
     s_submitPSOCacheFB = nullptr;
-    s_lastGfxStateApplied = nullptr;
-    s_lastGfxResourceVersionApplied = 0;
-    s_lastGfxPipelineVersionApplied = 0;
-    s_lastGfxUserGlobalsKeyApplied = 0;
-    s_lastGfxCmdlistApplied = nullptr;
     s_slotToReflection.clear();
     s_layoutLocationTable.clear();
     s_attributes.clear();
@@ -2603,9 +2573,9 @@ void vhCmdBackendState::Handle_vhBeginTimerQuery( VIDL_vhBeginTimerQuery* cmd )
     int currentIdx = timerQuery.currentFrameIndex;
 
     // Begin timing on current frame's query handle
-    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdList->beginTimerQuery( timerQuery.handles[currentIdx] );
     }
 }
@@ -2625,9 +2595,9 @@ void vhCmdBackendState::Handle_vhEndTimerQuery( VIDL_vhEndTimerQuery* cmd )
     int currentIdx = timerQuery.currentFrameIndex;
 
     // End timing on current frame's query handle
-    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdList->endTimerQuery( timerQuery.handles[currentIdx] );
     }
 
@@ -2649,10 +2619,10 @@ void vhCmdBackendState::Handle_vhEndTimerQuery( VIDL_vhEndTimerQuery* cmd )
 void vhCmdBackendState::Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    auto cmdList = vhCmdListGet();
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    auto cmdList = vhCmdListGet_DeviceStateLocked();
     if ( cmdList )
     {
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         cmdList->beginMarker( cmd->name.c_str() );
     }
 }
@@ -2660,10 +2630,10 @@ void vhCmdBackendState::Handle_vhBeginMarker( VIDL_vhBeginMarker* cmd )
 void vhCmdBackendState::Handle_vhEndMarker( VIDL_vhEndMarker* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    auto cmdList = vhCmdListGet();
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    auto cmdList = vhCmdListGet_DeviceStateLocked();
     if ( cmdList )
     {
-        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         cmdList->endMarker();
     }
 }
@@ -3588,11 +3558,6 @@ void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
 
 void vhCmdBackendState::BE_InvalidateGfxCache()
 {
-    s_lastGfxStateApplied = nullptr;
-    s_lastGfxResourceVersionApplied = 0;
-    s_lastGfxPipelineVersionApplied = 0;
-    s_lastGfxUserGlobalsKeyApplied = 0;
-    s_lastGfxCmdlistApplied = nullptr;
 }
 
 void vhCmdBackendState::BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist )
@@ -3621,9 +3586,9 @@ void vhCmdBackendState::Handle_vhBuildBLAS( VIDL_vhBuildBLAS* cmd )
         return;
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         BE_EndRenderPassBeforeAS( cmdlist );
         cmdlist->buildBottomLevelAccelStruct( backend->handle, cmd->geometries.data(), cmd->geometries.size(), backend->desc.buildFlags );
     }
@@ -3698,9 +3663,9 @@ void vhCmdBackendState::Handle_vhBuildIndexedTriangleBLAS( VIDL_vhBuildIndexedTr
     geo.geometryData.triangles.indexCount   = indexCount;
     geo.flags = cmd->flags;
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         BE_EndRenderPassBeforeAS( cmdlist );
         cmdlist->buildBottomLevelAccelStruct( backend->handle, &geo, 1, backend->desc.buildFlags );
     }
@@ -3724,9 +3689,9 @@ void vhCmdBackendState::Handle_vhBuildTLAS( VIDL_vhBuildTLAS* cmd )
         return;
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         BE_EndRenderPassBeforeAS( cmdlist );
         nvrhi::rt::AccelStructBuildFlags flags = backend->desc.buildFlags | cmd->buildFlags;
         cmdlist->buildTopLevelAccelStruct( backend->handle, cmd->instances.data(), cmd->instances.size(), flags );
@@ -3738,9 +3703,9 @@ void vhCmdBackendState::Handle_vhCompactBLAS( VIDL_vhCompactBLAS* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdlist->compactBottomLevelAccelStructs();
     }
 }
@@ -3770,9 +3735,9 @@ void vhCmdBackendState::Handle_vhBuildTLASFromBuffer( VIDL_vhBuildTLASFromBuffer
         return;
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         BE_EndRenderPassBeforeAS( cmdlist );
         cmdlist->buildTopLevelAccelStructFromBuffer( backend->handle, bufIt->second->handle.Get(), 0, cmd->numInstances, backend->desc.buildFlags );
     }
@@ -3782,8 +3747,8 @@ void vhCmdBackendState::Handle_vhExecuteNative( VIDL_vhExecuteNative* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
 
     for ( uint32_t i = 0; i < cmd->resources.size(); i++ )
     {
@@ -3989,8 +3954,8 @@ void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescrip
         }
     }
 
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
     bool writeOk = g_vhDevice->writeDescriptorTable( backend->handle, item );
     if ( !writeOk )
     {
@@ -4626,8 +4591,7 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
         m_userUniformBuffer.Unmap_DeviceStateLocked();
         m_userUniformBuffer.Step();
         for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
-        s_lastGfxStateApplied = nullptr;
-
+    
         // Submit pending command lists.
         vhCmdListFlushAll_DeviceStateLocked();
 
@@ -4872,9 +4836,9 @@ void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
     }
 
     // Clear Color Attachments
-    auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
 
             if ( ( cmd->clearFlags & VRHI_CLEAR_COLOR ) && ( cmd->clearFlags & VRHI_CLEAR_UINT ) )
             {

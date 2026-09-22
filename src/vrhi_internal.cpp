@@ -181,9 +181,9 @@ bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count] = { false, false, 
 uint64_t g_vhCmdListTransferSizeHeuristic = 0;
 
 // Persistent: handle is created once and re-opened after each execute to keep the upload pool alive.
-nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
+// WARNING: Lock g_nvRHIStateMutex before calling this.
+nvrhi::CommandListHandle vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue type )
 {
-    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
     auto typeIdx = ( uint64_t ) type;
     if ( !g_vhCmdLists[typeIdx] )
     {
@@ -196,6 +196,12 @@ nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
         g_vhCmdListOpen[typeIdx] = true;
     }
     return g_vhCmdLists[typeIdx];
+}
+
+nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type )
+{
+    std::lock_guard<std::mutex> lock( g_nvRHIStateMutex );
+    return vhCmdListGet_DeviceStateLocked( type );
 }
 
 // Returns the instance ID of the executed command list.
@@ -257,10 +263,9 @@ int g_vhFramesInFlight = 2;
 std::vector< VkSemaphore > g_vhPendingWaitSemaphores[3]; // Indexed by nvrhi::CommandQueue
 std::vector< VkSemaphore > g_vhPendingSignalSemaphores[3];
 
-uint64_t vhCmdListFlush( nvrhi::CommandQueue type )
+// WARNING: Lock g_nvRHIStateMutex before calling this.
+uint64_t vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue type )
 {
-    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-
     vhProfile( "vhFlush", true );
 
     // Both queues depend on copy; flush copy first
@@ -284,6 +289,12 @@ uint64_t vhCmdListFlush( nvrhi::CommandQueue type )
 
     vhProfile( "vhFlush", false );
     return instance;
+}
+
+uint64_t vhCmdListFlush( nvrhi::CommandQueue type )
+{
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    return vhCmdListFlush_DeviceStateLocked( type );
 }
 
 void vhCmdListFlushTransferIfNeeded()

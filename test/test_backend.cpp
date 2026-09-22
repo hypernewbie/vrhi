@@ -93,11 +93,10 @@ public:
         vhBackendShader* const* shaders,
         int shaderCount,
         nvrhi::ComputeState* compute,
-        nvrhi::GraphicsState* graphics,
-        nvrhi::CommandListHandle cmdList = nullptr
+        nvrhi::GraphicsState* graphics
     )
     {
-        return Get().BE_PreSubmitCommon_State( cmdList, state, shaders, shaderCount, compute, graphics );
+        return Get().BE_PreSubmitCommon_State( state, shaders, shaderCount, compute, graphics );
     }
 
     static void PreSubmitCommon_ResolveStateCache(
@@ -940,10 +939,10 @@ UTEST( Backend, Util_WriteGlobalUniform )
     EXPECT_NE( stagingBuffer, nullptr );
 
     // Copy from Transient Buffer (at offset3) to Staging Buffer
-    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     {
-         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-         cmdList->copyBuffer( stagingBuffer, 0, tb.handle[tb.frameIdx], offset3, sizeof( vhGlobalUniform ) );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        cmdList->copyBuffer( stagingBuffer, 0, tb.handle[tb.frameIdx], offset3, sizeof( vhGlobalUniform ) );
     }
 
     // Flush and Wait — use vhFinish to keep all NVRHI calls on the backend thread.
@@ -1253,8 +1252,8 @@ UTEST( Backend, PushConstantsDirtyBit )
     vhState state;
     vhGetState( sid, state );
     {
-        auto cmdlist = vhCmdListGet( nvrhi::CommandQueue::Graphics );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         vhSetPushConstant_DeviceStateLocked( cmdlist, state );
     }
     vhFinish();

@@ -1687,10 +1687,10 @@ bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstan
     if ( sc.isHeadless || sc.isMinimized || sc.swapchain == VK_NULL_HANDLE )
         return true;
 
-    auto cmdList = vhCmdListGet( nvrhi::CommandQueue::Graphics );
     nvrhi::vulkan::IDevice* nvrhiDevice = g_vhVulkanDevice;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         if ( !sc.nvrhiHandles.empty() && sc.currentSwapchainIndex < sc.nvrhiHandles.size() )
         {
             cmdList->setTextureState( sc.nvrhiHandles[sc.currentSwapchainIndex], nvrhi::AllSubresources, nvrhi::ResourceStates::Present );
@@ -1698,9 +1698,10 @@ bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstan
         }
         nvrhiDevice->queueWaitForSemaphore( nvrhi::CommandQueue::Graphics, sc.acquireSemaphores[sc.acquireSemaphoreIndex], 0 );
         nvrhiDevice->queueSignalSemaphore( nvrhi::CommandQueue::Graphics, sc.presentSemaphores[sc.currentSwapchainIndex], 0 );
+        // Flush under the same lock so backend work cannot land in the submission between
+        // the present barrier and the execution.
+        outInstance = vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
     }
-
-    outInstance = vhCmdListFlush( nvrhi::CommandQueue::Graphics );
     sc.acquireInstances[sc.acquireSemaphoreIndex] = outInstance;
 
     VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };

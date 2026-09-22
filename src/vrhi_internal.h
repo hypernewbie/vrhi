@@ -574,7 +574,9 @@ glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
 extern nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count];
 extern bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count];
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
+nvrhi::CommandListHandle vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 uint64_t vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
+uint64_t vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 // Shutdown only. Lock g_nvRHIStateMutex; backend thread must be joined first.
 void vhCmdListReleaseAll_DeviceStateLocked();
 
