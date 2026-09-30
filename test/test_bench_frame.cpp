@@ -22,11 +22,13 @@
 // Mixed depth/lit/sprite/UI/compute frame benchmark with changing globals
 // and a backend drain per frame.
 // Set VRHI_BENCH_FRAMES and VRHI_BENCH_GC_INTERVAL to adjust the run.
+// Set VRHI_BENCH_HEAVY=1 to enable the 500/1000-draw benchmarks.
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -344,12 +346,18 @@ static vhTexture FrameMakeTex( int w, int h, nvrhi::Format fmt, uint64_t flags =
     return t;
 }
 
-static vhBuffer FrameMakeVB( int numVerts )
+static vhBuffer FrameMakeVB( int numVerts, bool rasterize = false )
 {
     vhBuffer b = vhAllocBuffer();
     struct V { glm::vec3 p; glm::vec4 c; };
     vhMem* mem = vhAllocMem( numVerts * sizeof( V ) );
     memset( mem->data(), 0, mem->size() );
+    if ( rasterize )
+    {
+        V vertices[4] = { { { -1, -1, 0.5f }, glm::vec4( 1 ) }, { { 1, -1, 0.5f }, glm::vec4( 1 ) },
+                          { { -1, 1, 0.5f }, glm::vec4( 1 ) }, { { 1, 1, 0.5f }, glm::vec4( 1 ) } };
+        memcpy( mem->data(), vertices, sizeof( vertices ) );
+    }
     vhCreateVertexBuffer( b, "BenchVB", mem, "float3 float4", numVerts );
     return b;
 }
@@ -373,6 +381,8 @@ struct FrameWorkload
     int uiDraws = 12;         // HUD elements
     int computeWaveA = 8;     // depthmips/gtao/sunshadow/lighttile/spotshadow
     int computeWaveB = 9;     // autoexposure/veil/lensflare/tonemapLUT
+    float worldRange = 64.0f;
+    uint64_t litFlags = VRHI_STATE_WRITE_MASK | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE;
 };
 
 struct FrameResources
@@ -397,20 +407,34 @@ struct FrameResources
     // Reused per-pass state objects.
     vhState stDepth, stLit, stSprite, stUI, stCompute;
 
-    bool Init();
+    glm::ivec2 resolution = glm::ivec2( 64 );
+    glm::uvec3 computeGroups = glm::uvec3( 8, 8, 1 );
+
+    bool Init( bool heavy = false );
     void Shutdown();
 };
 
-bool FrameResources::Init()
+bool FrameResources::Init( bool heavy )
 {
-    rt = FrameMakeTex( 64, 64, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
-    ds = FrameMakeTex( 64, 64, nvrhi::Format::D32, VRHI_TEXTURE_RT );
-    vb = FrameMakeVB( 4 );
+    if ( heavy )
+    {
+        resolution = glm::ivec2( 960, 1280 );
+        computeGroups = glm::uvec3( resolution.x / 8, resolution.y / 8, 1 );
+    }
+    rt = FrameMakeTex( resolution.x, resolution.y, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    ds = FrameMakeTex( resolution.x, resolution.y, nvrhi::Format::D32, VRHI_TEXTURE_RT );
+    vb = FrameMakeVB( 4, heavy );
     spriteVB = vhAllocBuffer();
     {
         struct V { glm::vec3 p; glm::vec2 uv; };
         vhMem* mem = vhAllocMem( 4 * sizeof( V ) );
         memset( mem->data(), 0, mem->size() );
+        if ( heavy )
+        {
+            V vertices[4] = { { { -0.03f, -0.03f, 0 }, { 0, 0 } }, { { 0.03f, -0.03f, 0 }, { 1, 0 } },
+                              { { -0.03f, 0.03f, 0 }, { 0, 1 } }, { { 0.03f, 0.03f, 0 }, { 1, 1 } } };
+            memcpy( mem->data(), vertices, sizeof( vertices ) );
+        }
         vhCreateVertexBuffer( spriteVB, "BenchSpriteVB", mem, "float3 float2", 4 );
     }
     ib = vhAllocBuffer();
@@ -436,8 +460,23 @@ bool FrameResources::Init()
     for ( int i = 1; i < 7; i++ ) lightingTex[i] = FrameMakeTex( 16, 16, nvrhi::Format::RGBA8_UNORM );
     for ( int i = 0; i < 8; i++ ) atlasTex[i] = FrameMakeTex( 64, 64, nvrhi::Format::RGBA8_UNORM );
     for ( int i = 0; i < 4; i++ ) glyphTex[i] = FrameMakeTex( 32, 32, nvrhi::Format::RGBA8_UNORM );
-    computeIn = FrameMakeTex( 16, 16, nvrhi::Format::RGBA8_UNORM );
-    computeOut = FrameMakeTex( 16, 16, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    glm::ivec2 computeSize = heavy ? resolution : glm::ivec2( 16 );
+    computeIn = FrameMakeTex( computeSize.x, computeSize.y, nvrhi::Format::RGBA8_UNORM );
+    computeOut = FrameMakeTex( computeSize.x, computeSize.y, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    if ( heavy )
+    {
+        auto fill = []( vhTexture texture, int bytes, int value )
+        {
+            vhMem* mem = vhAllocMem( bytes );
+            memset( mem->data(), value, bytes );
+            vhUpdateTexture( texture, 0, 0, 1, 1, mem );
+        };
+        fill( lightingTex[0], 16 * 16 * 2, 0 );
+        for ( int i = 1; i < 7; i++ ) fill( lightingTex[i], 16 * 16 * 4, 255 );
+        for ( int i = 0; i < 8; i++ ) fill( atlasTex[i], 64 * 64 * 4, 255 );
+        for ( int i = 0; i < 4; i++ ) fill( glyphTex[i], 32 * 32 * 4, 255 );
+        fill( computeIn, computeSize.x * computeSize.y * 4, 64 );
+    }
     vhFinish();
 
     bindlessTable = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 64 );
@@ -490,6 +529,15 @@ bool FrameResources::Init()
 
     stCompute.SetProgram( progCB ); // placeholder; program swapped per dispatch below
 
+    if ( heavy )
+    {
+        glm::vec4 rect( 0, 0, resolution.x, resolution.y );
+        stDepth.SetViewRect( rect ).SetStateFlags( VRHI_STATE_WRITE_Z | VRHI_STATE_CULL_NONE | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE );
+        stLit.SetViewRect( rect );
+        stSprite.SetViewRect( rect );
+        stUI.SetViewRect( rect );
+        stCompute.SetViewRect( rect );
+    }
     return true;
 }
 
@@ -511,9 +559,9 @@ void FrameResources::Shutdown()
 }
 
 // View/global uniforms for the benchmark's lit, compute and UI passes.
-static void FrameSetGlobalUniforms( vhState& s, uint32_t frame )
+static void FrameSetGlobalUniforms( vhState& s, uint32_t frame, glm::ivec2 resolution )
 {
-    glm::vec4 viewportU( 64, 64, 1.0f / 64, 1.0f / 64 );
+    glm::vec4 viewportU( resolution.x, resolution.y, 1.0f / resolution.x, 1.0f / resolution.y );
     glm::vec4 camPos( 0, 0, -3, 1 );
     glm::mat4 invViewProj( 1.0f );
     glm::mat4 prevViewProj( 1.0f );
@@ -587,8 +635,8 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
     {
         float a = rng.Next01() * 6.2831f;
         glm::mat4 m( 1.0f );
-        m[3][0] = rng.Next01() * 64.0f;
-        m[3][1] = rng.Next01() * 64.0f;
+        m[3][0] = rng.Next01() * W.worldRange;
+        m[3][1] = rng.Next01() * W.worldRange;
         m[0][0] = cosf( a ); m[0][1] = sinf( a ); m[1][0] = -sinf( a ); m[1][1] = cosf( a );
         R.stDepth.SetWorldTransform( m );
         vhSetState( SID_DEPTH, R.stDepth );
@@ -601,17 +649,17 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
         R.stCompute.ClearAllBindings().SetProgram( ( i % 3 ) == 0 ? R.progCA : ( ( i % 3 ) == 1 ? R.progCB : R.progCC ) )
             .SetTexture( 0, R.computeIn, -1, "g_In" )
             .SetTexture( 1, R.computeOut, -1, "g_Out", true );
-        FrameSetGlobalUniforms( R.stCompute, frame );
+        FrameSetGlobalUniforms( R.stCompute, frame, R.resolution );
         glm::vec4 p0( rng.Next01(), rng.Next01(), rng.Next01(), rng.Next01() );
         glm::vec4 p1( rng.Next01(), 0, 0, 0 );
-        glm::vec4 p2( 8, 8, 0, 0 );
+        glm::vec4 p2( R.computeGroups.x, R.computeGroups.y, 0, 0 );
         glm::vec4 p3( float( frame ), 0, 0, 0 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params0", &p0 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params1", &p1 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params2", &p2 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params3", &p3 );
         vhSetState( SID_COMPUTE, R.stCompute );
-        vhDispatch( SID_COMPUTE, glm::uvec3( 8, 8, 1 ) );
+        vhDispatch( SID_COMPUTE, R.computeGroups );
     }
 
     // Lit pass batches.
@@ -620,7 +668,7 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
         auto& s = R.stLit;
         s.ClearAllBindings()
             .SetVertexBuffer( R.vb, 0 ).SetIndexBuffer( R.ib )
-            .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE )
+            .SetStateFlags( W.litFlags )
             .SetProgram( R.progLit )
             .SetBuffer( 0, R.lightsUB, -1, "lights" )
             .SetTexture( 1, R.lightingTex[0], -1, "visLightTile" )
@@ -636,7 +684,7 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
             .SetTexture( 6, R.lightingTex[5], -1, "gtaoTexture" )
             .SetSampler( 5, VRHI_SAMPLER_UVW_CLAMP, -1, "gtaoTexture_sampler" )
             .SetDescriptorTable( 0, R.bindlessTable );
-        FrameSetGlobalUniforms( s, frame );
+        FrameSetGlobalUniforms( s, frame, R.resolution );
         FrameSetMaterialUniforms( s, rng, b );
         vhSetState( SID_LIT, s );
         vhDrawIndexed( SID_LIT, 6, 1 + ( b % 32 ), 0, 0, 0 );
@@ -646,8 +694,8 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
     for ( int i = 0; i < W.litSingles; i++ )
     {
         glm::mat4 m( 1.0f );
-        m[3][0] = rng.Next01() * 64.0f;
-        m[3][1] = rng.Next01() * 64.0f;
+        m[3][0] = rng.Next01() * W.worldRange;
+        m[3][1] = rng.Next01() * W.worldRange;
         R.stLit.SetWorldTransform( m );
         vhSetState( SID_LIT, R.stLit );
         vhDrawIndexed( SID_LIT, 6, 1, 0, 0, 0 );
@@ -685,17 +733,17 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
         R.stCompute.ClearAllBindings().SetProgram( ( i % 3 ) == 0 ? R.progCB : ( ( i % 3 ) == 1 ? R.progCC : R.progCA ) )
             .SetTexture( 0, R.computeIn, -1, "g_In" )
             .SetTexture( 1, R.computeOut, -1, "g_Out", true );
-        FrameSetGlobalUniforms( R.stCompute, frame );
+        FrameSetGlobalUniforms( R.stCompute, frame, R.resolution );
         glm::vec4 p0( rng.Next01(), rng.Next01(), rng.Next01(), rng.Next01() );
         glm::vec4 p1( rng.Next01(), 0, 0, 0 );
-        glm::vec4 p2( 8, 8, 0, 0 );
+        glm::vec4 p2( R.computeGroups.x, R.computeGroups.y, 0, 0 );
         glm::vec4 p3( float( frame ), 0, 0, 0 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params0", &p0 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params1", &p1 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params2", &p2 );
         R.stCompute.SetUniform( R.stCompute.uniforms.size(), "u_params3", &p3 );
         vhSetState( SID_COMPUTE, R.stCompute );
-        vhDispatch( SID_COMPUTE, glm::uvec3( 8, 8, 1 ) );
+        vhDispatch( SID_COMPUTE, R.computeGroups );
     }
 
     // UI draws.
@@ -712,7 +760,7 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
         glm::vec4 uvScroll( rng.Next01() * 0.05f, 0, 0, 0 );
         s.SetUniform( s.uniforms.size(), "u_uiColourMul", &colourMul );
         s.SetUniform( s.uniforms.size(), "u_uiUVScroll", &uvScroll );
-        FrameSetGlobalUniforms( s, frame );
+        FrameSetGlobalUniforms( s, frame, R.resolution );
         vhSetState( SID_UI, s );
         vhDrawIndexed( SID_UI, 6, 1, 0, 0, 0 );
     }
@@ -842,4 +890,86 @@ UTEST_F( FrameBench, Bench_Frame_GCInterval )
     FramePrint( label, tWhole, totalDraws, W.computeWaveA + W.computeWaveB );
 
     R.Shutdown();
+}
+
+static bool RunHeavyFrameBench( const char* label, int scale )
+{
+    FrameResources R;
+    if ( !R.Init( true ) ) return false;
+
+    FrameWorkload W;
+    W.worldRange = 0.5f;
+    W.litFlags = VRHI_STATE_WRITE_MASK | VRHI_STATE_DEPTH_TEST_LEQUAL | VRHI_STATE_DEPTH_TEST_ENABLE;
+    W.depthDraws = 200 * scale;
+    W.litBatches = 200 * scale;
+    W.litSingles = 60 * scale;
+    W.spriteBatches = 12 * scale;
+    W.uiDraws = 28 * scale;
+    const vhStateId sidBase = 85000;
+    const int totalDraws = W.depthDraws + W.litBatches + W.litSingles + W.spriteBatches + W.uiDraws;
+
+    for ( int f = 0; f < 32; f++ ) { RunFrameBench( R, W, f, sidBase ); vhFlush( true ); }
+
+    FrameTimer tWhole, tEnqueue, tDrain, tCPU;
+    for ( int f = 0; f < g_frameBenchConfig.frames; f++ )
+    {
+        tWhole.Begin();
+        std::clock_t cpuStart = std::clock();
+        tEnqueue.Begin();
+        RunFrameBench( R, W, f, sidBase );
+        tEnqueue.Sample();
+        vhFlush( true );
+        tWhole.Sample();
+        tCPU.samples.push_back( double( std::clock() - cpuStart ) * 1000.0 / CLOCKS_PER_SEC );
+    }
+    tDrain.Begin();
+    vhFinish();
+    tDrain.Sample();
+
+    UTEST_PRINTF( "[VRHI_BENCH] %s_CPU avg=%.0f p50=%.0f p95=%.0f p99=%.0f max=%.0f us | per_draw=%.2f us\n",
+        label, tCPU.Mean() * 1000, tCPU.Percentile( 50 ) * 1000, tCPU.Percentile( 95 ) * 1000,
+        tCPU.Percentile( 99 ) * 1000, tCPU.Percentile( 100 ) * 1000, tCPU.Mean() * 1000 / totalDraws );
+    UTEST_PRINTF( "[VRHI_BENCH] %s_Whole target=%dx%d frames=%d draws=%d dispatches=%d | avg=%.0f p50=%.0f p95=%.0f p99=%.0f max=%.0f us\n",
+        label, R.resolution.x, R.resolution.y, g_frameBenchConfig.frames, totalDraws, W.computeWaveA + W.computeWaveB,
+        tWhole.Mean() * 1000, tWhole.Percentile( 50 ) * 1000, tWhole.Percentile( 95 ) * 1000,
+        tWhole.Percentile( 99 ) * 1000, tWhole.Percentile( 100 ) * 1000 );
+    UTEST_PRINTF( "[VRHI_BENCH] %s enqueue_avg=%.0f us finish_after_samples=%.0f us\n",
+        label, tEnqueue.Mean() * 1000, tDrain.Mean() * 1000 );
+
+    vhMem colour, compute;
+    vhReadTextureSlow( R.rt, 0, 0, &colour );
+    vhReadTextureSlow( R.computeOut, 0, 0, &compute );
+    vhFinish();
+    const size_t centre = ( size_t( R.resolution.y / 2 ) * R.resolution.x + R.resolution.x / 2 ) * 4;
+    const size_t bytes = size_t( R.resolution.x ) * R.resolution.y * 4;
+    R.Shutdown();
+    if ( colour.size() != bytes || compute.size() != bytes ) return false;
+    auto checksum = []( const vhMem& mem )
+    {
+        uint64_t hash = 14695981039346656037ULL;
+        for ( size_t i = 0; i < mem.size(); i++ ) hash = ( hash ^ mem.data()[i] ) * 1099511628211ULL;
+        return hash;
+    };
+    vhPerfCheck( false );
+    UTEST_PRINTF( "[VRHI_BENCH] %s pixels colour=%llu compute=%llu centre=%u,%u,%u / %u\n",
+        label, (unsigned long long) checksum( colour ), (unsigned long long) checksum( compute ),
+        (unsigned) colour.data()[centre], (unsigned) colour.data()[centre + 1],
+        (unsigned) colour.data()[centre + 2], (unsigned) compute.data()[centre] );
+    return int( colour.data()[centre] ) + int( colour.data()[centre + 1] ) + int( colour.data()[centre + 2] ) > 0 && compute.data()[centre] > 0;
+}
+
+UTEST_F( FrameBench, Bench_Frame_Heavy_500 )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Frame benchmark needs a real device" ); }
+    const char* heavy = getenv( "VRHI_BENCH_HEAVY" );
+    if ( !heavy || atoi( heavy ) != 1 ) { UTEST_SKIP( "set VRHI_BENCH_HEAVY=1 to run the 500/1000-draw benchmarks" ); }
+    ASSERT_TRUE( RunHeavyFrameBench( "Frame_Heavy_500", 1 ) );
+}
+
+UTEST_F( FrameBench, Bench_Frame_Heavy_1000 )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Frame benchmark needs a real device" ); }
+    const char* heavy = getenv( "VRHI_BENCH_HEAVY" );
+    if ( !heavy || atoi( heavy ) != 1 ) { UTEST_SKIP( "set VRHI_BENCH_HEAVY=1 to run the 500/1000-draw benchmarks" ); }
+    ASSERT_TRUE( RunHeavyFrameBench( "Frame_Heavy_1000", 2 ) );
 }
