@@ -2706,6 +2706,7 @@ void vhCmdBackendState::Handle_vhDestroyTexture( VIDL_vhDestroyTexture* cmd )
     // Destroy texture by releasing our reference. NVRHI handles GPU destruction safety.
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhBindingSetCacheClear_DeviceStateLocked();
         backendTextures.erase( cmd->texture );
     }
 }
@@ -3389,6 +3390,7 @@ void vhCmdBackendState::Handle_vhDestroyBuffer( VIDL_vhDestroyBuffer* cmd )
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhBindingSetCacheClear_DeviceStateLocked();
         backendBuffers.erase( cmd->buffer );
     }
 }
@@ -3481,6 +3483,7 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
         {
             std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
             backendShader->layout = g_vhDevice->createBindingLayout( layoutDesc );
+            if ( backendShaders.find( cmd->shader ) != backendShaders.end() ) vhBindingSetCacheClear_DeviceStateLocked();
             backendShaders[cmd->shader] = nullptr;
         }
         assert( backendShader->layout );
@@ -3512,6 +3515,7 @@ void vhCmdBackendState::Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd )
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhBindingSetCacheClear_DeviceStateLocked();
         backendShaders.erase( cmd->shader );
     }
 }
@@ -3554,6 +3558,7 @@ void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
 
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhBindingSetCacheClear_DeviceStateLocked();
         backendAccelStructs.erase( cmd->as );
     }
 }
@@ -4613,7 +4618,7 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
         if ( cmd->waitForGPU || ( m_flushCounter % gcInterval ) == 0 )
         {
             vhProfile( "Handle_vhFlushInternal_GC", true );
-            vhBindingSetCacheClear_DeviceStateLocked();
+            if ( cmd->waitForGPU ) vhBindingSetCacheClear_DeviceStateLocked();
             g_vhDevice->runGarbageCollection();
             vhProfile( "Handle_vhFlushInternal_GC", false );
         }
