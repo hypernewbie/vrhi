@@ -941,6 +941,7 @@ UTEST( Backend, Util_WriteGlobalUniform )
     // Copy from Transient Buffer (at offset3) to Staging Buffer
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Flush_DeviceStateLocked();
         auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
         cmdList->copyBuffer( stagingBuffer, 0, tb.handle[tb.frameIdx], offset3, sizeof( vhGlobalUniform ) );
     }
@@ -1164,6 +1165,52 @@ UTEST( Backend, VertexIndexBufferBinding )
     vhBindingSetCacheClear();
     vhCmdBackendStateTest::Shutdown();
     vhFinish();
+}
+
+UTEST( Backend, TransientBufferMappedRanges )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errorsBefore = g_vhErrorCounter.load();
+
+    for ( uint32_t bytes : { 256u, 768u, 4096u } )
+    {
+        vhTransientBuffer tb;
+        nvrhi::BufferDesc desc;
+        desc.byteSize = bytes;
+        desc.isConstantBuffer = true;
+        desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+        nvrhi::BufferDesc stagingDesc;
+        stagingDesc.byteSize = 16;
+        stagingDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+        nvrhi::BufferHandle staging;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            tb.Init_DeviceStateLocked( desc );
+            staging = g_vhDevice->createBuffer( stagingDesc );
+        }
+        ASSERT_NE( staging, nullptr );
+        const uint32_t expected[4] = { bytes, 17, 31, 47 };
+        ASSERT_EQ( tb.Write( expected, sizeof( expected ) ), 0 );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            tb.Flush_DeviceStateLocked();
+            auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            cmdList->copyBuffer( staging, 0, tb.handle[tb.frameIdx], 0, sizeof( expected ) );
+        }
+        vhFinish();
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            void* data = g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+            ASSERT_NE( data, nullptr );
+            EXPECT_EQ( memcmp( data, expected, sizeof( expected ) ), 0 );
+            g_vhDevice->unmapBuffer( staging );
+            tb.Shutdown_DeviceStateLocked();
+            staging = nullptr;
+        }
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errorsBefore );
 }
 
 UTEST( Backend, Util_WriteWorldUniform )

@@ -4584,23 +4584,30 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
         BE_CmdRAII cmdRAII( cmd );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
 
-        // Flush and step transient buffer maps here.
+        // Flush transient buffer maps here.
         // This needs to be done *before* we flush the command lists to GPU!!
 
-        m_globalUniformBuffer.Unmap_DeviceStateLocked();
-        m_globalUniformBuffer.Step();
+        vhTransientBuffer* uniformBuffers[] = { &m_globalUniformBuffer, &m_worldUniformBuffer, &m_userUniformBuffer };
+        for ( auto* buffer : uniformBuffers ) buffer->Flush_DeviceStateLocked();
         m_globalUniformBufferLastHash = 0;
-
-        m_worldUniformBuffer.Unmap_DeviceStateLocked();
-        m_worldUniformBuffer.Step();
         m_worldUniformBufferLastHash = 0;
-
-        m_userUniformBuffer.Unmap_DeviceStateLocked();
-        m_userUniformBuffer.Step();
         for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
     
         // Submit pending command lists.
         vhCmdListFlushAll_DeviceStateLocked();
+
+        // Snapshot queue submission IDs before advancing the uniform rings.
+        for ( auto* buffer : uniformBuffers )
+        {
+            if ( buffer->offset != 0 )
+            {
+                for ( uint32_t i = 0; i < ( uint32_t ) nvrhi::CommandQueue::Count; i++ )
+                {
+                    g_vhDevice->setEventQuery( buffer->fence[buffer->frameIdx][i], ( nvrhi::CommandQueue ) i );
+                }
+            }
+            buffer->Step();
+        }
 
         // Batch-free here so per-command handlers don't pay individual delete cost on the hot path.
         for ( vhMem* m : g_vhMemList ) delete m;
