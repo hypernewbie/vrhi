@@ -3485,6 +3485,8 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
         }
         assert( backendShader->layout );
         backendShaders[cmd->shader] = std::move( backendShader );
+        s_globalResourceVersion++;
+        s_globalPipelineVersion++;
     }
     else
     {
