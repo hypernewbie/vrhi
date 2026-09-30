@@ -3673,6 +3673,66 @@ UTEST_F( Graphics, ComparisonSampler_Shadow )
     vhFinish();
 }
 
+UTEST_F( Graphics, BindingSetCacheShaderReloadSameState )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    vhFinish();
+    const int32_t errorsBefore = g_vhErrorCounter.load();
+
+    const char* greenPS = R"(
+        Texture2D<float4> image : register(t0, VRHI_STAGE_SPACE);
+        [shader("pixel")]
+        float4 main() : SV_Target
+        {
+            return image.Load(int3(0, 0, 0)).grba;
+        }
+    )";
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool compiled = vhCompileShader( "CacheReloadSameStatePS", greenPS, VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if ( !compiled ) { UTEST_PRINTF( "Shader Compile Error: %s\n", error.c_str() ); }
+    ASSERT_TRUE( compiled );
+    vhTexture rt = CreateTestTexture( 16, 16, nvrhi::Format::RGBA8_UNORM );
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    const char* redPS = R"(
+        Texture2D<float4> image : register(t0, VRHI_STAGE_SPACE);
+        [shader("pixel")]
+        float4 main() : SV_Target
+        {
+            return image.Load(int3(0, 0, 0));
+        }
+    )";
+    vhShader ps = CreateTestShader( redPS, VRHI_SHADER_STAGE_PIXEL );
+    uint32_t colour = 0xFF0000FFu;
+    vhMem* texData = vhAllocMem( sizeof( colour ) );
+    memcpy( texData->data(), &colour, sizeof( colour ) );
+    vhTexture image = vhAllocTexture();
+    vhCreateTexture2D( image, "CacheReloadSameStateImage", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, texData );
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+         .SetTexture( 0, { "image", -1, image } )
+         .SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 16, 16 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK );
+    const vhStateId sid = 1802;
+    vhSetState( sid, state );
+    vhDraw( sid, 3 );
+    EXPECT_TRUE( VerifyPixel( rt, 8, 8, 0xFF0000FF ) );
+
+    // Same shader ID, same layout, same state; only the shader code changes.
+    vhCreateShader( ps, "CacheReloadSameStatePS", VRHI_SHADER_STAGE_PIXEL, spirv, "main" );
+    vhDraw( sid, 3 );
+    EXPECT_TRUE( VerifyPixel( rt, 8, 8, 0xFF00FF00 ) );
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyTexture( rt );
+    vhDestroyTexture( image );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errorsBefore );
+}
+
 // --------------------------------------------------------------------------
 // ConservativeRaster_Border
 // --------------------------------------------------------------------------
