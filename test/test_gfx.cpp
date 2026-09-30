@@ -3673,6 +3673,198 @@ UTEST_F( Graphics, ComparisonSampler_Shadow )
     vhFinish();
 }
 
+UTEST_F( Graphics, BindingSetCacheResourceReplacement )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    vhFinish();
+    const int32_t errorsBefore = g_vhErrorCounter.load();
+
+    const char* source = R"(
+        cbuffer Params : register(b2, VRHI_STAGE_SPACE)
+        {
+            float4 tint;
+        };
+        Texture2D<float4> image : register(t0, VRHI_STAGE_SPACE);
+
+        [shader("pixel")]
+        float4 main() : SV_Target
+        {
+            return image.Load(int3(0, 0, 0)) * tint;
+        }
+    )";
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( source, VRHI_SHADER_STAGE_PIXEL );
+    vhBuffer cb = vhAllocBuffer();
+    vhTexture image = vhAllocTexture();
+    const int count = 12;
+    vhTexture targets[count];
+    uint32_t colours[count];
+    for ( int i = 0; i < count; i++ )
+    {
+        targets[i] = CreateTestTexture( 16, 16, nvrhi::Format::RGBA8_UNORM );
+        colours[i] = 0xFF000000u | ( 17u + i * 5u ) | ( ( 41u + i * 7u ) << 8 ) | ( ( 83u + i * 3u ) << 16 );
+    }
+
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+         .SetViewRect( glm::vec4( 0, 0, 16, 16 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK );
+    const vhStateId sid = 1800;
+    const uint32_t savedInterval = g_vhInit.gcFlushInterval;
+    g_vhInit.gcFlushInterval = 1;
+    for ( int i = 0; i < count; i++ )
+    {
+        // Buffer update + texture replacement -> destroy/reallocate -> repeat, without GPU waits.
+        if ( i % 2 == 1 )
+        {
+            vhBuffer oldCB = cb;
+            vhTexture oldImage = image;
+            vhDestroyBuffer( cb );
+            vhDestroyTexture( image );
+            cb = vhAllocBuffer();
+            image = vhAllocTexture();
+            EXPECT_EQ( cb, oldCB );
+            EXPECT_EQ( image, oldImage );
+        }
+        glm::vec4 tint( 0.0f, 0.0f, 0.0f, 1.0f );
+        tint[i % 3] = 1.0f;
+        vhMem* cbData = vhAllocMem( 256 );
+        memset( cbData->data(), 0, cbData->size() );
+        memcpy( cbData->data(), &tint, sizeof( tint ) );
+        if ( i == 0 || i % 2 == 1 )
+        {
+            vhCreateUniformBuffer( cb, "CacheReplacementCB", cbData, 256 );
+        }
+        else
+        {
+            vhUpdateUniformBuffer( cb, cbData, 0, 256 );
+        }
+        vhMem* texData = vhAllocMem( sizeof( uint32_t ) );
+        memcpy( texData->data(), &colours[i], sizeof( uint32_t ) );
+        vhCreateTexture2D( image, "CacheReplacementImage", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, texData );
+        state.SetColourAttachment( 0, targets[i] )
+             .SetBuffer( 0, { "Params", -1, cb } )
+             .SetTexture( 0, { "image", -1, image } );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+    }
+    vhDestroyBuffer( cb );
+    vhDestroyTexture( image );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFlush( true );
+    g_vhInit.gcFlushInterval = savedInterval;
+
+    for ( int i = 0; i < count; i++ )
+    {
+        vhMem data;
+        vhReadTextureSlow( targets[i], 0, 0, &data );
+        ASSERT_EQ( data.size(), 16u * 16u * 4u );
+        uint32_t expected = 0xFF000000u | ( colours[i] & ( 0xFFu << ( i % 3 * 8 ) ) );
+        for ( size_t offset = 0; offset < data.size(); offset += 4 )
+        {
+            uint32_t pixel = 0;
+            memcpy( &pixel, data.data() + offset, sizeof( pixel ) );
+            EXPECT_EQ( pixel, expected );
+        }
+        vhDestroyTexture( targets[i] );
+    }
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errorsBefore );
+}
+
+UTEST_F( Graphics, BindingSetCacheShaderReload )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    vhFinish();
+    const int32_t errorsBefore = g_vhErrorCounter.load();
+
+    const char* sources[2] =
+    {
+        R"(
+            Texture2D<float4> image : register(t0, VRHI_STAGE_SPACE);
+            [shader("pixel")]
+            float4 main() : SV_Target
+            {
+                return image.Load(int3(0, 0, 0));
+            }
+        )",
+        R"(
+            Texture2D<float4> image : register(t3, VRHI_STAGE_SPACE);
+            [shader("pixel")]
+            float4 main() : SV_Target
+            {
+                return image.Load(int3(0, 0, 0)).bgra;
+            }
+        )"
+    };
+    std::vector< uint32_t > spirv[2];
+    for ( int i = 0; i < 2; i++ )
+    {
+        std::string error;
+        bool compiled = vhCompileShader( "CacheReloadPS", sources[i], VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, spirv[i], "main", {}, {}, &error );
+        if ( !compiled ) { UTEST_PRINTF( "Shader Compile Error: %s\n", error.c_str() ); }
+        ASSERT_TRUE( compiled );
+    }
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = vhAllocShader();
+    uint32_t colour = 0xFFB54319u;
+    vhMem* texData = vhAllocMem( sizeof( colour ) );
+    memcpy( texData->data(), &colour, sizeof( colour ) );
+    vhTexture image = vhAllocTexture();
+    vhCreateTexture2D( image, "CacheReloadImage", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, texData );
+    const int count = 12;
+    vhTexture targets[count];
+    for ( int i = 0; i < count; i++ )
+    {
+        targets[i] = CreateTestTexture( 16, 16, nvrhi::Format::RGBA8_UNORM );
+    }
+
+    vhState state;
+    state.SetViewRect( glm::vec4( 0, 0, 16, 16 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetTexture( 0, { "image", -1, image } );
+    const vhStateId sid = 1801;
+    const uint32_t savedInterval = g_vhInit.gcFlushInterval;
+    g_vhInit.gcFlushInterval = 1;
+    for ( int i = 0; i < count; i++ )
+    {
+        vhCreateShader( ps, "CacheReloadPS", VRHI_SHADER_STAGE_PIXEL, spirv[i % 2], "main" );
+        state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+             .SetColourAttachment( 0, targets[i] );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+    }
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhDestroyTexture( image );
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFlush( true );
+    g_vhInit.gcFlushInterval = savedInterval;
+
+    for ( int i = 0; i < count; i++ )
+    {
+        vhMem data;
+        vhReadTextureSlow( targets[i], 0, 0, &data );
+        ASSERT_EQ( data.size(), 16u * 16u * 4u );
+        uint32_t expected = i % 2 == 0 ? colour : 0xFF1943B5u;
+        for ( size_t offset = 0; offset < data.size(); offset += 4 )
+        {
+            uint32_t pixel = 0;
+            memcpy( &pixel, data.data() + offset, sizeof( pixel ) );
+            EXPECT_EQ( pixel, expected );
+        }
+        vhDestroyTexture( targets[i] );
+    }
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errorsBefore );
+}
+
 UTEST_F( Graphics, BindingSetCacheShaderReloadSameState )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }

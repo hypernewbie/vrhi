@@ -2332,7 +2332,7 @@ UTEST( Backend, GCFlushIntervalDebounce )
     vhFinish();
 }
 
-UTEST( Backend, BindingSetCacheEvictedOnGC )
+UTEST( Backend, BindingSetCacheRetainedOnGC )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
@@ -2371,7 +2371,9 @@ UTEST( Backend, BindingSetCacheEvictedOnGC )
     const uint32_t savedInterval = g_vhInit.gcFlushInterval;
     g_vhInit.gcFlushInterval = 1;
     vhFlush( true );
+    EXPECT_EQ( vhGetBindingSet( desc, layout.Get() ).Get(), before.Get() );
 
+    vhFinish();
     nvrhi::BindingSetHandle after = vhGetBindingSet( desc, layout.Get() );
     EXPECT_NE( after.Get(), before.Get() );
 
@@ -2385,6 +2387,290 @@ UTEST( Backend, BindingSetCacheEvictedOnGC )
         buffer = nullptr;
     }
     vhFinish();
+}
+
+UTEST( Backend, BindingSetCacheInvalidatedOnDestroy )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+
+    vhBuffer id = vhAllocBuffer();
+    vhCreateUniformBuffer( id, "BindingSetCacheInvalidatedOnDestroy", nullptr, 256 );
+    vhFlush( true );
+    nvrhi::BufferHandle buffer = vhGetBufferNvrhiHandle( id );
+    ASSERT_NE( buffer, nullptr );
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( 0 ) );
+    nvrhi::BindingLayoutHandle layout;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+    ASSERT_NE( layout, nullptr );
+
+    nvrhi::BindingSetDesc desc;
+    desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( 0, buffer.Get(), nvrhi::BufferRange( 0, 256 ) ) );
+    nvrhi::BindingSetHandle before = vhGetBindingSet( desc, layout.Get() );
+    vhDestroyBuffer( id );
+    vhFlush( true );
+    EXPECT_NE( vhGetBindingSet( desc, layout.Get() ).Get(), before.Get() );
+    vhBindingSetCacheClear();
+    before = nullptr;
+    buffer = nullptr;
+    layout = nullptr;
+    vhFinish();
+}
+
+UTEST( Backend, BindingSetCacheBounded )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+
+    nvrhi::BufferDesc bufDesc;
+    bufDesc.byteSize = 4097 * 256;
+    bufDesc.isConstantBuffer = true;
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( 0 ) );
+    nvrhi::BufferHandle buffer;
+    nvrhi::BindingLayoutHandle layout;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        buffer = g_vhDevice->createBuffer( bufDesc );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+    ASSERT_NE( buffer, nullptr );
+    ASSERT_NE( layout, nullptr );
+
+    nvrhi::BindingSetDesc desc;
+    desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( 0, buffer.Get(), nvrhi::BufferRange( 0, 256 ) ) );
+    nvrhi::BindingSetHandle first = vhGetBindingSet( desc, layout.Get() );
+    for ( uint32_t i = 1; i < 4096; i++ )
+    {
+        desc.bindings[0].range = nvrhi::BufferRange( i * 256, 256 );
+        ASSERT_NE( vhGetBindingSet( desc, layout.Get() ), nullptr );
+    }
+    desc.bindings[0].range = nvrhi::BufferRange( 0, 256 );
+    EXPECT_EQ( vhGetBindingSet( desc, layout.Get() ).Get(), first.Get() );
+    desc.bindings[0].range = nvrhi::BufferRange( 4096 * 256, 256 );
+    ASSERT_NE( vhGetBindingSet( desc, layout.Get() ), nullptr );
+    desc.bindings[0].range = nvrhi::BufferRange( 0, 256 );
+    EXPECT_NE( vhGetBindingSet( desc, layout.Get() ).Get(), first.Get() );
+    vhFinish();
+}
+
+UTEST( Backend, BindingSetCacheEvictionBeforeSubmit )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errorsBefore = g_vhErrorCounter.load();
+
+    const char* source = R"(
+        cbuffer Params : register(b0)
+        {
+            uint index;
+            uint value;
+        };
+        RWStructuredBuffer<uint> output : register(u0);
+
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            output[index] = value;
+        }
+    )";
+    std::vector< uint32_t > spirv;
+    std::string error;
+    bool compiled = vhCompileShader( "BindingSetCacheEviction", source, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if ( !compiled ) { UTEST_PRINTF( "Shader Compile Error: %s\n", error.c_str() ); }
+    ASSERT_TRUE( compiled );
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "BindingSetCacheEviction", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhFinish();
+
+    std::vector< vhShaderReflectionResource > resources;
+    vhGetShaderInfo( cs, nullptr, &resources );
+    uint32_t cbSlot = UINT32_MAX;
+    uint32_t uavSlot = UINT32_MAX;
+    for ( const auto& resource : resources )
+    {
+        ASSERT_EQ( resource.set, 0u );
+        if ( resource.type == nvrhi::ResourceType::ConstantBuffer ) { cbSlot = resource.slot; }
+        if ( resource.type == nvrhi::ResourceType::StructuredBuffer_UAV ) { uavSlot = resource.slot; }
+    }
+    ASSERT_NE( cbSlot, UINT32_MAX );
+    ASSERT_NE( uavSlot, UINT32_MAX );
+
+    const uint32_t count = 8193;
+    std::vector< uint32_t > params( count * 64, 0 );
+    std::vector< uint32_t > zeros( count, 0 );
+    for ( uint32_t i = 0; i < count; i++ )
+    {
+        params[i * 64] = i;
+        params[i * 64 + 1] = 0x12340000u + i;
+    }
+
+    nvrhi::BufferDesc cbDesc;
+    cbDesc.byteSize = params.size() * sizeof( uint32_t );
+    cbDesc.isConstantBuffer = true;
+    cbDesc.enableAutomaticStateTracking( nvrhi::ResourceStates::ConstantBuffer );
+    nvrhi::BufferDesc outDesc;
+    outDesc.byteSize = count * sizeof( uint32_t );
+    outDesc.structStride = sizeof( uint32_t );
+    outDesc.canHaveUAVs = true;
+    outDesc.enableAutomaticStateTracking( nvrhi::ResourceStates::UnorderedAccess );
+    nvrhi::BufferDesc stagingDesc;
+    stagingDesc.byteSize = outDesc.byteSize;
+    stagingDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.bindingOffsets = { 0, 0, 0, 0 };
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( cbSlot ) );
+    layoutDesc.addItem( nvrhi::BindingLayoutItem::StructuredBuffer_UAV( uavSlot ) );
+    nvrhi::BufferHandle cb, output, staging;
+    nvrhi::BindingLayoutHandle layout;
+    nvrhi::ComputePipelineHandle pipeline;
+    nvrhi::ShaderHandle shader = vhGetShaderNvrhiHandle( cs );
+    ASSERT_NE( shader, nullptr );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cb = g_vhDevice->createBuffer( cbDesc );
+        output = g_vhDevice->createBuffer( outDesc );
+        staging = g_vhDevice->createBuffer( stagingDesc );
+        layout = g_vhDevice->createBindingLayout( layoutDesc );
+        nvrhi::ComputePipelineDesc pipelineDesc;
+        pipelineDesc.CS = shader;
+        pipelineDesc.bindingLayouts.push_back( layout );
+        pipeline = g_vhDevice->createComputePipeline( pipelineDesc );
+    }
+    ASSERT_NE( cb, nullptr );
+    ASSERT_NE( output, nullptr );
+    ASSERT_NE( staging, nullptr );
+    ASSERT_NE( layout, nullptr );
+    ASSERT_NE( pipeline, nullptr );
+
+    nvrhi::CommandListHandle cmdList;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        cmdList->writeBuffer( cb, params.data(), cbDesc.byteSize );
+        cmdList->writeBuffer( output, zeros.data(), outDesc.byteSize );
+    }
+    nvrhi::BindingSetDesc desc;
+    desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( cbSlot, cb, nvrhi::BufferRange( 0, 256 ) ) );
+    desc.addItem( nvrhi::BindingSetItem::StructuredBuffer_UAV( uavSlot, output ) );
+    nvrhi::BindingSetHandle first = vhGetBindingSet( desc, layout );
+    ASSERT_NE( first, nullptr );
+    for ( uint32_t i = 0; i < count; i++ )
+    {
+        desc.bindings[0].range = nvrhi::BufferRange( i * 256, 256 );
+        nvrhi::BindingSetHandle bset = vhGetBindingSet( desc, layout );
+        ASSERT_NE( bset, nullptr );
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        nvrhi::ComputeState state;
+        state.pipeline = pipeline;
+        state.bindings.push_back( bset );
+        cmdList->setComputeState( state );
+        cmdList->dispatch( 1, 1, 1 );
+    }
+    desc.bindings[0].range = nvrhi::BufferRange( 0, 256 );
+    EXPECT_NE( vhGetBindingSet( desc, layout ).Get(), first.Get() );
+
+    // Record -> evict twice -> release caller refs -> submit -> read every result.
+    vhBindingSetCacheClear();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        cmdList->copyBuffer( staging, 0, output, 0, outDesc.byteSize );
+        first = nullptr;
+        cb = nullptr;
+        output = nullptr;
+        layout = nullptr;
+        pipeline = nullptr;
+        shader = nullptr;
+        cmdList = nullptr;
+    }
+    vhDestroyShader( cs );
+    vhFlush( true );
+    vhFinish();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        const uint32_t* data = ( const uint32_t* ) g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+        ASSERT_NE( data, nullptr );
+        for ( uint32_t i = 0; i < count; i++ )
+        {
+            EXPECT_EQ( data[i], 0x12340000u + i );
+        }
+        g_vhDevice->unmapBuffer( staging );
+        staging = nullptr;
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errorsBefore );
+}
+
+UTEST( Backend, BindingSetCacheOwnsResourcesOnShutdown )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
+    TestEnsureShutdown();
+    for ( int i = 0; i < 4; i++ )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+        vhFinish();
+        const int32_t errorsBefore = g_vhErrorCounter.load();
+        g_vhInit.gcFlushInterval = 1;
+        {
+            nvrhi::BufferDesc bufDesc;
+            bufDesc.byteSize = 256;
+            bufDesc.isConstantBuffer = true;
+            nvrhi::TextureDesc texDesc;
+            texDesc.width = 4;
+            texDesc.height = 4;
+            texDesc.format = nvrhi::Format::RGBA8_UNORM;
+            nvrhi::BindingLayoutDesc layoutDesc;
+            layoutDesc.visibility = nvrhi::ShaderType::All;
+            layoutDesc.addItem( nvrhi::BindingLayoutItem::ConstantBuffer( 0 ) );
+            layoutDesc.addItem( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+            layoutDesc.addItem( nvrhi::BindingLayoutItem::Sampler( 0 ) );
+            nvrhi::BufferHandle buffer;
+            nvrhi::TextureHandle texture;
+            nvrhi::SamplerHandle sampler;
+            nvrhi::BindingLayoutHandle layout;
+            {
+                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                buffer = g_vhDevice->createBuffer( bufDesc );
+                texture = g_vhDevice->createTexture( texDesc );
+                sampler = g_vhDevice->createSampler( nvrhi::SamplerDesc() );
+                layout = g_vhDevice->createBindingLayout( layoutDesc );
+            }
+            ASSERT_NE( buffer, nullptr );
+            ASSERT_NE( texture, nullptr );
+            ASSERT_NE( sampler, nullptr );
+            ASSERT_NE( layout, nullptr );
+            nvrhi::BindingSetDesc desc;
+            desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( 0, buffer ) );
+            desc.addItem( nvrhi::BindingSetItem::Texture_SRV( 0, texture ) );
+            desc.addItem( nvrhi::BindingSetItem::Sampler( 0, sampler ) );
+            nvrhi::BindingSetHandle bset = vhGetBindingSet( desc, layout );
+            ASSERT_NE( bset, nullptr );
+            nvrhi::IBindingLayout* layoutPtr = layout.Get();
+            nvrhi::IBindingSet* bsetPtr = bset.Get();
+            buffer = nullptr;
+            texture = nullptr;
+            sampler = nullptr;
+            layout = nullptr;
+            bset = nullptr;
+            vhFlush( true );
+            EXPECT_EQ( vhGetBindingSet( desc, layoutPtr ).Get(), bsetPtr );
+            EXPECT_EQ( vhGetBindingSet( desc, layoutPtr )->getLayout(), layoutPtr );
+        }
+        // Cache is the only owner; no vhFinish() before device teardown.
+        TestEnsureShutdown();
+        EXPECT_EQ( g_vhErrorCounter.load(), errorsBefore );
+        EXPECT_EQ( g_vhDevice, nullptr );
+    }
 }
 
 UTEST( Backend, ProfileMarkerNesting )

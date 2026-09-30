@@ -2449,6 +2449,7 @@ uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLay
 }
 
 static std::unordered_map< uint64_t, nvrhi::BindingSetHandle > s_bindingSetCache;
+static constexpr size_t kMaxCachedBindingSets = 4096;
 
 void vhBindingSetCacheClear_DeviceStateLocked()
 {
@@ -2472,6 +2473,7 @@ nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrh
     nvrhi::BindingSetHandle bset = nullptr;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        if ( s_bindingSetCache.size() >= kMaxCachedBindingSets ) s_bindingSetCache.clear();
         bset = g_vhDevice->createBindingSet( desc, layout );
         s_bindingSetCache[hash] = bset;
     }
