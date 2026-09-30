@@ -1965,13 +1965,113 @@ UTEST_F( Graphics, BareGlobals )
     // 0xFF00FF00 -> A=FF B=00 G=FF R=00.
     // u_color = (0,1,0,1) -> R=0 G=1 B=0 A=1.
      EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF00FF00 ) );
-    
+
+    vhTexture targets[12];
+    state.SetViewRect( glm::vec4( 0, 0, 1024, 1024 ) );
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) );
+    for ( int i = 0; i < 12; i++ )
+    {
+        targets[i] = CreateTestTexture( 1024, 1024, nvrhi::Format::RGBA8_UNORM );
+        state.SetColourAttachment( 0, targets[i] );
+        u.data[0] = i % 2 ? glm::vec4( 1.0f, 0.0f, 0.0f, 1.0f ) : glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f );
+        state.SetUniform( 0, u );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+    }
+    vhFinish();
+    std::vector< uint32_t > expected( 1024 * 1024 );
+    for ( int i = 0; i < 12; i++ )
+    {
+        vhMem data;
+        vhReadTextureSlow( targets[i], 0, 0, &data );
+        ASSERT_EQ( data.size(), expected.size() * sizeof( uint32_t ) );
+        std::fill( expected.begin(), expected.end(), i % 2 ? 0xFF0000FFu : 0xFF00FF00u );
+        EXPECT_EQ( memcmp( data.data(), expected.data(), data.size() ), 0 );
+        vhDestroyTexture( targets[i] );
+    }
+
     // Cleanup
     vhDestroyTexture( rt );
     vhDestroyShader( vs );
     vhDestroyShader( ps );
 }
 
+
+static const char* g_uniformRingPS = R"(
+cbuffer GlobalUniforms : register(b0, VRHI_STAGE_SPACE)
+{
+    float4 u_viewRect;
+    float4 u_viewTexel;
+    float4x4 u_view;
+};
+cbuffer WorldUniforms : register(b1, VRHI_STAGE_SPACE)
+{
+    float4x4 u_world[4];
+};
+cbuffer globalParams : register(b2, VRHI_STAGE_SPACE)
+{
+    float4 u_marker;
+};
+
+[shader("pixel")]
+float4 main( float4 pos : SV_Position ) : SV_Target
+{
+    return float4( u_view[0][0], u_world[0][0][0], u_marker.x, 255.0f ) / 255.0f;
+}
+)";
+
+UTEST_F( Graphics, TransientUniformRingReuse )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    const int32_t errorsBefore = g_vhErrorCounter.load();
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_uniformRingPS, VRHI_SHADER_STAGE_PIXEL );
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) );
+    state.SetViewRect( glm::vec4( 0, 0, 1024, 1024 ) );
+    state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) );
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK );
+    vhState::UniformBufferValue u;
+    u.name = "u_marker";
+    u.data.push_back( glm::vec4( 0.0f ) );
+    vhTexture targets[12];
+    vhStateId sid = 1801;
+    for ( int i = 0; i < 12; i++ )
+    {
+        targets[i] = CreateTestTexture( 1024, 1024, nvrhi::Format::RGBA8_UNORM );
+        state.SetColourAttachment( 0, targets[i] );
+        state.SetViewTransform( glm::mat4( ( float ) ( i + 1 ) ), glm::mat4( 1.0f ) );
+        state.SetWorldTransform( glm::mat4( ( float ) ( i + 17 ) ) );
+        u.data[0] = glm::vec4( ( float ) ( i + 33 ) );
+        state.SetUniform( 0, u );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        if ( i % 4 == 3 )
+        {
+            for ( int j = 0; j < 3; j++ ) vhFlush( true );
+        }
+    }
+    vhFinish();
+    std::vector< uint32_t > expected( 1024 * 1024 );
+    for ( int i = 0; i < 12; i++ )
+    {
+        const uint32_t colour = 0xFF000000u | ( uint32_t ) ( i + 1 ) | ( ( uint32_t ) ( i + 17 ) << 8 ) | ( ( uint32_t ) ( i + 33 ) << 16 );
+        vhMem data;
+        vhReadTextureSlow( targets[i], 0, 0, &data );
+        ASSERT_EQ( data.size(), expected.size() * sizeof( uint32_t ) );
+        std::fill( expected.begin(), expected.end(), colour );
+        EXPECT_EQ( memcmp( data.data(), expected.data(), data.size() ), 0 );
+        vhDestroyTexture( targets[i] );
+    }
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errorsBefore );
+}
 
 // --------------------------------------------------------------------------
 // Debug Lines Test (Multi-cbuffer + Stage Space)

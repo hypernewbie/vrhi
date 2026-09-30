@@ -510,7 +510,6 @@ void vhTransientBuffer::Reset()
     size = 0;
     frameIdx = 0;
     offset = 0;
-    ptr = nullptr;
 }
 
 int64_t vhTransientBuffer::Alloc( int64_t bytes )
@@ -526,6 +525,7 @@ void vhTransientBuffer::Step()
 {
     frameIdx = ( frameIdx + 1 ) % VRHI_MAX_FRAMES_INFLIGHT;
     offset = 0;
+    ready[frameIdx] = false;
 }
 
 void vhTransientBuffer::Init_DeviceStateLocked( const nvrhi::BufferDesc& desc )
@@ -537,30 +537,48 @@ void vhTransientBuffer::Init_DeviceStateLocked( const nvrhi::BufferDesc& desc )
     {
         handle[i] = g_vhDevice->createBuffer( desc );
         assert( handle[i] != nullptr );
+        mapped[i] = nullptr;
+        ready[i] = false;
+        for ( auto& query : fence[i] ) query = g_vhDevice->createEventQuery();
     }
 }
 
 uint8_t* vhTransientBuffer::Map_DeviceStateLocked()
 {
     // WARNING: Lock g_nvRHIStateMutex before calling this.
-    if ( ptr ) return ptr;
-    ptr = ( uint8_t* ) g_vhDevice->mapBuffer( handle[frameIdx], nvrhi::CpuAccessMode::Write );
-    return ptr;
+    // Persistent mappings need an explicit GPU wait before slot reuse.
+    if ( !ready[frameIdx] )
+    {
+        for ( auto& query : fence[frameIdx] )
+        {
+            g_vhDevice->waitEventQuery( query );
+            g_vhDevice->resetEventQuery( query );
+        }
+        ready[frameIdx] = true;
+    }
+    if ( !mapped[frameIdx] ) mapped[frameIdx] = ( uint8_t* ) g_vhDevice->mapBuffer( handle[frameIdx], nvrhi::CpuAccessMode::Write );
+    return mapped[frameIdx];
 }
 
-void vhTransientBuffer::Unmap_DeviceStateLocked()
+void vhTransientBuffer::Flush_DeviceStateLocked()
 {
-    // WARNING: Lock g_nvRHIStateMutex before calling this.
-    if ( ptr ) g_vhDevice->unmapBuffer( handle[frameIdx] );
-    ptr = nullptr;
+    if ( !offset || !mapped[frameIdx] ) return;
+    VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
+    range.memory = ( VkDeviceMemory ) handle[frameIdx]->getNativeObject( nvrhi::ObjectTypes::VK_DeviceMemory ).pointer;
+    range.size = size;
+    VkResult result = vkFlushMappedMemoryRanges( vhGetVkDevice(), 1, &range );
+    if ( result != VK_SUCCESS ) VRHI_ERR( "vhTransientBuffer::Flush_DeviceStateLocked(): Vulkan flush failed (%d)\n", result );
 }
-
 
 void vhTransientBuffer::Shutdown_DeviceStateLocked()
 {
     // WARNING: Lock g_nvRHIStateMutex before calling this.
     for ( uint32_t i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ )
     {
+        if ( mapped[i] ) g_vhDevice->unmapBuffer( handle[i] );
+        mapped[i] = nullptr;
+        ready[i] = false;
+        for ( auto& query : fence[i] ) query = nullptr;
         handle[i] = nullptr;
     }
 }

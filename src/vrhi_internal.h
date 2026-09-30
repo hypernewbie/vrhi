@@ -612,14 +612,16 @@ struct vhTransientBuffer
     nvrhi::BufferHandle handle[VRHI_MAX_FRAMES_INFLIGHT];
     uint32_t frameIdx = 0;
     int64_t offset = 0;
-    uint8_t* ptr = nullptr; // For storing mapping.
+    uint8_t* mapped[VRHI_MAX_FRAMES_INFLIGHT] = {};
+    bool ready[VRHI_MAX_FRAMES_INFLIGHT] = {};
+    nvrhi::EventQueryHandle fence[VRHI_MAX_FRAMES_INFLIGHT][( uint32_t ) nvrhi::CommandQueue::Count];
 
     void Reset();
     int64_t Alloc( int64_t bytes );
     void Step();
     void Init_DeviceStateLocked( const nvrhi::BufferDesc& desc );
     uint8_t* Map_DeviceStateLocked();
-    void Unmap_DeviceStateLocked();
+    void Flush_DeviceStateLocked();
     void Shutdown_DeviceStateLocked();
     int64_t Write( const void* data, size_t bytes );
 };
