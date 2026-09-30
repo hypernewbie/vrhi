@@ -2294,7 +2294,7 @@ UTEST( Backend, GCFlushIntervalDebounce )
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
 
     // Default value sanity check.
-    EXPECT_EQ( g_vhInit.gcFlushInterval, 16u );
+    EXPECT_EQ( g_vhInit.gcFlushInterval, 64u );
 
     static std::atomic<int> gcCount{0};
     gcCount = 0;

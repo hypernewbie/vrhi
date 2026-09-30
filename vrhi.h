@@ -133,7 +133,7 @@ struct vhInitData
     uint32_t maxUserGlobals = 16 * 1024 * 1024;    // User shader parameters (material data, etc).
 
     // Flushes between nvrhi runGarbageCollection() runs. Also bounds binding-set retention. 0 or 1 forces every flush. vhFinish() always GCs.
-    uint32_t gcFlushInterval = 16;
+    uint32_t gcFlushInterval = 64;
 
     // Seeds the Vulkan driver pipeline cache. Obtained from a previous vhGetPSOCache().
     std::vector< uint8_t > psoCacheInitialData;
