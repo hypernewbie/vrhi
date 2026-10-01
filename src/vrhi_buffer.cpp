@@ -514,7 +514,7 @@ void vhTransientBuffer::Reset()
 
 int64_t vhTransientBuffer::Alloc( int64_t bytes )
 {
-    if ( offset + bytes > size )
+    if ( bytes < 0 || bytes > size - offset )
         return -1;
     int64_t ret = offset;
     offset += bytes;
@@ -600,6 +600,7 @@ int64_t vhTransientBuffer::Write( const void* data, size_t bytes )
         uint8_t* mappedPtr = Map_DeviceStateLocked();
         if ( !mappedPtr )
         {
+            offset = writeOffset;
             VRHI_ERR("vhTransientBuffer::Write: Failed to map uniform buffer!\n");
             return -1;
         }
