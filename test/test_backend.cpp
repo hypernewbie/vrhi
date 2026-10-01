@@ -187,6 +187,16 @@ public:
             return it->second.vertexBindings.size();
         return 0;
     }
+    static uint64_t GetGlobalResourceVersion()
+    {
+        return g_vhCmdBackendState.s_globalResourceVersion;
+    }
+
+    static uint64_t GetGlobalPipelineVersion()
+    {
+        return g_vhCmdBackendState.s_globalPipelineVersion;
+    }
+
 };
 
 
@@ -3183,4 +3193,461 @@ UTEST( Backend, VertexBindingSnapshotFlushGrows )
     vhDestroyBuffer( vb2 );
     vhCmdBackendStateTest::Shutdown();
     vhFinish();
+}
+
+UTEST( Backend, M01_ProgramEqualVectors_NoVersionBump )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5001;
+    for ( const vhProgram& program : { vhProgram{}, vhProgram{ 1001 }, vhProgram{ 1001, 1002 }, vhProgram{ 1002, 1001 }, vhProgram{} } )
+    {
+        vhState before, stored;
+        vhBackendQueryState( sid, before );
+        uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        uint64_t resource = vhCmdBackendStateTest::GetGlobalResourceVersion();
+        vhCmdSetStateProgram( sid, program );
+        vhFlush();
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        EXPECT_TRUE( stored.program == program );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + ( before.program != program ) );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + ( before.program != program ) );
+        pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        resource = vhCmdBackendStateTest::GetGlobalResourceVersion();
+        vhProgram duplicate = program;
+        vhCmdSetStateProgram( sid, duplicate );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
+    }
+}
+
+UTEST( Backend, M02_StateFlagsAllBits_NoBumpOnEqual )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5002;
+    for ( uint32_t bit = 0; bit < 64; bit++ )
+    {
+        vhCmdSetStateFlags( sid, 0 );
+        vhFlush();
+        const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        const uint64_t flags = 1ULL << bit;
+        vhCmdSetStateFlags( sid, flags );
+        vhFlush();
+        vhState stored;
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        EXPECT_EQ( stored.stateFlags, flags );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+        vhCmdSetStateFlags( sid, flags );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+    }
+}
+
+UTEST( Backend, M03_StencilFullPacked_EqualNoBump )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5003;
+    for ( uint32_t bit = 0; bit < 64; bit++ )
+    {
+        vhCmdSetStateStencil( sid, 0 );
+        vhFlush();
+        const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        const uint64_t stencil = 1ULL << bit;
+        vhCmdSetStateStencil( sid, stencil );
+        vhFlush();
+        vhState stored;
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        EXPECT_EQ( stored.stencilState, stencil );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+        vhCmdSetStateStencil( sid, stencil );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+    }
+}
+
+UTEST( Backend, M04_VertexBindingEachMember_BumpsOnChange )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5004;
+    const vhState::VertexBinding original = { 101, 0, 2, 3, 16, "float3", false };
+    for ( int member = 0; member < 7; member++ )
+    {
+        vhCmdSetStateVertexBindings( sid, { original } );
+        vhFlush();
+        const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        auto changed = original;
+        switch ( member )
+        {
+            case 0: changed.buffer = 102; break;
+            case 1: changed.stream = 1; break;
+            case 2: changed.startVertex = 4; break;
+            case 3: changed.numVertices = 6; break;
+            case 4: changed.byteOffset = 32; break;
+            case 5: changed.layoutOverride = "float4"; break;
+            case 6: changed.isInstanced = true; break;
+        }
+        UTEST_PRINTF( "Vertex member %d\n", member );
+        vhCmdSetStateVertexBindings( sid, { changed } );
+        vhFlush();
+        vhState stored;
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        ASSERT_EQ( stored.vertexBindings.size(), 1u );
+        const auto& binding = stored.vertexBindings[0];
+        EXPECT_EQ( binding.buffer, changed.buffer );
+        EXPECT_EQ( binding.stream, changed.stream );
+        EXPECT_EQ( binding.startVertex, changed.startVertex );
+        EXPECT_EQ( binding.numVertices, changed.numVertices );
+        EXPECT_EQ( binding.byteOffset, changed.byteOffset );
+        EXPECT_STREQ( binding.layoutOverride.c_str(), changed.layoutOverride.c_str() );
+        EXPECT_EQ( binding.isInstanced, changed.isInstanced );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+        vhCmdSetStateVertexBindings( sid, { changed } );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+    }
+    vhCmdSetStateVertexBindings( sid, {} );
+    vhFlush();
+}
+
+UTEST( Backend, M05_VertexListShape_EmptySingleManyReorder )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5005;
+    const vhState::VertexBinding a = { 101, 0, 2, 3, 16, "float3", false };
+    const vhState::VertexBinding b = { 102, 1, 4, 6, 32, "float4", true };
+    const std::vector< std::vector< vhState::VertexBinding > > lists = { {}, { a }, { a, b }, { b, a }, { b }, { b, a, b }, {} };
+    for ( const auto& list : lists )
+    {
+        vhState before, stored;
+        vhBackendQueryState( sid, before );
+        const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        vhCmdSetStateVertexBindings( sid, list );
+        vhFlush();
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        ASSERT_EQ( stored.vertexBindings.size(), list.size() );
+        for ( size_t i = 0; i < list.size(); i++ )
+        {
+            const auto& binding = stored.vertexBindings[i];
+            EXPECT_EQ( binding.buffer, list[i].buffer );
+            EXPECT_EQ( binding.stream, list[i].stream );
+            EXPECT_EQ( binding.startVertex, list[i].startVertex );
+            EXPECT_EQ( binding.numVertices, list[i].numVertices );
+            EXPECT_EQ( binding.byteOffset, list[i].byteOffset );
+            EXPECT_STREQ( binding.layoutOverride.c_str(), list[i].layoutOverride.c_str() );
+            EXPECT_EQ( binding.isInstanced, list[i].isInstanced );
+        }
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + ( !before.vertexBindings.empty() || !list.empty() ) );
+        const uint64_t changed = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        vhCmdSetStateVertexBindings( sid, list );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), changed );
+    }
+}
+
+UTEST( Backend, M06_IndexBindingEachMember_BumpsOnChange )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5006;
+    const vhState::IndexBinding original = { 101, 2, 3, 16 };
+    for ( int member = 0; member < 4; member++ )
+    {
+        vhCmdSetStateIndexBuffer( sid, original.buffer, original.byteOffset, original.firstIndex, original.numIndices );
+        vhFlush();
+        const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        auto changed = original;
+        switch ( member )
+        {
+            case 0: changed.buffer = 102; break;
+            case 1: changed.firstIndex = 4; break;
+            case 2: changed.numIndices = 6; break;
+            case 3: changed.byteOffset = 32; break;
+        }
+        UTEST_PRINTF( "Index member %d\n", member );
+        vhCmdSetStateIndexBuffer( sid, changed.buffer, changed.byteOffset, changed.firstIndex, changed.numIndices );
+        vhFlush();
+        vhState stored;
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        EXPECT_EQ( stored.indexBinding.buffer, changed.buffer );
+        EXPECT_EQ( stored.indexBinding.firstIndex, changed.firstIndex );
+        EXPECT_EQ( stored.indexBinding.numIndices, changed.numIndices );
+        EXPECT_EQ( stored.indexBinding.byteOffset, changed.byteOffset );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+        vhCmdSetStateIndexBuffer( sid, changed.buffer, changed.byteOffset, changed.firstIndex, changed.numIndices );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+    }
+    vhCmdSetStateIndexBuffer( sid, VRHI_INVALID_HANDLE, 0, 0, UINT32_MAX );
+    vhFlush();
+}
+
+UTEST( Backend, M07_BlendConstants_PerChannel_BumpsOnChange )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5007;
+    const glm::vec4 original( 0.1f, 0.2f, 0.3f, 0.4f );
+    for ( int channel = 0; channel < 4; channel++ )
+    {
+        vhCmdSetStateFlags( sid, 0 );
+        vhCmdSetStateBlendConstants( sid, original );
+        vhFlush();
+        const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        auto changed = original;
+        changed[channel] = 0.75f;
+        vhCmdSetStateBlendConstants( sid, changed );
+        vhFlush();
+        vhState stored;
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        EXPECT_TRUE( stored.blendConstantColor == changed );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+        vhCmdSetStateBlendConstants( sid, changed );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+    }
+    vhCmdSetStateBlendConstants( sid, glm::vec4( 0.0f ) );
+    vhFlush();
+    const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+    vhCmdSetStateBlendConstants( sid, glm::vec4( -0.0f, 0.0f, 0.0f, 0.0f ) );
+    vhFlush();
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline );
+}
+
+UTEST( Backend, M08_DescriptorTableList_BumpsOnAnyChange )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5008;
+    const std::vector< vhState::DescriptorTableBinding > original = { { 101, 1 }, { 102, 2 } };
+    for ( int member = 0; member < 5; member++ )
+    {
+        vhCmdSetStateDescriptorTables( sid, original );
+        vhFlush();
+        const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+        const uint64_t resource = vhCmdBackendStateTest::GetGlobalResourceVersion();
+        auto changed = original;
+        switch ( member )
+        {
+            case 0: changed[0].table = 103; break;
+            case 1: changed[1].registerSpace = 3; break;
+            case 2: changed.resize( 1 ); break;
+            case 3: std::swap( changed[0], changed[1] ); break;
+            case 4: changed.clear(); break;
+        }
+        vhCmdSetStateDescriptorTables( sid, changed );
+        vhFlush();
+        vhState stored;
+        ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+        ASSERT_EQ( stored.descriptorTables.size(), changed.size() );
+        for ( size_t i = 0; i < changed.size(); i++ )
+        {
+            EXPECT_EQ( stored.descriptorTables[i].table, changed[i].table );
+            EXPECT_EQ( stored.descriptorTables[i].registerSpace, changed[i].registerSpace );
+        }
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + 1 );
+        vhCmdSetStateDescriptorTables( sid, changed );
+        vhFlush();
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + 1 );
+    }
+}
+
+UTEST( Backend, M09_DefaultCommandsCreateBackendState )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5009;
+    vhState stored;
+    EXPECT_FALSE( vhBackendQueryState( sid, stored ) );
+    const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+    const uint64_t resource = vhCmdBackendStateTest::GetGlobalResourceVersion();
+    vhCmdSetStateProgram( sid, {} );
+    vhCmdSetStateFlags( sid, 0 );
+    vhCmdSetStateStencil( sid, 0 );
+    vhCmdSetStateVertexBindings( sid, {} );
+    vhCmdSetStateDescriptorTables( sid, {} );
+    vhFlush();
+    ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+    EXPECT_TRUE( stored.program.empty() );
+    EXPECT_TRUE( stored.vertexBindings.empty() );
+    EXPECT_TRUE( stored.descriptorTables.empty() );
+    EXPECT_EQ( stored.stateFlags, 0u );
+    EXPECT_EQ( stored.stencilState, 0u );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
+    vhCmdSetStateProgram( sid, { 101 } );
+    vhFlush();
+    ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+    ASSERT_EQ( stored.program.size(), 1u );
+    EXPECT_EQ( stored.program[0], 101u );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + 1 );
+}
+
+UTEST( Backend, M10_InvalidCreationThenValidRecovery )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    EXPECT_EQ( vhCreateVertexBuffer( VRHI_INVALID_HANDLE, "M10InvalidHandle", nullptr, "float3", 3 ), VRHI_INVALID_HANDLE );
+    vhBuffer vb = vhAllocBuffer();
+    vhFlush();
+    const int32_t errors = g_vhErrorCounter.load();
+    const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+    const uint64_t resource = vhCmdBackendStateTest::GetGlobalResourceVersion();
+    vhCreateVertexBuffer( vb, "M10InvalidLayout", nullptr, "invalid_layout", 3 );
+    vhFlush();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 1 );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
+    EXPECT_EQ( vhGetBufferNvrhiHandle( vb ), nullptr );
+    vhCreateVertexBuffer( vb, "M10Valid", nullptr, "float3", 3 );
+    vhFlush();
+    EXPECT_NE( vhGetBufferNvrhiHandle( vb ), nullptr );
+    EXPECT_EQ( vhGetBufferInfo( vb ), 36u );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 1 );
+    vhDestroyBuffer( vb );
+    vhFinish();
+}
+
+UTEST( Backend, P01_IdenticalSetters_KeepPipelineResourceVersion )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5101;
+    vhState state;
+    state.SetProgram( { 101, 102 } );
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK );
+    state.SetStencil( VRHI_STENCIL_FUNC_REF( 1 ) );
+    state.SetVertexBuffer( 101, 0, 16, 2, 3, "float3" );
+    state.SetIndexBuffer( 102, 32, 4, 6 );
+    state.SetBlendConstColor( glm::vec4( 0.25f, 0.5f, 0.75f, 1.0f ) );
+    state.SetDescriptorTable( 0, 103, 1 );
+    vhSetState( sid, state );
+    vhFlush();
+    const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+    const uint64_t resource = vhCmdBackendStateTest::GetGlobalResourceVersion();
+    vhState duplicate = state;
+    duplicate.dirty = VRHI_DIRTY_PROGRAM | VRHI_DIRTY_PIPELINE | VRHI_DIRTY_VERTEX_INDEX | VRHI_DIRTY_DESCRIPTOR_TABLES;
+    vhSetState( sid, duplicate );
+    vhFlush();
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
+}
+
+UTEST( Backend, P06_VertexOverrideEqualContentsSeparateStorage )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5201;
+    std::vector< vhState::VertexBinding > first = { { 101, 0, 2, 3, 16, "float3", false } };
+    auto duplicate = first;
+    ASSERT_NE( first[0].layoutOverride.data(), duplicate[0].layoutOverride.data() );
+    vhCmdSetStateVertexBindings( sid, first );
+    vhFlush();
+    const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+    vhCmdSetStateVertexBindings( sid, duplicate );
+    vhFlush();
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline );
+    duplicate[0].layoutOverride = "float4";
+    vhCmdSetStateVertexBindings( sid, duplicate );
+    vhFlush();
+    vhState stored;
+    ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+    ASSERT_EQ( stored.vertexBindings.size(), 1u );
+    EXPECT_STREQ( stored.vertexBindings[0].layoutOverride.c_str(), "float4" );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
+}
+
+UTEST( Backend, P10_VertexBindingEarlyReturn_CommandInputOwnership )
+{
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFlush();
+    const vhStateId sid = 5301;
+    vhCmdSetStateVertexBindings( sid, { { 101, 0, 2, 3, 16, "float3", false } } );
+    vhFlush();
+    const uint64_t pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
+    for ( int i = 0; i < 4; i++ )
+    {
+        std::vector< vhState::VertexBinding > duplicate = { { 101, 0, 2, 3, 16, "float3", false } };
+        vhCmdSetStateVertexBindings( sid, duplicate );
+        duplicate[0] = { 999, 1, 4, 6, 32, "float4", true };
+    }
+    vhFlush();
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline );
+    {
+        std::vector< vhState::VertexBinding > changed = { { 102, 1, 4, 6, 32, "float4", true } };
+        vhCmdSetStateVertexBindings( sid, changed );
+        changed[0] = {};
+    }
+    vhFlush();
+    vhState stored;
+    ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
+    ASSERT_EQ( stored.vertexBindings.size(), 1u );
+    const auto& binding = stored.vertexBindings[0];
+    EXPECT_EQ( binding.buffer, 102u );
+    EXPECT_EQ( binding.stream, 1u );
+    EXPECT_EQ( binding.startVertex, 4u );
+    EXPECT_EQ( binding.numVertices, 6u );
+    EXPECT_EQ( binding.byteOffset, 32u );
+    EXPECT_STREQ( binding.layoutOverride.c_str(), "float4" );
+    EXPECT_TRUE( binding.isInstanced );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
 }

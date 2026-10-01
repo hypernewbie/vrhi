@@ -4158,3 +4158,221 @@ UTEST_F( Graphics, FlushFalse_RetainsQueuedInputOwnership )
     vhDestroyShader( ps );
     vhFinish();
 }
+
+UTEST_F( Graphics, P01_IdenticalSetters_PreservePSOCache )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_pushConstPS, VRHI_SHADER_STAGE_PIXEL );
+    vhTexture rt = CreateTestTexture( 32, 32, nvrhi::Format::RGBA8_UNORM );
+    vhState state;
+    state.SetColourAttachment( 0, rt )
+         .SetViewRect( glm::vec4( 0, 0, 16, 32 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetBlendConstColor( glm::vec4( 0.25f, 0.5f, 0.75f, 1.0f ) )
+         .SetPushConstants( glm::vec4( 1, 0, 0, 1 ) )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+    const vhStateId sid = 1803;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    vhFlush( true );
+    const uint64_t hits = g_vhPerf.psoCacheHits.load( std::memory_order_relaxed );
+    const uint64_t misses = g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed );
+
+    state.SetViewRect( glm::vec4( 16, 0, 16, 32 ) )
+         .SetPushConstants( glm::vec4( 0, 1, 0, 1 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetBlendConstColor( glm::vec4( 0.25f, 0.5f, 0.75f, 1.0f ) )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+    vhSetState( sid, state );
+    vhDraw( sid, 3 );
+    vhFlush( true );
+    EXPECT_EQ( g_vhPerf.psoCacheHits.load( std::memory_order_relaxed ), hits + 1 );
+    EXPECT_EQ( g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed ), misses );
+    vhMem pixels;
+    vhReadTextureSlow( rt, 0, 0, &pixels );
+    vhFinish();
+    ASSERT_EQ( pixels.size(), 32u * 32u * 4u );
+    for ( uint32_t y = 0; y < 32; y++ )
+    {
+        for ( uint32_t x = 0; x < 32; x++ )
+        {
+            uint32_t pixel;
+            memcpy( &pixel, pixels.data() + ( y * 32 + x ) * 4, sizeof( pixel ) );
+            EXPECT_EQ( pixel, x < 16 ? 0xFF0000FFu : 0xFF00FF00u );
+        }
+    }
+    vhDestroyTexture( rt );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, P09_BufferTextureDestroyRecreate_SameHandle )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    const char* source = R"(
+        cbuffer Params : register(b2, VRHI_STAGE_SPACE)
+        {
+            float4 tint;
+        };
+        Texture2D<float4> image : register(t0, VRHI_STAGE_SPACE);
+
+        [shader("pixel")]
+        float4 main() : SV_Target
+        {
+            return image.Load(int3(0, 0, 0)) * tint;
+        }
+    )";
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( source, VRHI_SHADER_STAGE_PIXEL );
+    for ( bool replaceBuffer : { true, false } )
+    {
+        vhBuffer cb = vhAllocBuffer();
+        vhTexture image = vhAllocTexture();
+        const vhBuffer originalBuffer = cb;
+        const vhTexture originalTexture = image;
+        vhTexture rt = CreateTestTexture( 32, 16, nvrhi::Format::RGBA8_UNORM );
+        const glm::vec4 red( 1, 0, 0, 1 ), green( 0, 1, 0, 1 ), white( 1 );
+        const uint32_t redPixel = 0xFF0000FFu, greenPixel = 0xFF00FF00u, whitePixel = 0xFFFFFFFFu;
+        vhMem* bufferData = vhAllocMem( 256 );
+        memset( bufferData->data(), 0, bufferData->size() );
+        memcpy( bufferData->data(), replaceBuffer ? &red : &white, sizeof( red ) );
+        vhCreateUniformBuffer( cb, "P09BeforeCB", bufferData, 256 );
+        vhMem* textureData = vhAllocMem( sizeof( redPixel ) );
+        memcpy( textureData->data(), replaceBuffer ? &whitePixel : &redPixel, sizeof( redPixel ) );
+        vhCreateTexture2D( image, "P09BeforeTex", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, textureData );
+        vhState state;
+        state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+             .SetColourAttachment( 0, rt )
+             .SetViewRect( glm::vec4( 0, 0, 16, 16 ) )
+             .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK )
+             .SetBuffer( 0, { "Params", -1, cb } )
+             .SetTexture( 0, { "image", -1, image } );
+        const vhStateId sid = 1804;
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        const uint64_t misses = g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed );
+
+        if ( replaceBuffer )
+        {
+            vhDestroyBuffer( cb );
+            cb = vhAllocBuffer();
+            ASSERT_EQ( cb, originalBuffer );
+            vhMem* data = vhAllocMem( 256 );
+            memset( data->data(), 0, data->size() );
+            memcpy( data->data(), &green, sizeof( green ) );
+            vhCreateUniformBuffer( cb, "P09AfterCB", data, 256 );
+        }
+        else
+        {
+            vhDestroyTexture( image );
+            image = vhAllocTexture();
+            ASSERT_EQ( image, originalTexture );
+            vhMem* data = vhAllocMem( sizeof( greenPixel ) );
+            memcpy( data->data(), &greenPixel, sizeof( greenPixel ) );
+            vhCreateTexture2D( image, "P09AfterTex", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, data );
+        }
+        state.SetViewRect( glm::vec4( 16, 0, 16, 16 ) );
+        vhSetState( sid, state );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        EXPECT_EQ( g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed ), misses + 1 );
+        vhMem pixels;
+        vhReadTextureSlow( rt, 0, 0, &pixels );
+        vhFinish();
+        ASSERT_EQ( pixels.size(), 32u * 16u * 4u );
+        for ( uint32_t y = 0; y < 16; y++ )
+        {
+            for ( uint32_t x = 0; x < 32; x++ )
+            {
+                uint32_t pixel;
+                memcpy( &pixel, pixels.data() + ( y * 32 + x ) * 4, sizeof( pixel ) );
+                EXPECT_EQ( pixel, x < 16 ? redPixel : greenPixel );
+            }
+        }
+        vhDestroyBuffer( cb );
+        vhDestroyTexture( image );
+        vhDestroyTexture( rt );
+        vhFinish();
+    }
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, P03_ShaderReloadSameProgram_InvalidatesCachedPipeline )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    const char* redSource = R"(
+        [shader("pixel")]
+        float4 main() : SV_Target { return float4(1, 0, 0, 1); }
+    )";
+    const char* greenSource = R"(
+        [shader("pixel")]
+        float4 main() : SV_Target { return float4(0, 1, 0, 1); }
+    )";
+    std::vector< uint32_t > greenSpirv;
+    std::string error;
+    ASSERT_TRUE( vhCompileShader( "P03Green", greenSource, VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, greenSpirv, "main", {}, {}, &error ) );
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    for ( bool resendProgram : { false, true } )
+    {
+        vhShader ps = CreateTestShader( redSource, VRHI_SHADER_STAGE_PIXEL );
+        vhTexture rt = CreateTestTexture( 32, 16, nvrhi::Format::RGBA8_UNORM );
+        vhState state;
+        state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+             .SetColourAttachment( 0, rt )
+             .SetViewRect( glm::vec4( 0, 0, 16, 16 ) )
+             .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK );
+        const vhStateId sid = 1805;
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        const uint64_t misses = g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed );
+        vhCreateShader( ps, "P03Green", VRHI_SHADER_STAGE_PIXEL, greenSpirv, "main" );
+        state.SetViewRect( glm::vec4( 16, 0, 16, 16 ) );
+        if ( resendProgram )
+        {
+            state.SetProgram( vhCreateGfxProgram( vs, ps ) );
+        }
+        vhSetState( sid, state );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        EXPECT_EQ( g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed ), misses + 1 );
+        vhMem pixels;
+        vhReadTextureSlow( rt, 0, 0, &pixels );
+        vhFinish();
+        ASSERT_EQ( pixels.size(), 32u * 16u * 4u );
+        for ( uint32_t y = 0; y < 16; y++ )
+        {
+            for ( uint32_t x = 0; x < 32; x++ )
+            {
+                uint32_t pixel;
+                memcpy( &pixel, pixels.data() + ( y * 32 + x ) * 4, sizeof( pixel ) );
+                EXPECT_EQ( pixel, x < 16 ? 0xFF0000FFu : 0xFF00FF00u );
+            }
+        }
+        vhDestroyShader( ps );
+        vhDestroyTexture( rt );
+        vhFinish();
+    }
+    vhDestroyShader( vs );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
