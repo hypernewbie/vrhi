@@ -235,8 +235,10 @@ int64_t vhCmdBackendState::BE_Util_WriteGlobalUniform( const vhState& state, vhT
     if ( hash == lastHash && tbuf.offset >= sizeof( vhGlobalUniform ) )
         return tbuf.offset - sizeof( vhGlobalUniform );
 
+    int64_t offset = tbuf.Write( &u, sizeof( u ) );
+    if ( offset < 0 ) return offset;
     lastHash = hash;
-    return tbuf.Write( &u, sizeof( u ) );
+    return offset;
 }
 
 int64_t vhCmdBackendState::BE_Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
@@ -248,8 +250,10 @@ int64_t vhCmdBackendState::BE_Util_WriteWorldUniform( const vhState& state, vhTr
     if ( hash == lastHash && tbuf.offset >= sizeof( vhWorldUniform ) )
         return tbuf.offset - sizeof( vhWorldUniform );
 
+    int64_t offset = tbuf.Write( &u, sizeof( u ) );
+    if ( offset < 0 ) return offset;
     lastHash = hash;
-    return tbuf.Write( &u, sizeof( u ) );
+    return offset;
 }
 
 // --------------------------------------------------------------------------
