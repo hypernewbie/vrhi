@@ -4064,3 +4064,97 @@ UTEST_F( Graphics, ConservativeRaster_Border )
     vhDestroyTexture(rt); vhDestroyBuffer(vb); vhDestroyShader(vs); vhDestroyShader(ps);
     vhFinish();
 }
+
+UTEST_F( Graphics, FlushFalse_RetainsQueuedInputOwnership )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_uniformRingPS, VRHI_SHADER_STAGE_PIXEL );
+
+    vhState::UniformBufferValue uA;
+    uA.name = "u_marker";
+    uA.data.push_back( glm::vec4( 17.0f ) );
+    vhState::UniformBufferValue uB;
+    uB.name = "u_marker";
+    uB.data.push_back( glm::vec4( 89.0f ) );
+
+    vhTexture rtA = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    vhTexture rtB = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    vhTexture rtC = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+
+    vhStateId sid = 1802;
+
+    // Frontend object scoped only to this block: the values here must already be
+    // safely in the arena by the time control leaves it.
+    {
+        vhState stateA;
+        stateA.SetProgram( vhCreateGfxProgram( vs, ps ) );
+        stateA.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+        stateA.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) );
+        stateA.SetStateFlags( VRHI_STATE_WRITE_MASK );
+        stateA.SetColourAttachment( 0, rtA );
+        stateA.SetViewTransform( glm::mat4( 1.0f ), glm::mat4( 1.0f ) );
+        stateA.SetWorldTransform( glm::mat4( 7.0f ) );
+        stateA.SetUniform( 0, uA );
+
+        vhSetState( sid, stateA );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( false );   // submit, do not wait
+    }   // stateA destroyed here
+
+    // A second frame with different values, using a fresh state object. The first
+    // submission must still render with uA's marker, not uB's.
+    {
+        vhState stateB;
+        stateB.SetProgram( vhCreateGfxProgram( vs, ps ) );
+        stateB.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+        stateB.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) );
+        stateB.SetStateFlags( VRHI_STATE_WRITE_MASK );
+        stateB.SetColourAttachment( 0, rtB );
+        stateB.SetViewTransform( glm::mat4( 2.0f ), glm::mat4( 1.0f ) );
+        stateB.SetWorldTransform( glm::mat4( 23.0f ) );
+        stateB.SetUniform( 0, uB );
+
+        vhSetState( sid, stateB );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( false );
+    }
+
+    // A third frame to exercise the full wait path: this one must drain at the barrier.
+    {
+        vhState stateC;
+        stateC.SetProgram( vhCreateGfxProgram( vs, ps ) );
+        stateC.SetViewRect( glm::vec4( 0, 0, 64, 64 ) );
+        stateC.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) );
+        stateC.SetStateFlags( VRHI_STATE_WRITE_MASK );
+        stateC.SetColourAttachment( 0, rtC );
+        stateC.SetViewTransform( glm::mat4( 3.0f ), glm::mat4( 1.0f ) );
+        stateC.SetWorldTransform( glm::mat4( 41.0f ) );
+        stateC.SetUniform( 0, uA );    // reuse uA by value to test that uB did not leak
+
+        vhSetState( sid, stateC );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+    }
+
+    vhFinish();   // one GPU drain at the end
+
+    // Encoder: R = view[0][0], G = world[0][0][0], B = marker.x, all as 0..255.
+    const uint32_t expectedA = 0xFF000000u | 1u | ( 7u << 8 ) | ( 17u << 16 );
+    const uint32_t expectedB = 0xFF000000u | 2u | ( 23u << 8 ) | ( 89u << 16 );
+    const uint32_t expectedC = 0xFF000000u | 3u | ( 41u << 8 ) | ( 17u << 16 );
+
+    EXPECT_TRUE( VerifyPixel( rtA, 32, 32, expectedA ) );
+    EXPECT_TRUE( VerifyPixel( rtB, 32, 32, expectedB ) );
+    EXPECT_TRUE( VerifyPixel( rtC, 32, 32, expectedC ) );
+
+    vhDestroyTexture( rtA );
+    vhDestroyTexture( rtB );
+    vhDestroyTexture( rtC );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+}
