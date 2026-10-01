@@ -2313,6 +2313,11 @@ uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const 
             uint64_t hLayout = vhHashBindingLayout( *layoutDesc );
             h = komihash( &hLayout, sizeof( hLayout ), h );
         }
+        else
+        {
+            auto layout = layoutHandle.Get();
+            h = komihash( &layout, sizeof( layout ), h );
+        }
     }
 
     // Framebuffer Compatibility
@@ -2340,6 +2345,11 @@ uint64_t vhHashComputePipeline( const nvrhi::ComputePipelineDesc& desc )
         {
             uint64_t hLayout = vhHashBindingLayout( *layoutDesc );
             h = komihash( &hLayout, sizeof( hLayout ), h );
+        }
+        else
+        {
+            auto layout = layoutHandle.Get();
+            h = komihash( &layout, sizeof( layout ), h );
         }
     }
 
