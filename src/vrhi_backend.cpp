@@ -3871,6 +3871,8 @@ void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorT
         return;
     }
     backend->capacity = backend->desc.maxCapacity;
+    s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescriptorTable* cmd )
@@ -4360,7 +4362,9 @@ void vhCmdBackendState::Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewCle
 void vhCmdBackendState::Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].program = cmd->program;
+    auto& program = backendStates[cmd->id].program;
+    if ( program == cmd->program ) return;
+    program = cmd->program;
     s_globalResourceVersion++;
     s_globalPipelineVersion++;
 }
@@ -4383,7 +4387,9 @@ void vhCmdBackendState::Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWo
 void vhCmdBackendState::Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].stateFlags = cmd->flags;
+    auto& flags = backendStates[cmd->id].stateFlags;
+    if ( flags == cmd->flags ) return;
+    flags = cmd->flags;
     s_globalPipelineVersion++;
 }
 
@@ -4397,6 +4403,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* 
 {
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
+    if ( state.stencilState == cmd->stencilState ) return;
     state.stencilState = cmd->stencilState;
     s_globalPipelineVersion++;
 }
@@ -4414,7 +4421,25 @@ void vhCmdBackendState::Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBi
 void vhCmdBackendState::Handle_vhCmdSetStateVertexBindings( VIDL_vhCmdSetStateVertexBindings* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].vertexBindings = cmd->bindings;
+    auto& dst = backendStates[cmd->id].vertexBindings;
+    bool same = dst.size() == cmd->bindings.size();
+    if ( same )
+    {
+        for ( size_t i = 0; i < dst.size(); i++ )
+        {
+            const auto& a = dst[i];
+            const auto& b = cmd->bindings[i];
+            if ( a.buffer != b.buffer || a.stream != b.stream || a.startVertex != b.startVertex ||
+                a.numVertices != b.numVertices || a.byteOffset != b.byteOffset ||
+                a.layoutOverride != b.layoutOverride || a.isInstanced != b.isInstanced )
+            {
+                same = false;
+                break;
+            }
+        }
+    }
+    if ( same ) return;
+    dst = cmd->bindings;
     s_globalPipelineVersion++;
 }
 
@@ -4431,7 +4456,10 @@ void vhCmdBackendState::Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVert
 void vhCmdBackendState::Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    backendStates[cmd->id].indexBinding = { cmd->buffer, cmd->first, cmd->num, cmd->offset };
+    auto& index = backendStates[cmd->id].indexBinding;
+    if ( index.buffer == cmd->buffer && index.firstIndex == cmd->first &&
+        index.numIndices == cmd->num && index.byteOffset == cmd->offset ) return;
+    index = { cmd->buffer, cmd->first, cmd->num, cmd->offset };
     s_globalPipelineVersion++;
 }
 
@@ -4509,6 +4537,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateBlendConstants( VIDL_vhCmdSetStateBl
     auto it = backendStates.find( cmd->id );
     if ( it != backendStates.end() )
     {
+        if ( glm::all( glm::equal( it->second.blendConstantColor, cmd->blendConst ) ) ) return;
         it->second.blendConstantColor = cmd->blendConst;
         s_globalPipelineVersion++;
     }
@@ -4574,6 +4603,21 @@ void vhCmdBackendState::Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetState
 {
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
+    bool same = state.descriptorTables.size() == cmd->tables.count;
+    if ( same )
+    {
+        for ( size_t i = 0; i < state.descriptorTables.size(); i++ )
+        {
+            const auto& a = state.descriptorTables[i];
+            const auto& b = cmd->tables.ptr[i];
+            if ( a.table != b.table || a.registerSpace != b.registerSpace )
+            {
+                same = false;
+                break;
+            }
+        }
+    }
+    if ( same ) return;
     vhAssignFromSpan( state.descriptorTables, cmd->tables );
     state.dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
     s_globalResourceVersion++;
