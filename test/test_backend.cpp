@@ -982,6 +982,303 @@ UTEST( Backend, Util_WriteGlobalUniform )
     vhFinish();
 }
 
+UTEST( Backend, Util_WriteGlobalUniform_FailedWriteNoDedupHit )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping uniform buffer write test in Null RHI mode" );
+    }
+
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.setByteSize( sizeof( vhGlobalUniform ) );
+    desc.setIsConstantBuffer( true );
+    desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
+    desc.setDebugName( "T01Transient" );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    uint64_t lastHash = 0;
+    vhState state = {};
+    state.viewRect = glm::vec4( 0, 0, 100, 100 );
+    state.viewMatrix = glm::mat4( 1.0f );
+
+    int64_t offsetA = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    EXPECT_EQ( offsetA, 0 );
+    EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
+    const vhState stateA = state;
+    const uint64_t hashA = lastHash;
+    vhGlobalUniform expected;
+    vhWriteStateToGlobalUniform( stateA, expected );
+
+    // Capacity exhausted: any further write to this slot must fail.
+    state.viewRect = glm::vec4( 10, 20, 300, 400 );
+    state.viewMatrix = glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 2, 3 ) );
+
+    int64_t offsetB1 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    EXPECT_EQ( offsetB1, -1 );
+
+    // Re-attempting with the same rejected value must NOT resolve to the previous successful
+    // offset. A dedup hit for bytes the buffer never received is a failure, not a return value.
+    int64_t offsetB2 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    EXPECT_EQ( offsetB2, -1 );
+    EXPECT_EQ( lastHash, hashA );
+    EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
+    EXPECT_EQ( vhCmdBackendStateTest::Util_WriteGlobalUniform( stateA, tb, lastHash ), offsetA );
+    EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
+
+    // Stage the slot and verify offset 0 still contains A's bytes, not B's.
+    nvrhi::BufferDesc stgDesc;
+    stgDesc.setByteSize( sizeof( vhGlobalUniform ) );
+    stgDesc.setCpuAccess( nvrhi::CpuAccessMode::Read );
+    stgDesc.setDebugName( "T01Staging" );
+    nvrhi::BufferHandle staging;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        staging = g_vhDevice->createBuffer( stgDesc );
+        tb.Flush_DeviceStateLocked();
+        auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        cmdList->copyBuffer( staging, 0, tb.handle[tb.frameIdx], 0, sizeof( vhGlobalUniform ) );
+    }
+    ASSERT_NE( staging, nullptr );
+
+    vhFinish();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        const vhGlobalUniform* u = ( const vhGlobalUniform* ) g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+        ASSERT_NE( u, nullptr );
+        EXPECT_EQ( u->u_viewRect.x, 0.0f );
+        EXPECT_EQ( u->u_viewRect.y, 0.0f );
+        EXPECT_EQ( u->u_viewRect.z, 100.0f );
+        EXPECT_EQ( u->u_viewRect.w, 100.0f );
+        EXPECT_EQ( memcmp( u, &expected, sizeof( expected ) ), 0 );
+        g_vhDevice->unmapBuffer( staging );
+        tb.Shutdown_DeviceStateLocked();
+        staging = nullptr;
+    }
+    vhFinish();
+}
+
+UTEST( Backend, Util_WriteGlobalUniform_ExactCapacity )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping uniform buffer write test in Null RHI mode" );
+    }
+
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    for ( uint32_t capacityRecords : { 1u, 2u } )
+    {
+        vhTransientBuffer tb;
+        nvrhi::BufferDesc desc;
+        desc.setByteSize( capacityRecords * sizeof( vhGlobalUniform ) );
+        desc.setIsConstantBuffer( true );
+        desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
+        desc.setDebugName( "T08Transient" );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            tb.Init_DeviceStateLocked( desc );
+        }
+
+        uint64_t lastHash = 0;
+        vhState state = {};
+        state.viewRect = glm::vec4( 1, 2, 3, 4 );
+        state.viewMatrix = glm::mat4( 1.0f );
+
+        for ( uint32_t i = 0; i < capacityRecords; ++i )
+        {
+            state.viewRect = glm::vec4( ( float ) i + 1, 0, 0, 0 );
+            int64_t offset = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+            EXPECT_EQ( offset, ( int64_t )( i * sizeof( vhGlobalUniform ) ) );
+        }
+
+        // Next record at exact-capacity: every byte is consumed, must fail with -1.
+        state.viewRect = glm::vec4( 99, 0, 0, 0 );
+        int64_t overflow = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+        EXPECT_EQ( overflow, -1 );
+        EXPECT_EQ( tb.offset, ( int64_t )( capacityRecords * sizeof( vhGlobalUniform ) ) );
+
+        // Step to the next slot; a write must succeed and start at offset 0.
+        tb.Step();
+        EXPECT_EQ( tb.offset, 0 );
+        lastHash = 0;
+        state.viewRect = glm::vec4( 7, 0, 0, 0 );
+        int64_t reuseOffset = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+        EXPECT_EQ( reuseOffset, 0 );
+        EXPECT_EQ( tb.offset, ( int64_t ) sizeof( vhGlobalUniform ) );
+
+        // Stage the new slot at offset 0 and verify the last write's bytes are present.
+        nvrhi::BufferDesc stgDesc;
+        stgDesc.setByteSize( sizeof( vhGlobalUniform ) );
+        stgDesc.setCpuAccess( nvrhi::CpuAccessMode::Read );
+        stgDesc.setDebugName( "T08Staging" );
+        nvrhi::BufferHandle staging;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            staging = g_vhDevice->createBuffer( stgDesc );
+            tb.Flush_DeviceStateLocked();
+            auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            cmdList->copyBuffer( staging, 0, tb.handle[tb.frameIdx], 0, sizeof( vhGlobalUniform ) );
+        }
+        ASSERT_NE( staging, nullptr );
+        vhFinish();
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            const vhGlobalUniform* u = ( const vhGlobalUniform* ) g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+            ASSERT_NE( u, nullptr );
+            EXPECT_EQ( u->u_viewRect.x, 7.0f );
+            g_vhDevice->unmapBuffer( staging );
+            tb.Shutdown_DeviceStateLocked();
+            staging = nullptr;
+        }
+        vhFinish();
+    }
+}
+
+UTEST( Backend, Util_WriteWorldUniform_FailedWriteNoDedupHit )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping world uniform write test in Null RHI mode" );
+    }
+
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.setByteSize( sizeof( vhWorldUniform ) );
+    desc.setIsConstantBuffer( true );
+    desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
+    desc.setDebugName( "T01TransientWorld" );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    uint64_t lastHash = 0;
+    vhState state = {};
+    state.viewMatrix = glm::mat4( 1.0f );
+    state.worldMatrix.push_back( glm::mat4( 1.0f ) );
+
+    int64_t offsetA = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    EXPECT_EQ( offsetA, 0 );
+    EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
+    const vhState stateA = state;
+    const uint64_t hashA = lastHash;
+    vhWorldUniform expected;
+    vhWriteStateToWorldUniform( stateA, expected );
+
+    state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 0, 0 ) );
+    int64_t offsetB1 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    EXPECT_EQ( offsetB1, -1 );
+
+    int64_t offsetB2 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    EXPECT_EQ( offsetB2, -1 );
+    EXPECT_EQ( lastHash, hashA );
+    EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
+    EXPECT_EQ( vhCmdBackendStateTest::Util_WriteWorldUniform( stateA, tb, lastHash ), offsetA );
+    EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
+
+    nvrhi::BufferDesc stgDesc;
+    stgDesc.setByteSize( sizeof( vhWorldUniform ) );
+    stgDesc.setCpuAccess( nvrhi::CpuAccessMode::Read );
+    stgDesc.setDebugName( "T01WorldStaging" );
+    nvrhi::BufferHandle staging;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        staging = g_vhDevice->createBuffer( stgDesc );
+        tb.Flush_DeviceStateLocked();
+        auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        cmdList->copyBuffer( staging, 0, tb.handle[tb.frameIdx], 0, sizeof( vhWorldUniform ) );
+    }
+    ASSERT_NE( staging, nullptr );
+    vhFinish();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        const vhWorldUniform* u = ( const vhWorldUniform* ) g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+        ASSERT_NE( u, nullptr );
+        EXPECT_EQ( memcmp( u, &expected, sizeof( expected ) ), 0 );
+        g_vhDevice->unmapBuffer( staging );
+        tb.Shutdown_DeviceStateLocked();
+        staging = nullptr;
+    }
+    vhFinish();
+}
+
+UTEST( Backend, Util_WriteWorldUniform_ExactCapacity )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping world uniform write test in Null RHI mode" );
+    }
+
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+    for ( uint32_t capacityRecords : { 1u, 2u } )
+    {
+        vhTransientBuffer tb;
+        nvrhi::BufferDesc desc;
+        desc.setByteSize( capacityRecords * sizeof( vhWorldUniform ) );
+        desc.setIsConstantBuffer( true );
+        desc.setCpuAccess( nvrhi::CpuAccessMode::Write );
+        desc.setDebugName( "T08TransientWorld" );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            tb.Init_DeviceStateLocked( desc );
+        }
+
+        uint64_t lastHash = 0;
+        vhState state = {};
+        state.viewMatrix = glm::mat4( 1.0f );
+        state.worldMatrix.push_back( glm::mat4( 1.0f ) );
+
+        for ( uint32_t i = 0; i < capacityRecords; ++i )
+        {
+            state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( ( float ) i, 0, 0 ) );
+            int64_t offset = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+            EXPECT_EQ( offset, ( int64_t )( i * sizeof( vhWorldUniform ) ) );
+        }
+
+        state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 99, 0, 0 ) );
+        int64_t overflow = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+        EXPECT_EQ( overflow, -1 );
+        EXPECT_EQ( tb.offset, ( int64_t )( capacityRecords * sizeof( vhWorldUniform ) ) );
+
+        tb.Step();
+        lastHash = 0;
+        state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 7, 0, 0 ) );
+        int64_t reuseOffset = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+        EXPECT_EQ( reuseOffset, 0 );
+
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            tb.Shutdown_DeviceStateLocked();
+        }
+        vhFinish();
+    }
+}
+
 UTEST( Backend, VertexIndexBufferBinding )
 {
     if ( !g_testInit )

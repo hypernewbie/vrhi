@@ -1181,3 +1181,348 @@ UTEST_F( Buffer, UpdateStorageBufferSpan_ResizeGrows )
     vhDestroyBuffer( buf );
     vhFinish();
 }
+
+UTEST_F( Buffer, Transient_NoSecondReuseWait )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientNoReuseWait";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    // Both writes must be VRHI_CBUF_ALIGN-aligned; the second one proves that the slot's
+    // ready[] flag persists between calls so no second wait/reset cycle is triggered.
+    uint8_t a[VRHI_CBUF_ALIGN] = { 1 };
+    uint8_t b[VRHI_CBUF_ALIGN] = { 2 };
+    int64_t offset1 = tb.Write( a, sizeof( a ) );
+    int64_t offset2 = tb.Write( b, sizeof( b ) );
+    EXPECT_EQ( offset1, 0 );
+    EXPECT_EQ( offset2, ( int64_t ) sizeof( a ) );
+    EXPECT_EQ( tb.offset, ( int64_t )( sizeof( a ) + sizeof( b ) ) );
+    EXPECT_TRUE( tb.ready[tb.frameIdx] );
+
+    // The mapped pointer for the current slot is the one established on the first Write
+    // and must not have been remapped between the two Write calls.
+    EXPECT_NE( tb.mapped[tb.frameIdx], nullptr );
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_StepWithoutWriteKeepsQueries )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientStepNoWrite";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    for ( uint32_t slot = 0; slot < VRHI_MAX_FRAMES_INFLIGHT; ++slot )
+    {
+        EXPECT_NE( tb.fence[slot][0], nullptr );
+    }
+
+    tb.Step();
+    EXPECT_EQ( tb.frameIdx, 1u );
+    EXPECT_FALSE( tb.ready[tb.frameIdx] );
+    EXPECT_EQ( tb.mapped[tb.frameIdx], nullptr );
+
+    // Step again with no Write in between. The query handles must still exist.
+    tb.Step();
+    EXPECT_EQ( tb.frameIdx, 2u );
+    EXPECT_NE( tb.fence[tb.frameIdx][0], nullptr );
+
+    // A subsequent Write should still produce a valid offset.
+    uint32_t a[4] = { 1, 2, 3, 4 };
+    int64_t offset = tb.Write( a, sizeof( a ) );
+    EXPECT_EQ( offset, 0 );
+    EXPECT_TRUE( tb.ready[tb.frameIdx] );
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_FirstMapEachSlot )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientFirstMap";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    // Each slot starts with lazy-mapping state. Queries are valid handles but have not been
+    // touched by a set; the wait on a zero-instance query must complete immediately.
+    for ( uint32_t slot = 0; slot < VRHI_MAX_FRAMES_INFLIGHT; ++slot )
+    {
+        EXPECT_NE( tb.fence[slot][0], nullptr );
+        EXPECT_FALSE( tb.ready[slot] );
+        EXPECT_EQ( tb.mapped[slot], nullptr );
+    }
+
+    // Map and Write on slot 0. Drives slot 0 to ready and a mapped address.
+    uint32_t data[4] = { 0xA0, 0xB0, 0xC0, 0xD0 };
+    int64_t offset0 = tb.Write( data, sizeof( data ) );
+    EXPECT_EQ( offset0, 0 );
+    EXPECT_TRUE( tb.ready[0] );
+    EXPECT_NE( tb.mapped[0], nullptr );
+
+    // Step to slot 1. ready[1] must reset, mapped[1] is still null until the next Write.
+    tb.Step();
+    EXPECT_FALSE( tb.ready[1] );
+    EXPECT_EQ( tb.mapped[1], nullptr );
+
+    // A write on slot 1 must succeed and produce a usable mapped address.
+    int64_t offset1 = tb.Write( data, sizeof( data ) );
+    EXPECT_EQ( offset1, 0 );
+    EXPECT_TRUE( tb.ready[1] );
+    EXPECT_NE( tb.mapped[1], nullptr );
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_WriteMisalignedAfterSmallAlloc )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientMisaligned";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    int64_t offset100 = tb.Alloc( 100 );
+    EXPECT_EQ( offset100, 0 );
+    EXPECT_EQ( tb.offset, 100 );
+
+    // Write at offset 100 fails the alignment check; no bytes copied, cursor unchanged.
+    uint32_t data[64] = {};
+    int64_t offset = tb.Write( data, sizeof( data ) );
+    EXPECT_EQ( offset, -1 );
+    EXPECT_EQ( tb.offset, 100 );
+
+    // A subsequent aligned write at offset 256 must succeed.
+    int64_t beforeAligned = tb.Alloc( 156 );
+    EXPECT_EQ( beforeAligned, 100 );
+    int64_t alignedOffset = tb.Write( data, 256 );
+    EXPECT_EQ( alignedOffset, 256 );
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_RepeatedCapacityFailure )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 512;
+    desc.debugName = "TransientRepeatedFail";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    int64_t small = tb.Alloc( 256 );
+    EXPECT_EQ( small, 0 );
+    EXPECT_EQ( tb.offset, 256 );
+
+    for ( int i = 0; i < 4; ++i )
+    {
+        int64_t tooBig = tb.Alloc( 1024 );
+        EXPECT_EQ( tooBig, -1 );
+        EXPECT_EQ( tb.offset, 256 );
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_NullModeMapFailure )
+{
+    if ( !g_vhInit.nullMode ) UTEST_SKIP( "Requires Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientNullMap";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    int32_t startErrors = g_vhErrorCounter.load();
+    uint32_t data[4] = { 1, 2, 3, 4 };
+    int64_t offset1 = tb.Write( data, sizeof( data ) );
+    EXPECT_EQ( offset1, -1 );
+    EXPECT_GT( g_vhErrorCounter.load(), startErrors );
+
+    // The cursor must not advance when the underlying map fails.
+    EXPECT_EQ( tb.offset, 0 );
+    EXPECT_EQ( tb.Write( data, sizeof( data ) ), -1 );
+    EXPECT_EQ( tb.offset, 0 );
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_FailedAllocThenStep )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 256;
+    desc.debugName = "TransientFailedStep";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    int64_t tooBig = tb.Alloc( 1024 );
+    EXPECT_EQ( tooBig, -1 );
+    EXPECT_EQ( tb.offset, 0 );
+
+    tb.Step();
+    EXPECT_EQ( tb.offset, 0 );
+
+    uint32_t data[4] = { 0xAA, 0xBB, 0xCC, 0xDD };
+    int64_t valid = tb.Write( data, sizeof( data ) );
+    EXPECT_EQ( valid, 0 );
+    EXPECT_EQ( tb.offset, sizeof( data ) );
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_SignedAllocLimits )
+{
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientSignedAlloc";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    const int64_t offsetBefore = tb.offset;
+    int64_t negative = tb.Alloc( -1 );
+    EXPECT_EQ( negative, -1 );
+    EXPECT_EQ( tb.offset, offsetBefore );
+
+    int64_t largeNeg = tb.Alloc( -1024 );
+    EXPECT_EQ( largeNeg, -1 );
+    EXPECT_EQ( tb.offset, offsetBefore );
+
+    int64_t overflow = tb.Alloc( INT64_MAX );
+    EXPECT_EQ( overflow, -1 );
+    EXPECT_EQ( tb.offset, offsetBefore );
+
+    int64_t valid = tb.Alloc( 256 );
+    EXPECT_EQ( valid, 0 );
+    EXPECT_EQ( tb.offset, 256 );
+    EXPECT_EQ( tb.Alloc( INT64_MAX ), -1 );
+    EXPECT_EQ( tb.Alloc( INT64_MIN ), -1 );
+    EXPECT_EQ( tb.offset, 256 );
+    EXPECT_EQ( tb.Alloc( 0 ), 256 );
+    EXPECT_EQ( tb.Alloc( 768 ), 256 );
+    EXPECT_EQ( tb.offset, 1024 );
+    EXPECT_EQ( tb.Alloc( 1 ), -1 );
+    EXPECT_EQ( tb.offset, 1024 );
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+}
+
+UTEST_F( Buffer, Transient_ShutdownPartialMapping )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
+
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 1024;
+    desc.debugName = "TransientPartialMap";
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    uint32_t data[4] = { 1, 2, 3, 4 };
+    int64_t offset0 = tb.Write( data, sizeof( data ) );
+    EXPECT_EQ( offset0, 0 );
+    EXPECT_TRUE( tb.ready[0] );
+    EXPECT_NE( tb.mapped[0], nullptr );
+
+    for ( uint32_t i = 1; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
+    {
+        EXPECT_FALSE( tb.ready[i] );
+        EXPECT_EQ( tb.mapped[i], nullptr );
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Shutdown_DeviceStateLocked();
+    }
+
+    for ( uint32_t i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; ++i )
+    {
+        EXPECT_EQ( tb.mapped[i], nullptr );
+        EXPECT_FALSE( tb.ready[i] );
+        EXPECT_EQ( tb.handle[i], nullptr );
+        for ( auto& query : tb.fence[i] ) EXPECT_EQ( query, nullptr );
+    }
+}
