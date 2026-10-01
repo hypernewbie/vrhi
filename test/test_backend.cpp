@@ -3651,3 +3651,42 @@ UTEST( Backend, P10_VertexBindingEarlyReturn_CommandInputOwnership )
     EXPECT_TRUE( binding.isInstanced );
     EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
 }
+
+UTEST( Backend, PipelineHashesIncludeBindlessLayoutIdentity )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Native layout identity requires GPU" );
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+    vhFinish();
+    nvrhi::BindlessLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.maxCapacity = 4;
+    layoutDesc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+    nvrhi::BindingLayoutHandle a, b;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        a = g_vhDevice->createBindlessLayout( layoutDesc );
+        b = g_vhDevice->createBindlessLayout( layoutDesc );
+    }
+    ASSERT_NE( a, nullptr );
+    ASSERT_NE( b, nullptr );
+    ASSERT_NE( a, b );
+    ASSERT_EQ( a->getDesc(), nullptr );
+    ASSERT_EQ( b->getDesc(), nullptr );
+    nvrhi::ComputePipelineDesc compute;
+    compute.bindingLayouts.push_back( a );
+    uint64_t computeA = vhHashComputePipeline( compute );
+    EXPECT_EQ( vhHashComputePipeline( compute ), computeA );
+    compute.bindingLayouts[0] = b;
+    EXPECT_NE( vhHashComputePipeline( compute ), computeA );
+    nvrhi::GraphicsPipelineDesc graphics;
+    nvrhi::FramebufferInfo framebuffer;
+    graphics.bindingLayouts.push_back( a );
+    uint64_t graphicsA = vhHashGraphicsPipeline( graphics, framebuffer );
+    EXPECT_EQ( vhHashGraphicsPipeline( graphics, framebuffer ), graphicsA );
+    graphics.bindingLayouts[0] = b;
+    EXPECT_NE( vhHashGraphicsPipeline( graphics, framebuffer ), graphicsA );
+}

@@ -4376,3 +4376,88 @@ UTEST_F( Graphics, P03_ShaderReloadSameProgram_InvalidatesCachedPipeline )
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
+
+UTEST_F( Graphics, P04_DescriptorTableRecreateSameID_InvalidatesCachedPipeline )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    const char* source = R"(
+        Texture2D<float4> images[] : register(t0, VRHI_BINDLESS_SPACE);
+        [shader("pixel")]
+        float4 main() : SV_Target { return images[0].Load(int3(0, 0, 0)); }
+    )";
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( source, VRHI_SHADER_STAGE_PIXEL );
+    const uint32_t red = 0xFF0000FFu, green = 0xFF00FF00u;
+    vhTexture imageA = vhAllocTexture(), imageB = vhAllocTexture();
+    vhMem* dataA = vhAllocMem( sizeof( red ) );
+    memcpy( dataA->data(), &red, sizeof( red ) );
+    vhCreateTexture2D( imageA, "P04Red", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, dataA );
+    vhMem* dataB = vhAllocMem( sizeof( green ) );
+    memcpy( dataB->data(), &green, sizeof( green ) );
+    vhCreateTexture2D( imageB, "P04Green", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, dataB );
+    for ( bool resendTables : { false, true } )
+    {
+        vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 4 );
+        vhDescriptorTableSetTexture( table, 0, imageA );
+        vhTexture rt = CreateTestTexture( 32, 16, nvrhi::Format::RGBA8_UNORM );
+        vhState state;
+        state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+             .SetColourAttachment( 0, rt )
+             .SetViewRect( glm::vec4( 0, 0, 16, 16 ) )
+             .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK )
+             .SetDescriptorTable( 0, table );
+        const vhStateId sid = 1806;
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        const uint64_t misses = g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed );
+        auto oldTable = vhGetDescriptorTableNvrhiHandle( table );
+        auto oldLayout = vhGetDescriptorTableLayoutNvrhiHandle( table );
+        nvrhi::BindlessLayoutDesc desc;
+        desc.visibility = nvrhi::ShaderType::All;
+        desc.maxCapacity = 8;
+        desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
+        vhCreateDescriptorTable( table, desc );
+        vhDescriptorTableSetTexture( table, 0, imageB );
+        vhFlush( true );
+        EXPECT_EQ( vhDescriptorTableCapacity( table ), 8u );
+        EXPECT_NE( vhGetDescriptorTableNvrhiHandle( table ), oldTable );
+        EXPECT_NE( vhGetDescriptorTableLayoutNvrhiHandle( table ), oldLayout );
+        state.SetViewRect( glm::vec4( 16, 0, 16, 16 ) );
+        if ( resendTables )
+        {
+            state.SetProgram( vhCreateGfxProgram( vs, ps ) );
+            state.SetDescriptorTable( 0, table );
+        }
+        vhSetState( sid, state );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        EXPECT_EQ( g_vhPerf.psoCacheMisses.load( std::memory_order_relaxed ), misses + 1 );
+        vhMem pixels;
+        vhReadTextureSlow( rt, 0, 0, &pixels );
+        vhFinish();
+        ASSERT_EQ( pixels.size(), 32u * 16u * 4u );
+        for ( uint32_t y = 0; y < 16; y++ )
+        {
+            for ( uint32_t x = 0; x < 32; x++ )
+            {
+                uint32_t pixel;
+                memcpy( &pixel, pixels.data() + ( y * 32 + x ) * 4, sizeof( pixel ) );
+                EXPECT_EQ( pixel, x < 16 ? red : green );
+            }
+        }
+        vhDestroyDescriptorTable( table );
+        vhDestroyTexture( rt );
+        vhFinish();
+    }
+    vhDestroyTexture( imageA );
+    vhDestroyTexture( imageB );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
