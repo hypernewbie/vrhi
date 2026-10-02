@@ -1752,7 +1752,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         && s_resolveCacheState == &state
         && s_resolveCacheVersion == s_globalResourceVersion
         && !shaderSetChanged
-        && state.dirty == 0;
+        && ( state.dirty & ~VRHI_DIRTY_WORLD ) == 0;
     if ( resolveCacheUsable )
     {
         g_vhPerf.resolveCacheHits.fetch_add( 1, std::memory_order_relaxed );
