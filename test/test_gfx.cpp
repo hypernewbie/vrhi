@@ -20,7 +20,9 @@
 */
 
 #include "test.h"
+#include "test_gpu_gate.h"
 #include <vrhi.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <vector>
 #include <string>
 #include <chrono>
@@ -4459,5 +4461,352 @@ UTEST_F( Graphics, P04_DescriptorTableRecreateSameID_InvalidatesCachedPipeline )
     vhDestroyShader( vs );
     vhDestroyShader( ps );
     vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+static bool CheckRGBARecords( vhTexture texture, const std::vector< uint32_t >& expected )
+{
+    vhMem data;
+    vhReadTextureSlow( texture, 0, 0, &data );
+    if ( data.size() != expected.size() * sizeof( uint32_t ) ) return false;
+    return std::memcmp( data.data(), expected.data(), data.size() ) == 0;
+}
+
+UTEST_F( Graphics, StateIdentity_DoesNotAliasCache )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    vhTexture rt = CreateTestTexture( 8, 8, nvrhi::Format::RGBA8_UNORM );
+    vhTexture images[2];
+    const uint32_t colours[] = { 0xFF0000FF, 0xFF00FF00 };
+    for ( size_t i = 0; i < 2; ++i )
+    {
+        images[i] = vhAllocTexture();
+        vhMem* data = vhAllocMem( sizeof( uint32_t ) );
+        std::memcpy( data->data(), &colours[i], sizeof( uint32_t ) );
+        vhCreateTexture2D( images[i], "P07", { 1, 1 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, data );
+    }
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    const char* source = R"(
+        Texture2D<float4> g_Image : register(t0, VRHI_STAGE_SPACE);
+        float4 main() : SV_Target { return g_Image.Load(int3(0, 0, 0)); }
+    )";
+    vhShader ps = CreateTestShader( source, VRHI_SHADER_STAGE_PIXEL );
+    vhState states[2];
+    for ( size_t i = 0; i < 2; ++i )
+    {
+        states[i].SetColourAttachment( 0, rt ).SetViewRect( { 0, 0, 8, 8 } )
+            .SetStateFlags( VRHI_STATE_WRITE_MASK ).SetProgram( vhCreateGfxProgram( vs, ps ) )
+            .SetTexture( 0, images[i], -1, "g_Image" );
+        vhSetState( 1950 + i, states[i] );
+    }
+    vhFlush( true );
+    // Warm both backend states before the generation-preserving A/B interval.
+    for ( size_t i : { 0u, 1u } ) { vhDraw( 1950 + i, 3 ); vhFlush( true ); }
+    size_t previous = 1;
+    for ( size_t i : { 0u, 1u, 0u, 0u } )
+    {
+        const uint64_t hits = g_vhPerf.psoCacheHits.load();
+        const uint64_t misses = g_vhPerf.psoCacheMisses.load();
+        vhSetState( 1950 + i, states[i] );
+        vhDraw( 1950 + i, 3 );
+        vhFinish();
+        EXPECT_EQ( g_vhPerf.psoCacheHits.load(), hits + ( i == previous ) );
+        EXPECT_EQ( g_vhPerf.psoCacheMisses.load(), misses + ( i != previous ) );
+        EXPECT_TRUE( CheckRGBARecords( rt, std::vector< uint32_t >( 64, colours[i] ) ) );
+        previous = i;
+    }
+    vhDestroyTexture( rt );
+    for ( auto image : images ) vhDestroyTexture( image );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, NonPipelineValues_UpdateOnCachedPipeline )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    vhTexture rt = CreateTestTexture( 16, 16, nvrhi::Format::RGBA8_UNORM );
+    vhShader vs = CreateTestShader( g_fullscreenVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_pushConstPS, VRHI_SHADER_STAGE_PIXEL );
+    vhState state;
+    state.SetColourAttachment( 0, rt ).SetViewRect( { 0, 0, 16, 16 } ).SetViewScissor( { 0, 0, 16, 16 } )
+        .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) ).SetStateFlags( VRHI_STATE_WRITE_MASK )
+        .SetProgram( vhCreateGfxProgram( vs, ps ) ).SetPushConstants( { 0, 0, 0, 1 } );
+    const vhStateId sid = 1952;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    vhFlush( true );
+    const glm::vec4 views[] = { { 1, 1, 7, 5 }, { 7, 4, 8, 8 }, { 0, 10, 6, 6 } };
+    const glm::vec4 scissors[] = { { 0, 0, 5, 5 }, { 6, 3, 7, 8 }, { 1, 9, 7, 6 } };
+    const glm::vec4 colours[] = { { 1, 0, 0, 1 }, { 0, 1, 0, 1 }, { 0, 0, 1, 1 } };
+    const uint32_t packed[] = { 0xFF0000FF, 0xFF00FF00, 0xFFFF0000 };
+    std::vector< uint32_t > expected( 256, 0xFF000000 );
+    for ( size_t i = 0; i < 3; ++i )
+    {
+        const uint64_t hits = g_vhPerf.psoCacheHits.load();
+        const uint64_t misses = g_vhPerf.psoCacheMisses.load();
+        state.SetViewRect( views[i] ).SetViewScissor( scissors[i] ).SetPushConstants( colours[i] );
+        vhSetState( sid, state );
+        vhDraw( sid, 3 );
+        vhFlush( true );
+        EXPECT_EQ( g_vhPerf.psoCacheHits.load(), hits + 1 );
+        EXPECT_EQ( g_vhPerf.psoCacheMisses.load(), misses );
+        for ( int y = 0; y < 16; ++y )
+            for ( int x = 0; x < 16; ++x )
+                if ( x >= views[i].x && x < views[i].x + views[i].z && y >= views[i].y && y < views[i].y + views[i].w &&
+                     x >= scissors[i].x && x < scissors[i].x + scissors[i].z && y >= scissors[i].y && y < scissors[i].y + scissors[i].w )
+                    expected[y * 16 + x] = packed[i];
+        EXPECT_TRUE( CheckRGBARecords( rt, expected ) );
+    }
+    vhDestroyTexture( rt );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+static const char* g_worldResolveCS = R"(
+    cbuffer WorldUniforms : register(b1, VRHI_STAGE_SPACE)
+    {
+        float4x4 u_world[4];
+        float4x4 u_worldView;
+        float4x4 u_worldViewProj;
+    };
+    [[vk::image_format("r32f")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+    [numthreads(1, 1, 1)]
+    void main(uint3 id : SV_DispatchThreadID)
+    {
+        g_Out[uint2(id.x, uint(u_world[0][1][1]) * 4 + id.y)] = u_world[0][0][0];
+    }
+)";
+
+struct WorldResolveResources
+{
+    vhShader shader;
+    vhTexture output;
+    vhState state;
+    vhStateId id;
+    bool push;
+
+    WorldResolveResources( vhStateId id, uint32_t records, bool push = false ) : id( id ), push( push )
+    {
+        const char* pushSource = R"(
+            struct PushData { float4 userData; float4x4 modelViewProj; };
+            [[vk::image_format("r32f")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+            [numthreads(1, 1, 1)]
+            void main(uint3 index : SV_DispatchThreadID, uniform PushData pc : push_constant)
+            {
+                g_Out[uint2(index.x, uint(pc.modelViewProj[1][3]) + index.y)] = pc.modelViewProj[0][3];
+            }
+        )";
+        shader = CreateTestShader( push ? pushSource : g_worldResolveCS, VRHI_SHADER_STAGE_COMPUTE );
+        output = CreateTestTexture( 4, 4 * records, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+        state.SetProgram( vhCreateComputeProgram( shader ) ).SetViewTransform( glm::mat4( 1 ), glm::mat4( 1 ) )
+            .SetTexture( 0, output, -1, "g_Out", true );
+        vhFinish();
+    }
+
+    ~WorldResolveResources()
+    {
+        vhFinish();
+        vhDestroyTexture( output );
+        vhDestroyShader( shader );
+        vhFinish();
+    }
+
+    void Submit( float value, uint32_t record, bool flush = true )
+    {
+        glm::mat4 world( 1 );
+        if ( push ) world = glm::translate( world, glm::vec3( value, record * 4, 0 ) );
+        else
+        {
+            world[0][0] = value;
+            world[1][1] = ( float ) record;
+        }
+        state.SetWorldTransform( world );
+        vhSetState( id, state );
+        vhDispatch( id, { 4, 4, 1 } );
+        if ( flush ) vhFlush( true );
+    }
+};
+
+static bool CheckWorldRecords( vhTexture texture, std::span< const float > expected )
+{
+    vhMem data;
+    vhReadTextureSlow( texture, 0, 0, &data );
+    if ( data.size() != expected.size() * 16 * sizeof( float ) ) return false;
+    const float* pixels = ( const float* ) data.data();
+    for ( size_t i = 0; i < expected.size() * 16; ++i )
+    {
+        if ( std::abs( pixels[i] - expected[i / 16] ) < 0.0001f ) continue;
+        UTEST_PRINTF( "World record %zu pixel %zu: expected %.4f, got %.4f\n", i / 16, i % 16, expected[i / 16], pixels[i] );
+        return false;
+    }
+    return true;
+}
+
+UTEST_F( Graphics, WorldResolve_W01_PureWorldChange_KeepsRangeFresh )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const float values[] = { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f };
+        WorldResolveResources resources( 1960, 7 );
+        const uint64_t hits = g_vhPerf.resolveCacheHits.load();
+        const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
+        for ( uint32_t i = 0; i < 7; ++i ) resources.Submit( values[i], i );
+        vhFinish();
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 6 );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 1 );
+        EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, WorldResolve_W02_BindingSetGuard_AlwaysRebuilds )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const float values[] = { 0.1f, 0.2f, 0.3f, 0.4f };
+        WorldResolveResources resources( 1961, 4 );
+        resources.Submit( values[0], 0 );
+        const uint64_t hits = g_vhPerf.resolveCacheHits.load();
+        const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
+        for ( uint32_t i = 1; i < 4; ++i ) resources.Submit( values[i], i, false );
+        vhFinish();
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 3 );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds );
+        EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, WorldResolve_W03_PushConstantsFollowWorld )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const float values[] = { 0.1f, 0.2f, 0.3f, 0.4f };
+        WorldResolveResources resources( 1962, 4, true );
+        resources.Submit( values[0], 0 );
+        const uint64_t hits = g_vhPerf.resolveCacheHits.load();
+        const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
+        for ( uint32_t i = 1; i < 4; ++i ) resources.Submit( values[i], i );
+        vhFinish();
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 3 );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds );
+        EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, WorldResolve_W04_IdentitiesStillInvalidate )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        WorldResolveResources resources( 1963, 1 );
+        vhState other = resources.state;
+        other.SetWorldTransform( glm::mat4( 0.1f ) );
+        vhSetState( 1964, other );
+        vhDispatch( 1964, { 4, 4, 1 } );
+        vhFlush( true );
+        resources.Submit( 0.11f, 0 );
+        const uint64_t hits = g_vhPerf.resolveCacheHits.load();
+        const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
+        glm::mat4 world( 1 ); world[0][0] = 0.22f; world[1][1] = 0;
+        other.SetWorldTransform( world );
+        vhSetState( 1964, other );
+        vhDispatch( 1964, { 4, 4, 1 } );
+        vhFlush( true );
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 1 );
+        const float second[] = { 0.22f };
+        EXPECT_TRUE( CheckWorldRecords( resources.output, second ) );
+        resources.Submit( 0.33f, 0 );
+        resources.Submit( 0.44f, 0 );
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 1 );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 2 );
+        const float fourth[] = { 0.44f };
+        EXPECT_TRUE( CheckWorldRecords( resources.output, fourth ) );
+        vhCreateTexture2D( resources.output, "W04 replacement", { 4, 4 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+        vhFinish();
+        const uint64_t beforeResource = g_vhPerf.resolveCacheRebuilds.load();
+        resources.Submit( 0.55f, 0 );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), beforeResource + 1 );
+        const float replaced[] = { 0.55f };
+        EXPECT_TRUE( CheckWorldRecords( resources.output, replaced ) );
+        std::string changed = g_worldResolveCS;
+        const std::string needle = "= u_world[0][0][0];";
+        changed.replace( changed.find( needle ), needle.size(), "= u_world[0][0][0] + 1.0f;" );
+        std::vector< uint32_t > spirv;
+        std::string error;
+        ASSERT_TRUE( vhCompileShader( "W04 replacement", changed.c_str(), VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ) );
+        vhCreateShader( resources.shader, "W04 replacement", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        vhFlush( true );
+        const uint64_t beforeShader = g_vhPerf.resolveCacheRebuilds.load();
+        resources.Submit( 0.66f, 0 );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), beforeShader + 1 );
+        const float reloaded[] = { 1.66f };
+        EXPECT_TRUE( CheckWorldRecords( resources.output, reloaded ) );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    for ( bool emptyFlush : { false, true } )
+    {
+        const float values[] = { 0.11f, 0.21f, 0.31f, 0.41f, 0.51f };
+        const uint32_t count = emptyFlush ? 4 : 5;
+        WorldResolveResources resources( emptyFlush ? 1966 : 1965, count );
+        resources.Submit( values[0], 0 );
+        vhFinish();
+        std::promise< void > entered;
+        auto attempt = entered.get_future();
+        {
+            vrhi_test::VhGpuGate gate( utest_result );
+            if ( !gate.Supported() ) UTEST_SKIP( "Timeline semaphore unsupported" );
+            const uint64_t hits = g_vhPerf.resolveCacheHits.load();
+            const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
+            gate.WaitBefore();
+            resources.Submit( values[1], 1 );
+            gate.CaptureReader();
+            ASSERT_TRUE( gate.Pending() );
+            if ( emptyFlush ) vhFlush( true );
+            for ( uint32_t i = 2; i < count - 1; ++i ) resources.Submit( values[i], i );
+            EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + count - 2 );
+            gate.StartProducer( [&]
+            {
+                entered.set_value();
+                resources.Submit( values[count - 1], count - 1 );
+            } );
+            ASSERT_EQ( attempt.wait_for( std::chrono::seconds( 2 ) ), std::future_status::ready );
+            ASSERT_TRUE( vrhi_test::WaitUntil( [&] { return g_vhPerf.resolveCacheHits.load() == hits + count - 1 || gate.ProducerFinished(); } ) );
+            EXPECT_FALSE( gate.ProducerFinished( std::chrono::milliseconds( 100 ) ) );
+            EXPECT_TRUE( gate.Pending() );
+            EXPECT_FALSE( gate.TimedOut() );
+            gate.Release();
+            gate.JoinProducer();
+            EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + count - 1 );
+            EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds );
+        }
+        vhFinish();
+        EXPECT_TRUE( CheckWorldRecords( resources.output, std::span( values, count ) ) );
+    }
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }

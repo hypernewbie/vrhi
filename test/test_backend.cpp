@@ -26,6 +26,7 @@
 #include <vrhi_internal.h>
 #include <vrhi.h>
 #include <vrhi_backend.h>
+#include "test_gpu_gate.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <atomic>
 #include <thread>
@@ -3689,4 +3690,142 @@ UTEST( Backend, PipelineHashesIncludeBindlessLayoutIdentity )
     EXPECT_EQ( vhHashGraphicsPipeline( graphics, framebuffer ), graphicsA );
     graphics.bindingLayouts[0] = b;
     EXPECT_NE( vhHashGraphicsPipeline( graphics, framebuffer ), graphicsA );
+}
+
+// T02: a held reader retains every byte from the first ring traversal.
+
+UTEST( Backend, Transient_T02_BlockedReaderStopsSlotReuse )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Native GPU reader requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    struct Buffer : vhTransientBuffer
+    {
+        ~Buffer()
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            Shutdown_DeviceStateLocked();
+        }
+    } buffer;
+    nvrhi::BufferDesc desc;
+    desc.setByteSize( sizeof( vhWorldUniform ) * 4 ).setIsConstantBuffer( true ).setCpuAccess( nvrhi::CpuAccessMode::Write );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        buffer.Init_DeviceStateLocked( desc );
+    }
+    nvrhi::BufferDesc readDesc;
+    readDesc.setByteSize( sizeof( vhWorldUniform ) * 4 ).setCpuAccess( nvrhi::CpuAccessMode::Read );
+    auto staging = g_vhDevice->createBuffer( readDesc );
+    ASSERT_NE( staging, nullptr );
+    vhWorldUniform markers[4];
+    for ( size_t i = 0; i < 4; ++i ) std::memset( &markers[i], ( int ) ( 0x30 + i ), sizeof( markers[i] ) );
+    std::promise< void > entered;
+    auto attempt = entered.get_future();
+    int64_t writeOffset = -1;
+    {
+        vrhi_test::VhGpuGate gate( utest_result );
+        if ( !gate.Supported() ) UTEST_SKIP( "Timeline semaphore unsupported" );
+        ASSERT_EQ( buffer.Write( &markers[0], sizeof( markers[0] ) ), 0 );
+        gate.WaitBefore();
+        for ( size_t i = 0; i < 3; ++i )
+        {
+            if ( i ) ASSERT_EQ( buffer.Write( &markers[i], sizeof( markers[i] ) ), 0 );
+            {
+                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                buffer.Flush_DeviceStateLocked();
+                auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+                commands->copyBuffer( staging, i * sizeof( vhWorldUniform ), buffer.handle[buffer.frameIdx], 0, sizeof( vhWorldUniform ) );
+                vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+                g_vhDevice->setEventQuery( buffer.fence[buffer.frameIdx][0], nvrhi::CommandQueue::Graphics );
+                buffer.Step();
+            }
+        }
+        gate.CaptureReader();
+        ASSERT_TRUE( gate.Pending() );
+        ASSERT_EQ( buffer.frameIdx, 0u );
+        gate.StartProducer( [&]
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            entered.set_value();
+            writeOffset = buffer.Alloc( sizeof( markers[3] ) );
+            uint8_t* mapped = buffer.Map_DeviceStateLocked();
+            if ( mapped && writeOffset >= 0 ) std::memcpy( mapped + writeOffset, &markers[3], sizeof( markers[3] ) );
+        } );
+        ASSERT_EQ( attempt.wait_for( std::chrono::seconds( 2 ) ), std::future_status::ready );
+        EXPECT_FALSE( gate.ProducerFinished( std::chrono::milliseconds( 100 ) ) );
+        EXPECT_TRUE( gate.Pending() );
+        EXPECT_FALSE( gate.TimedOut() );
+        gate.Release();
+        gate.JoinProducer();
+        ASSERT_EQ( writeOffset, 0 );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            buffer.Flush_DeviceStateLocked();
+            auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            commands->copyBuffer( staging, 3 * sizeof( vhWorldUniform ), buffer.handle[0], 0, sizeof( vhWorldUniform ) );
+            vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            g_vhDevice->setEventQuery( buffer.fence[0][0], nvrhi::CommandQueue::Graphics );
+            buffer.Step();
+        }
+    }
+    const void* data = g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+    ASSERT_NE( data, nullptr );
+    EXPECT_EQ( std::memcmp( data, markers, sizeof( markers ) ), 0 );
+    g_vhDevice->unmapBuffer( staging );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST( Backend, GpuGate_ArmedReturnConsumesWait )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Native gate requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        vrhi_test::VhGpuGate gate( utest_result );
+        if ( !gate.Supported() ) UTEST_SKIP( "Timeline semaphore unsupported" );
+        gate.WaitBefore();
+        // An early return before submission must still consume the queued wait.
+    }
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST( Backend, GpuGate_EarlyReturnReleasesReaderAndProducer )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Native gate requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    vrhi_test::VhGpuGate supported( utest_result );
+    if ( !supported.Supported() ) UTEST_SKIP( "Timeline semaphore unsupported" );
+    auto reader = g_vhDevice->createEventQuery();
+    std::atomic< bool > finished = false;
+    auto earlyReturn = [&]
+    {
+        vrhi_test::VhGpuGate gate( utest_result );
+        if ( !gate.Supported() ) return;
+        gate.WaitBefore();
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            g_vhDevice->setEventQuery( reader, nvrhi::CommandQueue::Graphics );
+        }
+        EXPECT_FALSE( g_vhDevice->pollEventQuery( reader ) );
+        gate.StartProducer( [&]
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            g_vhDevice->waitEventQuery( reader );
+            finished.store( true );
+        } );
+        return;
+    };
+    earlyReturn();
+    EXPECT_TRUE( finished.load() );
+    EXPECT_TRUE( g_vhDevice->pollEventQuery( reader ) );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
