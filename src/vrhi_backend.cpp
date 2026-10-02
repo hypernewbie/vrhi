@@ -2783,6 +2783,8 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     }
 
     backendTextures[cmd->texture] = std::move( btex );
+    s_globalResourceVersion++;
+    s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd )
