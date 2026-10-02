@@ -2160,16 +2160,13 @@ struct vhState
         uint32_t numVertices = UINT32_MAX;
         uint64_t byteOffset = 0;
 
-        // Advanced: optional vertex layout override for this binding.
-        // This override lets you specify a different vertex layout at bind time,
-        // but you must manage stride and memory layout yourself. The buffer's original stride is ignored;
-        // ensure your data matches the override layout.
+        // Optional layout and stride override. Vertex data must match it.
         vhVertexLayout layoutOverride = "";
 
-        // Set to true if this buffer contains per-instance data (VK_VERTEX_INPUT_RATE_INSTANCE).
-        // All attributes in this buffer slot will be treated as instanced.
-        // Must match the :i suffix in the layout string if both are specified.
+        // Per-instance attributes. Must match any :i suffix in the layout.
         bool isInstanced = false;
+
+        bool operator==( const VertexBinding& ) const = default;
     };
     std::vector< VertexBinding > vertexBindings;
 
@@ -2217,6 +2214,8 @@ struct vhState
     {
         vhDescriptorTable table = VRHI_INVALID_HANDLE;
         uint32_t registerSpace = 0;
+
+        bool operator==( const DescriptorTableBinding& ) const = default;
     };
     std::vector< DescriptorTableBinding > descriptorTables;
 

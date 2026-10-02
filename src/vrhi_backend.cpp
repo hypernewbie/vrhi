@@ -4422,23 +4422,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateVertexBindings( VIDL_vhCmdSetStateVe
 {
     BE_CmdRAII cmdRAII( cmd );
     auto& dst = backendStates[cmd->id].vertexBindings;
-    bool same = dst.size() == cmd->bindings.size();
-    if ( same )
-    {
-        for ( size_t i = 0; i < dst.size(); i++ )
-        {
-            const auto& a = dst[i];
-            const auto& b = cmd->bindings[i];
-            if ( a.buffer != b.buffer || a.stream != b.stream || a.startVertex != b.startVertex ||
-                a.numVertices != b.numVertices || a.byteOffset != b.byteOffset ||
-                a.layoutOverride != b.layoutOverride || a.isInstanced != b.isInstanced )
-            {
-                same = false;
-                break;
-            }
-        }
-    }
-    if ( same ) return;
+    if ( dst == cmd->bindings ) return;
     dst = cmd->bindings;
     s_globalPipelineVersion++;
 }
@@ -4603,21 +4587,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetState
 {
     BE_CmdRAII cmdRAII( cmd );
     auto& state = backendStates[cmd->id];
-    bool same = state.descriptorTables.size() == cmd->tables.count;
-    if ( same )
-    {
-        for ( size_t i = 0; i < state.descriptorTables.size(); i++ )
-        {
-            const auto& a = state.descriptorTables[i];
-            const auto& b = cmd->tables.ptr[i];
-            if ( a.table != b.table || a.registerSpace != b.registerSpace )
-            {
-                same = false;
-                break;
-            }
-        }
-    }
-    if ( same ) return;
+    if ( std::ranges::equal( state.descriptorTables, cmd->tables ) ) return;
     vhAssignFromSpan( state.descriptorTables, cmd->tables );
     state.dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
     s_globalResourceVersion++;
