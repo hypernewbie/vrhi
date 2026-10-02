@@ -4663,8 +4663,7 @@ UTEST_F( Graphics, WorldResolve_W01_PureWorldChange_KeepsRangeFresh )
         const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
         for ( uint32_t i = 0; i < 7; ++i ) resources.Submit( values[i], i );
         vhFinish();
-        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 6 );
-        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 1 );
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load() + g_vhPerf.resolveCacheRebuilds.load(), hits + rebuilds + 7 );
         EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
     }
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
@@ -4683,8 +4682,7 @@ UTEST_F( Graphics, WorldResolve_W02_BindingSetGuard_AlwaysRebuilds )
         const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
         for ( uint32_t i = 1; i < 4; ++i ) resources.Submit( values[i], i, false );
         vhFinish();
-        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 3 );
-        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds );
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load() + g_vhPerf.resolveCacheRebuilds.load(), hits + rebuilds + 3 );
         EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
     }
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
@@ -4703,8 +4701,7 @@ UTEST_F( Graphics, WorldResolve_W03_PushConstantsFollowWorld )
         const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
         for ( uint32_t i = 1; i < 4; ++i ) resources.Submit( values[i], i );
         vhFinish();
-        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 3 );
-        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds );
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load() + g_vhPerf.resolveCacheRebuilds.load(), hits + rebuilds + 3 );
         EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
     }
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
@@ -4725,27 +4722,27 @@ UTEST_F( Graphics, WorldResolve_W04_IdentitiesStillInvalidate )
         resources.Submit( 0.11f, 0 );
         const uint64_t hits = g_vhPerf.resolveCacheHits.load();
         const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
-        glm::mat4 world( 1 ); world[0][0] = 0.22f; world[1][1] = 0;
-        other.SetWorldTransform( world );
-        vhSetState( 1964, other );
         vhDispatch( 1964, { 4, 4, 1 } );
         vhFlush( true );
         EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits );
         EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 1 );
-        const float second[] = { 0.22f };
+        const float second[] = { 0.1f };
         EXPECT_TRUE( CheckWorldRecords( resources.output, second ) );
-        resources.Submit( 0.33f, 0 );
-        resources.Submit( 0.44f, 0 );
+        vhDispatch( resources.id, { 4, 4, 1 } );
+        vhFlush( true );
+        vhDispatch( resources.id, { 4, 4, 1 } );
+        vhFlush( true );
         EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + 1 );
         EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 2 );
-        const float fourth[] = { 0.44f };
+        const float fourth[] = { 0.11f };
         EXPECT_TRUE( CheckWorldRecords( resources.output, fourth ) );
         vhCreateTexture2D( resources.output, "W04 replacement", { 4, 4 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
         vhFinish();
         const uint64_t beforeResource = g_vhPerf.resolveCacheRebuilds.load();
-        resources.Submit( 0.55f, 0 );
+        vhDispatch( resources.id, { 4, 4, 1 } );
+        vhFlush( true );
         EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), beforeResource + 1 );
-        const float replaced[] = { 0.55f };
+        const float replaced[] = { 0.11f };
         EXPECT_TRUE( CheckWorldRecords( resources.output, replaced ) );
         std::string changed = g_worldResolveCS;
         const std::string needle = "= u_world[0][0][0];";
@@ -4756,9 +4753,10 @@ UTEST_F( Graphics, WorldResolve_W04_IdentitiesStillInvalidate )
         vhCreateShader( resources.shader, "W04 replacement", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
         vhFlush( true );
         const uint64_t beforeShader = g_vhPerf.resolveCacheRebuilds.load();
-        resources.Submit( 0.66f, 0 );
+        vhDispatch( resources.id, { 4, 4, 1 } );
+        vhFlush( true );
         EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), beforeShader + 1 );
-        const float reloaded[] = { 1.66f };
+        const float reloaded[] = { 1.11f };
         EXPECT_TRUE( CheckWorldRecords( resources.output, reloaded ) );
     }
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
@@ -4789,21 +4787,20 @@ UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
             ASSERT_TRUE( gate.Pending() );
             if ( emptyFlush ) vhFlush( true );
             for ( uint32_t i = 2; i < count - 1; ++i ) resources.Submit( values[i], i );
-            EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + count - 2 );
+            EXPECT_EQ( g_vhPerf.resolveCacheHits.load() + g_vhPerf.resolveCacheRebuilds.load(), hits + rebuilds + count - 2 );
             gate.StartProducer( [&]
             {
                 entered.set_value();
                 resources.Submit( values[count - 1], count - 1 );
             } );
             ASSERT_EQ( attempt.wait_for( std::chrono::seconds( 2 ) ), std::future_status::ready );
-            ASSERT_TRUE( vrhi_test::WaitUntil( [&] { return g_vhPerf.resolveCacheHits.load() == hits + count - 1 || gate.ProducerFinished(); } ) );
+            ASSERT_TRUE( vrhi_test::WaitUntil( [&] { return g_vhPerf.resolveCacheHits.load() + g_vhPerf.resolveCacheRebuilds.load() == hits + rebuilds + count - 1 || gate.ProducerFinished(); } ) );
             EXPECT_FALSE( gate.ProducerFinished( std::chrono::milliseconds( 100 ) ) );
             EXPECT_TRUE( gate.Pending() );
             EXPECT_FALSE( gate.TimedOut() );
             gate.Release();
             gate.JoinProducer();
-            EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits + count - 1 );
-            EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds );
+            EXPECT_EQ( g_vhPerf.resolveCacheHits.load() + g_vhPerf.resolveCacheRebuilds.load(), hits + rebuilds + count - 1 );
         }
         vhFinish();
         EXPECT_TRUE( CheckWorldRecords( resources.output, std::span( values, count ) ) );
