@@ -5020,8 +5020,14 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     };
     vhState stateA = makeState( outA );
     vhState stateB = makeState( outB );
+
+    // Explicitly clear both outputs: SetViewClear alone does not issue a clear,
+    // and the whole-image comparison needs them to start from a known state.
     vhSetState( 1910, stateA );
+    vhClear( 1910, VRHI_CLEAR_COLOR );
     vhSetState( 1911, stateB );
+    vhClear( 1911, VRHI_CLEAR_COLOR );
+    vhFinish();
 
     // Draw A reads `src`; upload B overwrites `src`; draw B reads it again.
     // No drain, readback, or extra flush between these three commands.
@@ -5056,6 +5062,11 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     }
     EXPECT_EQ( mismatches, 0 );
 
+    // Reset the states this fixture owns before retiring the resources they
+    // reference, then drain so the final error delta covers cleanup too.
+    vhState reset;
+    vhSetState( 1910, reset, VRHI_DIRTY_ALL );
+    vhSetState( 1911, reset, VRHI_DIRTY_ALL );
     vhDestroyTexture( src );
     vhDestroyTexture( outA );
     vhDestroyTexture( outB );
