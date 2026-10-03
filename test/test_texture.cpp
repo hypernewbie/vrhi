@@ -1675,3 +1675,67 @@ UTEST_F( Texture, UpdateMipPartial_OthersIntact )
     vhDestroyTexture( tex );
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
+
+// TESTPLAN TX02 — odd row pitch and mip tail round-trip.
+// Covers widths 1, 3, 7, 13, 33, 65, 129, 257 (non-power-of-two) plus a 4-mip chain (8x4 -> 1x1)
+// so the upload path is exercised both at the mip tail and at row pitches that the API
+// must round-trip without truncation or stride corruption.
+UTEST_F( Texture, Upload_OddRowPitchAndMipTail )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    const int oddWidths[] = { 1, 3, 7, 13, 33, 65, 129, 257 };
+    for ( int32_t w : oddWidths )
+    {
+        std::vector<uint8_t> expected( (size_t)w );
+        for ( int i = 0; i < w; ++i ) expected[i] = (uint8_t)( ( i * 37 + 11 ) & 0xFF );
+
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( (uint64_t)w );
+        memcpy( data->data(), expected.data(), (size_t)w );
+        vhCreateTexture2D( tex, "TX02_odd", glm::ivec2( w, 1 ), 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        vhFinish();
+
+        vhMem rd; vhReadTextureSlow( tex, 0, 0, &rd ); vhFinish();
+        ASSERT_EQ( (int)rd.size(), w );
+        for ( int i = 0; i < w; ++i )
+            EXPECT_EQ( (int)rd[i], (int)expected[i] );
+
+        vhDestroyTexture( tex );
+    }
+
+    // 4-mip chain (8x4 -> 4x2 -> 2x1 -> 1x1). Each mip carries a unique byte pattern.
+    vhTexture miptex = vhAllocTexture();
+    constexpr int W = 8, H = 4, MIP = 4;
+    std::vector<std::vector<uint8_t>> expectedMip( MIP );
+    std::vector<vhMem*> chain( MIP, nullptr );
+    for ( int m = 0; m < MIP; ++m )
+    {
+        int mw = std::max( 1, W >> m );
+        int mh = std::max( 1, H >> m );
+        int sz = mw * mh;
+        expectedMip[m].resize( (size_t)sz );
+        for ( int i = 0; i < sz; ++i ) expectedMip[m][i] = (uint8_t)( 0x10 + m );
+        chain[m] = vhAllocMem( (uint64_t)sz );
+        memcpy( chain[m]->data(), expectedMip[m].data(), (size_t)sz );
+    }
+    vhCreateTexture2D( miptex, "TX02_mip", glm::ivec2( W, H ), MIP, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, chain[0] );
+    vhFinish();
+    for ( int m = 1; m < MIP; ++m ) vhUpdateTexture( miptex, m, 0, 1, 1, chain[m] );
+    vhFinish();
+
+    for ( int m = 0; m < MIP; ++m )
+    {
+        int mw = std::max( 1, W >> m );
+        int mh = std::max( 1, H >> m );
+        int sz = mw * mh;
+        vhMem rd; vhReadTextureSlow( miptex, m, 0, &rd ); vhFinish();
+        ASSERT_EQ( (int)rd.size(), sz );
+        for ( int i = 0; i < sz; ++i )
+            EXPECT_EQ( (int)rd[i], (int)expectedMip[m][i] );
+    }
+    vhDestroyTexture( miptex );
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
