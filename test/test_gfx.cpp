@@ -4997,3 +4997,112 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
+
+// TESTPLAN IN01 — Nonzero indirect-count execution.
+// Four argument records draw quads into four distinct tiles of the target,
+// selected per record through baseVertex. The GPU-driven count runs 0, 1, 2,
+// and 3 into separate sentinel-initialized targets: exactly the first N tiles
+// may appear, and every other pixel must keep the sentinel. An implementation
+// that always emits zero draws passes the old count=0 test but fails here.
+UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    constexpr int TILE = 32;  // 64x64 target, four 32x32 tiles
+    // Readback row 0 is NDC y=+1 (D3D-style Y up), so tile 0 sits top-left.
+    const float x0[4] = { -1.f, 0.f, -1.f, 0.f };
+    const float y0[4] = {  0.f, 0.f, -1.f, -1.f };
+    const uint32_t tag[4] = { 0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u, 0xFF00FFFFu }; // RGBA: red, green, blue, yellow
+    const glm::vec4 col[4] = {
+        { 1, 0, 0, 1 }, { 0, 1, 0, 1 }, { 0, 0, 1, 1 }, { 1, 1, 0, 1 }
+    };
+
+    struct Vertex { glm::vec3 pos; glm::vec4 col; };
+    Vertex verts[4 * 4];
+    for ( int t = 0; t < 4; ++t )
+    {
+        float xa = x0[t], xb = x0[t] + 1.f, ya = y0[t], yb = y0[t] + 1.f;
+        verts[t * 4 + 0] = { { xa, ya, 0.f }, col[t] };
+        verts[t * 4 + 1] = { { xb, ya, 0.f }, col[t] };
+        verts[t * 4 + 2] = { { xa, yb, 0.f }, col[t] };
+        verts[t * 4 + 3] = { { xb, yb, 0.f }, col[t] };
+    }
+    uint32_t indices[6] = { 0, 1, 2, 2, 1, 3 };
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhBuffer ib = CreateTestIB( indices, sizeof( indices ), VRHI_BUFFER_INDEX32 );
+
+    nvrhi::DrawIndexedIndirectArguments argRec[4] = {};
+    for ( int k = 0; k < 4; ++k )
+    {
+        argRec[k].indexCount = 6;
+        argRec[k].instanceCount = 1;
+        argRec[k].startIndexLocation = 0;
+        argRec[k].baseVertexLocation = k * 4;  // record k draws quad k only
+        argRec[k].startInstanceLocation = 0;
+    }
+    vhBuffer argBuf = vhAllocBuffer();
+    vhMem* argMem = vhAllocMem( sizeof( argRec ) );
+    memcpy( argMem->data(), argRec, sizeof( argRec ) );
+    vhCreateStorageBuffer( argBuf, "IN01_args", argMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
+    vhFinish();
+
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+
+    for ( int c = 0; c < 4; ++c )
+    {
+        vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+        uint32_t countValue = (uint32_t)c;
+        vhBuffer countBuf = vhAllocBuffer();
+        vhMem* countMem = vhAllocMem( sizeof( uint32_t ) );
+        memcpy( countMem->data(), &countValue, sizeof( uint32_t ) );
+        vhCreateStorageBuffer( countBuf, "IN01_count", countMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
+        vhFinish();
+
+        vhState state;
+        state.SetColourAttachment( 0, rt )
+             .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+             .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK )
+             .SetVertexBuffer( vb, 0 )
+             .SetIndexBuffer( ib )
+             .SetIndirectParams( argBuf )
+             .SetIndirectCountBuffer( countBuf )
+             .SetProgram( vhCreateGfxProgram( vs, ps ) );
+        vhStateId sid = 1920 + c;
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDrawIndexedIndirectCount( sid, 4 );
+        vhFinish();
+
+        vhMem rd; vhReadTextureSlow( rt, 0, 0, &rd ); vhFinish();
+        ASSERT_EQ( rd.size(), (size_t)64 * 64 * 4 );
+        int mismatches = 0;
+        for ( int py = 0; py < 64 && mismatches < 4; ++py )
+            for ( int px = 0; px < 64 && mismatches < 4; ++px )
+            {
+                int t = ( py / TILE ) * 2 + ( px / TILE );
+                uint32_t expect = ( t < c ) ? tag[t] : 0xFF000000u;
+                uint32_t got;
+                memcpy( &got, &rd[( (size_t)py * 64 + px ) * 4], 4 );
+                if ( got != expect )
+                {
+                    UTEST_PRINTF( "IN01: count=%d pixel (%d,%d) tile %d = 0x%08X, expected 0x%08X\n", c, px, py, t, got, expect );
+                    ++mismatches;
+                }
+            }
+        EXPECT_EQ( mismatches, 0 );
+
+        vhState reset;
+        vhSetState( sid, reset, VRHI_DIRTY_ALL );
+        vhDestroyTexture( rt );
+        vhDestroyBuffer( countBuf );
+        vhFinish();
+    }
+
+    vhDestroyBuffer( vb ); vhDestroyBuffer( ib ); vhDestroyBuffer( argBuf );
+    vhDestroyShader( vs ); vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
