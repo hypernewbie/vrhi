@@ -2674,3 +2674,150 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
+
+// --------------------------------------------------------------------------
+// TESTPLAN TX04 — 3D data through a shader oracle.
+// --------------------------------------------------------------------------
+
+// The anchor (Texture.Type_3D) uploads a volume but comments out its
+// readback: 3D slow-readback is unsupported. This case instead reads every
+// texel of a 7x5x3 RGBA8 volume (plus its 4x3x2 second mip) through a compute
+// shader into a buffer, and compares the raw unorm-decoded float bits against
+// an independent CPU 3D layout. Targets slice pitch, depth reduction, and
+// missing upload bytes.
+UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
+    vhFlush();
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    constexpr int W = 7, H = 5, D = 3;          // mip 0 extents
+    constexpr int W1 = 3, H1 = 2, D1 = 1;       // mip 1 extents (floor halving)
+    std::vector< uint8_t > mip0( W * H * D * 4 ), mip1( W1 * H1 * D1 * 4 );
+    for ( int z = 0; z < D; ++z )
+        for ( int y = 0; y < H; ++y )
+            for ( int x = 0; x < W; ++x )
+            {
+                size_t i = ( (size_t)z * H + y ) * W + x;
+                mip0[i*4+0] = (uint8_t)( x * 30 + 1 );
+                mip0[i*4+1] = (uint8_t)( y * 40 + 2 );
+                mip0[i*4+2] = (uint8_t)( z * 70 + 3 );
+                mip0[i*4+3] = 0xA5;
+            }
+    for ( int z = 0; z < D1; ++z )
+        for ( int y = 0; y < H1; ++y )
+            for ( int x = 0; x < W1; ++x )
+            {
+                size_t i = ( (size_t)z * H1 + y ) * W1 + x;
+                mip1[i*4+0] = (uint8_t)( 200 + x * 7 );
+                mip1[i*4+1] = (uint8_t)( 150 + y * 17 );
+                mip1[i*4+2] = (uint8_t)( 90 + z * 29 );
+                mip1[i*4+3] = 0x5A;
+            }
+
+    vhTexture vol = vhAllocTexture();
+    // NOTE( TESTPLAN §22 ): creation-with-data requires bytes for the FULL mip
+    // chain (BE_UpdateTexture clamps its default range to every mip), so a
+    // mip0-only payload is rejected there — same root cause TX02 recorded.
+    // Create empty and upload each mip through the documented update path,
+    // mirroring the Type_3D / MipChain anchors.
+    vhCreateTexture3D( vol, "TX04_vol", glm::ivec3( W, H, D ), 2, nvrhi::Format::RGBA8_UNORM,
+                       VRHI_TEXTURE_NONE, nullptr );
+    vhMem* mem0 = vhAllocMem( mip0.size() );
+    memcpy( mem0->data(), mip0.data(), mip0.size() );
+    vhUpdateTexture( vol, 0, 0, 1, 1, mem0 );
+    vhMem* mem1 = vhAllocMem( mip1.size() );
+    memcpy( mem1->data(), mip1.data(), mip1.size() );
+    vhUpdateTexture( vol, 1, 0, 1, 1, mem1 );
+    vhFinish();
+
+    constexpr int OUT0 = W * H * D;             // 105 voxels
+    constexpr int OUT1 = W1 * H1 * D1;          // 24 voxels
+    vhBuffer out = vhAllocBuffer();
+    vhCreateStorageStructuredBuffer( out, "TX04_out", nullptr, ( OUT0 + OUT1 ) * 16, 16 );
+    vhFinish();
+
+    const char* csSource = R"(
+        Texture3D<float4> g_Vol : register(t0, VRHI_STAGE_SPACE);
+        RWStructuredBuffer<uint4> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(4,4,1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            if ( id.x < 7 && id.y < 5 && id.z < 3 )
+                g_Out[ id.x + id.y * 7 + id.z * 35 ] = asuint( g_Vol.Load( int4( id.x, id.y, id.z, 0 ) ) );
+            if ( id.x < 3 && id.y < 2 && id.z < 1 )
+                g_Out[ 105 + id.x + id.y * 3 ] = asuint( g_Vol.Load( int4( id.x, id.y, id.z, 1 ) ) );
+        }
+    )";
+    std::vector< uint32_t > spirv; std::string er;
+    if ( !vhCompileShader( "TX04_read", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &er ) )
+        { UTEST_PRINTF( "TX04 compile error: %s\n", er.c_str() ); }
+    ASSERT_TRUE( !spirv.empty() );
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "TX04_read", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    state.SetTexture( 0, { .name = "g_Vol", .texture = vol } );
+    state.SetBuffer( 0, { .name = "g_Out", .buffer = out, .computeUAV = true } );
+    vhSetState( 9862, state );
+    vhDispatch( 9862, { 2, 2, 3 } );  // covers 8x8x3 threads
+    vhFinish();
+
+    vhMem rd; vhReadBufferSlow( out, 0, ( OUT0 + OUT1 ) * 16, &rd ); vhFinish();
+    ASSERT_EQ( rd.size(), (size_t)( OUT0 + OUT1 ) * 16 );
+
+    // Expected bits: the exact float32 the GPU decodes from each unorm byte.
+    auto byteBits = []( uint8_t b ) -> uint32_t
+    {
+        float f = b / 255.0f;
+        uint32_t bits; memcpy( &bits, &f, 4 );
+        return bits;
+    };
+    int mismatches = 0;
+    for ( int z = 0; z < D && mismatches < 4; ++z )
+        for ( int y = 0; y < H && mismatches < 4; ++y )
+            for ( int x = 0; x < W && mismatches < 4; ++x )
+            {
+                size_t src = ( ( (size_t)z * H + y ) * W + x ) * 4;
+                size_t dst = ( (size_t)z * H * W + y * W + x ) * 16;
+                for ( int c = 0; c < 4 && mismatches < 4; ++c )
+                {
+                    uint32_t got; memcpy( &got, &rd[dst + c * 4], 4 );
+                    uint32_t expect = byteBits( mip0[src + c] );
+                    if ( got != expect )
+                    {
+                        UTEST_PRINTF( "TX04: mip0 (%d,%d,%d) ch %d = 0x%08X, expected 0x%08X (byte %u)\n",
+                                      x, y, z, c, got, expect, mip0[src + c] );
+                        ++mismatches;
+                    }
+                }
+            }
+    EXPECT_EQ( mismatches, 0 );
+
+    mismatches = 0;
+    for ( int z = 0; z < D1 && mismatches < 4; ++z )
+        for ( int y = 0; y < H1 && mismatches < 4; ++y )
+            for ( int x = 0; x < W1 && mismatches < 4; ++x )
+            {
+                size_t src = ( ( (size_t)z * H1 + y ) * W1 + x ) * 4;
+                size_t dst = ( OUT0 + (size_t)z * H1 * W1 + y * W1 + x ) * 16;
+                for ( int c = 0; c < 4 && mismatches < 4; ++c )
+                {
+                    uint32_t got; memcpy( &got, &rd[dst + c * 4], 4 );
+                    uint32_t expect = byteBits( mip1[src + c] );
+                    if ( got != expect )
+                    {
+                        UTEST_PRINTF( "TX04: mip1 (%d,%d,%d) ch %d = 0x%08X, expected 0x%08X (byte %u)\n",
+                                      x, y, z, c, got, expect, mip1[src + c] );
+                        ++mismatches;
+                    }
+                }
+            }
+    EXPECT_EQ( mismatches, 0 );
+
+    vhDestroyTexture( vol ); vhDestroyBuffer( out ); vhDestroyShader( cs );
+    vhSetState( 9862, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
