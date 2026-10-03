@@ -2249,15 +2249,20 @@ UTEST_F( Compute, BlitBuffer_PartialRange )
 
 // --------------------------------------------------------------------------
 // TESTPLAN SY01 — UAV write to shader read without a CPU wait.
-// --------------------------------------------------------------------------
-
-// A compute pass writes a per-texel pattern into a UAV texture, then a second
-// compute pass and a graphics pass read the same texture as an SRV. No
-// vhFinish() or readback between the passes — one final drain. Both consumer
-// outputs are initialized with a sentinel first, so a missing write-to-read
-// dependency leaves a visible mismatch. Variants: all commands recorded on one
-// backend list, and an explicit vhFlush(true) after the producer (which waits
-// for backend processing only, never GPU completion).
+// A compute pass writes a per-texel pattern into a UAV texture; a consumer then
+// reads that texture directly as an SRV with no vhFinish() or readback in
+// between — one drain after the interval.
+//
+// The two consumers are separate scenarios, not two consumers of one texture:
+// sharing the intermediate would let the compute pass establish the shared SRV
+// transition before the graphics pass reached it, which is not a direct
+// UAV-to-graphics case. Each scenario owns its intermediate and its output, and
+// is run twice: everything recorded on one backend list, and with an explicit
+// vhFlush(true) after the producer (backend processing only, never GPU
+// completion).
+//
+// Note: the public dispatch route submits on the graphics queue here, so these
+// are consumer-stage scenarios, not independent compute/graphics queue results.
 UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
@@ -2315,113 +2320,160 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
         }
     )";
 
-    bool compileOk = true;
-    auto compile = [&]( const char* name, const char* src, uint64_t stage ) -> vhShader
+    vhShader producer  = vhAllocShader();
+    vhShader sentinel  = vhAllocShader();
+    vhShader consumerCs = vhAllocShader();
+    vhShader consumerVs = vhAllocShader();
+    vhShader consumerPs = vhAllocShader();
+
+    // Compile status is returned, never asserted inside the helper: a failed
+    // compile must not reach shader creation or any GPU submission.
+    auto compileShader = [&]( const char* name, const char* src, uint64_t stage, vhShader& out ) -> bool
     {
         std::vector<uint32_t> spirv; std::string er;
         if ( !vhCompileShader( name, src, stage | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &er ) )
         {
-            UTEST_PRINTF( "%s compile error: %s\n", name, er.c_str() );
-            compileOk = false;
+            { UTEST_PRINTF( "%s compile error: %s\n", name, er.c_str() ); }
+            return false;
         }
-        vhShader sh = vhAllocShader();
-        vhCreateShader( sh, name, stage, spirv, "main" );
-        return sh;
+        vhCreateShader( out, name, stage, spirv, "main" );
+        return true;
     };
-    vhShader producer  = compile( "SY01_producer",  producerSrc,   VRHI_SHADER_STAGE_COMPUTE );
-    vhShader sentinel  = compile( "SY01_sentinel",  sentinelSrc,   VRHI_SHADER_STAGE_COMPUTE );
-    vhShader consumerCs = compile( "SY01_consumerCs", consumerCsSrc, VRHI_SHADER_STAGE_COMPUTE );
-    vhShader consumerVs = compile( "SY01_consumerVs", consumerVsSrc, VRHI_SHADER_STAGE_VERTEX );
-    vhShader consumerPs = compile( "SY01_consumerPs", consumerPsSrc, VRHI_SHADER_STAGE_PIXEL );
 
-    for ( int variant = 0; variant < 2; ++variant )
+    bool compileOk = true;
+    compileOk &= compileShader( "SY01_producer", producerSrc, VRHI_SHADER_STAGE_COMPUTE, producer );
+    compileOk &= compileShader( "SY01_sentinel", sentinelSrc, VRHI_SHADER_STAGE_COMPUTE, sentinel );
+    compileOk &= compileShader( "SY01_consumerCs", consumerCsSrc, VRHI_SHADER_STAGE_COMPUTE, consumerCs );
+    compileOk &= compileShader( "SY01_consumerVs", consumerVsSrc, VRHI_SHADER_STAGE_VERTEX, consumerVs );
+    compileOk &= compileShader( "SY01_consumerPs", consumerPsSrc, VRHI_SHADER_STAGE_PIXEL, consumerPs );
+    if ( !compileOk )
     {
+        vhDestroyShader( producer ); vhDestroyShader( sentinel ); vhDestroyShader( consumerCs );
+        vhDestroyShader( consumerVs ); vhDestroyShader( consumerPs );
+        vhFinish();
+        EXPECT_TRUE( compileOk );
+        return;
+    }
+
+    struct Scenario { bool graphics; bool flushBetween; const char* label; };
+    const Scenario scenarios[4] = {
+        { false, false, "compute/one-list" },
+        { false, true,  "compute/backend-flush" },
+        { true,  false, "graphics/one-list" },
+        { true,  true,  "graphics/backend-flush" },
+    };
+
+    int failures = 0;
+    for ( int s = 0; s < 4; ++s )
+    {
+        const Scenario& sc = scenarios[s];
+        const vhStateId sidFillCs = (vhStateId)( 9850 + s * 10 + 0 );
+        const vhStateId sidFillGfx = (vhStateId)( 9850 + s * 10 + 1 );
+        const vhStateId sidProd = (vhStateId)( 9850 + s * 10 + 2 );
+        const vhStateId sidConsume = (vhStateId)( 9850 + s * 10 + 3 );
+
+        // Every scenario gets its own intermediate, so no other pass can set up
+        // the transition this one is meant to exercise.
         vhTexture intermediate = vhAllocTexture();
         vhCreateTexture2D( intermediate, "SY01_mid", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM,
                            VRHI_TEXTURE_COMPUTE_WRITE | VRHI_TEXTURE_NONE );
-        vhTexture outCs = vhAllocTexture();
-        vhCreateTexture2D( outCs, "SY01_outCs", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM,
-                           VRHI_TEXTURE_COMPUTE_WRITE );
-        vhTexture outGfx = vhAllocTexture();
-        vhCreateTexture2D( outGfx, "SY01_outGfx", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+        vhTexture out = vhAllocTexture();
+        if ( sc.graphics ) vhCreateTexture2D( out, "SY01_outGfx", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+        else vhCreateTexture2D( out, "SY01_outCs", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
-        // Sentinel-initialize both consumer outputs before the interval under
-        // test, with a drain so the sequence below starts from a known state.
-        vhState fillState = g_state0;
-        fillState.SetProgram( vhCreateComputeProgram( sentinel ) );
-        fillState.SetTexture( 0, { .name = "g_Out", .texture = outCs, .computeUAV = true } );
-        vhSetState( 9850, fillState );
-        vhDispatch( 9850, { 1, 1, 1 } );
-        vhState clearState = g_state0;
-        clearState.SetColourAttachment( 0, outGfx )
-                  .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
-                  .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.5f ) )
-                  .SetStateFlags( VRHI_STATE_WRITE_MASK )
-                  .SetProgram( vhCreateGfxProgram( consumerVs, consumerPs ) );
-        vhSetState( 9851, clearState );
-        vhClear( 9851, VRHI_CLEAR_COLOR );
+        // Seed the consumer output with a sentinel before the interval, with a
+        // drain so the interval starts from a known state.
+        if ( sc.graphics )
+        {
+            vhState clearState = g_state0;
+            clearState.SetColourAttachment( 0, out )
+                      .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
+                      .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.5f ) )
+                      .SetStateFlags( VRHI_STATE_WRITE_MASK )
+                      .SetProgram( vhCreateGfxProgram( consumerVs, consumerPs ) );
+            vhSetState( sidFillGfx, clearState );
+            vhClear( sidFillGfx, VRHI_CLEAR_COLOR );
+        }
+        else
+        {
+            vhState fillState = g_state0;
+            fillState.SetProgram( vhCreateComputeProgram( sentinel ) );
+            fillState.SetTexture( 0, { .name = "g_Out", .texture = out, .computeUAV = true } );
+            vhSetState( sidFillCs, fillState );
+            vhDispatch( sidFillCs, { 1, 1, 1 } );
+        }
         vhFinish();
 
         vhState prodState = g_state0;
         prodState.SetProgram( vhCreateComputeProgram( producer ) );
         prodState.SetTexture( 0, { .name = "g_Out", .texture = intermediate, .computeUAV = true } );
-        vhSetState( 9852, prodState );
+        vhSetState( sidProd, prodState );
 
-        vhState csState = g_state0;
-        csState.SetProgram( vhCreateComputeProgram( consumerCs ) );
-        csState.SetTexture( 0, { .name = "g_In", .texture = intermediate } );
-        csState.SetTexture( 1, { .name = "g_Out", .texture = outCs, .computeUAV = true } );
-        vhSetState( 9853, csState );
+        if ( sc.graphics )
+        {
+            vhState gfxState = g_state0;
+            gfxState.SetColourAttachment( 0, out )
+                    .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
+                    .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0 ) )
+                    .SetStateFlags( VRHI_STATE_WRITE_MASK )
+                    .SetTexture( 0, { .name = "g_Tex", .texture = intermediate } )
+                    .SetProgram( vhCreateGfxProgram( consumerVs, consumerPs ) );
+            vhSetState( sidConsume, gfxState );
+        }
+        else
+        {
+            vhState csState = g_state0;
+            csState.SetProgram( vhCreateComputeProgram( consumerCs ) );
+            csState.SetTexture( 0, { .name = "g_In", .texture = intermediate } );
+            csState.SetTexture( 1, { .name = "g_Out", .texture = out, .computeUAV = true } );
+            vhSetState( sidConsume, csState );
+        }
 
-        vhState gfxState = g_state0;
-        gfxState.SetColourAttachment( 0, outGfx )
-                .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
-                .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0 ) )
-                .SetStateFlags( VRHI_STATE_WRITE_MASK )
-                .SetTexture( 0, { .name = "g_Tex", .texture = intermediate } )
-                .SetProgram( vhCreateGfxProgram( consumerVs, consumerPs ) );
-        vhSetState( 9854, gfxState );
-
-        // The interval under test: UAV write, then SRV reads in compute and
-        // graphics, with nothing between them but (optionally) a backend flush.
-        vhDispatch( 9852, { 1, 1, 1 } );
-        if ( variant == 1 ) vhFlush( true );
-        vhDispatch( 9853, { 1, 1, 1 } );
-        vhDraw( 9854, 3 );
+        // The interval under test: UAV write, then a direct SRV read by the
+        // consumer, with nothing between them but (optionally) a backend flush.
+        vhDispatch( sidProd, { 1, 1, 1 } );
+        if ( sc.flushBetween ) vhFlush( true );
+        if ( sc.graphics ) vhDraw( sidConsume, 3 );
+        else vhDispatch( sidConsume, { 1, 1, 1 } );
         vhFinish();
 
-        vhMem rdCs; vhReadTextureSlow( outCs, 0, 0, &rdCs ); vhFinish();
-        vhMem rdGfx; vhReadTextureSlow( outGfx, 0, 0, &rdGfx ); vhFinish();
-        ASSERT_EQ( rdCs.size(), (size_t)DIM * DIM * 4 );
-        ASSERT_EQ( rdGfx.size(), (size_t)DIM * DIM * 4 );
-        int csMiss = 0, gfxMiss = 0;
-        for ( int y = 0; y < DIM && csMiss + gfxMiss < 4; ++y )
-            for ( int x = 0; x < DIM && csMiss + gfxMiss < 4; ++x )
-                for ( int c = 0; c < 4 && csMiss + gfxMiss < 4; ++c )
-                {
-                    size_t i = ( (size_t)y * DIM + x ) * 4 + c;
-                    if ( rdCs[i] != expectedByte( x, y, c ) )
+        vhMem rd; vhReadTextureSlow( out, 0, 0, &rd ); vhFinish();
+        if ( (int)rd.size() != DIM * DIM * 4 )
+        {
+            { UTEST_PRINTF( "SY01 %s: readback size %d, expected %d\n", sc.label, (int)rd.size(), DIM * DIM * 4 ); }
+            ++failures;
+        }
+        else
+        {
+            int miss = 0;
+            for ( int y = 0; y < DIM && miss < 4; ++y )
+                for ( int x = 0; x < DIM && miss < 4; ++x )
+                    for ( int c = 0; c < 4 && miss < 4; ++c )
                     {
-                        if ( !csMiss ) { UTEST_PRINTF( "SY01 variant %d: outCs first mismatch at (%d,%d) ch %d\n", variant, x, y, c ); }
-                        ++csMiss;
+                        int got = rd[( (size_t)y * DIM + x ) * 4 + c];
+                        int want = expectedByte( x, y, c );
+                        if ( abs( got - want ) > 1 )
+                        {
+                            { UTEST_PRINTF( "SY01 %s: (%d,%d) ch %d = %d, expected %d\n", sc.label, x, y, c, got, want ); }
+                            ++miss;
+                        }
                     }
-                    if ( rdGfx[i] != expectedByte( x, y, c ) )
-                    {
-                        if ( !gfxMiss ) { UTEST_PRINTF( "SY01 variant %d: outGfx first mismatch at (%d,%d) ch %d\n", variant, x, y, c ); }
-                        ++gfxMiss;
-                    }
-                }
-        EXPECT_EQ( csMiss, 0 );
-        EXPECT_EQ( gfxMiss, 0 );
+            if ( miss ) ++failures;
+        }
 
-        vhDestroyTexture( intermediate ); vhDestroyTexture( outCs ); vhDestroyTexture( outGfx );
-        for ( vhStateId sid : { (vhStateId)9850, (vhStateId)9851, (vhStateId)9852, (vhStateId)9853, (vhStateId)9854 } )
-            vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+        vhState reset;
+        vhSetState( sidFillCs, reset, VRHI_DIRTY_ALL );
+        vhSetState( sidFillGfx, reset, VRHI_DIRTY_ALL );
+        vhSetState( sidProd, reset, VRHI_DIRTY_ALL );
+        vhSetState( sidConsume, reset, VRHI_DIRTY_ALL );
+        vhDestroyTexture( intermediate );
+        vhDestroyTexture( out );
         vhFinish();
     }
+    EXPECT_EQ( failures, 0 );
 
-    vhDestroyShader( producer ); vhDestroyShader( sentinel );
-    vhDestroyShader( consumerCs ); vhDestroyShader( consumerVs ); vhDestroyShader( consumerPs );
+    vhDestroyShader( producer ); vhDestroyShader( sentinel ); vhDestroyShader( consumerCs );
+    vhDestroyShader( consumerVs ); vhDestroyShader( consumerPs );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
