@@ -278,7 +278,7 @@ UTEST_F( State, BackendPropagation )
 
     // Verify it doesn't bleed to other states
     vhState otherState;
-    EXPECT_FALSE( vhGetState( 999, otherState ) );
+    EXPECT_FALSE( vhGetState( 999999, otherState ) );
 
     vhState s;
     vhSetState( id, s.DirtyAll() );
