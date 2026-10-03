@@ -1526,3 +1526,65 @@ UTEST_F( Buffer, Transient_ShutdownPartialMapping )
         for ( auto& query : tb.fence[i] ) EXPECT_EQ( query, nullptr );
     }
 }
+
+// TESTPLAN BU03 — Partial non-four-byte writes preserve neighbours.
+// Initialize a guarded buffer, then apply 1, 3, 5, 7-byte updates at legal
+// offsets and verify neighbours remain intact, including the byte immediately
+// after each write.
+UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    vhBuffer buf = vhAllocBuffer();
+    vhMem* initData = vhAllocMem( 64 );
+    for ( int i = 0; i < 64; ++i ) initData->data()[i] = 0xA5;
+    vhCreateStorageBuffer( buf, "BU03", initData, 64, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
+    vhFinish();
+
+    // 1-byte write at offset 4
+    { vhMem* w = vhAllocMem( 1 ); w->data()[0] = 0x11;
+      vhUpdateStorageBuffer( buf, w, 4, 1 ); vhFinish(); }
+    // 3-byte write at offset 10
+    { vhMem* w = vhAllocMem( 3 ); w->data()[0] = 0x22; w->data()[1] = 0x33; w->data()[2] = 0x44;
+      vhUpdateStorageBuffer( buf, w, 10, 3 ); vhFinish(); }
+    // 5-byte write at offset 20
+    { vhMem* w = vhAllocMem( 5 ); for (int j = 0; j < 5; ++j) w->data()[j] = (uint8_t)(0x50 + j);
+      vhUpdateStorageBuffer( buf, w, 20, 5 ); vhFinish(); }
+    // 7-byte write at offset 40
+    { vhMem* w = vhAllocMem( 7 ); for (int j = 0; j < 7; ++j) w->data()[j] = (uint8_t)(0x70 + j);
+      vhUpdateStorageBuffer( buf, w, 40, 7 ); vhFinish(); }
+
+    vhMem rd; vhReadBufferSlow( buf, 0, 64, &rd ); vhFinish();
+    ASSERT_EQ( (int)rd.size(), 64 );
+
+    // Untouched bytes remain 0xA5
+    EXPECT_EQ( (int)rd[0], 0xA5 );
+    EXPECT_EQ( (int)rd[3], 0xA5 );
+    EXPECT_EQ( (int)rd[9], 0xA5 );
+    EXPECT_EQ( (int)rd[13], 0xA5 );
+    EXPECT_EQ( (int)rd[19], 0xA5 );
+    EXPECT_EQ( (int)rd[25], 0xA5 );
+    EXPECT_EQ( (int)rd[39], 0xA5 );
+    EXPECT_EQ( (int)rd[47], 0xA5 );
+    EXPECT_EQ( (int)rd[63], 0xA5 );
+
+    // Written bytes
+    EXPECT_EQ( (int)rd[4], 0x11 );
+    EXPECT_EQ( (int)rd[10], 0x22 );
+    EXPECT_EQ( (int)rd[11], 0x33 );
+    EXPECT_EQ( (int)rd[12], 0x44 );
+    EXPECT_EQ( (int)rd[20], 0x50 );
+    EXPECT_EQ( (int)rd[24], 0x54 );
+    EXPECT_EQ( (int)rd[40], 0x70 );
+    EXPECT_EQ( (int)rd[46], 0x76 );
+
+    // Bytes immediately after each write remain 0xA5
+    EXPECT_EQ( (int)rd[5], 0xA5 );
+    EXPECT_EQ( (int)rd[13], 0xA5 );
+    EXPECT_EQ( (int)rd[25], 0xA5 );
+    EXPECT_EQ( (int)rd[47], 0xA5 );
+
+    vhDestroyBuffer( buf );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
