@@ -4878,3 +4878,122 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
+
+// TESTPLAN TX08 — Upload, sample, overwrite, sample without a drain.
+// Upload pattern A, sample it into output A, upload pattern B into the same
+// texture, then sample into output B. One final drain. Both outputs must hold
+// their own sampled pattern afterwards.
+// Targets missing write-after-read (upload B vs. draw A) and read-after-write
+// (draw B vs. upload B) dependencies on the ordinary descriptor path.
+UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    constexpr int DIM = 16;
+    std::vector<uint8_t> patternA( (size_t)DIM * DIM * 4 ), patternB( (size_t)DIM * DIM * 4 );
+    for ( int y = 0; y < DIM; ++y )
+        for ( int x = 0; x < DIM; ++x )
+        {
+            size_t i = ( (size_t)y * DIM + x ) * 4;
+            // A: unique per-texel tag, no symmetry between axes or neighbours.
+            patternA[i+0] = (uint8_t)( x * 16 + 3 );
+            patternA[i+1] = (uint8_t)( y * 16 + 7 );
+            patternA[i+2] = 0x5A;
+            patternA[i+3] = 0xA5;
+            // B: a different unique tag; differs from A in every texel.
+            patternB[i+0] = (uint8_t)( 255 - x * 7 );
+            patternB[i+1] = (uint8_t)( 255 - y * 11 );
+            patternB[i+2] = 0xC3;
+            patternB[i+3] = 0x3C;
+        }
+
+    vhMem* memA = vhAllocMem( patternA.size() );
+    memcpy( memA->data(), patternA.data(), patternA.size() );
+    vhMem* memB = vhAllocMem( patternB.size() );
+    memcpy( memB->data(), patternB.data(), patternB.size() );
+
+    // Upload A happens at creation; both outputs and all shaders exist before
+    // the sampled sequence starts.
+    vhTexture src = vhAllocTexture();
+    vhCreateTexture2D( src, "TX08_src", glm::ivec2( DIM, DIM ), 1,
+                       nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, memA );
+    vhTexture outA = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
+    vhTexture outB = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
+
+    struct Vertex { glm::vec3 pos; glm::vec2 uv; };
+    // V is flipped: NVRHI's Vulkan backend uses D3D-style NDC (framebuffer row 0
+    // corresponds to v=1), so flipping keeps readback row order aligned with
+    // upload row order for the 1:1 comparison below.
+    Vertex verts[6] =
+    {
+        { { -1.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } },
+        { {  1.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } },
+        { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
+        { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
+        { {  1.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } },
+        { {  1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f } }
+    };
+    vhBuffer vb = CreateTestVB( "float3 float2", verts, sizeof( verts ) );
+    vhShader vs = CreateTestShader( g_uvVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_texPS, VRHI_SHADER_STAGE_PIXEL );
+
+    auto makeState = [&]( vhTexture target )
+    {
+        vhState s;
+        s.SetColourAttachment( 0, target )
+         .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb, 0 )
+         .SetTexture( 0, { "t0", -1, src } )
+         .SetSampler( 0, { "s0", -1, VRHI_SAMPLER_POINT | VRHI_SAMPLER_UVW_CLAMP } )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+        return s;
+    };
+    vhState stateA = makeState( outA );
+    vhState stateB = makeState( outB );
+    vhSetState( 1910, stateA );
+    vhSetState( 1911, stateB );
+
+    // Draw A reads `src`; upload B overwrites `src`; draw B reads it again.
+    // No drain, readback, or extra flush between these three commands.
+    vhDraw( 1910, 6 );
+    vhUpdateTexture( src, 0, 0, 1, 1, memB );
+    vhDraw( 1911, 6 );
+    vhFinish();
+
+    // Verify every texel of both preserved outputs after the single drain.
+    vhMem rdA; vhReadTextureSlow( outA, 0, 0, &rdA ); vhFinish();
+    vhMem rdB; vhReadTextureSlow( outB, 0, 0, &rdB ); vhFinish();
+    ASSERT_EQ( rdA.size(), patternA.size() );
+    ASSERT_EQ( rdB.size(), patternB.size() );
+    int mismatches = 0;
+    for ( size_t i = 0; i < patternA.size() && mismatches < 4; ++i )
+    {
+        if ( rdA[i] != patternA[i] )
+        {
+            if ( !mismatches ) UTEST_PRINTF( "TX08: outA first mismatch at byte %zu\n", i );
+            ++mismatches;
+        }
+    }
+    EXPECT_EQ( mismatches, 0 );
+    mismatches = 0;
+    for ( size_t i = 0; i < patternB.size() && mismatches < 4; ++i )
+    {
+        if ( rdB[i] != patternB[i] )
+        {
+            if ( !mismatches ) UTEST_PRINTF( "TX08: outB first mismatch at byte %zu\n", i );
+            ++mismatches;
+        }
+    }
+    EXPECT_EQ( mismatches, 0 );
+
+    vhDestroyTexture( src );
+    vhDestroyTexture( outA );
+    vhDestroyTexture( outB );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs ); vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
