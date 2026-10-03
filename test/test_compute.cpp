@@ -2480,61 +2480,90 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
 
 // --------------------------------------------------------------------------
 // TESTPLAN SY02 — Multiple UAV dependencies, same resource state.
-// --------------------------------------------------------------------------
-
 // One structured buffer stays in unordered-access state across a write, two
 // read-modify-write stages with different noncommutative recurrences, and a
 // final UAV read into a separate output buffer. Nothing idles the GPU between
 // the dispatches. Swapping or dropping an RMW stage changes every element of
 // the CPU model, so the oracle is exact and order-sensitive.
+//
+// The workload spans four workgroups of 64 threads; every thread touches only
+// its own element, so there is no intra-dispatch race to confound the result.
+// The final stage writes its output at a reversed index, so a wrong output
+// offset or traversal shows up as a permutation rather than a uniform shift.
+// Both the intermediate buffer and the output are initialized to a sentinel
+// first, so an element nothing wrote is visible.
 UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
     vhFlush();
     const int32_t startErrors = g_vhErrorCounter.load();
 
-    constexpr uint32_t N = 32;
+    constexpr uint32_t N = 256;
+    constexpr uint32_t GROUP = 64;
+    constexpr uint32_t SENTINEL = 0x5A5A5A5Au;
+
+    vhMem* initSrc = vhAllocMem( (uint64_t)N * sizeof( uint32_t ) );
+    vhMem* initOut = vhAllocMem( (uint64_t)N * sizeof( uint32_t ) );
+    for ( uint32_t i = 0; i < N; ++i )
+    {
+        memcpy( initSrc->data() + i * sizeof( uint32_t ), &SENTINEL, sizeof( uint32_t ) );
+        memcpy( initOut->data() + i * sizeof( uint32_t ), &SENTINEL, sizeof( uint32_t ) );
+    }
     vhBuffer buf = vhAllocBuffer();
-    vhCreateStorageStructuredBuffer( buf, "SY02_buf", nullptr, N * sizeof( uint32_t ), sizeof( uint32_t ) );
+    vhCreateStorageStructuredBuffer( buf, "SY02_buf", initSrc, N * sizeof( uint32_t ), sizeof( uint32_t ) );
     vhBuffer out = vhAllocBuffer();
-    vhCreateStorageStructuredBuffer( out, "SY02_out", nullptr, N * sizeof( uint32_t ), sizeof( uint32_t ) );
+    vhCreateStorageStructuredBuffer( out, "SY02_out", initOut, N * sizeof( uint32_t ), sizeof( uint32_t ) );
     vhFinish();
 
     const char* writeSrc = R"(
         RWStructuredBuffer<uint> g_V : register(u0, VRHI_STAGE_SPACE);
-        [numthreads(32,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_V[id.x] = id.x * 7 + 11; }
+        [numthreads(64,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_V[id.x] = id.x * 7 + 11; }
     )";
     const char* rmw1Src = R"(
         RWStructuredBuffer<uint> g_V : register(u0, VRHI_STAGE_SPACE);
-        [numthreads(32,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_V[id.x] = g_V[id.x] * 2 + 1; }
+        [numthreads(64,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_V[id.x] = g_V[id.x] * 2 + 1; }
     )";
     const char* rmw2Src = R"(
         RWStructuredBuffer<uint> g_V : register(u0, VRHI_STAGE_SPACE);
-        [numthreads(32,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_V[id.x] = g_V[id.x] * 3 + 5; }
+        [numthreads(64,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_V[id.x] = g_V[id.x] * 3 + 5; }
     )";
     const char* consumeSrc = R"(
         RWStructuredBuffer<uint> g_V : register(u0, VRHI_STAGE_SPACE);
         RWStructuredBuffer<uint> g_O : register(u1, VRHI_STAGE_SPACE);
-        [numthreads(32,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_O[id.x] = g_V[id.x]; }
+        [numthreads(64,1,1)] void main(uint3 id : SV_DispatchThreadID) { g_O[255 - id.x] = g_V[id.x]; }
     )";
 
-    bool compileOk = true;
-    auto compile = [&]( const char* name, const char* src ) -> vhShader
+    vhShader csWrite   = vhAllocShader();
+    vhShader csRmw1    = vhAllocShader();
+    vhShader csRmw2    = vhAllocShader();
+    vhShader csConsume = vhAllocShader();
+
+    auto compile = [&]( const char* name, const char* src, vhShader& outShader ) -> bool
     {
         std::vector<uint32_t> spirv; std::string er;
         if ( !vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &er ) )
         {
-            UTEST_PRINTF( "%s compile error: %s\n", name, er.c_str() );
-            compileOk = false;
+            { UTEST_PRINTF( "%s compile error: %s\n", name, er.c_str() ); }
+            return false;
         }
-        vhShader sh = vhAllocShader();
-        vhCreateShader( sh, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
-        return sh;
+        vhCreateShader( outShader, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        return true;
     };
-    vhShader csWrite = compile( "SY02_write", writeSrc );
-    vhShader csRmw1 = compile( "SY02_rmw1", rmw1Src );
-    vhShader csRmw2 = compile( "SY02_rmw2", rmw2Src );
-    vhShader csConsume = compile( "SY02_consume", consumeSrc );
+
+    bool compileOk = true;
+    compileOk &= compile( "SY02_write", writeSrc, csWrite );
+    compileOk &= compile( "SY02_rmw1", rmw1Src, csRmw1 );
+    compileOk &= compile( "SY02_rmw2", rmw2Src, csRmw2 );
+    compileOk &= compile( "SY02_consume", consumeSrc, csConsume );
+    if ( !compileOk )
+    {
+        vhDestroyBuffer( buf ); vhDestroyBuffer( out );
+        vhDestroyShader( csWrite ); vhDestroyShader( csRmw1 );
+        vhDestroyShader( csRmw2 ); vhDestroyShader( csConsume );
+        vhFinish();
+        EXPECT_TRUE( compileOk );
+        return;
+    }
 
     auto makeState = [&]( vhShader cs, bool withOut )
     {
@@ -2555,33 +2584,56 @@ UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
 
     // The chained dispatches run back-to-back with no drain, flush, or
     // readback between them.
-    vhDispatch( 9855, { 1, 1, 1 } );
-    vhDispatch( 9856, { 1, 1, 1 } );
-    vhDispatch( 9857, { 1, 1, 1 } );
-    vhDispatch( 9858, { 1, 1, 1 } );
+    vhDispatch( 9855, { N / GROUP, 1, 1 } );
+    vhDispatch( 9856, { N / GROUP, 1, 1 } );
+    vhDispatch( 9857, { N / GROUP, 1, 1 } );
+    vhDispatch( 9858, { N / GROUP, 1, 1 } );
     vhFinish();
 
-    vhMem rd; vhReadBufferSlow( out, 0, N * sizeof( uint32_t ), &rd ); vhFinish();
-    ASSERT_EQ( rd.size(), N * sizeof( uint32_t ) );
-    int mismatches = 0;
-    for ( uint32_t i = 0; i < N && mismatches < 4; ++i )
+    auto model = []( uint32_t i ) -> uint32_t
     {
-        uint32_t v; memcpy( &v, &rd[i * sizeof( uint32_t )], sizeof( v ) );
-        uint32_t model = i * 7 + 11;
-        model = model * 2 + 1;
-        model = model * 3 + 5;
-        if ( v != model )
+        uint32_t v = i * 7 + 11;
+        v = v * 2 + 1;
+        v = v * 3 + 5;
+        return v;
+    };
+
+    vhMem rdBuf; vhReadBufferSlow( buf, 0, N * sizeof( uint32_t ), &rdBuf ); vhFinish();
+    vhMem rdOut; vhReadBufferSlow( out, 0, N * sizeof( uint32_t ), &rdOut ); vhFinish();
+
+    int mismatches = 0;
+    if ( (int)rdBuf.size() != (int)( N * sizeof( uint32_t ) ) || (int)rdOut.size() != (int)( N * sizeof( uint32_t ) ) )
+    {
+        { UTEST_PRINTF( "SY02: readback sizes %d / %d, expected %d\n", (int)rdBuf.size(), (int)rdOut.size(), (int)( N * sizeof( uint32_t ) ) ); }
+        ++mismatches;
+    }
+    else
+    {
+        for ( uint32_t i = 0; i < N && mismatches < 4; ++i )
         {
-            UTEST_PRINTF( "SY02: element %u = %u, expected %u\n", i, v, model );
-            ++mismatches;
+            uint32_t gotBuf, gotOut;
+            memcpy( &gotBuf, &rdBuf[i * sizeof( uint32_t )], sizeof( uint32_t ) );
+            memcpy( &gotOut, &rdOut[( N - 1 - i ) * sizeof( uint32_t )], sizeof( uint32_t ) );
+            uint32_t want = model( i );
+            if ( gotBuf != want )
+            {
+                { UTEST_PRINTF( "SY02: source element %u = %u, expected %u\n", i, gotBuf, want ); }
+                ++mismatches;
+            }
+            if ( gotOut != want )
+            {
+                { UTEST_PRINTF( "SY02: output element %u = %u, expected %u\n", N - 1 - i, gotOut, want ); }
+                ++mismatches;
+            }
         }
     }
     EXPECT_EQ( mismatches, 0 );
 
-    vhDestroyBuffer( buf ); vhDestroyBuffer( out );
-    vhDestroyShader( csWrite ); vhDestroyShader( csRmw1 ); vhDestroyShader( csRmw2 ); vhDestroyShader( csConsume );
     for ( vhStateId sid : { (vhStateId)9855, (vhStateId)9856, (vhStateId)9857, (vhStateId)9858 } )
         vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyBuffer( buf ); vhDestroyBuffer( out );
+    vhDestroyShader( csWrite ); vhDestroyShader( csRmw1 );
+    vhDestroyShader( csRmw2 ); vhDestroyShader( csConsume );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
