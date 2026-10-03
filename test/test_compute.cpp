@@ -2670,6 +2670,21 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
     vhCreateTexture2D( controlTex, "BU01_ctl", { N, 1 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhFinish();
 
+    // Sentinel the secondary output and the control texture before the interval,
+    // so a dispatch that never ran leaves values outside every expected result.
+    {
+        vhMem* sentinelMem = vhAllocMem( N * sizeof( uint32_t ) * 4 );
+        uint32_t sentinel = 0xDEADBEEFu;
+        for ( uint32_t i = 0; i < N * 4; ++i )
+            memcpy( sentinelMem->data() + i * sizeof( uint32_t ), &sentinel, sizeof( uint32_t ) );
+        vhUpdateStorageBuffer( verifyBuf, sentinelMem, 0, N * sizeof( uint32_t ) * 4 );
+
+        vhMem* texSentinel = vhAllocMem( N );
+        memset( texSentinel->data(), 0xEE, N );
+        vhUpdateTexture( controlTex, 0, 0, 1, 1, texSentinel );
+    }
+    vhFinish();
+
     // Writer: per-element float4 with distinct exact values per channel and
     // per element; also fills the control texture like the anchor fixture.
     const char* writeSrc = R"(
@@ -2691,17 +2706,31 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
         void main(uint3 id : SV_DispatchThreadID) { g_Verify[id.x] = asuint( g_In[id.x] ); }
     )";
 
-    auto compile = [&]( const char* name, const char* src ) -> vhShader
+    // Compile status is returned rather than asserted inside the helper, and a
+    // failed compile never reaches shader creation or a GPU submission.
+    auto compile = [&]( const char* name, const char* src, vhShader& outShader ) -> bool
     {
         std::vector<uint32_t> spirv; std::string er;
-        bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &er );
-        if ( !ok ) { UTEST_PRINTF( "%s compile error (spirv=%zu): %s\n", name, spirv.size(), er.c_str() ); }
-        vhShader sh = vhAllocShader();
-        vhCreateShader( sh, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
-        return sh;
+        if ( !vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &er ) || spirv.empty() )
+        {
+            { UTEST_PRINTF( "%s compile error (spirv=%zu): %s\n", name, spirv.size(), er.c_str() ); }
+            return false;
+        }
+        vhCreateShader( outShader, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        return true;
     };
-    vhShader csWrite = compile( "BU01_write", writeSrc );
-    vhShader csConsume = compile( "BU01_consume", consumeSrc );
+    vhShader csWrite = vhAllocShader();
+    vhShader csConsume = vhAllocShader();
+    bool compileOk = true;
+    compileOk &= compile( "BU01_write", writeSrc, csWrite );
+    compileOk &= compile( "BU01_consume", consumeSrc, csConsume );
+    if ( !compileOk )
+    {
+        vhDestroyBuffer( typedBuf ); vhDestroyBuffer( verifyBuf ); vhDestroyTexture( controlTex );
+        vhFinish();
+        EXPECT_TRUE( compileOk );
+        return;
+    }
 
     vhState writeState = g_state0;
     writeState.SetProgram( vhCreateComputeProgram( csWrite ) );
@@ -2772,9 +2801,12 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
         EXPECT_TRUE( abs( (int)ctl[i] - (int)expected ) <= 2 );
     }
 
+    // Reset the states this fixture owns before retiring the resources they
+    // reference, then drain so the final error delta covers cleanup too.
+    vhSetState( 9860, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( 9861, g_state0, VRHI_DIRTY_ALL );
     vhDestroyBuffer( typedBuf ); vhDestroyBuffer( verifyBuf ); vhDestroyTexture( controlTex );
     vhDestroyShader( csWrite ); vhDestroyShader( csConsume );
-    vhSetState( 9860, g_state0, VRHI_DIRTY_ALL ); vhSetState( 9861, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
