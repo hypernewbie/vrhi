@@ -1774,77 +1774,88 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
 UTEST_F( Texture, Upload_NonzeroMipAndLayerTogether )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
-    int32_t startErrors = g_vhErrorCounter.load();
+    const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int W = 13, H = 7, LAYERS = 3, MIPS = 4;
-    // Mip chain follows Vulkan/D3D floor halving (13x7 -> 6x3 -> 3x1 -> 1x1);
-    // the original ceil-based model here mismatched the real subresource sizes
-    // and produced the "byte size" failures previously blamed on production.
+    // Mip chain follows Vulkan/D3D floor halving: 13x7 -> 6x3 -> 3x1 -> 1x1.
+    // (An earlier ceil-based model here was itself wrong; the production floor
+    // halving is correct and validation confirms it.)
     int mipDims[MIPS][2] = { { W, H }, { 0, 0 }, { 0, 0 }, { 0, 0 } };
     for ( int m = 1; m < MIPS; ++m )
     {
         mipDims[m][0] = std::max( 1, mipDims[m - 1][0] >> 1 );
         mipDims[m][1] = std::max( 1, mipDims[m - 1][1] >> 1 );
     }
-    const int layerMipSize[MIPS] = {
-        mipDims[0][0] * mipDims[0][1],
-        mipDims[1][0] * mipDims[1][1],
-        mipDims[2][0] * mipDims[2][1],
-        mipDims[3][0] * mipDims[3][1]
+    auto mipBytes = [&]( int m ) { return (size_t)mipDims[m][0] * mipDims[m][1]; };
+
+    // Independent tags: subresource identity plus row and column variation, so
+    // a layer or mip swap cannot produce a matching result.
+    auto initTag = [&]( int m, int l, int x, int y ) -> uint8_t
+    {
+        return (uint8_t)( 0x80 + ( m * 3 + l ) * 8 + ( y & 3 ) * 2 + ( x & 1 ) );
     };
+    auto newTag = [&]( int m, int l, int x, int y ) -> uint8_t
+    {
+        return (uint8_t)( 0x40 + ( l - 1 ) * 0x20 + ( m - 2 ) * 0x10 + x );
+    };
+    auto selected = [&]( int m, int l ) { return m >= 2 && m < 4 && l >= 1 && l < 3; };
 
     vhTexture tex = vhAllocTexture();
     vhCreateTexture2DArray( tex, "TX01", glm::ivec2( W, H ), LAYERS, MIPS, nvrhi::Format::R8_UNORM );
 
-    // Initialize every subresource with a known tag: byte = (mip*10 + layer + 1)
+    // Initialize every one of the twelve subresources.
     for ( int m = 0; m < MIPS; ++m )
-    {
         for ( int l = 0; l < LAYERS; ++l )
         {
-            int sz = layerMipSize[m];
-            vhMem* d = vhAllocMem( (uint64_t)sz );
-            std::fill( d->begin(), d->end(), (uint8_t)( m * 10 + l + 1 ) );
+            vhMem* d = vhAllocMem( (uint64_t)mipBytes( m ) );
+            for ( int y = 0; y < mipDims[m][1]; ++y )
+                for ( int x = 0; x < mipDims[m][0]; ++x )
+                    d->data()[(size_t)y * mipDims[m][0] + x] = initTag( m, l, x, y );
             vhUpdateTexture( tex, m, l, 1, 1, d );
         }
-    }
+
+    // One packed payload for mips 2..3 across layers 1..2, in the API's packing
+    // order: each layer's mips in order, then the next layer.
+    std::vector<uint8_t> payload;
+    for ( int l = 1; l < 3; ++l )
+        for ( int m = 2; m < 4; ++m )
+            for ( int y = 0; y < mipDims[m][1]; ++y )
+                for ( int x = 0; x < mipDims[m][0]; ++x )
+                    payload.push_back( newTag( m, l, x, y ) );
+    vhMem* packed = vhAllocMem( (uint64_t)payload.size() );
+    memcpy( packed->data(), payload.data(), payload.size() );
+    vhUpdateTexture( tex, 2, 1, 2, 2, packed );
     vhFinish();
 
-    // Readback sanity: layer 0 mip 0 = 0x01
-    vhMem rd0; vhReadTextureSlow( tex, 0, 0, &rd0 ); vhFinish();
-    ASSERT_EQ( (int)rd0.size(), layerMipSize[0] );
-    EXPECT_EQ( (int)rd0[0], 0x01 );
-    EXPECT_EQ( (int)rd0[layerMipSize[0] - 1], 0x01 );
-
-    // Now update a range starting at mip=2, layer=1, with 2 mips and 2 layers
-    // (covers (mip2,layer1), (mip2,layer2), (mip3,layer1), (mip3,layer2))
-    const uint8_t TAG = 0xFE;
-    for ( int dm = 0; dm < 2; ++dm )
-        for ( int dl = 0; dl < 2; ++dl )
+    // Drain once, then check all twelve subresources byte for byte.
+    int mismatches = 0;
+    for ( int m = 0; m < MIPS; ++m )
+        for ( int l = 0; l < LAYERS; ++l )
         {
-            int sz = layerMipSize[2 + dm];
-            vhMem* d = vhAllocMem( (uint64_t)sz );
-            std::fill( d->begin(), d->end(), TAG );
-            vhUpdateTexture( tex, 2 + dm, 1 + dl, 1, 1, d );
+            vhMem rd; vhReadTextureSlow( tex, m, l, &rd ); vhFinish();
+            if ( (int)rd.size() != (int)mipBytes( m ) )
+            {
+                { UTEST_PRINTF( "TX01: mip %d layer %d size %d, expected %d\n",
+                                m, l, (int)rd.size(), (int)mipBytes( m ) ); }
+                ++mismatches;
+                continue;
+            }
+            for ( int y = 0; y < mipDims[m][1]; ++y )
+                for ( int x = 0; x < mipDims[m][0]; ++x )
+                {
+                    uint8_t want = selected( m, l ) ? newTag( m, l, x, y ) : initTag( m, l, x, y );
+                    uint8_t got = rd[(size_t)y * mipDims[m][0] + x];
+                    if ( got != want && mismatches < 8 )
+                    {
+                        { UTEST_PRINTF( "TX01: mip %d layer %d (%d,%d) = 0x%02X, expected 0x%02X\n",
+                                        m, l, x, y, (unsigned)got, (unsigned)want ); }
+                        ++mismatches;
+                    }
+                }
         }
-    vhFinish();
-
-    // Untouched subresources retain their original tag
-    vhMem r00; vhReadTextureSlow( tex, 0, 0, &r00 ); vhFinish();
-    for ( int i = 0; i < layerMipSize[0]; ++i ) EXPECT_EQ( (int)r00[i], 0x01 );
-
-    vhMem r01; vhReadTextureSlow( tex, 0, 1, &r01 ); vhFinish();
-    for ( int i = 0; i < layerMipSize[0]; ++i ) EXPECT_EQ( (int)r01[i], 0x02 );
-
-    vhMem r10; vhReadTextureSlow( tex, 1, 0, &r10 ); vhFinish();
-    for ( int i = 0; i < layerMipSize[1]; ++i ) EXPECT_EQ( (int)r10[i], 0x0B );
-
-    // Touched subresources hold the new tag
-    vhMem r21; vhReadTextureSlow( tex, 2, 1, &r21 ); vhFinish();
-    for ( int i = 0; i < layerMipSize[2]; ++i ) EXPECT_EQ( (int)r21[i], TAG );
-
-    vhMem r32; vhReadTextureSlow( tex, 3, 2, &r32 ); vhFinish();
-    for ( int i = 0; i < layerMipSize[3]; ++i ) EXPECT_EQ( (int)r32[i], TAG );
+    EXPECT_EQ( mismatches, 0 );
 
     vhDestroyTexture( tex );
+    vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
