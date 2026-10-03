@@ -4809,71 +4809,138 @@ UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
 }
 
 // TESTPLAN FB02 — Mip and array layer as independent framebuffer keys.
-// Use one 2D array with two mips and two layers; alternate (mip,layer) pairs
-// through the same state ID and verify every texel of every initialized
-// subresource.
+// One 2D array with two mips and three layers. Every subresource is initialized
+// with its own sentinel first, then five draws run through a single state ID
+// with no drain, creation, destruction, or readback between them: layer change
+// only, mip change only, both together, and a return to the first pair that
+// writes a disjoint region so the earlier evidence survives. One subresource is
+// never drawn into. After the final drain every texel of every subresource is
+// checked, so an interior wrong pixel cannot hide behind a correct (0,0).
 UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-    int32_t startErrors = g_vhErrorCounter.load();
+    const int32_t startErrors = g_vhErrorCounter.load();
 
-    // 4x4 array, 2 mips, 2 layers
+    constexpr int LAYERS = 3;
     vhTexture arr = vhAllocTexture();
-    vhCreateTexture2DArray( arr, "FB02_arr", glm::ivec2( 4, 4 ), 2, 2,
+    vhCreateTexture2DArray( arr, "FB02_arr", glm::ivec2( 4, 4 ), LAYERS, 2,
                             nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
     vhFinish();
 
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_solidPS,  VRHI_SHADER_STAGE_PIXEL );
+    vhProgram prog = vhCreateGfxProgram( vs, ps );
 
-    // (mip,layer,colour) for each pair. Per-vertex colour is carried via the
-    // simpleVS/g_solidPS pair, so the same program works for every subresource.
-    struct Pair { uint32_t mip; uint32_t layer; glm::vec4 col; };
-    Pair pairs[4] = {
-        { 0, 0, { 1, 0, 0, 1 } }, // red
-        { 0, 1, { 0, 1, 0, 1 } }, // green
-        { 1, 0, { 0, 0, 1, 1 } }, // blue
-        { 1, 1, { 1, 1, 0, 1 } }, // yellow
-    };
-    for ( int p = 0; p < 4; ++p )
+    struct Vertex { glm::vec3 pos; glm::vec4 col; };
+    auto makeVB = [&]( glm::vec4 col ) -> vhBuffer
     {
-        int dim = ( pairs[p].mip == 0 ) ? 4 : 2;
-        struct V { glm::vec3 p; glm::vec4 c; };
-        V verts[3] = {
-            { {-1,-1,0}, pairs[p].col }, { {3,-1,0}, pairs[p].col }, { {-1,3,0}, pairs[p].col }
-        };
-        vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+        Vertex verts[3] = { { {-1,-1,0}, col }, { {3,-1,0}, col }, { {-1,3,0}, col } };
+        return CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    };
 
+    // Draw colours, and the sentinel each untouched subresource keeps.
+    const glm::vec4 red( 1, 0, 0, 1 ), green( 0, 1, 0, 1 ), blue( 0, 0, 1, 1 );
+    const glm::vec4 yellow( 1, 1, 0, 1 ), magenta( 1, 0, 1, 1 );
+    const glm::vec4 sent0 = red, sent1 = blue, sent2( 0.25f, 0.5f, 0.75f, 1 );
+    const glm::vec4 sent3( 0.75f, 0.5f, 0.25f, 1 ), sent4( 0, 1, 1, 1 ), sent5( 1, 1, 1, 1 );
+    const glm::vec4 sentinels[LAYERS][2] = {
+        { sent0, sent1 }, { sent2, sent3 }, { sent4, sent5 }
+    };
+
+    // All vertex data exists before the measured sequence.
+    vhBuffer vbRed = makeVB( red );
+    vhBuffer vbGreen = makeVB( green );
+    vhBuffer vbBlue = makeVB( blue );
+    vhBuffer vbYellow = makeVB( yellow );
+    vhBuffer vbMagenta = makeVB( magenta );
+
+    // Initialization: distinct sentinel per subresource, drained before the
+    // interval under test.
+    for ( uint32_t mip = 0; mip < 2; ++mip )
+        for ( uint32_t layer = 0; layer < LAYERS; ++layer )
+        {
+            vhState init;
+            init.SetColourAttachment( 0, arr, mip, layer )
+                .SetViewRect( glm::vec4( 0, 0, mip == 0 ? 4 : 2, mip == 0 ? 4 : 2 ) )
+                .SetViewClear( VRHI_CLEAR_COLOR, sentinels[layer][mip] );
+            vhSetState( 1919, init );
+            vhClear( 1919, VRHI_CLEAR_COLOR );
+        }
+    vhFinish();
+
+    // ---- measured sequence: one state ID, no drains in between ----
+    struct Step { uint32_t mip; uint32_t layer; vhBuffer vb; glm::vec4 rect; };
+    const Step steps[5] = {
+        { 0, 0, vbRed,     glm::vec4( 0, 0, 4, 4 ) }, // full mip 0, layer 0
+        { 0, 1, vbGreen,   glm::vec4( 0, 0, 4, 4 ) }, // layer changes only
+        { 1, 0, vbBlue,    glm::vec4( 0, 0, 2, 2 ) }, // mip changes only
+        { 1, 1, vbYellow,  glm::vec4( 0, 0, 2, 2 ) }, // nonzero mip and layer together
+        { 0, 0, vbMagenta, glm::vec4( 2, 2, 2, 2 ) }, // return to the first pair, disjoint region
+    };
+    for ( const Step& s : steps )
+    {
         vhState state;
-        state.SetColourAttachment( 0, arr, pairs[p].mip, pairs[p].layer )
-             .SetViewRect( glm::vec4( 0, 0, dim, dim ) )
-             .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0 ) )
+        state.SetColourAttachment( 0, arr, s.mip, s.layer )
+             .SetViewRect( s.rect )
              .SetStateFlags( VRHI_STATE_WRITE_MASK )
-             .SetVertexBuffer( vb, 0 )
-             .SetProgram( vhCreateGfxProgram( vs, ps ) );
-        vhStateId sid = 1900 + p;
-        vhSetState( sid, state );
-        vhClear( sid, VRHI_CLEAR_COLOR );
-        vhDraw( sid, 3 );
-        vhFinish();
-        vhDestroyBuffer( vb ); vhFinish();
+             .SetVertexBuffer( s.vb, 0 )
+             .SetProgram( prog );
+        vhSetState( 1900, state );
+        vhDraw( 1900, 3 );
     }
+    vhFinish();
 
-    // Verify every subresource via readback. Byte order is RGBA.
-    auto readPixel = [&]( vhTexture t, uint32_t mip, uint32_t layer, int x, int y ) -> uint32_t
+    // ---- verification: one readback per subresource, every texel ----
+    auto expectBytes = []( const glm::vec4& c, uint8_t out[4] )
     {
-        vhMem rd; vhReadTextureSlow( t, (int)mip, (int)layer, &rd ); vhFinish();
-        int dim = ( mip == 0 ) ? 4 : 2;
-        int idx = ( y * dim + x ) * 4;
-        if ( (int)rd.size() < idx + 4 ) return 0xDEADBEEFu;
-        return (uint32_t)( rd[idx] | ( rd[idx+1] << 8 ) | ( rd[idx+2] << 16 ) | ( rd[idx+3] << 24 ) );
+        const float v[4] = { c.x, c.y, c.z, c.w };
+        for ( int k = 0; k < 4; ++k ) out[k] = (uint8_t)( v[k] * 255.f + 0.5f );
     };
-    EXPECT_EQ( readPixel( arr, 0, 0, 0, 0 ), 0xFF0000FFu );  // red
-    EXPECT_EQ( readPixel( arr, 0, 1, 0, 0 ), 0xFF00FF00u );  // green
-    EXPECT_EQ( readPixel( arr, 1, 0, 0, 0 ), 0xFFFF0000u );  // blue
-    EXPECT_EQ( readPixel( arr, 1, 1, 0, 0 ), 0xFF00FFFFu );  // yellow
+    int mismatches = 0;
+    for ( uint32_t mip = 0; mip < 2; ++mip )
+        for ( uint32_t layer = 0; layer < LAYERS; ++layer )
+        {
+            int dim = ( mip == 0 ) ? 4 : 2;
+            vhMem rd; vhReadTextureSlow( arr, (int)mip, (int)layer, &rd ); vhFinish();
+            if ( (int)rd.size() != dim * dim * 4 )
+            {
+                { UTEST_PRINTF( "FB02: mip %u layer %u readback size %d, expected %d\n",
+                                mip, layer, (int)rd.size(), dim * dim * 4 ); }
+                ++mismatches;
+                continue;
+            }
+            for ( int y = 0; y < dim; ++y )
+                for ( int x = 0; x < dim; ++x )
+                {
+                    // Only the return draw touched rows 2-3 of (mip 0, layer 0).
+                    bool magentaHalf = ( mip == 0 && layer == 0 && x >= 2 && y >= 2 );
+                    glm::vec4 want;
+                    if ( mip == 0 && layer == 0 ) want = magentaHalf ? magenta : red;
+                    else if ( mip == 0 && layer == 1 ) want = green;
+                    else if ( mip == 1 && layer == 0 ) want = blue;
+                    else if ( mip == 1 && layer == 1 ) want = yellow;
+                    else want = sentinels[layer][mip]; // layer 2 is never drawn
+                    uint8_t wb[4]; expectBytes( want, wb );
+                    for ( int k = 0; k < 4; ++k )
+                    {
+                        uint8_t got = rd[( (size_t)y * dim + x ) * 4 + k];
+                        if ( got != wb[k] && mismatches < 8 )
+                        {
+                            { UTEST_PRINTF( "FB02: mip %u layer %u (%d,%d) ch %d = %u, expected %u\n",
+                                            mip, layer, x, y, k, (unsigned)got, (unsigned)wb[k] ); }
+                            ++mismatches;
+                        }
+                    }
+                }
+        }
+    EXPECT_EQ( mismatches, 0 );
 
+    vhState reset;
+    vhSetState( 1900, reset, VRHI_DIRTY_ALL );
+    vhSetState( 1919, reset, VRHI_DIRTY_ALL );
     vhDestroyTexture( arr );
+    vhDestroyBuffer( vbRed ); vhDestroyBuffer( vbGreen ); vhDestroyBuffer( vbBlue );
+    vhDestroyBuffer( vbYellow ); vhDestroyBuffer( vbMagenta );
     vhDestroyShader( vs ); vhDestroyShader( ps );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
