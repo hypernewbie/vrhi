@@ -4973,7 +4973,7 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     {
         if ( rdA[i] != patternA[i] )
         {
-            if ( !mismatches ) UTEST_PRINTF( "TX08: outA first mismatch at byte %zu\n", i );
+            if ( !mismatches ) { UTEST_PRINTF( "TX08: outA first mismatch at byte %zu\n", i ); }
             ++mismatches;
         }
     }
@@ -4983,7 +4983,7 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     {
         if ( rdB[i] != patternB[i] )
         {
-            if ( !mismatches ) UTEST_PRINTF( "TX08: outB first mismatch at byte %zu\n", i );
+            if ( !mismatches ) { UTEST_PRINTF( "TX08: outB first mismatch at byte %zu\n", i ); }
             ++mismatches;
         }
     }

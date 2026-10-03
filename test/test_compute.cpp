@@ -2402,12 +2402,12 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
                     size_t i = ( (size_t)y * DIM + x ) * 4 + c;
                     if ( rdCs[i] != expectedByte( x, y, c ) )
                     {
-                        if ( !csMiss ) UTEST_PRINTF( "SY01 variant %d: outCs first mismatch at (%d,%d) ch %d\n", variant, x, y, c );
+                        if ( !csMiss ) { UTEST_PRINTF( "SY01 variant %d: outCs first mismatch at (%d,%d) ch %d\n", variant, x, y, c ); }
                         ++csMiss;
                     }
                     if ( rdGfx[i] != expectedByte( x, y, c ) )
                     {
-                        if ( !gfxMiss ) UTEST_PRINTF( "SY01 variant %d: outGfx first mismatch at (%d,%d) ch %d\n", variant, x, y, c );
+                        if ( !gfxMiss ) { UTEST_PRINTF( "SY01 variant %d: outGfx first mismatch at (%d,%d) ch %d\n", variant, x, y, c ); }
                         ++gfxMiss;
                     }
                 }
@@ -2530,6 +2530,147 @@ UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
     vhDestroyShader( csWrite ); vhDestroyShader( csRmw1 ); vhDestroyShader( csRmw2 ); vhDestroyShader( csConsume );
     for ( vhStateId sid : { (vhStateId)9855, (vhStateId)9856, (vhStateId)9857, (vhStateId)9858 } )
         vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
+// --------------------------------------------------------------------------
+// TESTPLAN BU01 — Observe the typed UAV itself.
+// --------------------------------------------------------------------------
+
+// The anchor fixture (CounterBufferTypedView) writes a typed RWBuffer<float4>
+// but only verifies its parallel texture output, so missing typed-UAV writes
+// or a wrong format/stride are invisible. This case observes the buffer
+// directly: bit-exact readback of every element including an unwritten guard
+// range, plus a second shader consuming the same buffer as an SRV and copying
+// the raw bits out for CPU comparison. The texture output stays as a control.
+UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
+    vhFlush();
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    constexpr uint32_t N = 6;      // elements the writer touches
+    constexpr uint32_t GUARD = 2;  // unwritten trailing elements
+    std::vector< uint32_t > initBits( ( N + GUARD ) * 4, 0x7F800001u ); // +NaN sentinel
+    vhBuffer typedBuf = vhAllocBuffer();
+    vhMem* initMem = vhAllocMem( initBits.size() * sizeof( uint32_t ) );
+    memcpy( initMem->data(), initBits.data(), initBits.size() * sizeof( uint32_t ) );
+    vhCreateStorageTypedBuffer( typedBuf, "BU01_typed", initMem, initBits.size() * sizeof( uint32_t ),
+                                nvrhi::Format::RGBA32_FLOAT, VRHI_BUFFER_COMPUTE_READ_WRITE );
+
+    vhBuffer verifyBuf = vhAllocBuffer();
+    vhCreateStorageStructuredBuffer( verifyBuf, "BU01_verify", nullptr, N * sizeof( uint32_t ) * 4, sizeof( uint32_t ) * 4 );
+
+    vhTexture controlTex = vhAllocTexture();
+    vhCreateTexture2D( controlTex, "BU01_ctl", { N, 1 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhFinish();
+
+    // Writer: per-element float4 with distinct exact values per channel and
+    // per element; also fills the control texture like the anchor fixture.
+    const char* writeSrc = R"(
+        RWBuffer<float4> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Tex : register(u1, VRHI_STAGE_SPACE);
+        [numthreads(6,1,1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            float4 v = float4( float(id.x), float(id.x) * 2.0 + 0.5, float(id.x) * 3.0 + 0.25, 1.0 );
+            g_Out[id.x] = v;
+            g_Tex[uint2(id.x,0)] = float(id.x + 1) / 6.0;
+        }
+    )";
+    // Consumer: read the same buffer as an SRV and copy the raw bits out.
+    const char* consumeSrc = R"(
+        Buffer<float4> g_In : register(t0, VRHI_STAGE_SPACE);
+        RWStructuredBuffer<uint4> g_Verify : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(6,1,1)]
+        void main(uint3 id : SV_DispatchThreadID) { g_Verify[id.x] = asuint( g_In[id.x] ); }
+    )";
+
+    auto compile = [&]( const char* name, const char* src ) -> vhShader
+    {
+        std::vector<uint32_t> spirv; std::string er;
+        bool ok = vhCompileShader( name, src, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &er );
+        if ( !ok ) { UTEST_PRINTF( "%s compile error (spirv=%zu): %s\n", name, spirv.size(), er.c_str() ); }
+        vhShader sh = vhAllocShader();
+        vhCreateShader( sh, name, VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+        return sh;
+    };
+    vhShader csWrite = compile( "BU01_write", writeSrc );
+    vhShader csConsume = compile( "BU01_consume", consumeSrc );
+
+    vhState writeState = g_state0;
+    writeState.SetProgram( vhCreateComputeProgram( csWrite ) );
+    writeState.SetBuffer( 0, { .name = "g_Out", .buffer = typedBuf, .computeUAV = true } );
+    writeState.SetTexture( 1, { .name = "g_Tex", .texture = controlTex, .computeUAV = true } );
+    vhSetState( 9860, writeState );
+
+    vhState consumeState = g_state0;
+    consumeState.SetProgram( vhCreateComputeProgram( csConsume ) );
+    consumeState.SetBuffer( 0, { .name = "g_In", .buffer = typedBuf } );
+    consumeState.SetBuffer( 1, { .name = "g_Verify", .buffer = verifyBuf, .computeUAV = true } );
+    vhSetState( 9861, consumeState );
+
+    // Writer then consumer, back to back with no drain between them.
+    vhDispatch( 9860, { 1, 1, 1 } );
+    vhDispatch( 9861, { 1, 1, 1 } );
+    vhFinish();
+
+    // Direct observation: every written element plus the unwritten guard range.
+    vhMem rd; vhReadBufferSlow( typedBuf, 0, initBits.size() * sizeof( uint32_t ), &rd ); vhFinish();
+    ASSERT_EQ( rd.size(), initBits.size() * sizeof( uint32_t ) );
+    int mismatches = 0;
+    for ( uint32_t i = 0; i < N + GUARD && mismatches < 4; ++i )
+    {
+        uint32_t got[4];
+        memcpy( got, &rd[i * 16], 16 );
+        uint32_t expect[4] = { 0x7F800001u, 0x7F800001u, 0x7F800001u, 0x7F800001u };
+        if ( i < N )
+        {
+            float f[4] = { (float)i, i * 2.0f + 0.5f, i * 3.0f + 0.25f, 1.0f };
+            memcpy( expect, f, 16 );
+        }
+        for ( int c = 0; c < 4 && mismatches < 4; ++c )
+            if ( got[c] != expect[c] )
+            {
+                UTEST_PRINTF( "BU01: readback element %u ch %d = 0x%08X, expected 0x%08X\n", i, c, got[c], expect[c] );
+                ++mismatches;
+            }
+    }
+    EXPECT_EQ( mismatches, 0 );
+
+    // Shader-side observation: SRV bits must match the same model exactly.
+    vhMem rv; vhReadBufferSlow( verifyBuf, 0, N * 16, &rv ); vhFinish();
+    ASSERT_EQ( rv.size(), N * 16 );
+    mismatches = 0;
+    for ( uint32_t i = 0; i < N && mismatches < 4; ++i )
+    {
+        uint32_t got[4];
+        memcpy( got, &rv[i * 16], 16 );
+        float f[4] = { (float)i, i * 2.0f + 0.5f, i * 3.0f + 0.25f, 1.0f };
+        uint32_t expect[4];
+        memcpy( expect, f, 16 );
+        for ( int c = 0; c < 4 && mismatches < 4; ++c )
+            if ( got[c] != expect[c] )
+            {
+                UTEST_PRINTF( "BU01: SRV element %u ch %d = 0x%08X, expected 0x%08X\n", i, c, got[c], expect[c] );
+                ++mismatches;
+            }
+    }
+    EXPECT_EQ( mismatches, 0 );
+
+    // Control texture: the anchor fixture's original oracle still holds.
+    vhMem ctl; vhReadTextureSlow( controlTex, 0, 0, &ctl ); vhFinish();
+    ASSERT_EQ( ctl.size(), N );
+    for ( uint32_t i = 0; i < N; ++i )
+    {
+        uint8_t expected = (uint8_t)( (float)( i + 1 ) / 6.0f * 255.0f + 0.5f );
+        EXPECT_TRUE( abs( (int)ctl[i] - (int)expected ) <= 2 );
+    }
+
+    vhDestroyBuffer( typedBuf ); vhDestroyBuffer( verifyBuf ); vhDestroyTexture( controlTex );
+    vhDestroyShader( csWrite ); vhDestroyShader( csConsume );
+    vhSetState( 9860, g_state0, VRHI_DIRTY_ALL ); vhSetState( 9861, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
