@@ -787,7 +787,7 @@ UTEST_F_SETUP( FrameBench )
 
 UTEST_F_TEARDOWN( FrameBench )
 {
-    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Frame benchmarks require a real device" ); }
+    if ( g_vhInit.nullMode ) return;
     vhEndMarker();
     vhFinish();
     if ( g_testInit )

@@ -263,9 +263,11 @@ static vhShader CreateTestShader( const char* source, uint64_t stage )
     std::vector< uint32_t > spirv;
     std::string error;
     bool ok = vhCompileShader( "TestShader", source, stage | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
-    if ( !ok )
+    if ( !ok || spirv.empty() )
     {
         UTEST_PRINTF( "Shader Compilation Error: %s\n", error.c_str() );
+        vhDestroyShader( shader );
+        return VRHI_INVALID_HANDLE;
     }
     vhCreateShader( shader, "TestShader", stage, spirv );
     return shader;
@@ -4812,9 +4814,8 @@ UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
 // One 2D array with two mips and three layers. Every subresource is initialized
 // with its own sentinel first, then five draws run through a single state ID
 // with no drain, creation, destruction, or readback between them: layer change
-// only, mip change only, both together, and a return to the first pair that
-// writes a disjoint region so the earlier evidence survives. One subresource is
-// never drawn into. After the final drain every texel of every subresource is
+// only, mip change only, nonzero mip and layer, and a return to the first pair
+// in a disjoint region. Layer 2 remains untouched. After the final drain every texel of every subresource is
 // checked, so an interior wrong pixel cannot hide behind a correct (0,0).
 UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
 {
@@ -4829,6 +4830,15 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
 
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_solidPS,  VRHI_SHADER_STAGE_PIXEL );
+    if ( vs == VRHI_INVALID_HANDLE || ps == VRHI_INVALID_HANDLE )
+    {
+        vhDestroyTexture( arr );
+        vhDestroyShader( vs ); vhDestroyShader( ps );
+        vhFinish();
+        EXPECT_NE( vs, VRHI_INVALID_HANDLE );
+        EXPECT_NE( ps, VRHI_INVALID_HANDLE );
+        return;
+    }
     vhProgram prog = vhCreateGfxProgram( vs, ps );
 
     struct Vertex { glm::vec3 pos; glm::vec4 col; };
@@ -4841,7 +4851,7 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
     // Draw colours, and the sentinel each untouched subresource keeps.
     const glm::vec4 red( 1, 0, 0, 1 ), green( 0, 1, 0, 1 ), blue( 0, 0, 1, 1 );
     const glm::vec4 yellow( 1, 1, 0, 1 ), magenta( 1, 0, 1, 1 );
-    const glm::vec4 sent0 = red, sent1 = blue, sent2( 0.25f, 0.5f, 0.75f, 1 );
+    const glm::vec4 sent0( 0, 0, 0, 1 ), sent1( 0.5f, 0.5f, 0.5f, 1 ), sent2( 0.25f, 0.5f, 0.75f, 1 );
     const glm::vec4 sent3( 0.75f, 0.5f, 0.25f, 1 ), sent4( 0, 1, 1, 1 ), sent5( 1, 1, 1, 1 );
     const glm::vec4 sentinels[LAYERS][2] = {
         { sent0, sent1 }, { sent2, sent3 }, { sent4, sent5 }
@@ -4871,10 +4881,10 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
     // ---- measured sequence: one state ID, no drains in between ----
     struct Step { uint32_t mip; uint32_t layer; vhBuffer vb; glm::vec4 rect; };
     const Step steps[5] = {
-        { 0, 0, vbRed,     glm::vec4( 0, 0, 4, 4 ) }, // full mip 0, layer 0
+        { 0, 0, vbRed,     glm::vec4( 0, 0, 2, 2 ) }, // first region of mip 0, layer 0
         { 0, 1, vbGreen,   glm::vec4( 0, 0, 4, 4 ) }, // layer changes only
-        { 1, 0, vbBlue,    glm::vec4( 0, 0, 2, 2 ) }, // mip changes only
-        { 1, 1, vbYellow,  glm::vec4( 0, 0, 2, 2 ) }, // nonzero mip and layer together
+        { 1, 1, vbYellow,  glm::vec4( 0, 0, 2, 2 ) }, // mip changes only
+        { 1, 0, vbBlue,    glm::vec4( 0, 0, 2, 2 ) }, // layer changes at nonzero mip
         { 0, 0, vbMagenta, glm::vec4( 2, 2, 2, 2 ) }, // return to the first pair, disjoint region
     };
     for ( const Step& s : steps )
@@ -4915,7 +4925,7 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
                     // Only the return draw touched rows 2-3 of (mip 0, layer 0).
                     bool magentaHalf = ( mip == 0 && layer == 0 && x >= 2 && y >= 2 );
                     glm::vec4 want;
-                    if ( mip == 0 && layer == 0 ) want = magentaHalf ? magenta : red;
+                    if ( mip == 0 && layer == 0 ) want = magentaHalf ? magenta : ( x < 2 && y < 2 ? red : sent0 );
                     else if ( mip == 0 && layer == 1 ) want = green;
                     else if ( mip == 1 && layer == 0 ) want = blue;
                     else if ( mip == 1 && layer == 1 ) want = yellow;
@@ -5004,6 +5014,16 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     vhBuffer vb = CreateTestVB( "float3 float2", verts, sizeof( verts ) );
     vhShader vs = CreateTestShader( g_uvVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_texPS, VRHI_SHADER_STAGE_PIXEL );
+    if ( vs == VRHI_INVALID_HANDLE || ps == VRHI_INVALID_HANDLE )
+    {
+        delete memB;
+        vhDestroyTexture( src ); vhDestroyTexture( outA ); vhDestroyTexture( outB );
+        vhDestroyBuffer( vb ); vhDestroyShader( vs ); vhDestroyShader( ps );
+        vhFinish();
+        EXPECT_NE( vs, VRHI_INVALID_HANDLE );
+        EXPECT_NE( ps, VRHI_INVALID_HANDLE );
+        return;
+    }
 
     auto makeState = [&]( vhTexture target )
     {
@@ -5039,10 +5059,10 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     // Verify every texel of both preserved outputs after the single drain.
     vhMem rdA; vhReadTextureSlow( outA, 0, 0, &rdA ); vhFinish();
     vhMem rdB; vhReadTextureSlow( outB, 0, 0, &rdB ); vhFinish();
-    ASSERT_EQ( rdA.size(), patternA.size() );
-    ASSERT_EQ( rdB.size(), patternB.size() );
+    EXPECT_EQ( rdA.size(), patternA.size() );
+    EXPECT_EQ( rdB.size(), patternB.size() );
     int mismatches = 0;
-    for ( size_t i = 0; i < patternA.size() && mismatches < 4; ++i )
+    for ( size_t i = 0; i < patternA.size() && rdA.size() == patternA.size() && mismatches < 4; ++i )
     {
         if ( rdA[i] != patternA[i] )
         {
@@ -5052,7 +5072,7 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     }
     EXPECT_EQ( mismatches, 0 );
     mismatches = 0;
-    for ( size_t i = 0; i < patternB.size() && mismatches < 4; ++i )
+    for ( size_t i = 0; i < patternB.size() && rdB.size() == patternB.size() && mismatches < 4; ++i )
     {
         if ( rdB[i] != patternB[i] )
         {
@@ -5127,6 +5147,15 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
 
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    if ( vs == VRHI_INVALID_HANDLE || ps == VRHI_INVALID_HANDLE )
+    {
+        vhDestroyBuffer( vb ); vhDestroyBuffer( ib ); vhDestroyBuffer( argBuf );
+        vhDestroyShader( vs ); vhDestroyShader( ps );
+        vhFinish();
+        EXPECT_NE( vs, VRHI_INVALID_HANDLE );
+        EXPECT_NE( ps, VRHI_INVALID_HANDLE );
+        return;
+    }
 
     for ( int c = 0; c < 4; ++c )
     {
@@ -5155,9 +5184,9 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
         vhFinish();
 
         vhMem rd; vhReadTextureSlow( rt, 0, 0, &rd ); vhFinish();
-        ASSERT_EQ( rd.size(), (size_t)64 * 64 * 4 );
+        EXPECT_EQ( rd.size(), (size_t)64 * 64 * 4 );
         int mismatches = 0;
-        for ( int py = 0; py < 64 && mismatches < 4; ++py )
+        for ( int py = 0; py < 64 && rd.size() == (size_t)64 * 64 * 4 && mismatches < 4; ++py )
             for ( int px = 0; px < 64 && mismatches < 4; ++px )
             {
                 int t = ( py / TILE ) * 2 + ( px / TILE );
@@ -5217,7 +5246,7 @@ UTEST_F( Graphics, BL01_IndependentBlendUnequalTargets )
     const int seedC[4] = { 102, 153, 25, 204 };
     const int srcC[4] = { 153, 64, 191, 100 };
     // Slot sources are swizzles of srcC, matching the pixel shader exactly:
-    // slot 0 = RGBA, slot 1 = GBRA, slot 2 = BRAG.
+    // slot 0 = RGBA, slot 1 = GBRA, slot 2 = BRGA.
     auto slotSource = [&]( int slot, int c ) -> int
     {
         const int src[3][4] = {
@@ -5257,6 +5286,15 @@ PSOut main( float4 col : COLOUR )
     vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( mrtPS3, VRHI_SHADER_STAGE_PIXEL );
+    if ( vs == VRHI_INVALID_HANDLE || ps == VRHI_INVALID_HANDLE )
+    {
+        vhDestroyTexture( rtA ); vhDestroyTexture( rtB ); vhDestroyTexture( rtC );
+        vhDestroyBuffer( vb ); vhDestroyShader( vs ); vhDestroyShader( ps );
+        vhFinish();
+        EXPECT_NE( vs, VRHI_INVALID_HANDLE );
+        EXPECT_NE( ps, VRHI_INVALID_HANDLE );
+        return;
+    }
 
     // Per-RT blend: slot 0 add (ONE,ONE), slot 1 multiply (DST_COLOUR,ZERO),
     // slot 2 reverse-subtract (ONE,ONE). Equations default to ADD for slots
@@ -5325,9 +5363,9 @@ PSOut main( float4 col : COLOUR )
         {
             vhTexture rt = *att[slot];
             vhMem rd; vhReadTextureSlow( rt, 0, 0, &rd ); vhFinish();
-            ASSERT_EQ( rd.size(), (size_t)DIM * DIM * 4 );
+            EXPECT_EQ( rd.size(), (size_t)DIM * DIM * 4 );
             int mismatches = 0;
-            for ( int py = 0; py < DIM && mismatches < 4; ++py )
+            for ( int py = 0; py < DIM && rd.size() == (size_t)DIM * DIM * 4 && mismatches < 4; ++py )
                 for ( int px = 0; px < DIM && mismatches < 4; ++px )
                     for ( int c = 0; c < 4 && mismatches < 4; ++c )
                     {
@@ -5387,6 +5425,14 @@ UTEST_F( Graphics, DS01_ReadOnlyDepthRejectsObservableWrites )
 
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    if ( vs == VRHI_INVALID_HANDLE || ps == VRHI_INVALID_HANDLE )
+    {
+        vhDestroyShader( vs ); vhDestroyShader( ps );
+        vhFinish();
+        EXPECT_NE( vs, VRHI_INVALID_HANDLE );
+        EXPECT_NE( ps, VRHI_INVALID_HANDLE );
+        return;
+    }
     vhProgram prog = vhCreateGfxProgram( vs, ps );
 
     // All vertex data exists before either measured sequence.
@@ -5397,7 +5443,7 @@ UTEST_F( Graphics, DS01_ReadOnlyDepthRejectsObservableWrites )
     vhBuffer vbFail  = makeVB( 0.8f, glm::vec4( 1, 0, 1, 1 ) );
     vhBuffer vbRet   = makeVB( 0.5f, glm::vec4( 1, 1, 0, 1 ) );
     vhBuffer vbPass2 = makeVB( 0.45f, glm::vec4( 0, 1, 1, 1 ) );
-    vhBuffer vbFail2 = makeVB( 0.55f, glm::vec4( 1, 1, 1, 1 ) );
+    vhBuffer vbFail2 = makeVB( 0.55f, glm::vec4( 1, 0, 1, 1 ) );
 
     // VRHI_STATE_WRITE_MASK includes VRHI_STATE_WRITE_Z, so the no-depth-write
     // case must name the colour bits explicitly.

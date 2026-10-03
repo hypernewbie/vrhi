@@ -1704,8 +1704,8 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
         vhFinish();
 
         vhMem rd; vhReadTextureSlow( tex, 0, 0, &rd ); vhFinish();
-        ASSERT_EQ( (int)rd.size(), w );
-        for ( int i = 0; i < w; ++i )
+        EXPECT_EQ( (int)rd.size(), w );
+        for ( int i = 0; i < w && rd.size() == (size_t)w; ++i )
             EXPECT_EQ( (int)rd[i], (int)expected[i] );
 
         vhDestroyTexture( tex );
@@ -1740,9 +1740,9 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
         vhFinish();
 
         vhMem rd; vhReadTextureSlow( tex, 0, 0, &rd ); vhFinish();
-        ASSERT_EQ( (int)rd.size(), (int)total );
+        EXPECT_EQ( rd.size(), total );
         int mismatches = 0;
-        for ( size_t i = 0; i < total && mismatches < 6; ++i )
+        for ( size_t i = 0; i < total && rd.size() == total && mismatches < 6; ++i )
         {
             int got = (int)rd[i];
             if ( got != (int)expected[i] )
@@ -1840,7 +1840,7 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
 }
 
 // TESTPLAN TX01 — Nonzero mip and layer upload together.
-// Initialize a 13x7 RG texture array with 4 mips and 3 layers, then update a
+// Initialize a 13x7 R8 texture array with 4 mips and 3 layers, then update a
 // range starting at nonzero mip AND nonzero layer in one call. Verify every
 // byte in the selected range and that untouched subresources stay intact.
 UTEST_F( Texture, Upload_NonzeroMipAndLayerTogether )
@@ -1864,7 +1864,7 @@ UTEST_F( Texture, Upload_NonzeroMipAndLayerTogether )
     // a layer or mip swap cannot produce a matching result.
     auto initTag = [&]( int m, int l, int x, int y ) -> uint8_t
     {
-        return (uint8_t)( 0x80 + ( m * 3 + l ) * 8 + ( y & 3 ) * 2 + ( x & 1 ) );
+        return (uint8_t)( 0x80 + m * 23 + l * 47 + y * 13 + x * 7 );
     };
     auto newTag = [&]( int m, int l, int x, int y ) -> uint8_t
     {

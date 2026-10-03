@@ -2375,8 +2375,10 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
         // Every scenario gets its own intermediate, so no other pass can set up
         // the transition this one is meant to exercise.
         vhTexture intermediate = vhAllocTexture();
+        vhMem* initial = vhAllocMem( DIM * DIM * 4 );
+        memset( initial->data(), 0xE0, initial->size() );
         vhCreateTexture2D( intermediate, "SY01_mid", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM,
-                           VRHI_TEXTURE_COMPUTE_WRITE | VRHI_TEXTURE_NONE );
+                           VRHI_TEXTURE_COMPUTE_WRITE, initial );
         vhTexture out = vhAllocTexture();
         if ( sc.graphics ) vhCreateTexture2D( out, "SY01_outGfx", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
         else vhCreateTexture2D( out, "SY01_outCs", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -2727,6 +2729,7 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
     if ( !compileOk )
     {
         vhDestroyBuffer( typedBuf ); vhDestroyBuffer( verifyBuf ); vhDestroyTexture( controlTex );
+        vhDestroyShader( csWrite ); vhDestroyShader( csConsume );
         vhFinish();
         EXPECT_TRUE( compileOk );
         return;
@@ -2751,9 +2754,9 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
 
     // Direct observation: every written element plus the unwritten guard range.
     vhMem rd; vhReadBufferSlow( typedBuf, 0, initBits.size() * sizeof( uint32_t ), &rd ); vhFinish();
-    ASSERT_EQ( rd.size(), initBits.size() * sizeof( uint32_t ) );
+    EXPECT_EQ( rd.size(), initBits.size() * sizeof( uint32_t ) );
     int mismatches = 0;
-    for ( uint32_t i = 0; i < N + GUARD && mismatches < 4; ++i )
+    for ( uint32_t i = 0; i < N + GUARD && rd.size() == initBits.size() * sizeof( uint32_t ) && mismatches < 4; ++i )
     {
         uint32_t got[4];
         memcpy( got, &rd[i * 16], 16 );
@@ -2774,9 +2777,9 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
 
     // Shader-side observation: SRV bits must match the same model exactly.
     vhMem rv; vhReadBufferSlow( verifyBuf, 0, N * 16, &rv ); vhFinish();
-    ASSERT_EQ( rv.size(), N * 16 );
+    EXPECT_EQ( rv.size(), N * 16 );
     mismatches = 0;
-    for ( uint32_t i = 0; i < N && mismatches < 4; ++i )
+    for ( uint32_t i = 0; i < N && rv.size() == N * 16 && mismatches < 4; ++i )
     {
         uint32_t got[4];
         memcpy( got, &rv[i * 16], 16 );
@@ -2794,8 +2797,8 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
 
     // Control texture: the anchor fixture's original oracle still holds.
     vhMem ctl; vhReadTextureSlow( controlTex, 0, 0, &ctl ); vhFinish();
-    ASSERT_EQ( ctl.size(), N );
-    for ( uint32_t i = 0; i < N; ++i )
+    EXPECT_EQ( ctl.size(), N );
+    for ( uint32_t i = 0; i < N && ctl.size() == N; ++i )
     {
         uint8_t expected = (uint8_t)( (float)( i + 1 ) / 6.0f * 255.0f + 0.5f );
         EXPECT_TRUE( abs( (int)ctl[i] - (int)expected ) <= 2 );
@@ -2821,8 +2824,8 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
 // bytes.
 //
 // The oracle reconstructs bytes rather than requiring bit-identical floats:
-// unorm decode is exactly representable, but comparing raw float bits would
-// pin an implementation-specific conversion path across drivers. Reconstruction
+// UNORM fractions need not have an exact float representation. Raw float bits
+// can depend on the conversion path. Reconstruction
 // is stated explicitly (round half away from zero on value * 255) and is exact
 // for every tag used, so a one-code-step error, a slice swap, or the wrong mip
 // still fails.
@@ -2879,11 +2882,7 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
     // Sentinel the output: a dispatch that never ran leaves these values, which
     // no voxel tag reproduces.
     vhMem* outInit = vhAllocMem( ( OUT0 + OUT1 ) * 16 );
-    for ( size_t i = 0; i < (size_t)( OUT0 + OUT1 ); ++i )
-    {
-        uint32_t sentinel = 0x7F7F7F7Fu;
-        memcpy( outInit->data() + i * 16, &sentinel, 4 );
-    }
+    memset( outInit->data(), 0x7F, outInit->size() );
     vhUpdateStorageBuffer( out, outInit, 0, ( OUT0 + OUT1 ) * 16 );
     vhFinish();
 
@@ -2906,11 +2905,11 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
     {
         { UTEST_PRINTF( "TX04 compile error: %s\n", er.c_str() ); }
     }
-    if ( spirv.empty() )
+    if ( !compiled || spirv.empty() )
     {
         vhDestroyTexture( vol ); vhDestroyBuffer( out );
         vhFinish();
-        EXPECT_TRUE( compiled );
+        EXPECT_TRUE( compiled && !spirv.empty() );
         return;
     }
     vhShader cs = vhAllocShader();
@@ -2925,6 +2924,10 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
     vhFinish();
 
     vhMem rd; vhReadBufferSlow( out, 0, ( OUT0 + OUT1 ) * 16, &rd ); vhFinish();
+    vhSetState( 9862, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyTexture( vol ); vhDestroyBuffer( out ); vhDestroyShader( cs );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
     ASSERT_EQ( rd.size(), (size_t)( OUT0 + OUT1 ) * 16 );
 
     // Stated reconstruction rule: the decoded unorm value must be finite and
@@ -2970,9 +2973,4 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
 
     EXPECT_EQ( checkMip( mip0, 0, W, H, D, 0 ), 0 );
     EXPECT_EQ( checkMip( mip1, 1, W1, H1, D1, OUT0 ), 0 );
-
-    vhDestroyTexture( vol ); vhDestroyBuffer( out ); vhDestroyShader( cs );
-    vhSetState( 9862, g_state0, VRHI_DIRTY_ALL );
-    vhFinish();
-    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }

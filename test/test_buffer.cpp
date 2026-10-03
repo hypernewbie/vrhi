@@ -1563,53 +1563,41 @@ UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
         { 45, 7, 0x84 },
     };
 
-    std::vector<uint8_t> expect( SIZE, SENTINEL );
-    for ( const Write& w : aligned )
-        for ( int i = 0; i < w.length; ++i )
-            expect[w.offset + i] = (uint8_t)( w.first + i );
-    for ( const Write& w : unaligned )
-        for ( int i = 0; i < w.length; ++i )
-            expect[w.offset + i] = (uint8_t)( w.first + i );
-
-    vhBuffer buf = vhAllocBuffer();
-    vhMem* initData = vhAllocMem( SIZE );
-    memset( initData->data(), SENTINEL, SIZE );
-    vhCreateStorageBuffer( buf, "BU03", initData, SIZE, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
-    vhFinish();
-
-    for ( const Write& w : aligned )
+    for ( int variant = 0; variant < 2; ++variant )
     {
-        vhMem* d = vhAllocMem( (uint64_t)w.length );
-        for ( int i = 0; i < w.length; ++i ) d->data()[i] = (uint8_t)( w.first + i );
-        vhUpdateStorageBuffer( buf, d, (uint64_t)w.offset, (uint64_t)w.length );
-    }
-    for ( const Write& w : unaligned )
-    {
-        vhMem* d = vhAllocMem( (uint64_t)w.length );
-        for ( int i = 0; i < w.length; ++i ) d->data()[i] = (uint8_t)( w.first + i );
-        vhUpdateStorageBuffer( buf, d, (uint64_t)w.offset, (uint64_t)w.length );
-    }
-    vhFinish();
-
-    vhMem rd; vhReadBufferSlow( buf, 0, SIZE, &rd ); vhFinish();
-    ASSERT_EQ( (int)rd.size(), SIZE );
-
-    // The whole buffer, not just the written spans: a padding byte that
-    // overwrites a neighbour fails here.
-    int mismatches = 0;
-    for ( int i = 0; i < SIZE && mismatches < 8; ++i )
-    {
-        int got = (int)rd[i];
-        if ( got != (int)expect[i] )
+        const auto& writes = variant == 0 ? aligned : unaligned;
+        std::vector<uint8_t> expect( SIZE, SENTINEL );
+        vhBuffer buf = vhAllocBuffer();
+        vhMem* initData = vhAllocMem( SIZE );
+        memset( initData->data(), SENTINEL, SIZE );
+        vhCreateStorageBuffer( buf, "BU03", initData, SIZE, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
+        for ( const Write& w : writes )
         {
-            UTEST_PRINTF( "BU03: byte %d = 0x%02X, expected 0x%02X\n", i, got, expect[i] );
-            ++mismatches;
+            vhMem* data = vhAllocMem( (uint64_t)w.length );
+            for ( int i = 0; i < w.length; ++i )
+            {
+                expect[w.offset + i] = data->data()[i] = (uint8_t)( w.first + i );
+            }
+            vhUpdateStorageBuffer( buf, data, (uint64_t)w.offset, (uint64_t)w.length );
         }
-    }
-    EXPECT_EQ( mismatches, 0 );
+        vhFinish();
 
-    vhDestroyBuffer( buf );
-    vhFinish();
+        vhMem rd; vhReadBufferSlow( buf, 0, SIZE, &rd ); vhFinish();
+        vhDestroyBuffer( buf );
+        vhFinish();
+        EXPECT_EQ( (int)rd.size(), SIZE );
+        int mismatches = 0;
+        for ( int i = 0; i < SIZE && rd.size() == SIZE && mismatches < 8; ++i )
+        {
+            if ( rd[i] != expect[i] )
+            {
+                UTEST_PRINTF( "BU03 %s: byte %d = 0x%02X, expected 0x%02X\n",
+                    variant == 0 ? "aligned" : "unaligned", i, rd[i], expect[i] );
+                ++mismatches;
+            }
+        }
+        EXPECT_EQ( mismatches, 0 );
+    }
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
@@ -1655,6 +1643,9 @@ UTEST_F( Buffer, UpdateOwnedMemoryWritesEntireSource )
     vhFinish();
 
     vhMem rd; vhReadBufferSlow( buf, 0, SIZE, &rd ); vhFinish();
+    vhDestroyBuffer( buf );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
     ASSERT_EQ( (int)rd.size(), SIZE );
 
     // Every byte of the buffer, written or untouched, is compared.
@@ -1669,8 +1660,4 @@ UTEST_F( Buffer, UpdateOwnedMemoryWritesEntireSource )
         }
     }
     EXPECT_EQ( mismatches, 0 );
-
-    vhDestroyBuffer( buf );
-    vhFinish();
-    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }

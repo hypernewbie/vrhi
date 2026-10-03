@@ -590,10 +590,8 @@ UTEST( Backend, FramebufferCaching )
             EXPECT_TRUE( fbRO->getDesc().depthAttachment.isReadOnly );
             EXPECT_FALSE( fbRW->getDesc().depthAttachment.isReadOnly );
         }
-        else
-        {
-            UTEST_PRINTF( "framebuffer handle null for read-only / writable depth pair\n" );
-        }
+        EXPECT_TRUE( fbRO != nullptr );
+        EXPECT_TRUE( fbRW != nullptr );
     }
 
     // Cleanup not strictly necessary for test instance but good practice
