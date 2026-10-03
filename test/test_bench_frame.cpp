@@ -777,7 +777,7 @@ struct FrameBench
 
 UTEST_F_SETUP( FrameBench )
 {
-    if ( g_vhInit.nullMode ) return; // per-test bodies skip on null device
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Frame benchmarks require a real device" ); } // per-test bodies skip on null device
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
     const char* gc = getenv( "VRHI_BENCH_GC_INTERVAL" );
     if ( gc && atoi( gc ) > 0 ) g_vhInit.gcFlushInterval = ( uint32_t ) atoi( gc );
@@ -787,7 +787,7 @@ UTEST_F_SETUP( FrameBench )
 
 UTEST_F_TEARDOWN( FrameBench )
 {
-    if ( g_vhInit.nullMode ) return;
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Frame benchmarks require a real device" ); }
     vhEndMarker();
     vhFinish();
     if ( g_testInit )

@@ -933,7 +933,8 @@ UTEST_F_SETUP( RT )
     }
     // Lavapipe advertises RT but its implementation hangs on TLAS/BLAS work under
     // CI's reduced-CPU runner. Force RT off on software Vulkan so RT tests skip
-    // cleanly via their `if ( !g_vhDeviceInfo.raytracing ) return;` guards.
+    // cleanly through the explicit capability skip in each RT fixture, so an
+    // unsupported device is reported as skipped rather than silently passed.
     if ( !g_vhInit.raytracing && !TestIsSoftwareVulkan() )
     {
         TestEnsureShutdown();
@@ -960,7 +961,7 @@ UTEST_F_TEARDOWN( RT )
 
 UTEST_F( RT, Basic )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -999,7 +1000,7 @@ UTEST_F( RT, Basic )
 
 UTEST_F( RT, Inline )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1034,7 +1035,7 @@ UTEST_F( RT, Inline )
 
 UTEST_F( RT, AnyHit )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1074,7 +1075,7 @@ UTEST_F( RT, AnyHit )
 
 UTEST_F( RT, AnyHitReject )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1119,7 +1120,7 @@ UTEST_F( RT, AnyHitReject )
 
 UTEST_F( RT, ProceduralAABB )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -1165,7 +1166,7 @@ UTEST_F( RT, ProceduralAABB )
 
 UTEST_F( RT, MultiHitGroup )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1247,7 +1248,7 @@ UTEST_F( RT, MultiHitGroup )
 
 UTEST_F( RT, Recursion )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1312,7 +1313,7 @@ UTEST_F( RT, Recursion )
 
 UTEST_F( RT, IndexedTriangles )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1357,7 +1358,7 @@ UTEST_F( RT, IndexedTriangles )
 // the backend resolves the vhBuffer IDs in FIFO order.
 UTEST_F( RT, IndexedTriangleBLASViaHandles )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1404,7 +1405,7 @@ UTEST_F( RT, IndexedTriangleBLASViaHandles )
 // hanging the GPU. A correct build traces the triangle just like the indexed case.
 UTEST_F( RT, NonIndexedTriangleBLASViaHandles )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1443,7 +1444,7 @@ UTEST_F( RT, NonIndexedTriangleBLASViaHandles )
 
 UTEST_F( RT, InstanceTransform )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1498,7 +1499,7 @@ UTEST_F( RT, InstanceTransform )
 
 UTEST_F( RT, InstanceMask )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1552,7 +1553,7 @@ UTEST_F( RT, InstanceMask )
 
 UTEST_F( RT, Dispatch3D )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1590,7 +1591,7 @@ UTEST_F( RT, Dispatch3D )
 
 UTEST_F( RT, TwoScene )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vbA = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1640,7 +1641,7 @@ UTEST_F( RT, TwoScene )
 
 UTEST_F( RT, BuildFlagsPreferFastTrace )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1678,7 +1679,7 @@ UTEST_F( RT, BuildFlagsPreferFastTrace )
 
 UTEST_F( RT, BuildFlagsPreferFastBuild )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1716,7 +1717,7 @@ UTEST_F( RT, BuildFlagsPreferFastBuild )
 
 UTEST_F( RT, ForceOpaqueInstance )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1763,7 +1764,7 @@ UTEST_F( RT, ForceOpaqueInstance )
 
 UTEST_F( RT, MinimizeMemory )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1801,7 +1802,7 @@ UTEST_F( RT, MinimizeMemory )
 
 UTEST_F( RT, TriangleCullDisable )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1852,7 +1853,7 @@ UTEST_F( RT, TriangleCullDisable )
 
 UTEST_F( RT, FrontCCW )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
@@ -1899,7 +1900,7 @@ UTEST_F( RT, FrontCCW )
 
 UTEST_F( RT, FullHitGroup )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -1956,7 +1957,7 @@ UTEST_F( RT, FullHitGroup )
 
 UTEST_F( RT, GlobalBindingLayouts )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2032,7 +2033,7 @@ UTEST_F( RT, GlobalBindingLayouts )
 
 UTEST_F( RT, EmptyTLAS )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -2068,7 +2069,7 @@ UTEST_F( RT, EmptyTLAS )
 
 UTEST_F( RT, RepeatedDispatch )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rtA = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhTexture rtB = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -2122,7 +2123,7 @@ UTEST_F( RT, RepeatedDispatch )
 
 UTEST_F( RT, StateAccelStructDirty )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2174,7 +2175,7 @@ UTEST_F( RT, StateAccelStructDirty )
 
 UTEST_F( RT, ExtensionsUAV )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2232,7 +2233,7 @@ UTEST_F( RT, ExtensionsUAV )
 
 UTEST_F( RT, ShaderCompileFail )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     const char* badSrc = R"(
 [shader("raygeneration")]
@@ -2251,7 +2252,7 @@ void main() { this is not valid HLSL }
 
 UTEST_F( RT, DestroyBoundAS )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2304,7 +2305,7 @@ UTEST_F( RT, DestroyBoundAS )
 
 UTEST_F( RT, StateReset )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2356,7 +2357,7 @@ UTEST_F( RT, StateReset )
 
 UTEST_F( RT, ShaderTableRebuild )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2419,7 +2420,7 @@ UTEST_F( RT, ShaderTableRebuild )
 
 UTEST_F( RT, NewPipelineNewTable )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2489,7 +2490,7 @@ UTEST_F( RT, NewPipelineNewTable )
 
 UTEST_F( RT, InlineCommittedStatus )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2523,7 +2524,7 @@ UTEST_F( RT, InlineCommittedStatus )
 
 UTEST_F( RT, InlineNegZDirection )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVerticesCCW, sizeof( kTriVerticesCCW ) );
@@ -2587,7 +2588,7 @@ static vhAccelStruct BuildSphereBLAS( float x, float y, float z, float radius )
 
 UTEST_F( RT, AllowEmptyInstances )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
     // Mesa lavapipe <= 26.0.5 bug: lvp_encode_as iterates header->active_leaf_count instead of leaf_count, mis-encoding TLAS leaves when active instance is not at index 0.
     if ( TestIsSoftwareVulkan() ) UTEST_SKIP( "Mesa lavapipe TLAS encoder bug — null instance before valid causes false miss" );
 
@@ -2645,8 +2646,8 @@ UTEST_F( RT, AllowEmptyInstances )
 
 UTEST_F( RT, SphereGeometry )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
-    if ( !g_vhDevice->queryFeatureSupport( nvrhi::Feature::Spheres ) ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
+    if ( !g_vhDevice->queryFeatureSupport( nvrhi::Feature::Spheres ) ) { UTEST_SKIP( "Sphere tracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -2683,7 +2684,7 @@ UTEST_F( RT, SphereGeometry )
 
 UTEST_F( RT, BLASCompaction )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2744,7 +2745,7 @@ UTEST_F( RT, BLASCompaction )
 
 UTEST_F( RT, TLASRefit )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2804,7 +2805,7 @@ UTEST_F( RT, TLASRefit )
 
 UTEST_F( RT, ShaderTableBindings )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2859,7 +2860,7 @@ UTEST_F( RT, ShaderTableBindings )
 
 UTEST_F( RT, TLASFromBuffer )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -2918,7 +2919,7 @@ UTEST_F( RT, TLASFromBuffer )
 
 UTEST_F( RT, MultipleMissShaders )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Raygen traces twice with miss index 0 (blue) and 1 (black). Triangle covers
     // half the launch grid; pixels that hit get red on both calls; pixels that
@@ -2981,7 +2982,7 @@ UTEST_F( RT, MultipleMissShaders )
 
 UTEST_F( RT, MultipleRayGenShaders )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rtA = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhTexture rtB = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -3037,7 +3038,7 @@ UTEST_F( RT, MultipleRayGenShaders )
 
 UTEST_F( RT, PerInstanceHitGroup )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
@@ -3122,7 +3123,7 @@ UTEST_F( RT, PerInstanceHitGroup )
 
 UTEST_F( RT, CallableShaders )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3184,7 +3185,7 @@ UTEST_F( RT, CallableShaders )
 
 UTEST_F( RT, StructuredBufferSRV_InRayGen )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // 4x4 dispatch reads per-pixel direction overrides from a StructuredBuffer.
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -3233,7 +3234,7 @@ UTEST_F( RT, StructuredBufferSRV_InRayGen )
 
 UTEST_F( RT, ConstantBuffer_InRayGen )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3277,7 +3278,7 @@ UTEST_F( RT, ConstantBuffer_InRayGen )
 
 UTEST_F( RT, SamplerInClosestHit )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3331,7 +3332,7 @@ UTEST_F( RT, SamplerInClosestHit )
 
 UTEST_F( RT, MultiGeomBLAS )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Single BLAS containing two triangles in non-overlapping XY regions, each
     // in its own GeometryDesc. Closest-hit reads GeometryIndex() to choose
@@ -3385,7 +3386,7 @@ UTEST_F( RT, MultiGeomBLAS )
 
 UTEST_F( RT, SharedBLASInstances )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // One BLAS, four TLAS instances at different XY translations covering
     // distinct quadrants of an 8x8 launch.
@@ -3454,7 +3455,7 @@ UTEST_F( RT, SharedBLASInstances )
 
 UTEST_F( RT, MixedTriAABB_TLAS )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // TLAS with one triangle BLAS instance and one AABB BLAS instance.
     // Triangle uses a triangle hit group, AABB uses an intersection-shader
@@ -3552,7 +3553,7 @@ UTEST_F( RT, MixedTriAABB_TLAS )
 
 UTEST_F( RT, LargeBLAS )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // BLAS with 1024 triangles forming a tightly packed grid covering [-1,1].
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -3609,7 +3610,7 @@ UTEST_F( RT, LargeBLAS )
 
 UTEST_F( RT, LargeTLAS )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // 64 instances arranged as 8x8 grid, each a tiny triangle.
     vhTexture rt = CreateTestTexture( 16, 16, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
@@ -3685,7 +3686,7 @@ UTEST_F( RT, LargeTLAS )
 
 UTEST_F( RT, HitKind_FrontBack )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // CW (front) and CCW (back) triangles tested on each side. With default
     // counter-clockwise = back-face, the CW triangle is front when viewed
@@ -3747,7 +3748,7 @@ UTEST_F( RT, HitKind_FrontBack )
 
 UTEST_F( RT, PrimitiveAndInstanceIndex )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // BLAS with two triangles, two TLAS instances. Closest-hit encodes
     // InstanceID() in red and PrimitiveIndex() in green channels.
@@ -3818,7 +3819,7 @@ UTEST_F( RT, PrimitiveAndInstanceIndex )
 
 UTEST_F( RT, Barycentrics )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhBuffer vb = CreateTestVB( "float3", kTriVertices, sizeof( kTriVertices ) );
@@ -3866,7 +3867,7 @@ UTEST_F( RT, Barycentrics )
 
 UTEST_F( RT, RayTCurrent_TMin_TMax )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // TMin=0.5, TMax=2.0 in the raygen. Geometry at distance 1.0 (z=0,
     // ray origin z=-1, direction +Z) is within [TMin, TMax] → hits.
@@ -3940,7 +3941,7 @@ UTEST_F( RT, RayTCurrent_TMin_TMax )
 
 UTEST_F( RT, RayFlag_ForceOpaque )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Geometry has any-hit reject shader. With g_TraceFlags = RAY_FLAG_FORCE_OPAQUE
     // (=1), any-hit must be bypassed and the hit recorded normally.
@@ -3992,7 +3993,7 @@ UTEST_F( RT, RayFlag_ForceOpaque )
 
 UTEST_F( RT, RayFlag_SkipClosestHit )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Raygen traces with RAY_FLAG_SKIP_CLOSEST_HIT_SHADER. Closest-hit (which
     // would write magenta) is skipped; if hit is registered, payload.hitT
@@ -4035,7 +4036,7 @@ UTEST_F( RT, RayFlag_SkipClosestHit )
 
 UTEST_F( RT, RayFlag_AcceptFirstHit )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Two overlapping geometries at different depths. With ACCEPT_FIRST_HIT
     // the first geometry encountered determines hit. Without the flag, the
@@ -4127,7 +4128,7 @@ UTEST_F( RT, RayFlag_AcceptFirstHit )
 
 UTEST_F( RT, MaxRecursionDepth )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Pipeline created with maxRecursionDepth = 2 (existing recursion test).
     // We just verify that the pipeline accepts depth=4 and runs to completion.
@@ -4167,7 +4168,7 @@ UTEST_F( RT, MaxRecursionDepth )
 
 UTEST_F( RT, LargePayload )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // 64-byte payload (4x float4). Closest-hit fills four distinct values;
     // raygen sums them and writes a known checksum colour.
@@ -4224,7 +4225,7 @@ UTEST_F( RT, LargePayload )
 
 UTEST_F( RT, AnimatedTLAS_RepeatedRefit )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // TLAS built once with PreferFastTrace+AllowUpdate, then refit 8 times
     // with progressively-translated instance transforms. Verify a hit each
@@ -4292,7 +4293,7 @@ UTEST_F( RT, AnimatedTLAS_RepeatedRefit )
 
 UTEST_F( RT, RebuildTLASVaryingInstances )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Build TLAS with 1 instance, dispatch+verify. Rebuild with 4. Rebuild with 1.
     // Verifies that instance count changes don't corrupt internal state.
@@ -4365,7 +4366,7 @@ UTEST_F( RT, RebuildTLASVaryingInstances )
 
 UTEST_F( RT, PipelineHotReload )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Create pipeline+table, dispatch, destroy. Recreate identical pipeline+table
     // from same shaders, dispatch again. Catches handle-reuse and descriptor-cache
@@ -4415,7 +4416,7 @@ UTEST_F( RT, PipelineHotReload )
 
 UTEST_F( RT, Dispatch_256x256 )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // 256x256 = 65k thread RT dispatch. Verifies the larger end of typical
     // RT pass sizes works without state corruption.
@@ -4460,7 +4461,7 @@ UTEST_F( RT, Dispatch_256x256 )
 
 UTEST_F( RT, RayFlag_CullBackFacing )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // kTriVertices normal points +Z (same direction as the ray). In Vulkan RT, a triangle
     // whose normal aligns with the ray direction is considered back-facing.
@@ -4500,7 +4501,7 @@ UTEST_F( RT, RayFlag_CullBackFacing )
 
 UTEST_F( RT, RayFlag_CullFrontFacing )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // kTriVerticesCCW has CW winding in XY → front-facing under Vulkan RT default (CW = front).
     // RAY_FLAG_CULL_FRONT_FACING_TRIANGLES culls it → miss (blue).
@@ -4543,7 +4544,7 @@ UTEST_F( RT, RayFlag_CullFrontFacing )
 
 UTEST_F( RT, BLAS_Rebuild_NoUpdate )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 #ifdef __APPLE__
     UTEST_SKIP( "BLAS rebuild from host-side buffer update unreliable on MoltenVK" );
 #endif
@@ -4610,7 +4611,7 @@ UTEST_F( RT, BLAS_Rebuild_NoUpdate )
 
 UTEST_F( RT, AS_DegenerateTriangles_NoCrash )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Zero-area triangle: all three vertices at the same point.
     // Build must not crash; ray must miss.
@@ -4650,7 +4651,7 @@ UTEST_F( RT, AS_DegenerateTriangles_NoCrash )
 
 UTEST_F( RT, TLAS_OverflowMaxInstances )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // Build TLAS with topLevelMaxInstances=1 but submit 4 instances.
     // Must log error (counter increments) and not crash.
@@ -4689,7 +4690,7 @@ UTEST_F( RT, TLAS_OverflowMaxInstances )
 
 UTEST_F( RT, DrawThenBuildAS )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
     if ( g_vhInit.nullMode ) return;
 
     // Regression: draw (opens dynamic rendering) then immediately build BLAS.
@@ -4764,7 +4765,7 @@ UTEST_F( RT, DrawThenBuildAS )
 
 UTEST_F( RT, Benchmark_DispatchRate )
 {
-    if ( !g_vhDeviceInfo.raytracing ) return;
+    if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }
 
     // 100 small RT dispatches in a tight loop. Cost should be similar to compute dispatch.
     vhTexture rt = CreateTestTexture( 4, 4, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
