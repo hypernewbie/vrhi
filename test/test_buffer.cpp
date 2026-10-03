@@ -1528,68 +1528,88 @@ UTEST_F( Buffer, Transient_ShutdownPartialMapping )
 }
 
 // TESTPLAN BU03 — Partial non-four-byte writes preserve neighbours.
-// Initialize a guarded buffer, then apply 1, 3, 5, 7-byte updates at legal
-// offsets and verify neighbours remain intact, including the byte immediately
+// A 64-byte buffer is initialized to a sentinel, then partial writes are applied
+// and the ENTIRE buffer is compared against an independent CPU model, so every
+// written byte and every neighbour is checked, including the byte immediately
 // after each write.
+//
+// Two labelled variants. Aligned offsets isolate padded write-size behaviour:
+// each write starts 4-byte aligned and only its length is short. Unaligned
+// offsets are the advertised byte-update contract exercised separately, so a
+// padding result at an unaligned offset is not confused with the aligned case.
 UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
     // TODO( TESTPLAN §22 ): bytes immediately after non-4-byte writes are zeroed
-    // (rounding bug in vhUpdateStorageBuffer padding). Reproducer for the
-    // regression; full check is below.
+    // (padding bug in the vhUpdateStorageBuffer write path). Reproducer for the
+    // regression; the full-buffer check below is the intended final oracle.
     UTEST_SKIP( "non-4-byte writes zero the trailing padding byte — see TESTPLAN §22" );
-    int32_t startErrors = g_vhErrorCounter.load();
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    constexpr int SIZE = 64;
+    const uint8_t SENTINEL = 0xA5;
+
+    struct Write { int offset; int length; uint8_t first; };
+    const Write aligned[] = {
+        {  0, 1, 0x11 },
+        {  4, 3, 0x22 },
+        {  8, 5, 0x30 },
+        { 16, 7, 0x40 },
+    };
+    const Write unaligned[] = {
+        { 25, 1, 0x51 },
+        { 29, 3, 0x62 },
+        { 35, 5, 0x73 },
+        { 45, 7, 0x84 },
+    };
+
+    std::vector<uint8_t> expect( SIZE, SENTINEL );
+    for ( const Write& w : aligned )
+        for ( int i = 0; i < w.length; ++i )
+            expect[w.offset + i] = (uint8_t)( w.first + i );
+    for ( const Write& w : unaligned )
+        for ( int i = 0; i < w.length; ++i )
+            expect[w.offset + i] = (uint8_t)( w.first + i );
 
     vhBuffer buf = vhAllocBuffer();
-    vhMem* initData = vhAllocMem( 64 );
-    for ( int i = 0; i < 64; ++i ) initData->data()[i] = 0xA5;
-    vhCreateStorageBuffer( buf, "BU03", initData, 64, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
+    vhMem* initData = vhAllocMem( SIZE );
+    memset( initData->data(), SENTINEL, SIZE );
+    vhCreateStorageBuffer( buf, "BU03", initData, SIZE, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
     vhFinish();
 
-    // 1-byte write at offset 4
-    { vhMem* w = vhAllocMem( 1 ); w->data()[0] = 0x11;
-      vhUpdateStorageBuffer( buf, w, 4, 1 ); vhFinish(); }
-    // 3-byte write at offset 10
-    { vhMem* w = vhAllocMem( 3 ); w->data()[0] = 0x22; w->data()[1] = 0x33; w->data()[2] = 0x44;
-      vhUpdateStorageBuffer( buf, w, 10, 3 ); vhFinish(); }
-    // 5-byte write at offset 20
-    { vhMem* w = vhAllocMem( 5 ); for (int j = 0; j < 5; ++j) w->data()[j] = (uint8_t)(0x50 + j);
-      vhUpdateStorageBuffer( buf, w, 20, 5 ); vhFinish(); }
-    // 7-byte write at offset 40
-    { vhMem* w = vhAllocMem( 7 ); for (int j = 0; j < 7; ++j) w->data()[j] = (uint8_t)(0x70 + j);
-      vhUpdateStorageBuffer( buf, w, 40, 7 ); vhFinish(); }
+    for ( const Write& w : aligned )
+    {
+        vhMem* d = vhAllocMem( (uint64_t)w.length );
+        for ( int i = 0; i < w.length; ++i ) d->data()[i] = (uint8_t)( w.first + i );
+        vhUpdateStorageBuffer( buf, d, (uint64_t)w.offset, (uint64_t)w.length );
+    }
+    for ( const Write& w : unaligned )
+    {
+        vhMem* d = vhAllocMem( (uint64_t)w.length );
+        for ( int i = 0; i < w.length; ++i ) d->data()[i] = (uint8_t)( w.first + i );
+        vhUpdateStorageBuffer( buf, d, (uint64_t)w.offset, (uint64_t)w.length );
+    }
+    vhFinish();
 
-    vhMem rd; vhReadBufferSlow( buf, 0, 64, &rd ); vhFinish();
-    ASSERT_EQ( (int)rd.size(), 64 );
+    vhMem rd; vhReadBufferSlow( buf, 0, SIZE, &rd ); vhFinish();
+    ASSERT_EQ( (int)rd.size(), SIZE );
 
-    // Untouched bytes remain 0xA5
-    EXPECT_EQ( (int)rd[0], 0xA5 );
-    EXPECT_EQ( (int)rd[3], 0xA5 );
-    EXPECT_EQ( (int)rd[9], 0xA5 );
-    EXPECT_EQ( (int)rd[13], 0xA5 );
-    EXPECT_EQ( (int)rd[19], 0xA5 );
-    EXPECT_EQ( (int)rd[25], 0xA5 );
-    EXPECT_EQ( (int)rd[39], 0xA5 );
-    EXPECT_EQ( (int)rd[47], 0xA5 );
-    EXPECT_EQ( (int)rd[63], 0xA5 );
-
-    // Written bytes
-    EXPECT_EQ( (int)rd[4], 0x11 );
-    EXPECT_EQ( (int)rd[10], 0x22 );
-    EXPECT_EQ( (int)rd[11], 0x33 );
-    EXPECT_EQ( (int)rd[12], 0x44 );
-    EXPECT_EQ( (int)rd[20], 0x50 );
-    EXPECT_EQ( (int)rd[24], 0x54 );
-    EXPECT_EQ( (int)rd[40], 0x70 );
-    EXPECT_EQ( (int)rd[46], 0x76 );
-
-    // Bytes immediately after each write remain 0xA5
-    EXPECT_EQ( (int)rd[5], 0xA5 );
-    EXPECT_EQ( (int)rd[13], 0xA5 );
-    EXPECT_EQ( (int)rd[25], 0xA5 );
-    EXPECT_EQ( (int)rd[47], 0xA5 );
+    // The whole buffer, not just the written spans: a padding byte that
+    // overwrites a neighbour fails here.
+    int mismatches = 0;
+    for ( int i = 0; i < SIZE && mismatches < 8; ++i )
+    {
+        int got = (int)rd[i];
+        if ( got != (int)expect[i] )
+        {
+            UTEST_PRINTF( "BU03: byte %d = 0x%02X, expected 0x%02X\n", i, got, expect[i] );
+            ++mismatches;
+        }
+    }
+    EXPECT_EQ( mismatches, 0 );
 
     vhDestroyBuffer( buf );
+    vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
