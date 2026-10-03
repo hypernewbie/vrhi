@@ -4807,3 +4807,74 @@ UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
     }
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
+
+// TESTPLAN FB02 — Mip and array layer as independent framebuffer keys.
+// Use one 2D array with two mips and two layers; alternate (mip,layer) pairs
+// through the same state ID and verify every texel of every initialized
+// subresource.
+UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    int32_t startErrors = g_vhErrorCounter.load();
+
+    // 4x4 array, 2 mips, 2 layers
+    vhTexture arr = vhAllocTexture();
+    vhCreateTexture2DArray( arr, "FB02_arr", glm::ivec2( 4, 4 ), 2, 2,
+                            nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    vhFinish();
+
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS,  VRHI_SHADER_STAGE_PIXEL );
+
+    // (mip,layer,colour) for each pair. Per-vertex colour is carried via the
+    // simpleVS/g_solidPS pair, so the same program works for every subresource.
+    struct Pair { uint32_t mip; uint32_t layer; glm::vec4 col; };
+    Pair pairs[4] = {
+        { 0, 0, { 1, 0, 0, 1 } }, // red
+        { 0, 1, { 0, 1, 0, 1 } }, // green
+        { 1, 0, { 0, 0, 1, 1 } }, // blue
+        { 1, 1, { 1, 1, 0, 1 } }, // yellow
+    };
+    for ( int p = 0; p < 4; ++p )
+    {
+        int dim = ( pairs[p].mip == 0 ) ? 4 : 2;
+        struct V { glm::vec3 p; glm::vec4 c; };
+        V verts[3] = {
+            { {-1,-1,0}, pairs[p].col }, { {3,-1,0}, pairs[p].col }, { {-1,3,0}, pairs[p].col }
+        };
+        vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+
+        vhState state;
+        state.SetColourAttachment( 0, arr, pairs[p].mip, pairs[p].layer )
+             .SetViewRect( glm::vec4( 0, 0, dim, dim ) )
+             .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0 ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK )
+             .SetVertexBuffer( vb, 0 )
+             .SetProgram( vhCreateGfxProgram( vs, ps ) );
+        vhStateId sid = 1900 + p;
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhFinish();
+        vhDestroyBuffer( vb ); vhFinish();
+    }
+
+    // Verify every subresource via readback. Byte order is RGBA.
+    auto readPixel = [&]( vhTexture t, uint32_t mip, uint32_t layer, int x, int y ) -> uint32_t
+    {
+        vhMem rd; vhReadTextureSlow( t, (int)mip, (int)layer, &rd ); vhFinish();
+        int dim = ( mip == 0 ) ? 4 : 2;
+        int idx = ( y * dim + x ) * 4;
+        if ( (int)rd.size() < idx + 4 ) return 0xDEADBEEFu;
+        return (uint32_t)( rd[idx] | ( rd[idx+1] << 8 ) | ( rd[idx+2] << 16 ) | ( rd[idx+3] << 24 ) );
+    };
+    EXPECT_EQ( readPixel( arr, 0, 0, 0, 0 ), 0xFF0000FFu );  // red
+    EXPECT_EQ( readPixel( arr, 0, 1, 0, 0 ), 0xFF00FF00u );  // green
+    EXPECT_EQ( readPixel( arr, 1, 0, 0, 0 ), 0xFFFF0000u );  // blue
+    EXPECT_EQ( readPixel( arr, 1, 1, 0, 0 ), 0xFF00FFFFu );  // yellow
+
+    vhDestroyTexture( arr );
+    vhDestroyShader( vs ); vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
