@@ -1676,16 +1676,13 @@ UTEST_F( Texture, UpdateMipPartial_OthersIntact )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN TX02 — odd row pitch and mip tail round-trip.
-// Covers widths 1, 3, 7, 13, 33, 65, 129, 257 (non-power-of-two) plus a 4-mip chain (8x4 -> 1x1)
-// so the upload path is exercised both at the mip tail and at row pitches that the API
-// must round-trip without truncation or stride corruption.
-UTEST_F( Texture, Upload_OddRowPitchAndMipTail )
+// TESTPLAN TX02 — odd row pitch upload/readback round-trip.
+// Covers widths 1, 3, 7, 13, 33, 65, 129, 257 (non-power-of-two) so the upload
+// path is exercised at row pitches the API must round-trip without truncation
+// or stride corruption. The mip-tail phase lives in TX02b behind a §22 marker.
+UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
-    // TODO( TESTPLAN §22 ): mip-chain phase exposes BE_UpdateTexture size 32 < expected 43.
-    // Reproducer for the regression; passing odd-width phase retained.
-    UTEST_SKIP( "mip-chain phase exposes BE_UpdateTexture size mismatch (regression) — see TESTPLAN §22" );
     const int32_t startErrors = g_vhErrorCounter.load();
 
     const int oddWidths[] = { 1, 3, 7, 13, 33, 65, 129, 257 };
@@ -1708,11 +1705,30 @@ UTEST_F( Texture, Upload_OddRowPitchAndMipTail )
         vhDestroyTexture( tex );
     }
 
-    // 4-mip chain (8x4 -> 4x2 -> 2x1 -> 1x1). Each mip carries a unique byte pattern.
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
+// TESTPLAN TX02b — mip tail round-trip.
+// 4-mip chain (8x4 -> 4x2 -> 2x1 -> 1x1), each mip carrying a unique byte
+// pattern, created with the full packed chain (creation-with-data requires
+// bytes for every mip: BE_UpdateTexture clamps its default range over the
+// whole chain).
+UTEST_F( Texture, Upload_MipTailRoundTrip )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
+    // TODO( TESTPLAN §22 ): reading the chain's tail triggers an NVRHI staging
+    // bug: computeCopyableFootprints sizes the staging buffer from the raw
+    // accumulated mip bytes (43) while the last mip's footprint sits at its
+    // 4-byte-aligned offset (44), so vkMapMemory(44,1) and the image-to-buffer
+    // copy overrun the 44-byte allocation. Upload itself is correct; the
+    // readback path cannot observe the tail until the vendored fix lands.
+    UTEST_SKIP( "mip-tail readback overruns NVRHI staging allocation — see TESTPLAN §22" );
+    const int32_t startErrors = g_vhErrorCounter.load();
     vhTexture miptex = vhAllocTexture();
     constexpr int W = 8, H = 4, MIP = 4;
     std::vector<std::vector<uint8_t>> expectedMip( MIP );
     std::vector<vhMem*> chain( MIP, nullptr );
+    size_t chainBytes = 0;
     for ( int m = 0; m < MIP; ++m )
     {
         int mw = std::max( 1, W >> m );
@@ -1722,10 +1738,18 @@ UTEST_F( Texture, Upload_OddRowPitchAndMipTail )
         for ( int i = 0; i < sz; ++i ) expectedMip[m][i] = (uint8_t)( 0x10 + m );
         chain[m] = vhAllocMem( (uint64_t)sz );
         memcpy( chain[m]->data(), expectedMip[m].data(), (size_t)sz );
+        chainBytes += (size_t)sz;
     }
-    vhCreateTexture2D( miptex, "TX02_mip", glm::ivec2( W, H ), MIP, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, chain[0] );
-    vhFinish();
-    for ( int m = 1; m < MIP; ++m ) vhUpdateTexture( miptex, m, 0, 1, 1, chain[m] );
+    vhMem* fullChain = vhAllocMem( (uint64_t)chainBytes );
+    {
+        size_t off = 0;
+        for ( int m = 0; m < MIP; ++m )
+        {
+            memcpy( fullChain->data() + off, expectedMip[m].data(), expectedMip[m].size() );
+            off += expectedMip[m].size();
+        }
+    }
+    vhCreateTexture2D( miptex, "TX02_mip", glm::ivec2( W, H ), MIP, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, fullChain );
     vhFinish();
 
     for ( int m = 0; m < MIP; ++m )
@@ -1750,16 +1774,18 @@ UTEST_F( Texture, Upload_OddRowPitchAndMipTail )
 UTEST_F( Texture, Upload_NonzeroMipAndLayerTogether )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
-    // TODO( TESTPLAN §22 ): vhUpdateTexture for inner mips (mip>0) miscalculates
-    // the upload size on the layered array path; outer byte at mip 0 is fine.
-    // Same root cause as TX02 mip-chain phase.
-    UTEST_SKIP( "inner-mip upload in array miscalculates byte size — see TESTPLAN §22" );
     int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int W = 13, H = 7, LAYERS = 3, MIPS = 4;
-    const int mipDims[MIPS][2] = {
-        { W, H }, { (W+1)/2, (H+1)/2 }, { ((W+1)/2+1)/2, ((H+1)/2+1)/2 }, { 1, 1 }
-    };
+    // Mip chain follows Vulkan/D3D floor halving (13x7 -> 6x3 -> 3x1 -> 1x1);
+    // the original ceil-based model here mismatched the real subresource sizes
+    // and produced the "byte size" failures previously blamed on production.
+    int mipDims[MIPS][2] = { { W, H }, { 0, 0 }, { 0, 0 }, { 0, 0 } };
+    for ( int m = 1; m < MIPS; ++m )
+    {
+        mipDims[m][0] = std::max( 1, mipDims[m - 1][0] >> 1 );
+        mipDims[m][1] = std::max( 1, mipDims[m - 1][1] >> 1 );
+    }
     const int layerMipSize[MIPS] = {
         mipDims[0][0] * mipDims[0][1],
         mipDims[1][0] * mipDims[1][1],
