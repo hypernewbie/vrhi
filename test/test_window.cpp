@@ -435,13 +435,13 @@ UTEST( Window, FrameNumber )
 
 UTEST( Window, HeadlessBackbuffer )
 {
+    if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer requires GPU" ); }
     TestEnsureShutdown();
-
-    g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
     g_vhInit.resolution = glm::ivec2( 1280, 720 );
     vhInit( true );
+    g_testInit = true;
 
     EXPECT_NE( vhGetBackbuffer(), VRHI_INVALID_HANDLE );
     EXPECT_EQ( vhGetWindowSize(), glm::uvec2( 1280, 720 ) );
@@ -450,18 +450,18 @@ UTEST( Window, HeadlessBackbuffer )
     EXPECT_NE( vhGetBackbuffer(), VRHI_INVALID_HANDLE );
     EXPECT_EQ( vhGetWindowSize(), glm::uvec2( 800, 600 ) );
 
-    vhShutdown( true );
+    TestEnsureShutdown();
 }
 
 UTEST( Window, HeadlessBackbufferRender )
 {
+    if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer rendering requires GPU" ); }
     TestEnsureShutdown();
-
-    g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
     g_vhInit.resolution = glm::ivec2( 640, 480 );
     vhInit( true );
+    g_testInit = true;
 
     vhTexture backbuffer = vhGetBackbuffer();
     EXPECT_NE( backbuffer, VRHI_INVALID_HANDLE );
@@ -478,14 +478,13 @@ UTEST( Window, HeadlessBackbufferRender )
     vhClear( 0, VRHI_CLEAR_COLOR );
     vhFlush();
 
-    vhShutdown( true );
+    TestEnsureShutdown();
 }
 
 UTEST( Window, HeadlessBackbufferBlit )
 {
+    if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer blit requires GPU" ); }
     TestEnsureShutdown();
-
-    g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.nullMode = false;
     g_vhInit.resolution = glm::ivec2( 64, 64 );
@@ -529,19 +528,21 @@ UTEST( Window, HeadlessBackbufferBlit )
     // Reset state ID 0 to avoid polluting other tests
     vhState s;
     vhSetState( 0, s.DirtyAll() );
+    TestEnsureShutdown();
 }
 
 UTEST( Window, HeadlessBackbufferInitShutdownChurn )
 {
+    if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer churn requires GPU" ); }
     for ( int i = 0; i < 8; ++i )
     {
         TestEnsureShutdown();
 
-        g_vhInit = vhInitData{};
         g_vhInit.headless = true;
         g_vhInit.nullMode = false;
         g_vhInit.resolution = glm::ivec2( 320 + ( i * 32 ), 240 + ( i * 16 ) );
         vhInit( true );
+        g_testInit = true;
 
         vhTexture backbuffer = vhGetBackbuffer();
         EXPECT_NE( backbuffer, VRHI_INVALID_HANDLE );
@@ -558,17 +559,17 @@ UTEST( Window, HeadlessBackbufferInitShutdownChurn )
 
         vhClear( 0, VRHI_CLEAR_COLOR );
         vhFlush();
-        vhShutdown( true );
+        TestEnsureShutdown();
     }
 }
 
 UTEST( Window, ResizeDuringDraws )
 {
+    if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Resize during draws requires GPU" ); }
 #ifdef __APPLE__
     UTEST_SKIP( "vhResize during active command buffers triggers Metal device lost on MoltenVK" );
 #endif
     TestEnsureShutdown();
-    g_vhInit = vhInitData{};
     g_vhInit.headless = true;
     g_vhInit.resolution = glm::ivec2( 128, 128 );
     vhInit( true );
@@ -594,8 +595,7 @@ UTEST( Window, ResizeDuringDraws )
     }
 
     vhDestroyTexture(rt);
-    vhFinish();
-    vhShutdown(true);
+    TestEnsureShutdown();
     g_testInit = false;
 }
 
