@@ -5106,3 +5106,139 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
+
+// TESTPLAN BL01 — Independent blend needs unequal expected targets.
+// Three targets seeded with different RGBA patterns are blended with add,
+// multiply, and reverse-subtract respectively, from one source colour. Every
+// channel (alpha included — per-RT factors mirror into alpha) is compared
+// against an independent CPU blend model over the whole image. The attachment
+// order is then swapped and the sequence repeated, so an ordinal mistake or a
+// per-target broadcast cannot match both passes.
+UTEST_F( Graphics, BL01_IndependentBlendUnequalTargets )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+#ifdef __APPLE__
+    UTEST_SKIP( "Independent blend PSO creation unreliable on MoltenVK" );
+#endif
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    constexpr int DIM = 32;
+    // Seeds and source are byte-derived so the GPU's unorm quantization of the
+    // clear and the CPU model agree exactly; blend results stay off .5 ties.
+    const int seedA[4] = { 51, 200, 26, 77 };
+    const int seedB[4] = { 180, 30, 240, 10 };
+    const int seedC[4] = { 102, 153, 25, 204 };
+    const int srcC[4] = { 153, 64, 191, 100 };
+
+    vhTexture rtA = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
+    vhTexture rtB = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
+    vhTexture rtC = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
+
+    static const char* mrtPS3 = R"(
+struct PSOut { float4 t0 : SV_Target0; float4 t1 : SV_Target1; float4 t2 : SV_Target2; };
+[shader("pixel")]
+PSOut main( float4 col : COLOUR ) { PSOut o; o.t0 = col; o.t1 = col; o.t2 = col; return o; }
+)";
+
+    struct Vertex { glm::vec3 pos; glm::vec4 col; };
+    glm::vec4 srcCol( srcC[0] / 255.f, srcC[1] / 255.f, srcC[2] / 255.f, srcC[3] / 255.f );
+    Vertex verts[3] = {
+        { {-1,-1,0}, srcCol }, { {3,-1,0}, srcCol }, { {-1,3,0}, srcCol }
+    };
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( mrtPS3, VRHI_SHADER_STAGE_PIXEL );
+
+    // Per-RT blend: slot 0 add (ONE,ONE), slot 1 multiply (DST_COLOUR,ZERO),
+    // slot 2 reverse-subtract (ONE,ONE). Equations default to ADD for slots
+    // 0/1; per-RT factors apply to alpha as well (see vhTranslateBlendState).
+    const uint64_t blendBits = VRHI_STATE_BLEND_INDEPENDENT
+        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_1( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE )
+        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_2( VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO )
+        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_3E( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_EQUATION_REVSUB );
+
+    // Expected byte for slot op: 0=add, 1=multiply, 2=reverse-subtract.
+    auto expectedByte = [&]( int op, int s, int d ) -> int
+    {
+        float sf = s / 255.f, df = d / 255.f, v = 0.f;
+        if ( op == 0 ) v = sf + df;
+        if ( op == 1 ) v = sf * df;
+        if ( op == 2 ) v = df - sf;
+        if ( v < 0.f ) v = 0.f;
+        if ( v > 1.f ) v = 1.f;
+        return (int)( v * 255.f + 0.5f );
+    };
+    const int slotOp[3] = { 0, 1, 2 };
+
+    auto clearSeed = [&]( vhTexture rt, const int ( &seed )[4], vhStateId sid )
+    {
+        vhState sc;
+        sc.SetColourAttachment( 0, rt ).SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
+          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( seed[0] / 255.f, seed[1] / 255.f, seed[2] / 255.f, seed[3] / 255.f ) );
+        vhSetState( sid, sc );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhFinish();
+    };
+
+    // Both passes: order A (A,B,C) then swapped order B (B,C,A).
+    for ( int pass = 0; pass < 2; ++pass )
+    {
+        vhTexture* att[3];
+        const int ( *slotSeeds[3] )[4];
+        if ( pass == 0 )
+        {
+            att[0] = &rtA; att[1] = &rtB; att[2] = &rtC;
+            slotSeeds[0] = &seedA; slotSeeds[1] = &seedB; slotSeeds[2] = &seedC;
+        }
+        else
+        {
+            att[0] = &rtB; att[1] = &rtC; att[2] = &rtA;
+            slotSeeds[0] = &seedB; slotSeeds[1] = &seedC; slotSeeds[2] = &seedA;
+        }
+        // Re-seed every target before the pass.
+        clearSeed( rtA, seedA, 1930 );
+        clearSeed( rtB, seedB, 1931 );
+        clearSeed( rtC, seedC, 1932 );
+
+        vhState state;
+        state.SetColourAttachment( 0, *att[0] ).SetColourAttachment( 1, *att[1] ).SetColourAttachment( 2, *att[2] )
+             .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
+             .SetViewClear( 0, glm::vec4( 0 ) )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK | blendBits )
+             .SetVertexBuffer( vb, 0 )
+             .SetProgram( vhCreateGfxProgram( vs, ps ) );
+        vhStateId sid = 1933;
+        vhSetState( sid, state );
+        vhDraw( sid, 3 );
+        vhFinish();
+
+        for ( int slot = 0; slot < 3; ++slot )
+        {
+            vhTexture rt = *att[slot];
+            vhMem rd; vhReadTextureSlow( rt, 0, 0, &rd ); vhFinish();
+            ASSERT_EQ( rd.size(), (size_t)DIM * DIM * 4 );
+            int mismatches = 0;
+            for ( int py = 0; py < DIM && mismatches < 4; ++py )
+                for ( int px = 0; px < DIM && mismatches < 4; ++px )
+                    for ( int c = 0; c < 4 && mismatches < 4; ++c )
+                    {
+                        int got = rd[( (size_t)py * DIM + px ) * 4 + c];
+                        int expect = expectedByte( slotOp[slot], srcC[c], ( *slotSeeds[slot] )[c] );
+                        if ( abs( got - expect ) > 1 )
+                        {
+                            UTEST_PRINTF( "BL01: pass %d slot %d (%d,%d) ch %d = %d, expected %d\n", pass, slot, px, py, c, got, expect );
+                            ++mismatches;
+                        }
+                    }
+            EXPECT_EQ( mismatches, 0 );
+        }
+        vhState reset;
+        vhSetState( 1933, reset, VRHI_DIRTY_ALL );
+        vhFinish();
+    }
+
+    vhDestroyTexture( rtA ); vhDestroyTexture( rtB ); vhDestroyTexture( rtC );
+    vhDestroyBuffer( vb ); vhDestroyShader( vs ); vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
