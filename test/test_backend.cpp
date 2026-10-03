@@ -581,6 +581,19 @@ UTEST( Backend, FramebufferCaching )
         auto fbRO = vhCmdBackendStateTest::GetFrameBufferHandle( { rtColor }, rtDepthRO );
         auto fbRW = vhCmdBackendStateTest::GetFrameBufferHandle( { rtColor }, rtDepthRW );
         EXPECT_NE( fbRO.Get(), fbRW.Get() );
+        // Distinct handles are not enough: the read-only flag must actually
+        // reach the framebuffer descriptor, or the depth attachment silently
+        // becomes writable. This is the mechanism claim behind DS01's
+        // read-only pass, checked here without inspecting public state.
+        if ( fbRO && fbRW )
+        {
+            EXPECT_TRUE( fbRO->getDesc().depthAttachment.isReadOnly );
+            EXPECT_FALSE( fbRW->getDesc().depthAttachment.isReadOnly );
+        }
+        else
+        {
+            UTEST_PRINTF( "framebuffer handle null for read-only / writable depth pair\n" );
+        }
     }
 
     // Cleanup not strictly necessary for test instance but good practice

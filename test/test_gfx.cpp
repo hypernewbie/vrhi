@@ -5318,106 +5318,165 @@ PSOut main( float4 col : COLOUR ) { PSOut o; o.t0 = col; o.t1 = col; o.t2 = col;
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN DS01 — Read-only depth must reject observable writes.
-// Seed depth at 0.6 with writes enabled, draw at 0.2 through a read-only
-// depth attachment with LESS and no depth writes, then probe at 0.4 with
-// LESS. The probe only passes where depth is still 0.6; an accidental 0.2
-// write rejects it. Every phase renders into its own target, and every pixel
-// of every target is checked, so the read-only pass stays observable and the
-// probe covers the full image.
+// TESTPLAN DS01 — Depth contents survive a read-only pass, and a legal
+// writable return really stores a new value.
+//
+// Two claims are kept apart. Depth-content preservation: a read-only attachment
+// pass at 0.2 must leave the seeded 0.6 intact, which a 0.4 probe (must pass)
+// and a 0.8 probe (must reject) distinguish; an always-pass comparison or a
+// missing seed write breaks one of them. Writable return: after the read-only
+// pass a legal writable draw at 0.5 stores 0.5, so a 0.45 probe passes and a
+// 0.55 probe rejects. Read-only descriptor propagation is a separate mechanism
+// claim, checked in the backend framebuffer fixture rather than inferred here.
+//
+// Every phase renders into its own target and every pixel of every target is
+// compared. Variant A drains between phases; variant B records the same phases
+// with no drain inside the sequence, so attachment transitions are exercised
+// on a single command list.
 UTEST_F( Graphics, DS01_ReadOnlyDepthRejectsObservableWrites )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
     const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int DIM = 32;
-    vhTexture rtSeed = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
-    vhTexture rtRO   = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
-    vhTexture rtProbe = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
-    vhTexture ds = CreateTestTexture( DIM, DIM, nvrhi::Format::D32, VRHI_TEXTURE_RT );
+    constexpr int TARGETS = 7;
+    const uint32_t RED = 0xFF0000FFu, BLUE = 0xFFFF0000u, GREEN = 0xFF00FF00u;
+    const uint32_t MAGENTA = 0xFFFF00FFu, YELLOW = 0xFF00FFFFu, CYAN = 0xFFFFFF00u;
+    const uint32_t WHITE = 0xFFFFFFFFu;
 
     struct Vertex { glm::vec3 pos; glm::vec4 col; };
-    glm::vec4 red( 1, 0, 0, 1 ), blue( 0, 0, 1, 1 ), green( 0, 1, 0, 1 );
-    Vertex vSeed[3]  = { { {-1,-1,0.6f},red },  { {3,-1,0.6f},red },  { {-1,3,0.6f},red } };
-    Vertex vRO[3]    = { { {-1,-1,0.2f},blue }, { {3,-1,0.2f},blue }, { {-1,3,0.2f},blue } };
-    Vertex vProbe[3] = { { {-1,-1,0.4f},green }, { {3,-1,0.4f},green }, { {-1,3,0.4f},green } };
-    vhBuffer vbSeed  = CreateTestVB( "float3 float4", vSeed, sizeof( vSeed ) );
-    vhBuffer vbRO    = CreateTestVB( "float3 float4", vRO, sizeof( vRO ) );
-    vhBuffer vbProbe = CreateTestVB( "float3 float4", vProbe, sizeof( vProbe ) );
+    auto makeVB = [&]( float z, glm::vec4 col ) -> vhBuffer
+    {
+        Vertex v[3] = { { {-1,-1,z}, col }, { {3,-1,z}, col }, { {-1,3,z}, col } };
+        return CreateTestVB( "float3 float4", v, sizeof( v ) );
+    };
+
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
     vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    vhProgram prog = vhCreateGfxProgram( vs, ps );
 
-    // Phase 1: seed depth at 0.6 (clear to 1.0, LESS + depth write).
+    // All vertex data exists before either measured sequence.
+    const glm::vec4 cWhite( 1, 1, 1, 1 );
+    vhBuffer vbSeed  = makeVB( 0.6f, glm::vec4( 1, 0, 0, 1 ) );
+    vhBuffer vbRO    = makeVB( 0.2f, glm::vec4( 0, 0, 1, 1 ) );
+    vhBuffer vbPass  = makeVB( 0.4f, glm::vec4( 0, 1, 0, 1 ) );
+    vhBuffer vbFail  = makeVB( 0.8f, glm::vec4( 1, 0, 1, 1 ) );
+    vhBuffer vbRet   = makeVB( 0.5f, glm::vec4( 1, 1, 0, 1 ) );
+    vhBuffer vbPass2 = makeVB( 0.45f, glm::vec4( 0, 1, 1, 1 ) );
+    vhBuffer vbFail2 = makeVB( 0.55f, glm::vec4( 1, 1, 1, 1 ) );
+
+    // VRHI_STATE_WRITE_MASK includes VRHI_STATE_WRITE_Z, so the no-depth-write
+    // case must name the colour bits explicitly.
+    const uint64_t NO_ZWRITE = VRHI_STATE_WRITE_RGB | VRHI_STATE_WRITE_A |
+                               VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE;
+    const uint64_t ZWRITE = NO_ZWRITE | VRHI_STATE_WRITE_Z;
+
+    struct Phase
     {
-        vhState st;
-        st.SetColourAttachment( 0, rtSeed ).SetDepthAttachment( ds )
-          .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
-          .SetViewClear( VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH, glm::vec4( 0, 0, 0, 1 ), 1.0f )
-          .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_WRITE_Z | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE )
-          .SetVertexBuffer( vbSeed, 0 )
-          .SetProgram( vhCreateGfxProgram( vs, ps ) );
-        vhSetState( 1940, st );
-        vhClear( 1940, VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH );
-        vhDraw( 1940, 3 );
+        vhStateId sid;
+        vhTexture rt;
+        vhTexture ds;
+        bool roDepth;
+        vhBuffer vb;
+        uint64_t flags;
+        bool clearDepth;
+    };
+
+    vhTexture targets[2][TARGETS];
+    vhTexture depth[2];
+    for ( int v = 0; v < 2; ++v )
+    {
+        depth[v] = CreateTestTexture( DIM, DIM, nvrhi::Format::D32, VRHI_TEXTURE_RT );
+        for ( int t = 0; t < TARGETS; ++t )
+            targets[v][t] = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
+    }
+
+    const vhStateId base[2] = { 1950, 1960 };
+    for ( int v = 0; v < 2; ++v )
+    {
+        Phase phases[TARGETS] = {
+            { (vhStateId)( base[v] + 0 ), targets[v][0], depth[v], false, vbSeed,  ZWRITE,  true  },
+            { (vhStateId)( base[v] + 1 ), targets[v][1], depth[v], true,  vbRO,    NO_ZWRITE, false },
+            { (vhStateId)( base[v] + 2 ), targets[v][2], depth[v], true,  vbPass,  NO_ZWRITE, false },
+            { (vhStateId)( base[v] + 3 ), targets[v][3], depth[v], true,  vbFail,  NO_ZWRITE, false },
+            { (vhStateId)( base[v] + 4 ), targets[v][4], depth[v], false, vbRet,   ZWRITE,  false },
+            { (vhStateId)( base[v] + 5 ), targets[v][5], depth[v], true,  vbPass2, NO_ZWRITE, false },
+            { (vhStateId)( base[v] + 6 ), targets[v][6], depth[v], true,  vbFail2, NO_ZWRITE, false },
+        };
+        for ( int i = 0; i < TARGETS; ++i )
+        {
+            const Phase& p = phases[i];
+            vhState st;
+            st.SetColourAttachment( 0, p.rt );
+            if ( p.roDepth ) st.SetDepthAttachment( p.ds, 0, 0, nvrhi::Format::UNKNOWN, true );
+            else st.SetDepthAttachment( p.ds );
+            uint32_t clearFlags = p.clearDepth ? ( VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH ) : VRHI_CLEAR_COLOR;
+            st.SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
+              .SetViewClear( clearFlags, cWhite, 1.0f )
+              .SetStateFlags( p.flags )
+              .SetVertexBuffer( p.vb, 0 )
+              .SetProgram( prog );
+            vhSetState( p.sid, st );
+            vhClear( p.sid, clearFlags );
+            vhDraw( p.sid, 3 );
+            if ( v == 0 ) vhFinish(); // variant A drains per phase, variant B does not
+        }
         vhFinish();
     }
 
-    // Phase 2: read-only depth attachment, draw at 0.2 with LESS and no depth
-    // writes. 0.2 < 0.6 passes, so blue must appear; depth must stay 0.6.
-    {
-        vhState st;
-        st.SetColourAttachment( 0, rtRO ).SetDepthAttachment( ds, 0, 0, nvrhi::Format::UNKNOWN, /*readOnly=*/true )
-          .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
-          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
-          .SetStateFlags( VRHI_STATE_WRITE_RGB | VRHI_STATE_WRITE_A | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE )
-          .SetVertexBuffer( vbRO, 0 )
-          .SetProgram( vhCreateGfxProgram( vs, ps ) );
-        vhSetState( 1941, st );
-        vhClear( 1941, VRHI_CLEAR_COLOR );
-        vhDraw( 1941, 3 );
-        vhFinish();
-    }
-
-    // Phase 3: probe at 0.4 with LESS and no depth writes. Passes only if the
-    // stored depth is still 0.6; a corrupted 0.2 rejects every fragment.
-    {
-        vhState st;
-        st.SetColourAttachment( 0, rtProbe ).SetDepthAttachment( ds, 0, 0, nvrhi::Format::UNKNOWN, /*readOnly=*/true )
-          .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
-          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
-          .SetStateFlags( VRHI_STATE_WRITE_RGB | VRHI_STATE_WRITE_A | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE )
-          .SetVertexBuffer( vbProbe, 0 )
-          .SetProgram( vhCreateGfxProgram( vs, ps ) );
-        vhSetState( 1942, st );
-        vhClear( 1942, VRHI_CLEAR_COLOR );
-        vhDraw( 1942, 3 );
-        vhFinish();
-    }
-
-    auto verifyFull = []( vhTexture rt, uint32_t expect, const char* label ) -> bool
+    const uint32_t expect[TARGETS] = {
+        RED,     // 0.6 seed with depth write
+        BLUE,    // 0.2 read-only pass: 0.2 < 0.6 passes
+        GREEN,   // 0.4 probe: passes only if depth is still 0.6
+        WHITE,   // 0.8 probe: must reject, sentinel preserved
+        YELLOW,  // 0.5 writable return: 0.5 < 0.6 passes and stores 0.5
+        CYAN,    // 0.45 probe: passes against the stored 0.5
+        WHITE,   // 0.55 probe: rejects against the stored 0.5
+    };
+    auto verifyFull = []( vhTexture rt, uint32_t want, const char* label ) -> int
     {
         vhMem rd; vhReadTextureSlow( rt, 0, 0, &rd ); vhFinish();
-        if ( rd.size() != (size_t)DIM * DIM * 4 ) return false;
-        for ( size_t i = 0; i < (size_t)DIM * DIM; ++i )
+        if ( (int)rd.size() != 32 * 32 * 4 )
         {
-            uint32_t got; memcpy( &got, &rd[i * 4], 4 );
-            if ( got != expect )
+            { UTEST_PRINTF( "DS01: %s readback size %d, expected %d\n", label, (int)rd.size(), 32 * 32 * 4 ); }
+            return 1;
+        }
+        int bad = 0;
+        for ( int i = 0; i < 32 * 32 && bad < 4; ++i )
+        {
+            uint32_t got; memcpy( &got, &rd[(size_t)i * 4], 4 );
+            if ( got != want )
             {
-                UTEST_PRINTF( "DS01: %s pixel %zu = 0x%08X, expected 0x%08X\n", label, i, got, expect );
-                return false;
+                { UTEST_PRINTF( "DS01: %s pixel %d = 0x%08X, expected 0x%08X\n", label, i, got, want ); }
+                ++bad;
             }
         }
-        return true;
+        return bad;
     };
-    EXPECT_TRUE( verifyFull( rtSeed, 0xFF0000FFu, "seed" ) );   // seeding ran
-    EXPECT_TRUE( verifyFull( rtRO, 0xFFFF0000u, "readonly" ) ); // 0.2 < 0.6 passed
-    EXPECT_TRUE( verifyFull( rtProbe, 0xFF00FF00u, "probe" ) ); // depth preserved at 0.6
 
-    vhDestroyTexture( rtSeed ); vhDestroyTexture( rtRO ); vhDestroyTexture( rtProbe ); vhDestroyTexture( ds );
-    vhDestroyBuffer( vbSeed ); vhDestroyBuffer( vbRO ); vhDestroyBuffer( vbProbe );
-    vhDestroyShader( vs ); vhDestroyShader( ps );
+    int mismatches = 0;
+    for ( int v = 0; v < 2; ++v )
+        for ( int t = 0; t < TARGETS; ++t )
+        {
+            char label[32];
+            snprintf( label, sizeof( label ), "variant %c target %d", v == 0 ? 'A' : 'B', t );
+            mismatches += verifyFull( targets[v][t], expect[t], label );
+        }
+    EXPECT_EQ( mismatches, 0 );
+
     vhState reset;
-    for ( vhStateId sid : { (vhStateId)1940, (vhStateId)1941, (vhStateId)1942 } ) vhSetState( sid, reset, VRHI_DIRTY_ALL );
+    for ( int v = 0; v < 2; ++v )
+        for ( int i = 0; i < TARGETS; ++i )
+            vhSetState( (vhStateId)( base[v] + i ), reset, VRHI_DIRTY_ALL );
+    for ( int v = 0; v < 2; ++v )
+    {
+        vhDestroyTexture( depth[v] );
+        for ( int t = 0; t < TARGETS; ++t ) vhDestroyTexture( targets[v][t] );
+    }
+    vhDestroyBuffer( vbSeed ); vhDestroyBuffer( vbRO ); vhDestroyBuffer( vbPass );
+    vhDestroyBuffer( vbFail ); vhDestroyBuffer( vbRet ); vhDestroyBuffer( vbPass2 );
+    vhDestroyBuffer( vbFail2 );
+    vhDestroyShader( vs ); vhDestroyShader( ps );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
