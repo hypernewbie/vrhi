@@ -1762,10 +1762,14 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
 }
 
 // TESTPLAN TX02b — mip tail round-trip.
-// 4-mip chain (8x4 -> 4x2 -> 2x1 -> 1x1), each mip carrying a unique byte
-// pattern, created with the full packed chain (creation-with-data requires
-// bytes for every mip: BE_UpdateTexture clamps its default range over the
-// whole chain).
+// 4-mip chain (8x4 -> 4x2 -> 2x1 -> 1x1), each mip carrying a per-texel
+// coordinate pattern, created with the full packed chain (creation-with-data
+// requires bytes for every mip: BE_UpdateTexture clamps its default range over
+// the whole chain).
+//
+// Deferred: GPU readback of the final tail is the broken part, and the upload
+// itself is believed correct. A later staging fix needs allocation bounds and
+// nonoverlapping aligned footprints, which this one test does not establish.
 UTEST_F( Texture, Upload_MipTailRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
@@ -1779,19 +1783,19 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
     const int32_t startErrors = g_vhErrorCounter.load();
     vhTexture miptex = vhAllocTexture();
     constexpr int W = 8, H = 4, MIP = 4;
-    std::vector<std::vector<uint8_t>> expectedMip( MIP );
-    std::vector<vhMem*> chain( MIP, nullptr );
+    std::vector< std::vector< uint8_t > > expectedMip( MIP );
     size_t chainBytes = 0;
     for ( int m = 0; m < MIP; ++m )
     {
         int mw = std::max( 1, W >> m );
         int mh = std::max( 1, H >> m );
-        int sz = mw * mh;
-        expectedMip[m].resize( (size_t)sz );
-        for ( int i = 0; i < sz; ++i ) expectedMip[m][i] = (uint8_t)( 0x10 + m );
-        chain[m] = vhAllocMem( (uint64_t)sz );
-        memcpy( chain[m]->data(), expectedMip[m].data(), (size_t)sz );
-        chainBytes += (size_t)sz;
+        // Per-texel coordinate tag: a constant per mip would let a chain-order
+        // or row-stride error pass unnoticed.
+        expectedMip[m].resize( (size_t)( mw * mh ) );
+        for ( int y = 0; y < mh; ++y )
+            for ( int x = 0; x < mw; ++x )
+                expectedMip[m][(size_t)y * mw + x] = (uint8_t)( ( y * 29 + x * 13 + m * 7 + 1 ) & 0xFF );
+        chainBytes += expectedMip[m].size();
     }
     vhMem* fullChain = vhAllocMem( (uint64_t)chainBytes );
     {
@@ -1805,18 +1809,33 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
     vhCreateTexture2D( miptex, "TX02_mip", glm::ivec2( W, H ), MIP, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, fullChain );
     vhFinish();
 
+    int mismatches = 0;
     for ( int m = 0; m < MIP; ++m )
     {
         int mw = std::max( 1, W >> m );
         int mh = std::max( 1, H >> m );
         int sz = mw * mh;
         vhMem rd; vhReadTextureSlow( miptex, m, 0, &rd ); vhFinish();
-        ASSERT_EQ( (int)rd.size(), sz );
-        for ( int i = 0; i < sz; ++i )
-            EXPECT_EQ( (int)rd[i], (int)expectedMip[m][i] );
+        if ( (int)rd.size() != sz )
+        {
+            { UTEST_PRINTF( "TX02b: mip %d readback size %d, expected %d\n", m, (int)rd.size(), sz ); }
+            ++mismatches;
+            continue;
+        }
+        for ( int i = 0; i < sz && mismatches < 6; ++i )
+        {
+            if ( (int)rd[i] != (int)expectedMip[m][i] )
+            {
+                { UTEST_PRINTF( "TX02b: mip %d byte %d = 0x%02X, expected 0x%02X\n",
+                                m, i, (unsigned)(uint8_t)rd[i], (unsigned)expectedMip[m][i] ); }
+                ++mismatches;
+            }
+        }
     }
-    vhDestroyTexture( miptex );
+    EXPECT_EQ( mismatches, 0 );
 
+    vhDestroyTexture( miptex );
+    vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
