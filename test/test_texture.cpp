@@ -1677,14 +1677,20 @@ UTEST_F( Texture, UpdateMipPartial_OthersIntact )
 }
 
 // TESTPLAN TX02 — odd row pitch upload/readback round-trip.
-// Covers widths 1, 3, 7, 13, 33, 65, 129, 257 (non-power-of-two) so the upload
-// path is exercised at row pitches the API must round-trip without truncation
-// or stride corruption. The mip-tail phase lives in TX02b behind a §22 marker.
+// Two layers of coverage. Single-row cases at widths 1, 3, 7, 13, 33, 65, 129,
+// 257 keep the original odd-length check. Multi-row cases use asymmetric
+// dimensions (odd width by seven rows) in 1-, 2-, and 4-byte formats, with tags
+// that depend on row, column, and channel, so repeating the first row, using
+// the wrong row stride, or truncating the last row all fail. Every byte,
+// including the last row, is compared. The mip-tail phase lives in TX02b
+// behind a separate marker; a green result here does not imply mip-tail
+// readback works.
 UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
     const int32_t startErrors = g_vhErrorCounter.load();
 
+    // Single-row controls: odd byte lengths.
     const int oddWidths[] = { 1, 3, 7, 13, 33, 65, 129, 257 };
     for ( int32_t w : oddWidths )
     {
@@ -1705,6 +1711,53 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
         vhDestroyTexture( tex );
     }
 
+    // Multi-row cases: row, column, and channel all participate in the tag, so
+    // a repeated row or a shifted stride cannot match.
+    struct MultiRow { int w; int h; nvrhi::Format format; int bytesPerTexel; const char* name; };
+    const MultiRow cases[] = {
+        { 7,  7, nvrhi::Format::R8_UNORM,    1, "TX02_r8"  },
+        { 13, 7, nvrhi::Format::RG8_UNORM,  2, "TX02_rg8" },
+        { 17, 7, nvrhi::Format::RGBA8_UNORM, 4, "TX02_rgba8" },
+    };
+    for ( const MultiRow& c : cases )
+    {
+        const int texelBytes = c.bytesPerTexel;
+        const size_t total = (size_t)c.w * c.h * texelBytes;
+        std::vector<uint8_t> expected( total );
+        for ( int y = 0; y < c.h; ++y )
+            for ( int x = 0; x < c.w; ++x )
+                for ( int b = 0; b < texelBytes; ++b )
+                {
+                    // Distinct per row, per column, and per channel.
+                    uint8_t v = (uint8_t)( ( y * 41 + x * 7 + b * 101 + c.w ) & 0xFF );
+                    expected[( (size_t)y * c.w + x ) * texelBytes + b] = v;
+                }
+
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( (uint64_t)total );
+        memcpy( data->data(), expected.data(), total );
+        vhCreateTexture2D( tex, c.name, glm::ivec2( c.w, c.h ), 1, c.format, VRHI_TEXTURE_NONE, data );
+        vhFinish();
+
+        vhMem rd; vhReadTextureSlow( tex, 0, 0, &rd ); vhFinish();
+        ASSERT_EQ( (int)rd.size(), (int)total );
+        int mismatches = 0;
+        for ( size_t i = 0; i < total && mismatches < 6; ++i )
+        {
+            int got = (int)rd[i];
+            if ( got != (int)expected[i] )
+            {
+                { UTEST_PRINTF( "TX02 %s: byte %zu = 0x%02X, expected 0x%02X\n",
+                                c.name, i, got, expected[i] ); }
+                ++mismatches;
+            }
+        }
+        EXPECT_EQ( mismatches, 0 );
+
+        vhDestroyTexture( tex );
+    }
+
+    vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
