@@ -5176,11 +5176,12 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
 
 // TESTPLAN BL01 — Independent blend needs unequal expected targets.
 // Three targets seeded with different RGBA patterns are blended with add,
-// multiply, and reverse-subtract respectively, from one source colour. Every
-// channel (alpha included — per-RT factors mirror into alpha) is compared
-// against an independent CPU blend model over the whole image. The attachment
-// order is then swapped and the sequence repeated, so an ordinal mistake or a
-// per-target broadcast cannot match both passes.
+// multiply, and reverse-subtract respectively. Each MRT slot writes a distinct
+// source colour, so slot routing and per-slot blend descriptors are checked
+// per channel. Every channel (alpha included — per-RT factors mirror into
+// alpha) is compared against an independent CPU blend model over the whole
+// image. The attachment order is then swapped and the sequence repeated, so an
+// ordinal mistake or a per-target broadcast cannot match both passes.
 UTEST_F( Graphics, BL01_IndependentBlendUnequalTargets )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
@@ -5204,15 +5205,37 @@ UTEST_F( Graphics, BL01_IndependentBlendUnequalTargets )
     const int seedB[4] = { 180, 30, 240, 10 };
     const int seedC[4] = { 102, 153, 25, 204 };
     const int srcC[4] = { 153, 64, 191, 100 };
+    // Slot sources are swizzles of srcC, matching the pixel shader exactly:
+    // slot 0 = RGBA, slot 1 = GBRA, slot 2 = BRAG.
+    auto slotSource = [&]( int slot, int c ) -> int
+    {
+        const int src[3][4] = {
+            { srcC[0], srcC[1], srcC[2], srcC[3] },
+            { srcC[1], srcC[2], srcC[0], srcC[3] },
+            { srcC[2], srcC[0], srcC[1], srcC[3] },
+        };
+        return src[slot][c];
+    };
 
     vhTexture rtA = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
     vhTexture rtB = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
     vhTexture rtC = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
 
+    // Each MRT slot writes a distinct RGBA value, derived by swizzle from the
+    // single input colour. A shader-output routing mistake, or a blend
+    // descriptor broadcast to the wrong slot, then changes a specific channel
+    // rather than matching on all four.
     static const char* mrtPS3 = R"(
 struct PSOut { float4 t0 : SV_Target0; float4 t1 : SV_Target1; float4 t2 : SV_Target2; };
 [shader("pixel")]
-PSOut main( float4 col : COLOUR ) { PSOut o; o.t0 = col; o.t1 = col; o.t2 = col; return o; }
+PSOut main( float4 col : COLOUR )
+{
+    PSOut o;
+    o.t0 = col;
+    o.t1 = float4( col.g, col.b, col.r, col.a );
+    o.t2 = float4( col.b, col.r, col.g, col.a );
+    return o;
+}
 )";
 
     struct Vertex { glm::vec3 pos; glm::vec4 col; };
@@ -5298,7 +5321,7 @@ PSOut main( float4 col : COLOUR ) { PSOut o; o.t0 = col; o.t1 = col; o.t2 = col;
                     for ( int c = 0; c < 4 && mismatches < 4; ++c )
                     {
                         int got = rd[( (size_t)py * DIM + px ) * 4 + c];
-                        int expect = expectedByte( slotOp[slot], srcC[c], ( *slotSeeds[slot] )[c] );
+                        int expect = expectedByte( slotOp[slot], slotSource( slot, c ), ( *slotSeeds[slot] )[c] );
                         if ( abs( got - expect ) > 1 )
                         {
                             UTEST_PRINTF( "BL01: pass %d slot %d (%d,%d) ch %d = %d, expected %d\n", pass, slot, px, py, c, got, expect );
