@@ -176,13 +176,17 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
     vhFinish();
 
     nvrhi::BufferHandle nvStage = vhGetBufferNvrhiHandle( stageBuf );
-    ASSERT_TRUE( nvStage != nullptr );
-    VkBuffer vkStage = (VkBuffer)nvStage->getNativeObject( nvrhi::ObjectTypes::VK_Buffer ).pointer;
-    ASSERT_TRUE( vkStage != VK_NULL_HANDLE );
     nvrhi::TextureHandle nvTex = vhGetTextureNvrhiHandle( outTex );
-    ASSERT_TRUE( nvTex != nullptr );
-    VkImage vkImage = (VkImage)nvTex->getNativeObject( nvrhi::ObjectTypes::VK_Image ).pointer;
-    ASSERT_TRUE( vkImage != VK_NULL_HANDLE );
+    VkBuffer vkStage = nvStage ? (VkBuffer)nvStage->getNativeObject( nvrhi::ObjectTypes::VK_Buffer ).pointer : VK_NULL_HANDLE;
+    VkImage vkImage = nvTex ? (VkImage)nvTex->getNativeObject( nvrhi::ObjectTypes::VK_Image ).pointer : VK_NULL_HANDLE;
+    if ( !vkStage || !vkImage )
+    {
+        vhDestroyTexture( outTex ); vhDestroyBuffer( stageBuf );
+        vhFinish();
+        EXPECT_TRUE( vkStage != VK_NULL_HANDLE );
+        EXPECT_TRUE( vkImage != VK_NULL_HANDLE );
+        return;
+    }
 
     // Compile the consumer before the native interval and create its output
     // with a sentinel, so the only thing that can change it is the native
@@ -195,16 +199,14 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
     )";
     std::vector< uint32_t > spirv;
     std::string error;
-    if ( !vhCompileShader( "CS_NV01", csSource,
-        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ) )
+    bool compiled = vhCompileShader( "CS_NV01", csSource,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
+    if ( !compiled || spirv.empty() )
     {
-        { UTEST_PRINTF( "CS_NV01 compile error: %s\n", error.c_str() ); }
-    }
-    if ( spirv.empty() )
-    {
+        UTEST_PRINTF( "CS_NV01 compile error: %s\n", error.c_str() );
         vhDestroyTexture( outTex ); vhDestroyBuffer( stageBuf );
         vhFinish();
-        EXPECT_TRUE( false );
+        EXPECT_TRUE( compiled && !spirv.empty() );
         return;
     }
     vhShader cs = vhAllocShader();
@@ -272,11 +274,10 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
                 }
             }
 
-            // The source buffer is only declared through the native call, so the
-            // copy's source dependency is made explicit here.
+            // writeBuffer uploads on the GPU, not through a host mapping.
             VkBufferMemoryBarrier srcBarrier{};
             srcBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-            srcBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+            srcBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             srcBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
             srcBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             srcBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -284,7 +285,7 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
             srcBarrier.offset = 0;
             srcBarrier.size = VK_WHOLE_SIZE;
             vkCmdPipelineBarrier( ctx.cmdbuf,
-                VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, 0, nullptr, 1, &srcBarrier, 0, nullptr );
 
             VkBufferImageCopy region{};
