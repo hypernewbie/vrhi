@@ -671,6 +671,16 @@ void vhPackUserGlobals(
     uint64_t dataSize
 );
 
+struct vhUniformPackingSchema
+{
+    std::vector< std::string > names;
+    std::vector< bool > named;
+    std::unordered_map< const std::vector< vhReflectionMember >*, std::vector< uint32_t > > plans;
+};
+using vhUniformPackingSchemas = std::unordered_map< const vhState::UniformBufferValue*, vhUniformPackingSchema >;
+void vhAssignUniformPacking( std::vector< vhState::UniformBufferValue >& dst, const vhArenaSpan< vhArenaUniformValue >& src, vhUniformPackingSchemas& schemas );
+void vhPackUserGlobalsPlanned( const std::vector< vhState::UniformBufferValue >& uniforms, const std::vector< vhReflectionMember >& members, uint8_t* outData, uint64_t dataSize, vhUniformPackingSchemas& schemas );
+
 bool vhShaderValidateBinding( const vhShaderReflectionResource& reflection, const nvrhi::BindingLayoutItem& binding, bool logError );
 bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nvrhi::BindingSetVector& bindings );
 uint64_t vhHashGraphicsPipeline( const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& fbInfo );
