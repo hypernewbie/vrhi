@@ -1153,6 +1153,88 @@ UTEST_F( Graphics, UniformBuffers )
     vhFinish();
 }
 
+UTEST_F( Graphics, UserGlobals_RingBufferIdentityAcrossFlushes )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Uniform ring records require GPU" ); }
+    vhFlush( true );
+    const int32_t startErrors = g_vhErrorCounter.load();
+    const char* vsSource = R"(
+        cbuffer globalParams : register(b2, VRHI_STAGE_SPACE) { float4 u_vertex; };
+        struct V { float4 position : SV_Position; float2 value : TEXCOORD0; };
+        V main(uint id : SV_VulkanVertexID)
+        {
+            float2 uv = float2((id << 1) & 2, id & 2);
+            V v; v.position = float4(uv * 2 - 1, 0, 1); v.value = u_vertex.xy;
+            return v;
+        }
+    )";
+    const char* psSource = R"(
+        cbuffer globalParams : register(b2, VRHI_STAGE_SPACE) { float4 u_pixel; };
+        float4 main(float2 value : TEXCOORD0) : SV_Target
+        {
+            return float4(value, u_pixel.xy);
+        }
+    )";
+    vhShader vs = CreateTestShader( vsSource, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( psSource, VRHI_SHADER_STAGE_PIXEL );
+    const bool compiled = vs != VRHI_INVALID_HANDLE && ps != VRHI_INVALID_HANDLE;
+    if ( !compiled )
+    {
+        vhDestroyShader( vs );
+        vhDestroyShader( ps );
+        vhFinish();
+        EXPECT_TRUE( compiled );
+        return;
+    }
+
+    vhTexture rt = CreateTestTexture( 2, 2, nvrhi::Format::RGBA32_FLOAT );
+    const vhStateId sid = 170740;
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+         .SetColourAttachment( 0, rt )
+         .SetViewRect( { 0, 0, 2, 2 } )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( -1 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK );
+    vhSetState( sid, state );
+    bool good = true;
+    for ( int frame = 0; frame < 12; frame++ )
+    {
+        glm::vec4 vertex( frame + 1, frame + 2, 0, 0 );
+        glm::vec4 pixel( frame + 21, frame + 22, 0, 0 );
+        const glm::vec4 expected( vertex.x, vertex.y, pixel.x, pixel.y );
+        state.SetUniform( 0, "u_vertex", &vertex ).SetUniform( 1, "u_pixel", &pixel );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhMem rd;
+        // Readback advances two ring slots; do not add a third flush here.
+        vhReadTextureSlow( rt, 0, 0, &rd );
+        if ( rd.size() != 64 )
+        {
+            EXPECT_EQ( rd.size(), 64u );
+            good = false;
+            continue;
+        }
+        for ( int texel = 0; texel < 4; texel++ )
+        {
+            if ( memcmp( rd.data() + texel * 16, &expected, 16 ) == 0 ) continue;
+            glm::vec4 actual;
+            memcpy( &actual, rd.data() + texel * 16, 16 );
+            UTEST_PRINTF( "Uniform ring frame=%d pixel=%d: got %.0f,%.0f,%.0f,%.0f, expected %.0f,%.0f,%.0f,%.0f\n",
+                frame, texel, double( actual.x ), double( actual.y ), double( actual.z ), double( actual.w ),
+                double( expected.x ), double( expected.y ), double( expected.z ), double( expected.w ) );
+            good = false;
+        }
+    }
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyTexture( rt );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_TRUE( good );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
 UTEST_F( Graphics, PushConstants )
 {
     if ( g_vhInit.nullMode )
