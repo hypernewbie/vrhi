@@ -1775,8 +1775,12 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         s_resolveCacheVersion = s_globalResourceVersion;
     }
 
-    // BindingSet cache key: layout pointers + resolved user-global buffer (offset, size).
+    // User-global blocks share one transient buffer; include its identity once.
     uint64_t userGlobalsKey = ( uint64_t ) layouts.size() * 0x9E3779B97F4A7C15ULL;
+    if ( !s_resolveCache.userGlobalUniformsBufferCache.empty() )
+    {
+        userGlobalsKey ^= ( uintptr_t ) s_resolveCache.userGlobalUniformsBufferCache.begin()->second.buffer.Get() * 0x100000001B3ULL;
+    }
     for ( size_t i = 0; i < layouts.size(); i++ )
     {
         userGlobalsKey ^= ( uintptr_t ) layouts[i].Get() * 0x100000001B3ULL;
