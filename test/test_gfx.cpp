@@ -1159,7 +1159,7 @@ UTEST_F( Graphics, UserGlobals_RingBufferIdentityAcrossFlushes )
     vhFlush( true );
     const int32_t startErrors = g_vhErrorCounter.load();
     const char* vsSource = R"(
-        cbuffer globalParams : register(b2, VRHI_STAGE_SPACE) { float4 u_vertex; };
+        cbuffer globalParams : register(b2, VRHI_STAGE_SPACE) { float4 u_vertex; float4 u_pixel; };
         struct V { float4 position : SV_Position; float2 value : TEXCOORD0; };
         V main(uint id : SV_VulkanVertexID)
         {
@@ -1169,7 +1169,7 @@ UTEST_F( Graphics, UserGlobals_RingBufferIdentityAcrossFlushes )
         }
     )";
     const char* psSource = R"(
-        cbuffer globalParams : register(b2, VRHI_STAGE_SPACE) { float4 u_pixel; };
+        cbuffer globalParams : register(b2, VRHI_STAGE_SPACE) { float4 u_pixel; float4 u_vertex; };
         float4 main(float2 value : TEXCOORD0) : SV_Target
         {
             return float4(value, u_pixel.xy);
