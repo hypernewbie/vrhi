@@ -146,6 +146,7 @@ class vhCmdBackendState : public VIDLHandler
     vhTransientBuffer m_worldUniformBuffer;
     uint64_t m_worldUniformBufferLastHash = 0;
     vhTransientBuffer m_userUniformBuffer;
+    vhUniformPackingSchemas m_uniformPackingSchemas;
     struct UserGlobalsLastWrite
     {
         uint64_t dataHash = 0;

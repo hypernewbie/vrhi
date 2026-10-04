@@ -800,6 +800,32 @@ UTEST_F( Shader, GlobalsPacking )
     EXPECT_EQ( fBuf[4], 42.0f );
 }
 
+UTEST( ShaderInternal, UniformPackingOwnsNamesAcrossStateMoves )
+{
+    std::vector< vhState::UniformBufferValue > uniforms;
+    vhUniformPackingSchemas schemas;
+    char shortName[] = "u_a";
+    std::string longName = "uniform_name_beyond_small_string_storage";
+    glm::vec4 a( 1, 2, 3, 4 ), b( 5, 6, 7, 8 );
+    vhArenaUniformValue values[] = { { shortName, &a, 1 }, { longName.c_str(), &b, 1 } };
+    std::vector< vhReflectionMember > members = { { shortName, 0, 16 }, { longName, 16, 16 } };
+    uint8_t packed[32];
+    vhAssignUniformPacking( uniforms, { values, 2 }, schemas );
+    vhPackUserGlobalsPlanned( uniforms, members, packed, sizeof( packed ), schemas );
+    memset( shortName, 'x', 3 );
+    longName.assign( 1024, 'y' );
+    auto moved = std::move( uniforms );
+    vhPackUserGlobalsPlanned( moved, members, packed, sizeof( packed ), schemas );
+    EXPECT_STREQ( moved[0].name, members[0].name.c_str() );
+    EXPECT_STREQ( moved[1].name, members[1].name.c_str() );
+    EXPECT_EQ( memcmp( packed, &a, 16 ), 0 );
+    EXPECT_EQ( memcmp( packed + 16, &b, 16 ), 0 );
+    vhAssignUniformPacking( moved, {}, schemas );
+    vhPackUserGlobalsPlanned( moved, members, packed, sizeof( packed ), schemas );
+    EXPECT_TRUE( schemas.empty() );
+    for ( uint8_t byte : packed ) EXPECT_EQ( byte, 0u );
+}
+
 UTEST_F( Shader, CompileNonMainEntryPoints )
 {
     // Multi-stage shader with distinct entry points

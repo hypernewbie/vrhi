@@ -1297,7 +1297,7 @@ void vhCmdBackendState::BE_PreSubmitCommon_RepackUserGlobals(
         const uint32_t packSize = res->sizeInBytes;
         const uint32_t alignedSize = ( uint32_t ) VRHI_ROUND_UP( packSize, VRHI_CBUF_ALIGN );
         if ( s_userGlobalsPackBuffer.size() < alignedSize ) s_userGlobalsPackBuffer.resize( alignedSize, 0 );
-        vhPackUserGlobals( state.uniforms, res->members, s_userGlobalsPackBuffer.data(), packSize );
+        vhPackUserGlobalsPlanned( state.uniforms, res->members, s_userGlobalsPackBuffer.data(), packSize, m_uniformPackingSchemas );
 
         const uint64_t dataHash = komihash( s_userGlobalsPackBuffer.data(), alignedSize, hash );
         UserGlobalsLastWrite& last = m_userGlobalsLast[stageIdx];
@@ -2482,6 +2482,7 @@ void vhCmdBackendState::shutdown()
     backendHeaps.clear();
     backendBuffers.clear();
     backendShaders.clear();
+    for ( auto& entry : m_uniformPackingSchemas ) entry.second.plans.clear();
     backendTimerQueries.clear();
 
     // Clear static caches and release all RefCountPtr members
@@ -3479,6 +3480,7 @@ void vhCmdBackendState::Handle_vhCreateShader( VIDL_vhCreateShader* cmd )
         backendShader->handle = handle;
         backendShader->flags = cmd->flags;
         backendShader->entry = cmd->entry;
+        for ( auto& entry : m_uniformPackingSchemas ) entry.second.plans.clear();
         backendShader->reflection = std::move( resources );
         backendShader->reflectionNameHashes.reserve( backendShader->reflection.size() );
         for ( size_t reflectionIdx = 0; reflectionIdx < backendShader->reflection.size(); ++reflectionIdx )
@@ -3526,6 +3528,7 @@ void vhCmdBackendState::Handle_vhDestroyShader( VIDL_vhDestroyShader* cmd )
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         vhBindingSetCacheClear_DeviceStateLocked();
+        for ( auto& entry : m_uniformPackingSchemas ) entry.second.plans.clear();
         backendShaders.erase( cmd->shader );
     }
 }
@@ -4500,15 +4503,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms
 {
     BE_CmdRAII cmdRAII( cmd );
     auto& dst = backendStates[cmd->id].uniforms;
-    const uint32_t n = cmd->uniforms.count;
-    dst.resize( n );
-    for ( uint32_t i = 0; i < n; i++ )
-    {
-        const vhArenaUniformValue& src = cmd->uniforms.ptr[i];
-        dst[i].name = src.name;
-        if ( src.dataCount == 0 ) dst[i].data.clear();
-        else                      dst[i].data.assign( src.data, src.data + src.dataCount );
-    }
+    vhAssignUniformPacking( dst, cmd->uniforms, m_uniformPackingSchemas );
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd )

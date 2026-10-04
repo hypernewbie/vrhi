@@ -868,6 +868,86 @@ void vhPackUserGlobals(
     }
 }
 
+void vhAssignUniformPacking( std::vector< vhState::UniformBufferValue >& dst, const vhArenaSpan< vhArenaUniformValue >& src, vhUniformPackingSchemas& schemas )
+{
+    // Keep the schema with vector storage when backend states relocate.
+    auto node = schemas.extract( dst.data() );
+    dst.resize( src.count );
+    if ( !src.count ) return;
+    if ( node.empty() )
+    {
+        node = schemas.extract( schemas.try_emplace( dst.data() ).first );
+    }
+    node.key() = dst.data();
+    auto& schema = schemas.insert( std::move( node ) ).position->second;
+    bool changed = schema.names.size() != src.count;
+    schema.names.resize( src.count );
+    schema.named.resize( src.count );
+    for ( uint32_t i = 0; i < src.count; i++ )
+    {
+        const auto& value = src.ptr[i];
+        const bool named = value.name != nullptr;
+        changed |= schema.named[i] != named || ( named && schema.names[i] != value.name );
+        schema.named[i] = named;
+        if ( named && schema.names[i] != value.name )
+        {
+            schema.names[i] = value.name;
+        }
+        dst[i].name = named ? schema.names[i].c_str() : nullptr;
+        if ( value.dataCount )
+        {
+            dst[i].data.assign( value.data, value.data + value.dataCount );
+        }
+        else
+        {
+            dst[i].data.clear();
+        }
+    }
+    if ( changed ) schema.plans.clear();
+}
+
+void vhPackUserGlobalsPlanned( const std::vector< vhState::UniformBufferValue >& uniforms, const std::vector< vhReflectionMember >& members, uint8_t* outData, uint64_t dataSize, vhUniformPackingSchemas& schemas )
+{
+    auto schema = schemas.find( uniforms.data() );
+    if ( schema == schemas.end() )
+    {
+        vhPackUserGlobals( uniforms, members, outData, dataSize );
+        return;
+    }
+    if ( !outData || !dataSize ) return;
+    auto [entry, inserted] = schema->second.plans.try_emplace( &members );
+    auto& plan = entry->second;
+    if ( inserted )
+    {
+        plan.resize( members.size(), UINT32_MAX );
+        for ( size_t memberIdx = 0; memberIdx < members.size(); memberIdx++ )
+        {
+            for ( uint32_t uniformIdx = 0; uniformIdx < uniforms.size(); uniformIdx++ )
+            {
+                const auto& uniform = uniforms[uniformIdx];
+                if ( !uniform.name ) continue;
+                if ( uniform.name == members[memberIdx].name )
+                {
+                    plan[memberIdx] = uniformIdx;
+                    break;
+                }
+            }
+        }
+    }
+    memset( outData, 0, dataSize );
+    for ( size_t memberIdx = 0; memberIdx < members.size(); memberIdx++ )
+    {
+        const auto& member = members[memberIdx];
+        if ( plan[memberIdx] == UINT32_MAX || member.offset >= dataSize ) continue;
+        const auto& value = uniforms[plan[memberIdx]].data;
+        const uint64_t bytes = std::min( uint64_t( member.size ), std::min( dataSize - member.offset, uint64_t( value.size() * sizeof( glm::vec4 ) ) ) );
+        if ( bytes )
+        {
+            memcpy( outData + member.offset, value.data(), bytes );
+        }
+    }
+}
+
 // ------------ Raytracing Allocations ------------
 
 vhAccelStruct vhAllocAS()
