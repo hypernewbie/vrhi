@@ -57,6 +57,119 @@ UTEST_F_TEARDOWN( Compute )
     vhEndMarker();
 }
 
+UTEST_F( Compute, UserGlobals_SchemaChangesAndRingReuse )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Uniform records require GPU" ); }
+    vhFlush( true );
+    const int32_t startErrors = g_vhErrorCounter.load();
+    const char* body = R"(
+        RWStructuredBuffer<float4> records : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(1,1,1)] void main()
+        {
+            records[0] = u_a;
+            records[1] = u_b;
+            for (uint i = 0; i < 17; i++) records[i + 2] = u_array[i];
+            records[19] = u_partial[0]; records[20] = u_partial[1];
+        }
+    )";
+    std::vector< uint32_t > blobs[2];
+    std::string error;
+    const uint64_t flags = VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0 | VRHI_SHADER_PATCH_DSET0;
+    const std::string sourceA = std::string( "uniform float4 u_a; uniform float4 u_b; uniform float4 u_array[17]; uniform float4 u_partial[2];" ) + body;
+    const std::string sourceB = std::string( "uniform float4 u_partial[2]; uniform float4 u_array[17]; uniform float4 u_b; uniform float4 u_a;" ) + body;
+    bool compiled = vhCompileShader( "UniformRecordsA", sourceA.c_str(), flags, blobs[0], "main", {}, {}, &error );
+    compiled &= vhCompileShader( "UniformRecordsB", sourceB.c_str(), flags, blobs[1], "main", {}, {}, &error );
+    compiled &= !blobs[0].empty() && !blobs[1].empty();
+    if ( !compiled ) { UTEST_PRINTF( "%s\n", error.c_str() ); }
+    ASSERT_TRUE( compiled );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "UniformRecords", VRHI_SHADER_STAGE_COMPUTE, blobs[0], "main" );
+    vhBuffer out = vhAllocBuffer();
+    vhMem* initial = vhAllocMem( 21 * 16 );
+    memset( initial->data(), 0xCD, initial->size() );
+    vhCreateStorageStructuredBuffer( out, "UniformRecords", initial, 21 * 16, 16 );
+    const vhStateId sid = 170741;
+    vhState state;
+    state.SetProgram( vhCreateComputeProgram( cs ) ).SetBuffer( 0, out, -1, "records", 0, 21 * 16, true );
+    bool good = true;
+    for ( int step = 0; step < 18; step++ )
+    {
+        if ( step == 8 )
+        {
+            for ( uint32_t id = 171000; id < 173048; id++ ) vhCmdSetStatePushConstants( id, glm::vec4( 0 ) );
+            vhFlush( true );
+        }
+        if ( step == 9 )
+        {
+            vhCreateShader( cs, "UniformRecordsReload", VRHI_SHADER_STAGE_COMPUTE, blobs[1], "main" );
+        }
+        glm::vec4 a( step + 1, 2, 3, 4 ), b( 5, step + 6, 7, 8 ), duplicate( 99 );
+        glm::vec4 array[17], partial( 11, 12, 13, 14 );
+        for ( int i = 0; i < 17; i++ ) array[i] = glm::vec4( 20 + i, 40 + i, 60 + i, 80 + i );
+        std::vector< vhState::UniformBufferValue > values;
+        auto append = [&]( const char* name, const glm::vec4* data, size_t count )
+        {
+            vhState::UniformBufferValue value;
+            value.name = name;
+            if ( count ) value.data.assign( data, data + count );
+            values.push_back( std::move( value ) );
+        };
+        char nameA[] = "u_a", nameB[] = "u_b";
+        const int kind = step % 6;
+        if ( kind != 4 )
+        {
+            if ( kind == 1 ) append( nameB, &b, 1 );
+            append( nameA, &a, kind == 5 ? 0 : 1 );
+            append( nullptr, &duplicate, 1 );
+            append( "unused_name", &duplicate, 1 );
+            append( "u_a", &duplicate, 1 );
+            if ( kind != 1 && kind != 2 ) append( nameB, &b, 1 );
+            append( "u_array", array, kind == 3 ? 1 : 17 );
+            append( "u_partial", &partial, 1 );
+        }
+        std::vector< std::string > names;
+        if ( step >= 6 && kind != 4 )
+        {
+            // Grow backing storage after a plan exists, including copied names.
+            names.reserve( 64 );
+            for ( int i = 0; i < 64; i++ )
+            {
+                names.push_back( "unused_uniform_name_beyond_small_string_storage_" + std::to_string( i ) );
+                append( names.back().c_str(), &duplicate, 1 );
+            }
+        }
+        state.SetUniforms( values );
+        vhSetState( sid, state );
+        vhDispatch( sid, { 1, 1, 1 } );
+        vhMem rd;
+        vhReadBufferSlow( out, 0, 21 * 16, &rd );
+        vhFinish();
+        std::vector< glm::vec4 > expected( 21, glm::vec4( 0 ) );
+        if ( kind != 4 )
+        {
+            expected[0] = kind == 5 ? glm::vec4( 0 ) : a;
+            expected[1] = kind == 2 ? glm::vec4( 0 ) : b;
+            for ( int i = 0; i < ( kind == 3 ? 1 : 17 ); i++ ) expected[i + 2] = array[i];
+            expected[19] = partial;
+        }
+        const bool sizeMatches = rd.size() == 21 * 16;
+        const bool recordsMatch = sizeMatches && memcmp( rd.data(), expected.data(), 21 * 16 ) == 0;
+        if ( !recordsMatch )
+        {
+            UTEST_PRINTF( "Uniform records step=%d kind=%d bytes=%zu mismatch\n", step, kind, rd.size() );
+            good = false;
+        }
+        for ( int frame = 0; frame < 4; frame++ ) vhFlush( true );
+    }
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyBuffer( out );
+    vhDestroyShader( cs );
+    vhFinish();
+    EXPECT_TRUE( good );
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
 UTEST_F( Compute, EndToEnd_TextureWrite )
 {
     if ( g_vhInit.nullMode )
