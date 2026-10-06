@@ -2492,22 +2492,19 @@ nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrh
 
 uint64_t vhHashSamplerDesc( const nvrhi::SamplerDesc& desc )
 {
-    static_assert( sizeof( nvrhi::SamplerDesc ) == 32, "nvrhi::SamplerDesc size mismatch" );
-    uint64_t h = 0;
-    
-    h = komihash( &desc.borderColor, sizeof( desc.borderColor ), h );
-    h = komihash( &desc.maxAnisotropy, sizeof( desc.maxAnisotropy ), h );
-    h = komihash( &desc.mipBias, sizeof( desc.mipBias ), h );
-    h = komihash( &desc.minFilter, sizeof( desc.minFilter ), h );
-    h = komihash( &desc.magFilter, sizeof( desc.magFilter ), h );
-    h = komihash( &desc.mipFilter, sizeof( desc.mipFilter ), h );
-    h = komihash( &desc.addressU, sizeof( desc.addressU ), h );
-    h = komihash( &desc.addressV, sizeof( desc.addressV ), h );
-    h = komihash( &desc.addressW, sizeof( desc.addressW ), h );
-    h = komihash( &desc.reductionType, sizeof( desc.reductionType ), h );
-    h = komihash( &desc.compareFunc, sizeof( desc.compareFunc ), h );
-
-    return h;
+    static_assert( offsetof( nvrhi::SamplerDesc, borderColor ) == 0
+        && offsetof( nvrhi::SamplerDesc, maxAnisotropy ) == 16
+        && offsetof( nvrhi::SamplerDesc, mipBias ) == 20
+        && offsetof( nvrhi::SamplerDesc, minFilter ) == 24
+        && offsetof( nvrhi::SamplerDesc, magFilter ) == 25
+        && offsetof( nvrhi::SamplerDesc, mipFilter ) == 26
+        && offsetof( nvrhi::SamplerDesc, addressU ) == 27
+        && offsetof( nvrhi::SamplerDesc, addressV ) == 28
+        && offsetof( nvrhi::SamplerDesc, addressW ) == 29
+        && offsetof( nvrhi::SamplerDesc, reductionType ) == 30
+        && offsetof( nvrhi::SamplerDesc, compareFunc ) == 31
+        && sizeof( nvrhi::SamplerDesc ) == 32, "nvrhi::SamplerDesc layout mismatch" );
+    return komihash( &desc, sizeof( desc ), 0 );
 }
 
 uint64_t vhHashGlobalUniform( const vhGlobalUniform& u )

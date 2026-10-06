@@ -1455,6 +1455,56 @@ UTEST( Sampler, Hashing )
     EXPECT_EQ( h1, h3 );
 }
 
+UTEST( Sampler, HashingCoversAllFields )
+{
+    const nvrhi::SamplerDesc base;
+    const uint64_t baseHash = vhHashSamplerDesc( base );
+
+    nvrhi::SamplerDesc d = base;
+    d.borderColor = nvrhi::Color( 0.0f );
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.maxAnisotropy = 4.0f;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.mipBias = 0.5f;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.minFilter = !base.minFilter;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.magFilter = !base.magFilter;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.mipFilter = !base.mipFilter;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.addressU = nvrhi::SamplerAddressMode::Wrap;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.addressV = nvrhi::SamplerAddressMode::Wrap;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.addressW = nvrhi::SamplerAddressMode::Wrap;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.reductionType = nvrhi::SamplerReductionType::Comparison;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+
+    d = base;
+    d.compareFunc = nvrhi::ComparisonFunc::Less;
+    EXPECT_NE( baseHash, vhHashSamplerDesc( d ) );
+}
+
 UTEST( Sampler, HandleCaching )
 {
     if ( !g_testInit )
