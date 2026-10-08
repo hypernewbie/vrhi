@@ -97,7 +97,7 @@ public:
         nvrhi::GraphicsState* graphics
     )
     {
-        return Get().BE_PreSubmitCommon_State( state, shaders, shaderCount, compute, graphics );
+        return Get().BE_PreSubmitCommon_State( state, 0, shaders, shaderCount, compute, graphics );
     }
 
     static void PreSubmitCommon_ResolveStateCache(

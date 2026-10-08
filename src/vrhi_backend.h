@@ -264,6 +264,7 @@ class vhCmdBackendState : public VIDLHandler
 
     bool BE_PreSubmitCommon_State(
         vhState& state,
+        vhStateId stateId,
         vhBackendShader* const* shaders,
         int shaderCount,
         nvrhi::ComputeState* computeState, // set to nullptr if not using compute.
@@ -273,17 +274,17 @@ class vhCmdBackendState : public VIDLHandler
         nvrhi::FramebufferHandle fb = nullptr
     );
 
-    void BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount );
+    void BE_Dispatch( vhState& state, vhStateId stateId, vhBackendShader& computeShader, glm::uvec3 workGroupCount );
 
-    void BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset );
+    void BE_DispatchIndirect( vhState& state, vhStateId stateId, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset );
 
-    void BE_Submit( vhState& state, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount );
+    void BE_Submit( vhState& state, vhStateId stateId, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount );
 
     void BE_PrecompilePSO( const VIDL_vhPrecompilePSO* cmd );
 
     void BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& src, uint64_t dstOffset, uint64_t srcOffset, uint64_t size );
 
-    void BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args );
+    void BE_DispatchRays( vhState& state, vhStateId stateId, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args );
 
 protected:
     // Static caches to avoid reallocation overhead, explicitly cleared in shutdown()
@@ -295,18 +296,18 @@ protected:
     static uint64_t s_globalResourceVersion;
     // Bumped on pipeline-shape mutations. Part of bset cache key.
     static uint64_t s_globalPipelineVersion;
-    static const vhState* s_resolveCacheState;
+    static vhStateId s_resolveCacheStateId;
     static uint64_t s_resolveCacheVersion;
 
     // BindingSet handle cache: skip the entire bset build loop when key is unchanged.
-    static const vhState* s_bsetCacheState;
+    static vhStateId s_bsetCacheStateId;
     static uint64_t s_bsetCacheResourceVersion;
     static uint64_t s_bsetCachePipelineVersion;
     static uint64_t s_bsetCacheUserGlobalsKey;
     static std::vector< nvrhi::BindingSetHandle > s_bsetCacheHandles;
 
-    // PSO + framebuffer cache for BE_Submit: skip rebuild when (state, pipelineVersion) unchanged.
-    static const vhState* s_submitPSOCacheState;
+    // Last submitted PSO and framebuffer.
+    static vhStateId s_submitPSOCacheStateId;
     static uint64_t s_submitPSOCacheVersion;
     static nvrhi::GraphicsPipelineHandle s_submitPSOCachePSO;
     static nvrhi::FramebufferHandle s_submitPSOCacheFB;
