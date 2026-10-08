@@ -35,11 +35,6 @@ uint64_t vhCmdBackendState::s_globalResourceVersion = 1;
 uint64_t vhCmdBackendState::s_globalPipelineVersion = 1;
 vhStateId vhCmdBackendState::s_resolveCacheStateId = VRHI_INVALID_HANDLE;
 uint64_t vhCmdBackendState::s_resolveCacheVersion = 0;
-vhStateId vhCmdBackendState::s_bsetCacheStateId = VRHI_INVALID_HANDLE;
-uint64_t vhCmdBackendState::s_bsetCacheResourceVersion = 0;
-uint64_t vhCmdBackendState::s_bsetCachePipelineVersion = 0;
-uint64_t vhCmdBackendState::s_bsetCacheUserGlobalsKey = 0;
-std::vector< nvrhi::BindingSetHandle > vhCmdBackendState::s_bsetCacheHandles;
 vhStateId vhCmdBackendState::s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
 uint64_t vhCmdBackendState::s_submitPSOCacheVersion = 0;
 nvrhi::GraphicsPipelineHandle vhCmdBackendState::s_submitPSOCachePSO;
@@ -1748,12 +1743,11 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             s_lastLayoutMapShaders[shaderIdx] = shaders[shaderIdx];
     }
 
-    // Resolve state resource cache. Reuse if (state, version, shaders) all match.
     const bool resolveCacheUsable = s_resolveCache.init
         && s_resolveCacheStateId == stateId
         && s_resolveCacheVersion == s_globalResourceVersion
         && !shaderSetChanged
-        && state.dirty == 0;
+        && ( state.dirty & VRHI_DIRTY_RESOLVE_DOMAIN ) == 0;
     if ( resolveCacheUsable )
     {
         g_vhPerf.resolveCacheHits.fetch_add( 1, std::memory_order_relaxed );
@@ -1776,45 +1770,9 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         s_resolveCacheVersion = s_globalResourceVersion;
     }
 
-    // User-global blocks share one transient buffer; include its identity once.
-    uint64_t userGlobalsKey = ( uint64_t ) layouts.size() * 0x9E3779B97F4A7C15ULL;
-    if ( !s_resolveCache.userGlobalUniformsBufferCache.empty() )
-    {
-        userGlobalsKey ^= ( uintptr_t ) s_resolveCache.userGlobalUniformsBufferCache.begin()->second.buffer.Get() * 0x100000001B3ULL;
-    }
-    for ( size_t i = 0; i < layouts.size(); i++ )
-    {
-        userGlobalsKey ^= ( uintptr_t ) layouts[i].Get() * 0x100000001B3ULL;
-    }
-    for ( const auto& kv : s_resolveCache.userGlobalUniformsBufferCache )
-    {
-        userGlobalsKey ^= kv.first
-            ^ ( ( uint64_t ) kv.second.range.byteOffset * 0xCBF29CE484222325ULL )
-            ^ kv.second.range.byteSize;
-    }
-
-    const bool bsetCacheUsable = s_bsetCacheStateId == stateId
-        && s_bsetCacheResourceVersion == s_globalResourceVersion
-        && s_bsetCachePipelineVersion == s_globalPipelineVersion
-        && s_bsetCacheUserGlobalsKey == userGlobalsKey
-        && s_bsetCacheHandles.size() == layouts.size()
-        && state.dirty == 0;
-    if ( bsetCacheUsable )
-    {
-        for ( auto& bset : s_bsetCacheHandles )
-        {
-            if ( computeState )  computeState->addBindingSet( bset );
-            if ( graphicsState ) graphicsState->addBindingSet( bset );
-            if ( rtState )       rtState->bindings.push_back( bset );
-        }
-    }
-    else
-    {
     VRHI_PROFILE_SCOPE( "BE_PreSubmitCommon_State_BindingSetBuild" );
     static nvrhi::BindingSetDesc bsetDesc;
     if ( bsetDesc.bindings.capacity() == 0 ) bsetDesc.bindings.reserve( 32 );
-    s_bsetCacheHandles.clear();
-    s_bsetCacheHandles.resize( layouts.size() );
 
     for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
     {
@@ -1843,7 +1801,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( computeState )  computeState->addBindingSet( dtable );
             if ( graphicsState ) graphicsState->addBindingSet( dtable );
             if ( rtState )       rtState->bindings.push_back( dtable );
-            s_bsetCacheHandles[layoutIdx] = dtable;
             continue;
         }
 
@@ -1855,7 +1812,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( computeState )  computeState->addBindingSet( m_emptySet );
             if ( graphicsState ) graphicsState->addBindingSet( m_emptySet );
             if ( rtState )       rtState->bindings.push_back( m_emptySet );
-            s_bsetCacheHandles[layoutIdx] = m_emptySet;
             continue;
         }
 
@@ -1873,7 +1829,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 if ( computeState )  computeState->addBindingSet( bset );
                 if ( graphicsState ) graphicsState->addBindingSet( bset );
                 if ( rtState )       rtState->bindings.push_back( bset );
-                s_bsetCacheHandles[layoutIdx] = bset;
             }
             continue;
         }
@@ -1922,7 +1877,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( !reflectionPtr )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in shader reflection. Submit / Dispatch aborted.\n", binding.slot );
-                s_bsetCacheStateId = VRHI_INVALID_HANDLE;
                 return false;
             }
             const auto& reflection = *reflectionPtr;
@@ -1930,7 +1884,6 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             // Validate the reflection against the layout.
             if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
             {
-                s_bsetCacheStateId = VRHI_INVALID_HANDLE;
                 return false;
             }
 
@@ -1948,21 +1901,13 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( !bset )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
-            s_bsetCacheStateId = VRHI_INVALID_HANDLE;
             return false;
         }
 
         if ( computeState )  computeState->addBindingSet( bset );
         if ( graphicsState ) graphicsState->addBindingSet( bset );
         if ( rtState )       rtState->bindings.push_back( bset );
-        s_bsetCacheHandles[layoutIdx] = bset;
     }
-
-    s_bsetCacheStateId = stateId;
-    s_bsetCacheResourceVersion = s_globalResourceVersion;
-    s_bsetCachePipelineVersion = s_globalPipelineVersion;
-    s_bsetCacheUserGlobalsKey = userGlobalsKey;
-    } // end else (cache miss path)
 
     if ( graphicsState )
     {
@@ -2493,11 +2438,6 @@ void vhCmdBackendState::shutdown()
     s_resolveCacheVersion = 0;
     s_globalResourceVersion = 1;
     s_globalPipelineVersion = 1;
-    s_bsetCacheStateId = VRHI_INVALID_HANDLE;
-    s_bsetCacheResourceVersion = 0;
-    s_bsetCachePipelineVersion = 0;
-    s_bsetCacheUserGlobalsKey = 0;
-    s_bsetCacheHandles.clear();
     s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
     s_submitPSOCacheVersion = 0;
     s_submitPSOCachePSO = nullptr;
@@ -4350,6 +4290,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect
 {
     BE_CmdRAII cmdRAII( cmd );
     backendStates[cmd->id].viewRect = cmd->rect;
+    backendStates[cmd->id].dirty |= VRHI_DIRTY_VIEWPORT;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd )
@@ -4372,10 +4313,10 @@ void vhCmdBackendState::Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewCle
 void vhCmdBackendState::Handle_vhCmdSetStateProgram( VIDL_vhCmdSetStateProgram* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    auto& program = backendStates[cmd->id].program;
-    if ( program == cmd->program ) return;
-    program = cmd->program;
-    s_globalResourceVersion++;
+    auto& state = backendStates[cmd->id];
+    if ( state.program == cmd->program ) return;
+    state.program = cmd->program;
+    state.dirty |= VRHI_DIRTY_PROGRAM;
     s_globalPipelineVersion++;
 }
 
@@ -4385,6 +4326,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateVie
     auto& state = backendStates[cmd->id];
     state.viewMatrix = cmd->view;
     state.projMatrix = cmd->proj;
+    state.dirty |= VRHI_DIRTY_CAMERA;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd )
@@ -4434,6 +4376,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateVertexBindings( VIDL_vhCmdSetStateVe
     auto& dst = backendStates[cmd->id].vertexBindings;
     if ( dst == cmd->bindings ) return;
     dst = cmd->bindings;
+    backendStates[cmd->id].dirty |= VRHI_DIRTY_VERTEX_INDEX;
     s_globalPipelineVersion++;
 }
 
@@ -4444,16 +4387,19 @@ void vhCmdBackendState::Handle_vhCmdSetStateVertexBuffer( VIDL_vhCmdSetStateVert
     if ( cmd->stream >= state.vertexBindings.size() ) state.vertexBindings.resize( cmd->stream + 1 );
     state.vertexBindings[cmd->stream] = { cmd->buffer, cmd->stream, cmd->start, cmd->num, cmd->offset, cmd->layoutOverride };
     state.vertexBindings[cmd->stream].isInstanced = cmd->isInstanced;
+    state.dirty |= VRHI_DIRTY_VERTEX_INDEX;
     s_globalPipelineVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndexBuffer* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    auto& index = backendStates[cmd->id].indexBinding;
+    auto& state = backendStates[cmd->id];
+    auto& index = state.indexBinding;
     if ( index.buffer == cmd->buffer && index.firstIndex == cmd->first &&
         index.numIndices == cmd->num && index.byteOffset == cmd->offset ) return;
     index = { cmd->buffer, cmd->first, cmd->num, cmd->offset };
+    state.dirty |= VRHI_DIRTY_VERTEX_INDEX;
     s_globalPipelineVersion++;
 }
 
@@ -4463,7 +4409,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures
     auto& state = backendStates[cmd->id];
     if ( vhBindingsEqual( state.textures, cmd->textures ) ) return;
     vhAssignFromSpan( state.textures, cmd->textures );
-    s_globalResourceVersion++;
+    state.dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd )
@@ -4472,7 +4418,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers
     auto& state = backendStates[cmd->id];
     if ( vhBindingsEqual( state.samplers, cmd->samplers ) ) return;
     vhAssignFromSpan( state.samplers, cmd->samplers );
-    s_globalResourceVersion++;
+    state.dirty |= VRHI_DIRTY_TEXTURE_SAMPLERS;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd )
@@ -4481,7 +4427,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* 
     auto& state = backendStates[cmd->id];
     if ( vhBindingsEqual( state.buffers, cmd->buffers ) ) return;
     vhAssignFromSpan( state.buffers, cmd->buffers );
-    s_globalResourceVersion++;
+    state.dirty |= VRHI_DIRTY_BUFFERS;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateConstants( VIDL_vhCmdSetStateConstants* cmd )
@@ -4509,8 +4455,9 @@ void vhCmdBackendState::Handle_vhCmdSetStatePushConstants( VIDL_vhCmdSetStatePus
 void vhCmdBackendState::Handle_vhCmdSetStateUniforms( VIDL_vhCmdSetStateUniforms* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    auto& dst = backendStates[cmd->id].uniforms;
-    vhAssignUniformPacking( dst, cmd->uniforms, m_uniformPackingSchemas );
+    auto& state = backendStates[cmd->id];
+    vhAssignUniformPacking( state.uniforms, cmd->uniforms, m_uniformPackingSchemas );
+    state.dirty |= VRHI_DIRTY_UNIFORMS;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateAttachments( VIDL_vhCmdSetStateAttachments* cmd )
@@ -4588,7 +4535,6 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
         if ( vhBindingsEqual( it->second.accelStructs, cmd->accelStructs ) ) return;
         vhAssignFromSpan( it->second.accelStructs, cmd->accelStructs );
         it->second.dirty |= VRHI_DIRTY_ACCEL_STRUCT;
-        s_globalResourceVersion++;
     }
 }
 
@@ -4599,7 +4545,6 @@ void vhCmdBackendState::Handle_vhCmdSetStateDescriptorTables( VIDL_vhCmdSetState
     if ( std::ranges::equal( state.descriptorTables, cmd->tables ) ) return;
     vhAssignFromSpan( state.descriptorTables, cmd->tables );
     state.dirty |= VRHI_DIRTY_DESCRIPTOR_TABLES;
-    s_globalResourceVersion++;
     s_globalPipelineVersion++;
 }
 

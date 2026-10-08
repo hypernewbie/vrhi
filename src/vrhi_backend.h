@@ -292,19 +292,12 @@ protected:
     static ankerl::unordered_dense::map< nvrhi::BindingLayoutHandle, vhBackendShader* > s_layoutToShader;
     static vhStateResolveCache s_resolveCache;
 
-    // Bumped on resource mutations (binding setters, destroys). Used as cache key for the resolve cache.
+    // Backend resource creation, destruction and reloads.
     static uint64_t s_globalResourceVersion;
-    // Bumped on pipeline-shape mutations. Part of bset cache key.
+    // PSO and framebuffer changes.
     static uint64_t s_globalPipelineVersion;
     static vhStateId s_resolveCacheStateId;
     static uint64_t s_resolveCacheVersion;
-
-    // BindingSet handle cache: skip the entire bset build loop when key is unchanged.
-    static vhStateId s_bsetCacheStateId;
-    static uint64_t s_bsetCacheResourceVersion;
-    static uint64_t s_bsetCachePipelineVersion;
-    static uint64_t s_bsetCacheUserGlobalsKey;
-    static std::vector< nvrhi::BindingSetHandle > s_bsetCacheHandles;
 
     // Last submitted PSO and framebuffer.
     static vhStateId s_submitPSOCacheStateId;
