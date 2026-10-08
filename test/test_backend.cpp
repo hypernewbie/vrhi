@@ -3227,7 +3227,9 @@ UTEST( Backend, M01_ProgramEqualVectors_NoVersionBump )
         ASSERT_TRUE( vhBackendQueryState( sid, stored ) );
         EXPECT_TRUE( stored.program == program );
         EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + ( before.program != program ) );
-        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + ( before.program != program ) );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
+        const uint64_t dirty = vhCmdBackendStateTest::GetDirtyBits( sid );
+        EXPECT_EQ( ( dirty & VRHI_DIRTY_PROGRAM ) != 0, before.program != program );
         pipeline = vhCmdBackendStateTest::GetGlobalPipelineVersion();
         resource = vhCmdBackendStateTest::GetGlobalResourceVersion();
         vhProgram duplicate = program;
@@ -3494,11 +3496,12 @@ UTEST( Backend, M08_DescriptorTableList_BumpsOnAnyChange )
             EXPECT_EQ( stored.descriptorTables[i].registerSpace, changed[i].registerSpace );
         }
         EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
-        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + 1 );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
+        EXPECT_NE( vhCmdBackendStateTest::GetDirtyBits( sid ) & VRHI_DIRTY_DESCRIPTOR_TABLES, 0u );
         vhCmdSetStateDescriptorTables( sid, changed );
         vhFlush();
         EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
-        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + 1 );
+        EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
     }
 }
 
@@ -3535,7 +3538,8 @@ UTEST( Backend, M09_DefaultCommandsCreateBackendState )
     ASSERT_EQ( stored.program.size(), 1u );
     EXPECT_EQ( stored.program[0], 101u );
     EXPECT_EQ( vhCmdBackendStateTest::GetGlobalPipelineVersion(), pipeline + 1 );
-    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource + 1 );
+    EXPECT_EQ( vhCmdBackendStateTest::GetGlobalResourceVersion(), resource );
+    EXPECT_NE( vhCmdBackendStateTest::GetDirtyBits( sid ) & VRHI_DIRTY_PROGRAM, 0u );
 }
 
 UTEST( Backend, M10_InvalidCreationThenValidRecovery )

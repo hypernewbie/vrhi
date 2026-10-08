@@ -98,6 +98,9 @@
 
 #include "vrhi.h"
 
+// Binding identities and shader slots, excluding uniform values.
+constexpr uint64_t VRHI_DIRTY_RESOLVE_DOMAIN = ( VRHI_DIRTY_VERTEX_INDEX | VRHI_DIRTY_TEXTURE_SAMPLERS | VRHI_DIRTY_BUFFERS | VRHI_DIRTY_ACCEL_STRUCT | VRHI_DIRTY_DESCRIPTOR_TABLES | VRHI_DIRTY_PROGRAM );
+
 // Types referenced by VIDL_STORAGE-annotated commands; must be visible to vrhi_generated.h.
 // Non-owning view into command-arena memory. Valid until the next arena rotation.
 template< typename T >

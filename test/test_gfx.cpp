@@ -4720,6 +4720,15 @@ struct WorldResolveResources
     }
 };
 
+static bool ReadR32Texture( vhTexture texture, std::span< float > out )
+{
+    vhMem data;
+    vhReadTextureSlow( texture, 0, 0, &data );
+    if ( data.size() != out.size_bytes() ) return false;
+    memcpy( out.data(), data.data(), out.size_bytes() );
+    return true;
+}
+
 static bool CheckWorldRecords( vhTexture texture, std::span< const float > expected )
 {
     vhMem data;
@@ -5090,6 +5099,192 @@ UTEST_F( Graphics, Sweep8_TextureChange_StillRebuildsResolve )
 
         vhDestroyTexture( rebound );
         vhDestroyTexture( mipped );
+        vhFinish();
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+
+UTEST_F( Graphics, Sweep8_WorldOnly_ReusesResolve_AndUpdatesOutput )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const float values[] = { 0.25f, 0.5f, 0.75f, 1.0f };
+        WorldResolveResources resources( 1970, 4 );
+
+        resources.Submit( values[0], 0 );
+
+        const uint64_t hitsAfterFirst = g_vhPerf.resolveCacheHits.load();
+        const uint64_t rebuildsAfterFirst = g_vhPerf.resolveCacheRebuilds.load();
+
+        for ( uint32_t i = 1; i < 4; ++i )
+            resources.Submit( values[i], i, false );
+        vhFinish();
+
+        const uint64_t hits = g_vhPerf.resolveCacheHits.load() - hitsAfterFirst;
+        const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load() - rebuildsAfterFirst;
+
+        EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
+
+        EXPECT_EQ( rebuilds, 0u );
+        EXPECT_EQ( hits, 3u );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, Sweep8_CameraWorldCoupling_MatchedToGPUOutput )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const char* source = R"(
+cbuffer GlobalUniforms
+{
+    float4 u_viewRect;
+    float4 u_viewTexel;
+    float4x4 u_view;
+    float4x4 u_invView;
+    float4x4 u_proj;
+    float4x4 u_invProj;
+    float4x4 u_viewProj;
+    float4x4 u_invViewProj;
+    float4 u_alphaRef4;
+    float4 u_global[21];
+};
+cbuffer WorldUniforms
+{
+    float4x4 u_world[4];
+    float4x4 u_worldView;
+    float4x4 u_worldViewProj;
+    float4 _worldPad[8];
+};
+[[vk::image_format("r32f")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+[numthreads(1, 1, 1)]
+void main(uint3 index : SV_DispatchThreadID)
+{
+    float4 wp = mul( u_worldView, float4( 0, 0, 0, 1 ) );
+    float4 cp = mul( u_viewProj, float4( 0, 0, 0, 1 ) );
+    if (index.y == 0) g_Out[uint2(index.x, 0)] = wp.x;
+    else if (index.y == 1) g_Out[uint2(index.x, 1)] = cp.x;
+}
+)";
+        const vhStateId sid = 1973;
+        vhShader shader = CreateTestShader( source, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_PATCH_DSET0 );
+        ASSERT_NE( shader, VRHI_INVALID_HANDLE );
+        vhTexture output = CreateTestTexture( 4, 2, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+
+        // A nonzero translation detects an uninitialized uniform block.
+        vhState state;
+        state.SetProgram( vhCreateComputeProgram( shader ) )
+            .SetViewTransform( glm::mat4( 1 ), glm::mat4( 1 ) )
+            .SetWorldTransform( glm::translate( glm::mat4( 1 ), glm::vec3( 3.0f, 0, 0 ) ) )
+            .SetTexture( 0, output, -1, "g_Out", true );
+
+        vhSetState( sid, state );
+        vhDispatch( sid, { 4, 2, 1 } );
+        vhFinish();
+
+        float initial[8];
+        ASSERT_TRUE( ReadR32Texture( output, initial ) );
+        for ( int x = 0; x < 4; x++ )
+        {
+            EXPECT_NEAR( initial[x], 3.0f, 0.0001f );
+            EXPECT_NEAR( initial[4 + x], 0.0f, 0.0001f );
+        }
+
+        vhState worldChanged = state;
+        worldChanged.SetWorldTransform( glm::translate( glm::mat4( 1 ), glm::vec3( 7.0f, 0, 0 ) ) );
+        vhSetState( sid, worldChanged );
+        vhDispatch( sid, { 4, 2, 1 } );
+        vhFinish();
+
+        float afterWorld[8];
+        ASSERT_TRUE( ReadR32Texture( output, afterWorld ) );
+
+        for ( int x = 0; x < 4; x++ )
+        {
+            EXPECT_NEAR( afterWorld[x], 7.0f, 0.0001f );
+            EXPECT_NEAR( afterWorld[4 + x], 0.0f, 0.0001f );
+        }
+
+        vhState cameraChanged = worldChanged;
+        cameraChanged.SetViewTransform( glm::translate( glm::mat4( 1 ), glm::vec3( 9.0f, 0, 0 ) ), glm::mat4( 1 ) );
+        vhSetState( sid, cameraChanged );
+        vhDispatch( sid, { 4, 2, 1 } );
+        vhFinish();
+
+        float afterCamera[8];
+        ASSERT_TRUE( ReadR32Texture( output, afterCamera ) );
+
+        for ( int x = 0; x < 4; x++ )
+        {
+            EXPECT_NEAR( afterCamera[x], 16.0f, 0.0001f );
+            EXPECT_NEAR( afterCamera[4 + x], 9.0f, 0.0001f );
+        }
+
+        vhDestroyTexture( output );
+        vhDestroyShader( shader );
+        vhFinish();
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, Sweep8_IdenticalBindings_StillProduceCorrectOutput )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const float values[] = { 0.125f, 0.375f, 0.625f };
+        static const char kNameA[] = "g_Out";
+        static const char kNameB[] = "g_Out";
+        WorldResolveResources resources( 1972, 3 );
+        WorldResolveResources other( 1978, 1 );
+        resources.state.textures[0].name = kNameA;
+        resources.Submit( values[0], 0 );
+
+        const uint64_t rebuildsAfterFirst = g_vhPerf.resolveCacheRebuilds.load();
+
+        for ( uint32_t i = 1; i < 3; ++i )
+        {
+            vhState::TextureBinding rebind; rebind.name = kNameB; rebind.texture = resources.output; rebind.computeUAV = true;
+            vhCmdSetStateTextures( 1972, { rebind } );
+            resources.Submit( values[i], i, false );
+        }
+        vhFinish();
+
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuildsAfterFirst );
+        EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
+
+        {
+            vhState::TextureBinding otherBind; otherBind.name = "g_Out"; otherBind.texture = other.output; otherBind.computeUAV = true;
+            vhCmdSetStateTextures( 1978, { otherBind } );
+            other.Submit( 0.5f, 0, false );
+        }
+        vhFinish();
+
+        vhTexture third = CreateTestTexture( 4, 4 * 3, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+        vhMem* thirdInitial = vhAllocMem( 4 * 12 * sizeof( float ) );
+        std::memset( thirdInitial->data(), 0, thirdInitial->size() );
+        vhUpdateTexture( third, 0, 0, 1, 1, thirdInitial );
+        vhFinish();
+        vhState::TextureBinding thirdBind; thirdBind.name = "g_Out"; thirdBind.texture = third; thirdBind.computeUAV = true;
+        vhCmdSetStateTextures( 1972, { thirdBind } );
+        glm::mat4 world( 1 );
+        world[0][0] = 0.875f;
+        world[1][1] = 2;
+        vhCmdSetStateWorldTransform( 1972, { world } );
+        vhDispatch( 1972, { 4, 4, 1 } );
+        vhFinish();
+
+        const std::array< float, 3 > expectedThird{ 0.0f, 0.0f, 0.875f };
+        EXPECT_TRUE( CheckWorldRecords( third, expectedThird ) );
+        EXPECT_TRUE( CheckWorldRecords( resources.output, values ) );
+
+        vhDestroyTexture( third );
         vhFinish();
     }
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
