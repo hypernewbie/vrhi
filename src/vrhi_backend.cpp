@@ -33,14 +33,14 @@ ankerl::unordered_dense::map< nvrhi::BindingLayoutHandle, vhBackendShader* > vhC
 vhStateResolveCache vhCmdBackendState::s_resolveCache;
 uint64_t vhCmdBackendState::s_globalResourceVersion = 1;
 uint64_t vhCmdBackendState::s_globalPipelineVersion = 1;
-const vhState* vhCmdBackendState::s_resolveCacheState = nullptr;
+vhStateId vhCmdBackendState::s_resolveCacheStateId = VRHI_INVALID_HANDLE;
 uint64_t vhCmdBackendState::s_resolveCacheVersion = 0;
-const vhState* vhCmdBackendState::s_bsetCacheState = nullptr;
+vhStateId vhCmdBackendState::s_bsetCacheStateId = VRHI_INVALID_HANDLE;
 uint64_t vhCmdBackendState::s_bsetCacheResourceVersion = 0;
 uint64_t vhCmdBackendState::s_bsetCachePipelineVersion = 0;
 uint64_t vhCmdBackendState::s_bsetCacheUserGlobalsKey = 0;
 std::vector< nvrhi::BindingSetHandle > vhCmdBackendState::s_bsetCacheHandles;
-const vhState* vhCmdBackendState::s_submitPSOCacheState = nullptr;
+vhStateId vhCmdBackendState::s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
 uint64_t vhCmdBackendState::s_submitPSOCacheVersion = 0;
 nvrhi::GraphicsPipelineHandle vhCmdBackendState::s_submitPSOCachePSO;
 nvrhi::FramebufferHandle vhCmdBackendState::s_submitPSOCacheFB;
@@ -1646,6 +1646,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
 
 bool vhCmdBackendState::BE_PreSubmitCommon_State(
     vhState& state,
+    vhStateId stateId,
     vhBackendShader* const* shaders,
     int shaderCount,
     nvrhi::ComputeState* computeState,
@@ -1749,7 +1750,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
 
     // Resolve state resource cache. Reuse if (state, version, shaders) all match.
     const bool resolveCacheUsable = s_resolveCache.init
-        && s_resolveCacheState == &state
+        && s_resolveCacheStateId == stateId
         && s_resolveCacheVersion == s_globalResourceVersion
         && !shaderSetChanged
         && state.dirty == 0;
@@ -1768,10 +1769,10 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( !s_resolveCache.init )
         {
             VRHI_ERR( "vhSetState(): Failed to resolve state resource cache.\n" );
-            s_resolveCacheState = nullptr;
+            s_resolveCacheStateId = VRHI_INVALID_HANDLE;
             return false;
         }
-        s_resolveCacheState = &state;
+        s_resolveCacheStateId = stateId;
         s_resolveCacheVersion = s_globalResourceVersion;
     }
 
@@ -1792,7 +1793,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             ^ kv.second.range.byteSize;
     }
 
-    const bool bsetCacheUsable = s_bsetCacheState == &state
+    const bool bsetCacheUsable = s_bsetCacheStateId == stateId
         && s_bsetCacheResourceVersion == s_globalResourceVersion
         && s_bsetCachePipelineVersion == s_globalPipelineVersion
         && s_bsetCacheUserGlobalsKey == userGlobalsKey
@@ -1921,7 +1922,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             if ( !reflectionPtr )
             {
                 if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "Binding Slot %d not found in shader reflection. Submit / Dispatch aborted.\n", binding.slot );
-                s_bsetCacheState = nullptr;
+                s_bsetCacheStateId = VRHI_INVALID_HANDLE;
                 return false;
             }
             const auto& reflection = *reflectionPtr;
@@ -1929,7 +1930,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             // Validate the reflection against the layout.
             if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
             {
-                s_bsetCacheState = nullptr;
+                s_bsetCacheStateId = VRHI_INVALID_HANDLE;
                 return false;
             }
 
@@ -1947,7 +1948,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         if ( !bset )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
-            s_bsetCacheState = nullptr;
+            s_bsetCacheStateId = VRHI_INVALID_HANDLE;
             return false;
         }
 
@@ -1957,7 +1958,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         s_bsetCacheHandles[layoutIdx] = bset;
     }
 
-    s_bsetCacheState = &state;
+    s_bsetCacheStateId = stateId;
     s_bsetCacheResourceVersion = s_globalResourceVersion;
     s_bsetCachePipelineVersion = s_globalPipelineVersion;
     s_bsetCacheUserGlobalsKey = userGlobalsKey;
@@ -2084,7 +2085,7 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     return true;
 }
 
-void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeShader, glm::uvec3 workGroupCount )
+void vhCmdBackendState::BE_Dispatch( vhState& state, vhStateId stateId, vhBackendShader& computeShader, glm::uvec3 workGroupCount )
 {
     VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
@@ -2116,7 +2117,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     s_dispatchCState.setPipeline( pso.Get() );
     {
         VRHI_PROFILE_SCOPE( "BE_Dispatch_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
+        if ( !BE_PreSubmitCommon_State( state, stateId, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
         {
             VRHI_ERR( "vhDispatch() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
             return;
@@ -2142,7 +2143,7 @@ void vhCmdBackendState::BE_Dispatch( vhState& state, vhBackendShader& computeSha
     }
 }
 
-void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset )
+void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhStateId stateId, vhBackendShader& computeShader, vhBackendBuffer& indirectBuffer, uint64_t byteOffset )
 {
     VRHI_PROFILE_FUNCTION();
     assert( computeShader.handle );
@@ -2184,7 +2185,7 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     s_dispatchCState.setPipeline( pso.Get() );
     {
         VRHI_PROFILE_SCOPE( "BE_DispatchIndirect_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( state, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
+        if ( !BE_PreSubmitCommon_State( state, stateId, &shaderPtr, 1, &s_dispatchCState, nullptr, nullptr, nullptr ) )
         {
             VRHI_ERR( "BE_DispatchIndirect() : Failed to create nvrhi::ComputeState for shader %p! SKIPPING COMPUTE DISPATCH.\n", computeShader.handle.Get() );
             return;
@@ -2214,14 +2215,14 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhBackendShader& co
     }
 }
 
-void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
+void vhCmdBackendState::BE_Submit( vhState& state, vhStateId stateId, vhBackendShader* const* shaders, int shaderCount, uint32_t flags, const nvrhi::DrawArguments& args, uint32_t drawCount )
 {
     VRHI_PROFILE_FUNCTION();
     vhResetGraphicsState( s_submitGState );
 
     nvrhi::GraphicsPipelineHandle pso;
     nvrhi::FramebufferHandle fb;
-    const bool psoFbCacheUsable = s_submitPSOCacheState == &state
+    const bool psoFbCacheUsable = s_submitPSOCacheStateId == stateId
         && s_submitPSOCacheVersion == s_globalPipelineVersion
         && s_submitPSOCachePSO
         && s_submitPSOCacheFB;
@@ -2241,7 +2242,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
             if ( !BE_PresubmitCommon_PipelineDesc( state, shaders, shaderCount, nullptr, &s_submitPipelineDesc ) )
             {
                 VRHI_ERR( "BE_Submit(): Failed to create pipeline descriptor!\n" );
-                s_submitPSOCacheState = nullptr;
+                s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
                 return;
             }
         }
@@ -2253,7 +2254,7 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
         if ( !fb )
         {
             VRHI_ERR( "BE_Submit(): Failed to get Framebuffer!\n" );
-            s_submitPSOCacheState = nullptr;
+            s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
             return;
         }
 
@@ -2263,12 +2264,12 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
             if ( !pso )
             {
                 VRHI_ERR( "BE_Submit(): Failed to create PSO!\n" );
-                s_submitPSOCacheState = nullptr;
+                s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
                 return;
             }
         }
 
-        s_submitPSOCacheState = &state;
+        s_submitPSOCacheStateId = stateId;
         s_submitPSOCacheVersion = s_globalPipelineVersion;
         s_submitPSOCachePSO = pso;
         s_submitPSOCacheFB = fb;
@@ -2277,10 +2278,10 @@ void vhCmdBackendState::BE_Submit( vhState& state, vhBackendShader* const* shade
     s_submitGState.setPipeline( pso.Get() );
     {
         VRHI_PROFILE_SCOPE( "BE_Submit_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( state, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
+        if ( !BE_PreSubmitCommon_State( state, stateId, shaders, shaderCount, nullptr, &s_submitGState, nullptr, nullptr, fb ) )
         {
             VRHI_ERR( "BE_Submit(): Failed to set graphics state!\n" );
-                    return;
+            return;
         }
     }
 
@@ -2352,7 +2353,7 @@ void vhCmdBackendState::BE_BlitBuffer( vhBackendBuffer& dst, vhBackendBuffer& sr
     }
 }
 
-void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args )
+void vhCmdBackendState::BE_DispatchRays( vhState& state, vhStateId stateId, vhBackendRTPipeline& pipeline, vhBackendShaderTable& shaderTable, const nvrhi::rt::DispatchRaysArguments& args )
 {
     VRHI_PROFILE_FUNCTION();
     vhBackendShader* rtShaders[VRHI_SHADER_STAGE_MAX];
@@ -2374,7 +2375,7 @@ void vhCmdBackendState::BE_DispatchRays( vhState& state, vhBackendRTPipeline& pi
 
     {
         VRHI_PROFILE_SCOPE( "BE_DispatchRays_StateSetup" );
-        if ( !BE_PreSubmitCommon_State( state, rtShaders, rtShaderCount, nullptr, nullptr, &rtState, &pipeline.desc.globalBindingLayouts ) )
+        if ( !BE_PreSubmitCommon_State( state, stateId, rtShaders, rtShaderCount, nullptr, nullptr, &rtState, &pipeline.desc.globalBindingLayouts ) )
         {
             VRHI_ERR( "BE_DispatchRays(): Failed to set RT state.\n" );
             return;
@@ -2488,16 +2489,16 @@ void vhCmdBackendState::shutdown()
     // Clear static caches and release all RefCountPtr members
     s_layoutToShader.clear();
     s_resolveCache.Clear();
-    s_resolveCacheState = nullptr;
+    s_resolveCacheStateId = VRHI_INVALID_HANDLE;
     s_resolveCacheVersion = 0;
     s_globalResourceVersion = 1;
     s_globalPipelineVersion = 1;
-    s_bsetCacheState = nullptr;
+    s_bsetCacheStateId = VRHI_INVALID_HANDLE;
     s_bsetCacheResourceVersion = 0;
     s_bsetCachePipelineVersion = 0;
     s_bsetCacheUserGlobalsKey = 0;
     s_bsetCacheHandles.clear();
-    s_submitPSOCacheState = nullptr;
+    s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
     s_submitPSOCacheVersion = 0;
     s_submitPSOCachePSO = nullptr;
     s_submitPSOCacheFB = nullptr;
@@ -4341,7 +4342,7 @@ void vhCmdBackendState::Handle_vhDispatchRays( VIDL_vhDispatchRays* cmd )
     }
     auto pipeline = pipelineIt->second.get();
 
-    BE_DispatchRays( state, *pipeline, *table, cmd->args );
+    BE_DispatchRays( state, cmd->stateID, *pipeline, *table, cmd->args );
 }
 
 
@@ -4709,7 +4710,7 @@ void vhCmdBackendState::Handle_vhDispatch( VIDL_vhDispatch* cmd )
         return;
     }
 
-    BE_Dispatch( state, *itShader->second, cmd->workGroupCount );
+    BE_Dispatch( state, cmd->stateID, *itShader->second, cmd->workGroupCount );
 }
 
 void vhCmdBackendState::Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd )
@@ -4749,7 +4750,7 @@ void vhCmdBackendState::Handle_vhDispatchIndirect( VIDL_vhDispatchIndirect* cmd 
         return;
     }
 
-    BE_DispatchIndirect( state, *itShader->second, *itBuf->second, cmd->byteOffset );
+    BE_DispatchIndirect( state, cmd->stateID, *itShader->second, *itBuf->second, cmd->byteOffset );
 }
 
 void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* cmd )
@@ -4790,7 +4791,7 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
         .setStartIndexLocation( cmd->startIndexLocation )
         .setStartInstanceLocation( cmd->startInstanceLocation );
 
-    BE_Submit( state, s_shaders.data(), ( int ) s_shaders.size(), cmd->flags, args, cmd->drawCount );
+    BE_Submit( state, cmd->state, s_shaders.data(), ( int ) s_shaders.size(), cmd->flags, args, cmd->drawCount );
 }
 
 void vhCmdBackendState::Handle_vhReadBufferSlow( VIDL_vhReadBufferSlow* cmd )
