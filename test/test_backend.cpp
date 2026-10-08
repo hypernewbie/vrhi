@@ -135,14 +135,14 @@ public:
         return Get().BE_PreSubmitCommon_FindResource( state, stage, scache, item, outItem );
     }
 
-    static int64_t Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
+    static int64_t Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf )
     {
-        return Get().BE_Util_WriteGlobalUniform( state, tbuf, lastHash );
+        return Get().m_globalUniformCache.Write( state, tbuf );
     }
 
-    static int64_t Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
+    static int64_t Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf )
     {
-        return Get().BE_Util_WriteWorldUniform( state, tbuf, lastHash );
+        return Get().m_worldUniformCache.Write( state, tbuf );
     }
 
     static uint64_t GetDirtyBits( vhStateId id )
@@ -198,7 +198,33 @@ public:
         return g_vhCmdBackendState.s_globalPipelineVersion;
     }
 
+    static uint64_t GlobalPublishHash()
+    {
+        return Get().m_globalUniformCache.publication.bytesHash;
+    }
+
+    static uint64_t WorldPublishHash()
+    {
+        return Get().m_worldUniformCache.publication.bytesHash;
+    }
+
+    static uint64_t LayoutReuseTestCount()
+    {
+#ifndef NDEBUG
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        return g_vhCmdBackendState.s_layoutReuseTestCount;
+#else
+        return 0;
+#endif
+    }
+
 };
+
+
+uint64_t TestBindingLayoutReuseCount()
+{
+    return vhCmdBackendStateTest::LayoutReuseTestCount();
+}
 
 
 UTEST( BackendInternal, ShaderStageMatches )
@@ -923,26 +949,24 @@ UTEST( Backend, Util_WriteGlobalUniform )
         tb.Init_DeviceStateLocked( desc );
     }
 
-    uint64_t lastHash = 0;
     vhState state = {};
     state.viewRect = glm::vec4( 0, 0, 100, 100 );
 
     // First Write
-    int64_t offset1 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    int64_t offset1 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
     
     EXPECT_GE( offset1, 0 );
     EXPECT_EQ( offset1, 0 );
-    EXPECT_NE( lastHash, 0ull );
     EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
 
     // Duplicate Write (Dedup)
-    int64_t offset2 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    int64_t offset2 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
     EXPECT_EQ( offset2, offset1 ); // Should reuse
     EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) ); // Should not advance
 
     // New Write (Mod state)
     state.viewRect = glm::vec4( 10, 10, 200, 200 );
-    int64_t offset3 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    int64_t offset3 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
     
     EXPECT_GT( offset3, offset1 );
     
@@ -990,9 +1014,7 @@ UTEST( Backend, Util_WriteGlobalUniform )
     // Reset offset manually (simulate Step/Reset) - requires friend access or just calling Step?
     tb.Step();
     
-    // lastHash is maintained by caller.
-    // If we write same state again, it should NOT dedup because offset is 0
-    int64_t offset4 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    int64_t offset4 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
     EXPECT_EQ( offset4, 0 );
     EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
 
@@ -1028,16 +1050,15 @@ UTEST( Backend, Util_WriteGlobalUniform_FailedWriteNoDedupHit )
         tb.Init_DeviceStateLocked( desc );
     }
 
-    uint64_t lastHash = 0;
     vhState state = {};
     state.viewRect = glm::vec4( 0, 0, 100, 100 );
     state.viewMatrix = glm::mat4( 1.0f );
 
-    int64_t offsetA = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    int64_t offsetA = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
     EXPECT_EQ( offsetA, 0 );
     EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
     const vhState stateA = state;
-    const uint64_t hashA = lastHash;
+    const uint64_t hashA = vhCmdBackendStateTest::GlobalPublishHash();
     vhGlobalUniform expected;
     vhWriteStateToGlobalUniform( stateA, expected );
 
@@ -1045,16 +1066,16 @@ UTEST( Backend, Util_WriteGlobalUniform_FailedWriteNoDedupHit )
     state.viewRect = glm::vec4( 10, 20, 300, 400 );
     state.viewMatrix = glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 2, 3 ) );
 
-    int64_t offsetB1 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    int64_t offsetB1 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
     EXPECT_EQ( offsetB1, -1 );
 
     // Re-attempting with the same rejected value must NOT resolve to the previous successful
     // offset. A dedup hit for bytes the buffer never received is a failure, not a return value.
-    int64_t offsetB2 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+    int64_t offsetB2 = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
     EXPECT_EQ( offsetB2, -1 );
-    EXPECT_EQ( lastHash, hashA );
+    EXPECT_EQ( vhCmdBackendStateTest::GlobalPublishHash(), hashA );
     EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
-    EXPECT_EQ( vhCmdBackendStateTest::Util_WriteGlobalUniform( stateA, tb, lastHash ), offsetA );
+    EXPECT_EQ( vhCmdBackendStateTest::Util_WriteGlobalUniform( stateA, tb ), offsetA );
     EXPECT_EQ( tb.offset, sizeof( vhGlobalUniform ) );
 
     // Stage the slot and verify offset 0 still contains A's bytes, not B's.
@@ -1115,7 +1136,6 @@ UTEST( Backend, Util_WriteGlobalUniform_ExactCapacity )
             tb.Init_DeviceStateLocked( desc );
         }
 
-        uint64_t lastHash = 0;
         vhState state = {};
         state.viewRect = glm::vec4( 1, 2, 3, 4 );
         state.viewMatrix = glm::mat4( 1.0f );
@@ -1123,22 +1143,21 @@ UTEST( Backend, Util_WriteGlobalUniform_ExactCapacity )
         for ( uint32_t i = 0; i < capacityRecords; ++i )
         {
             state.viewRect = glm::vec4( ( float ) i + 1, 0, 0, 0 );
-            int64_t offset = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+            int64_t offset = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
             EXPECT_EQ( offset, ( int64_t )( i * sizeof( vhGlobalUniform ) ) );
         }
 
         // Next record at exact-capacity: every byte is consumed, must fail with -1.
         state.viewRect = glm::vec4( 99, 0, 0, 0 );
-        int64_t overflow = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+        int64_t overflow = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
         EXPECT_EQ( overflow, -1 );
         EXPECT_EQ( tb.offset, ( int64_t )( capacityRecords * sizeof( vhGlobalUniform ) ) );
 
         // Step to the next slot; a write must succeed and start at offset 0.
         tb.Step();
         EXPECT_EQ( tb.offset, 0 );
-        lastHash = 0;
         state.viewRect = glm::vec4( 7, 0, 0, 0 );
-        int64_t reuseOffset = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb, lastHash );
+        int64_t reuseOffset = vhCmdBackendStateTest::Util_WriteGlobalUniform( state, tb );
         EXPECT_EQ( reuseOffset, 0 );
         EXPECT_EQ( tb.offset, ( int64_t ) sizeof( vhGlobalUniform ) );
 
@@ -1194,28 +1213,27 @@ UTEST( Backend, Util_WriteWorldUniform_FailedWriteNoDedupHit )
         tb.Init_DeviceStateLocked( desc );
     }
 
-    uint64_t lastHash = 0;
     vhState state = {};
     state.viewMatrix = glm::mat4( 1.0f );
     state.worldMatrix.push_back( glm::mat4( 1.0f ) );
 
-    int64_t offsetA = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    int64_t offsetA = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
     EXPECT_EQ( offsetA, 0 );
     EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
     const vhState stateA = state;
-    const uint64_t hashA = lastHash;
+    const uint64_t hashA = vhCmdBackendStateTest::WorldPublishHash();
     vhWorldUniform expected;
     vhWriteStateToWorldUniform( stateA, expected );
 
     state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 0, 0 ) );
-    int64_t offsetB1 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    int64_t offsetB1 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
     EXPECT_EQ( offsetB1, -1 );
 
-    int64_t offsetB2 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    int64_t offsetB2 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
     EXPECT_EQ( offsetB2, -1 );
-    EXPECT_EQ( lastHash, hashA );
+    EXPECT_EQ( vhCmdBackendStateTest::WorldPublishHash(), hashA );
     EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
-    EXPECT_EQ( vhCmdBackendStateTest::Util_WriteWorldUniform( stateA, tb, lastHash ), offsetA );
+    EXPECT_EQ( vhCmdBackendStateTest::Util_WriteWorldUniform( stateA, tb ), offsetA );
     EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
 
     nvrhi::BufferDesc stgDesc;
@@ -1270,7 +1288,6 @@ UTEST( Backend, Util_WriteWorldUniform_ExactCapacity )
             tb.Init_DeviceStateLocked( desc );
         }
 
-        uint64_t lastHash = 0;
         vhState state = {};
         state.viewMatrix = glm::mat4( 1.0f );
         state.worldMatrix.push_back( glm::mat4( 1.0f ) );
@@ -1278,19 +1295,18 @@ UTEST( Backend, Util_WriteWorldUniform_ExactCapacity )
         for ( uint32_t i = 0; i < capacityRecords; ++i )
         {
             state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( ( float ) i, 0, 0 ) );
-            int64_t offset = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+            int64_t offset = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
             EXPECT_EQ( offset, ( int64_t )( i * sizeof( vhWorldUniform ) ) );
         }
 
         state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 99, 0, 0 ) );
-        int64_t overflow = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+        int64_t overflow = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
         EXPECT_EQ( overflow, -1 );
         EXPECT_EQ( tb.offset, ( int64_t )( capacityRecords * sizeof( vhWorldUniform ) ) );
 
         tb.Step();
-        lastHash = 0;
         state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 7, 0, 0 ) );
-        int64_t reuseOffset = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+        int64_t reuseOffset = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
         EXPECT_EQ( reuseOffset, 0 );
 
         {
@@ -1557,23 +1573,22 @@ UTEST( Backend, Util_WriteWorldUniform )
         tb.Init_DeviceStateLocked( desc );
     }
 
-    uint64_t lastHash = 0;
     vhState state = {};
     state.worldMatrix.push_back( glm::mat4( 1.0f ) ); // Identity
 
     // First Write
-    int64_t offset1 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    int64_t offset1 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
     EXPECT_GE( offset1, 0 );
     EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
 
     // Dedup
-    int64_t offset2 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    int64_t offset2 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
     EXPECT_EQ( offset2, offset1 );
     EXPECT_EQ( tb.offset, sizeof( vhWorldUniform ) );
 
     // Mod
     state.worldMatrix[0] = glm::translate( glm::mat4( 1.0f ), glm::vec3( 1, 0, 0 ) );
-    int64_t offset3 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb, lastHash );
+    int64_t offset3 = vhCmdBackendStateTest::Util_WriteWorldUniform( state, tb );
     EXPECT_GT( offset3, offset1 );
     EXPECT_GT( tb.offset, offset3 );
 

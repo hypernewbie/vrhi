@@ -40,6 +40,99 @@ struct vhBackendBuffer;
 struct vhBackendShader;
 struct vhBackendAccelStruct;
 
+struct vhUniformPublication
+{
+    nvrhi::IBuffer* buffer = nullptr;
+    int64_t offset = -1;
+    uint64_t bytesHash = 0;
+
+    bool operator==( const vhUniformPublication& ) const = default;
+    inline bool Covers( const vhTransientBuffer& tbuf, size_t bytes, uint64_t hash ) const
+    {
+        return buffer != nullptr
+            && bytesHash == hash
+            && buffer == tbuf.handle[tbuf.frameIdx].Get()
+            && offset >= 0
+            && offset + ( int64_t ) bytes <= tbuf.offset;
+    }
+};
+
+struct vhGlobalUniformCache
+{
+    vhUniformPublication publication;
+
+    inline void Clear()
+    {
+        publication = {};
+    }
+
+    inline int64_t Write( const vhState& state, vhTransientBuffer& tbuf )
+    {
+        vhGlobalUniform u;
+        vhWriteStateToGlobalUniform( state, u );
+        const uint64_t hash = vhHashGlobalUniform( u );
+
+        if ( publication.Covers( tbuf, sizeof( u ), hash ) )
+            return publication.offset;
+
+        const int64_t offset = tbuf.Write( &u, sizeof( u ) );
+        if ( offset < 0 ) return offset;
+        publication = { tbuf.handle[tbuf.frameIdx].Get(), offset, hash };
+        return offset;
+    }
+};
+
+struct vhWorldUniformCache
+{
+    vhUniformPublication publication;
+
+    inline void Clear()
+    {
+        publication = {};
+    }
+
+    inline int64_t Write( const vhState& state, vhTransientBuffer& tbuf )
+    {
+        vhWorldUniform u;
+        vhWriteStateToWorldUniform( state, u );
+        const uint64_t hash = vhHashWorldUniform( u );
+
+        if ( publication.Covers( tbuf, sizeof( u ), hash ) )
+            return publication.offset;
+
+        const int64_t offset = tbuf.Write( &u, sizeof( u ) );
+        if ( offset < 0 ) return offset;
+        publication = { tbuf.handle[tbuf.frameIdx].Get(), offset, hash };
+        return offset;
+    }
+};
+
+struct vhBindingLayoutCacheEntry
+{
+    struct Key
+    {
+        vhStateId stateId = VRHI_INVALID_HANDLE;
+        nvrhi::IBindingLayout* layout = nullptr;
+        vhBackendShader* shader = nullptr;
+        uint64_t resourceVersion = 0;
+        vhUniformPublication global;
+        vhUniformPublication world;
+        nvrhi::IBuffer* userBuffer = nullptr;
+        nvrhi::BufferRange userRange;
+        uint64_t userSchema = 0;
+
+        bool operator==( const Key& ) const = default;
+    };
+    Key key;
+    nvrhi::BindingSetHandle set;
+
+    inline void Store( const Key& newKey, nvrhi::IBindingSet* newSet, bool cacheable )
+    {
+        key = newKey;
+        set = cacheable ? newSet : nullptr;
+    }
+};
+
 // Per-draw resolved binding state. Cleared between draws via Clear().
 struct vhStateResolveCache
 {
@@ -234,3 +327,91 @@ struct vhStateResolveCache
         userGlobalUniformsBufferCache.clear();
     }
 };
+
+inline bool vhPrepareBindingLayoutCacheKey(
+    const vhState& state,
+    const vhStateResolveCache& scache,
+    const uint32_t stage,
+    vhGlobalUniformCache& globalCache,
+    vhWorldUniformCache& worldCache,
+    vhTransientBuffer& globalBuffer,
+    vhTransientBuffer& worldBuffer,
+    vhBindingLayoutCacheEntry::Key& key,
+    uint64_t& outDependencies,
+    bool& outCacheable
+)
+{
+    const auto* layoutDesc = key.layout->getDesc();
+    outDependencies = VRHI_DIRTY_PROGRAM;
+    outCacheable = true;
+
+    if ( key.layout->getBindlessDesc() ) outDependencies |= VRHI_DIRTY_DESCRIPTOR_TABLES;
+    if ( !key.shader || !layoutDesc ) return true;
+
+    assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
+    const auto& stageTable = scache.stageBindingStorage[stage];
+    for ( const auto& binding : layoutDesc->bindings )
+    {
+        switch ( binding.type )
+        {
+            case nvrhi::ResourceType::Sampler:
+            case nvrhi::ResourceType::Texture_SRV:
+            case nvrhi::ResourceType::Texture_UAV:
+                outDependencies |= VRHI_DIRTY_TEXTURE_SAMPLERS;
+                break;
+            case nvrhi::ResourceType::ConstantBuffer:
+            case nvrhi::ResourceType::VolatileConstantBuffer:
+                // Publish before lookup: a ring rotation can change the descriptor.
+                if ( stageTable.globalUniformsSlot != UINT32_MAX && binding.slot == stageTable.globalUniformsSlot )
+                {
+                    if ( globalCache.Write( state, globalBuffer ) < 0 ) return false;
+                    key.global = globalCache.publication;
+                    outDependencies |= VRHI_DIRTY_CAMERA | VRHI_DIRTY_VIEWPORT;
+                }
+                else if ( stageTable.worldUniformsSlot != UINT32_MAX && binding.slot == stageTable.worldUniformsSlot )
+                {
+                    if ( worldCache.Write( state, worldBuffer ) < 0 ) return false;
+                    key.world = worldCache.publication;
+                    outDependencies |= VRHI_DIRTY_CAMERA | VRHI_DIRTY_WORLD;
+                }
+                else if ( stageTable.userGlobalsSlot != UINT32_MAX && binding.slot == stageTable.userGlobalsSlot )
+                {
+                    // Repack already ran. The published range replaces the UNIFORMS dirty bit.
+                    key.userSchema = stageTable.userGlobalsHash;
+                    const auto userIt = scache.userGlobalUniformsBufferCache.find( key.userSchema );
+                    if ( userIt == scache.userGlobalUniformsBufferCache.end() ) outCacheable = false;
+                    else
+                    {
+                        key.userBuffer = userIt->second.buffer.Get();
+                        key.userRange = userIt->second.range;
+                    }
+                }
+                else outDependencies |= VRHI_DIRTY_BUFFERS;
+                break;
+            case nvrhi::ResourceType::StructuredBuffer_SRV:
+            case nvrhi::ResourceType::StructuredBuffer_UAV:
+            case nvrhi::ResourceType::TypedBuffer_SRV:
+            case nvrhi::ResourceType::TypedBuffer_UAV:
+            case nvrhi::ResourceType::RawBuffer_SRV:
+            case nvrhi::ResourceType::RawBuffer_UAV:
+                outDependencies |= VRHI_DIRTY_BUFFERS;
+                break;
+            case nvrhi::ResourceType::RayTracingAccelStruct:
+                outDependencies |= VRHI_DIRTY_ACCEL_STRUCT;
+                break;
+            case nvrhi::ResourceType::PushConstants:
+                break;
+            default:
+                outDependencies |= VRHI_DIRTY_DESCRIPTOR_DOMAIN;
+                break;
+        }
+    }
+    return true;
+}
+
+inline void vhAddBindingSet( nvrhi::IBindingSet* set, nvrhi::ComputeState* computeState, nvrhi::GraphicsState* graphicsState, nvrhi::rt::State* rtState )
+{
+    if ( computeState )  computeState->addBindingSet( set );
+    if ( graphicsState ) graphicsState->addBindingSet( set );
+    if ( rtState )       rtState->bindings.push_back( set );
+}
