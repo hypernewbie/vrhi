@@ -142,9 +142,9 @@ class vhCmdBackendState : public VIDLHandler
     ankerl::unordered_dense::map< vhStateId,     vhState >                                 backendStates;
     ankerl::unordered_dense::map< vhHeap,        std::unique_ptr< vhBackendHeap > >        backendHeaps;
     vhTransientBuffer m_globalUniformBuffer;
-    uint64_t m_globalUniformBufferLastHash = 0;
+    vhGlobalUniformCache m_globalUniformCache;
     vhTransientBuffer m_worldUniformBuffer;
-    uint64_t m_worldUniformBufferLastHash = 0;
+    vhWorldUniformCache m_worldUniformCache;
     vhTransientBuffer m_userUniformBuffer;
     vhUniformPackingSchemas m_uniformPackingSchemas;
     struct UserGlobalsLastWrite
@@ -230,9 +230,6 @@ class vhCmdBackendState : public VIDLHandler
 
     nvrhi::FramebufferHandle BE_GetFrameBuffer( const std::vector< vhState::RenderTarget >& colourAttachment, const vhState::RenderTarget& depthAttachment, vhTexture shadingRateImage );
 
-    int64_t BE_Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );
-    int64_t BE_Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash );
-
     bool BE_PresubmitCommon_PipelineDesc(
         vhState& state,
         vhBackendShader* const* shaders,
@@ -305,6 +302,10 @@ protected:
     static nvrhi::GraphicsPipelineHandle s_submitPSOCachePSO;
     static nvrhi::FramebufferHandle s_submitPSOCacheFB;
 
+    static std::vector< vhBindingLayoutCacheEntry > s_layoutBindingCache;
+#ifndef NDEBUG
+    static uint64_t s_layoutReuseTestCount;
+#endif
 
     static std::vector< vhShaderReflectionResource* > s_slotToReflection;
     static std::unordered_map< uint64_t, const vhVertexLayoutDef* > s_layoutLocationTable;

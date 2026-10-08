@@ -5290,6 +5290,109 @@ UTEST_F( Graphics, Sweep8_IdenticalBindings_StillProduceCorrectOutput )
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
+extern uint64_t TestBindingLayoutReuseCount();
+
+UTEST_F( Graphics, Sweep8_PerLayoutWorldDelta_UpdatesOnlyAffectedLayout )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+
+    const char* vsSource = R"(
+        cbuffer WorldUniforms : register(b1, VRHI_STAGE_SPACE)
+        {
+            float4x4 u_world[4];
+            float4x4 u_worldView;
+            float4x4 u_worldViewProj;
+            float4 _worldPad[8];
+        };
+        struct VSIn { float3 pos : POSITION; float4 colour : COLOUR; };
+        [shader("vertex")] float4 main(VSIn input) : SV_Position
+        {
+            return mul(u_world[0], float4(input.pos, 1.0));
+        }
+    )";
+    const char* psSource = R"(
+        cbuffer globalParams : register(b2, VRHI_STAGE_SPACE) { float4 tint; };
+        [shader("pixel")] float4 main() : SV_Target { return tint; }
+    )";
+
+    vhShader vs = CreateTestShader( vsSource, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( psSource, VRHI_SHADER_STAGE_PIXEL );
+    ASSERT_NE( vs, VRHI_INVALID_HANDLE );
+    ASSERT_NE( ps, VRHI_INVALID_HANDLE );
+
+    struct Vertex { glm::vec3 pos; };
+    const Vertex vertices[] = {
+        { { -0.4f, -0.4f, 0.0f } },
+        { {  0.4f, -0.4f, 0.0f } },
+        { {  0.0f,  0.4f, 0.0f } },
+    };
+    vhBuffer vb = CreateTestVB( "float3", vertices, sizeof( vertices ) );
+    vhTexture firstTarget = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    vhTexture movedTarget = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    vhTexture greenTarget = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
+    const vhStateId sid = 1981;
+
+    glm::mat4 identity( 1.0f );
+    glm::vec4 tint( 1, 0, 0, 1 );
+    vhState state;
+    state.SetProgram( vhCreateGfxProgram( vs, ps ) )
+         .SetColourAttachment( 0, firstTarget )
+         .SetViewRect( { 0, 0, 64, 64 } )
+         .SetViewTransform( identity, identity )
+         .SetWorldTransform( identity )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb, 0 )
+         .SetUniform( 0, "tint", &tint )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) );
+
+#ifndef NDEBUG
+    const uint64_t reuseBefore = TestBindingLayoutReuseCount();
+#endif
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+
+    glm::mat4 translated = identity;
+    translated[3][0] = 0.5f;
+    state.SetWorldTransform( translated ).SetColourAttachment( 0, movedTarget )
+         .SetUniform( 0, "tint", &tint );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    vhFinish();
+
+#ifndef NDEBUG
+    EXPECT_GE( TestBindingLayoutReuseCount() - reuseBefore, 1u );
+#endif
+
+    vhFlush( true );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    // No readback or flush between colors: ring rotation can hide stale-range reuse.
+    tint = glm::vec4( 0, 1, 0, 1 );
+    state.SetUniform( 0, "tint", &tint ).SetColourAttachment( 0, greenTarget );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    vhFinish();
+    EXPECT_TRUE( VerifyPixel( greenTarget, 48, 32, 0xFF00FF00 ) );
+    EXPECT_TRUE( VerifyPixel( firstTarget, 32, 32, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( movedTarget, 32, 32, 0xFF000000 ) );
+    EXPECT_TRUE( VerifyPixel( movedTarget, 48, 32, 0xFF0000FF ) );
+
+    vhDestroyTexture( firstTarget );
+    vhDestroyTexture( movedTarget );
+    vhDestroyTexture( greenTarget );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
 UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );

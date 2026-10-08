@@ -35,6 +35,10 @@ uint64_t vhCmdBackendState::s_globalResourceVersion = 1;
 uint64_t vhCmdBackendState::s_globalPipelineVersion = 1;
 vhStateId vhCmdBackendState::s_resolveCacheStateId = VRHI_INVALID_HANDLE;
 uint64_t vhCmdBackendState::s_resolveCacheVersion = 0;
+std::vector< vhBindingLayoutCacheEntry > vhCmdBackendState::s_layoutBindingCache;
+#ifndef NDEBUG
+uint64_t vhCmdBackendState::s_layoutReuseTestCount = 0;
+#endif
 vhStateId vhCmdBackendState::s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
 uint64_t vhCmdBackendState::s_submitPSOCacheVersion = 0;
 nvrhi::GraphicsPipelineHandle vhCmdBackendState::s_submitPSOCachePSO;
@@ -217,38 +221,6 @@ nvrhi::BindingLayoutVector vhCmdBackendState::BE_Util_BuildStageIndexedLayouts( 
         out.push_back( pick );
     }
     return out;
-}
-
-// Template helper removed - logic moved to vhTransientBuffer::Write
-
-int64_t vhCmdBackendState::BE_Util_WriteGlobalUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
-{
-    vhGlobalUniform u;
-    vhWriteStateToGlobalUniform( state, u );
-    uint64_t hash = vhHashGlobalUniform( u );
-
-    if ( hash == lastHash && tbuf.offset >= sizeof( vhGlobalUniform ) )
-        return tbuf.offset - sizeof( vhGlobalUniform );
-
-    int64_t offset = tbuf.Write( &u, sizeof( u ) );
-    if ( offset < 0 ) return offset;
-    lastHash = hash;
-    return offset;
-}
-
-int64_t vhCmdBackendState::BE_Util_WriteWorldUniform( const vhState& state, vhTransientBuffer& tbuf, uint64_t& lastHash )
-{
-    vhWorldUniform u;
-    vhWriteStateToWorldUniform( state, u );
-    uint64_t hash = vhHashWorldUniform( u );
-
-    if ( hash == lastHash && tbuf.offset >= sizeof( vhWorldUniform ) )
-        return tbuf.offset - sizeof( vhWorldUniform );
-
-    int64_t offset = tbuf.Write( &u, sizeof( u ) );
-    if ( offset < 0 ) return offset;
-    lastHash = hash;
-    return offset;
 }
 
 // --------------------------------------------------------------------------
@@ -1291,12 +1263,19 @@ void vhCmdBackendState::BE_PreSubmitCommon_RepackUserGlobals(
 
         const uint32_t packSize = res->sizeInBytes;
         const uint32_t alignedSize = ( uint32_t ) VRHI_ROUND_UP( packSize, VRHI_CBUF_ALIGN );
-        if ( s_userGlobalsPackBuffer.size() < alignedSize ) s_userGlobalsPackBuffer.resize( alignedSize, 0 );
+        if ( s_userGlobalsPackBuffer.size() < alignedSize ) s_userGlobalsPackBuffer.resize( alignedSize );
+        // The hash includes alignment padding.
+        std::memset( s_userGlobalsPackBuffer.data(), 0, alignedSize );
         vhPackUserGlobalsPlanned( state.uniforms, res->members, s_userGlobalsPackBuffer.data(), packSize, m_uniformPackingSchemas );
 
         const uint64_t dataHash = komihash( s_userGlobalsPackBuffer.data(), alignedSize, hash );
         UserGlobalsLastWrite& last = m_userGlobalsLast[stageIdx];
-        if ( last.dataHash == dataHash && last.buffer == m_userUniformBuffer.handle[m_userUniformBuffer.frameIdx] )
+        nvrhi::IBuffer* const currentBuffer = m_userUniformBuffer.handle[m_userUniformBuffer.frameIdx].Get();
+        const bool lastRangeCovered = last.dataHash == dataHash
+            && last.buffer == currentBuffer
+            && last.range.byteSize >= alignedSize
+            && last.range.byteOffset + alignedSize <= m_userUniformBuffer.offset;
+        if ( lastRangeCovered )
         {
             vhStateResolveCache::UserGlobalUniformsBufferInfo info;
             info.buffer = last.buffer;
@@ -1354,14 +1333,13 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
         {
             if ( stageTable.globalUniformsSlot != UINT32_MAX && item.slot == stageTable.globalUniformsSlot )
             {
-                int64_t offset = BE_Util_WriteGlobalUniform( state, m_globalUniformBuffer, m_globalUniformBufferLastHash );
-                if ( offset < 0 )
+                if ( m_globalUniformCache.Write( state, m_globalUniformBuffer ) < 0 )
                 {
                      if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Failed to write GlobalUniforms\n" );
                      return false;
                 }
-                nvrhi::BufferRange range( offset, sizeof( vhGlobalUniform ) );
-                outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_globalUniformBuffer.handle[ m_globalUniformBuffer.frameIdx ], range );
+                nvrhi::BufferRange range( m_globalUniformCache.publication.offset, sizeof( vhGlobalUniform ) );
+                outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_globalUniformCache.publication.buffer, range );
                 outItem.type = item.type;
                 outItem.unused = 0;
                 outItem.unused2 = 0;
@@ -1370,14 +1348,13 @@ bool vhCmdBackendState::BE_PreSubmitCommon_FindResource(
             }
             if ( stageTable.worldUniformsSlot != UINT32_MAX && item.slot == stageTable.worldUniformsSlot )
             {
-                int64_t offset = BE_Util_WriteWorldUniform( state, m_worldUniformBuffer, m_worldUniformBufferLastHash );
-                if ( offset < 0 )
+                if ( m_worldUniformCache.Write( state, m_worldUniformBuffer ) < 0 )
                 {
                      if ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) VRHI_ERR( "FindResource: Failed to write WorldUniforms\n" );
                      return false;
                 }
-                nvrhi::BufferRange range( offset, sizeof( vhWorldUniform ) );
-                outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_worldUniformBuffer.handle[ m_worldUniformBuffer.frameIdx ], range );
+                nvrhi::BufferRange range( m_worldUniformCache.publication.offset, sizeof( vhWorldUniform ) );
+                outItem = nvrhi::BindingSetItem::ConstantBuffer( item.slot, m_worldUniformCache.publication.buffer, range );
                 outItem.type = item.type;
                 outItem.unused = 0;
                 outItem.unused2 = 0;
@@ -1773,16 +1750,38 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
     VRHI_PROFILE_SCOPE( "BE_PreSubmitCommon_State_BindingSetBuild" );
     static nvrhi::BindingSetDesc bsetDesc;
     if ( bsetDesc.bindings.capacity() == 0 ) bsetDesc.bindings.reserve( 32 );
+    s_layoutBindingCache.resize( layouts.size() );
 
-    for ( uint32_t layoutIdx = 0; layoutIdx < ( uint32_t ) layouts.size(); layoutIdx++ )
+    for ( size_t layoutIdx = 0; layoutIdx < layouts.size(); ++layoutIdx )
     {
-        auto savedBindings = std::move( bsetDesc.bindings );
-        bsetDesc = nvrhi::BindingSetDesc{};
-        bsetDesc.bindings = std::move( savedBindings );
-        bsetDesc.bindings.clear();
-
-        auto& layout = layouts[layoutIdx];
+        const auto& layout = layouts[layoutIdx];
+        auto& entry = s_layoutBindingCache[layoutIdx];
         assert( layout );
+
+        const auto layoutItr = s_layoutToShader.find( layout );
+        const bool mapped = layoutItr != s_layoutToShader.end();
+        auto* shader = mapped ? layoutItr->second : nullptr;
+        const uint32_t stage = shader ? ( uint32_t ) ( shader->flags & VRHI_SHADER_STAGE_MASK ) : 0;
+        const auto* layoutDesc = layout->getDesc();
+        vhBindingLayoutCacheEntry::Key key;
+        key.stateId = stateId;
+        key.layout = layout.Get();
+        key.shader = shader;
+        key.resourceVersion = s_globalResourceVersion;
+        uint64_t dependencies = 0;
+        bool cacheable = false;
+        if ( !vhPrepareBindingLayoutCacheKey( state, s_resolveCache, stage, m_globalUniformCache, m_worldUniformCache, m_globalUniformBuffer, m_worldUniformBuffer, key, dependencies, cacheable ) ) return false;
+
+        if ( cacheable && entry.set && entry.key == key && ( state.dirty & dependencies ) == 0 )
+        {
+            vhAddBindingSet( entry.set, computeState, graphicsState, rtState );
+#ifndef NDEBUG
+            ++s_layoutReuseTestCount;
+#endif
+            continue;
+        }
+
+        entry.set = nullptr;
 
         // Bindless layouts have no regular desc; bind the matching IDescriptorTable directly.
         if ( layout->getBindlessDesc() != nullptr )
@@ -1798,48 +1797,38 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                     break;
                 }
             }
-            if ( computeState )  computeState->addBindingSet( dtable );
-            if ( graphicsState ) graphicsState->addBindingSet( dtable );
-            if ( rtState )       rtState->bindings.push_back( dtable );
+            vhAddBindingSet( dtable, computeState, graphicsState, rtState );
+            entry.Store( key, dtable, cacheable );
             continue;
         }
 
-        auto layoutDesc = layout->getDesc();
         assert( layoutDesc );
-
         if ( layout == m_emptyLayout )
         {
-            if ( computeState )  computeState->addBindingSet( m_emptySet );
-            if ( graphicsState ) graphicsState->addBindingSet( m_emptySet );
-            if ( rtState )       rtState->bindings.push_back( m_emptySet );
+            vhAddBindingSet( m_emptySet, computeState, graphicsState, rtState );
+            entry.Store( key, m_emptySet, cacheable );
             continue;
         }
 
-        // Build a flat vector of reflection slot --> reflection resource.
-        // Reflection slots are small non-negative integers, so direct indexing is O(1).
-
-        s_slotToReflection.clear();
-        auto layoutItr = s_layoutToShader.find( layout );
-        if ( layoutItr == s_layoutToShader.end() )
+        if ( !mapped )
         {
-            // Unmapped slot (user-supplied placeholder layout). Bind an empty set against it.
-            nvrhi::BindingSetHandle bset = vhGetBindingSet( nvrhi::BindingSetDesc{}, layout.Get() );
-            if ( bset )
+            // User-supplied placeholder layouts have no reflected bindings.
+            nvrhi::BindingSetHandle set = vhGetBindingSet( nvrhi::BindingSetDesc{}, layout.Get() );
+            if ( set )
             {
-                if ( computeState )  computeState->addBindingSet( bset );
-                if ( graphicsState ) graphicsState->addBindingSet( bset );
-                if ( rtState )       rtState->bindings.push_back( bset );
+                vhAddBindingSet( set, computeState, graphicsState, rtState );
+                entry.Store( key, set, cacheable );
             }
             continue;
         }
-        auto shader = layoutItr->second;
-        if ( !shader )
-            continue;
+
+        if ( !shader ) continue;
+        bsetDesc.bindings.clear();
+        s_slotToReflection.clear();
         if ( state.debugFlags == VRHI_STATE_DEBUG_ALL ) VRHI_LOG( "Binding resources for shader %s.\n", shader->name.c_str() );
 
-        for ( uint32_t i = 0; i < ( uint32_t ) shader->reflection.size(); i++ )
+        for ( auto& reflection : shader->reflection )
         {
-            auto& reflection = shader->reflection[i];
             if ( reflection.bindless )
             {
                 if ( ( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) && state.descriptorTables.empty() ) VRHI_ERR( "Bindless resource '%s' declared by shader %s but no descriptor table is bound.\n", reflection.name.c_str(), shader->name.c_str() );
@@ -1850,29 +1839,16 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             assert( s_slotToReflection[reflection.slot] == nullptr );
             s_slotToReflection[reflection.slot] = &reflection;
         }
-        uint32_t stage = ( uint32_t ) ( shader->flags & VRHI_SHADER_STAGE_MASK );
-        assert( stage > 0 && stage <= VRHI_SHADER_STAGE_MAX );
-
-        // Loop through the required bindings for this layout.
-
-        for ( uint32_t bindingIdx = 0; bindingIdx < layoutDesc->bindings.size(); bindingIdx++ )
+        for ( const auto& binding : layoutDesc->bindings )
         {
-            auto binding = layoutDesc->bindings[bindingIdx];
-            //TEMP_PRINT
-            //printf( "DEBUG: Layout binding type=%d slot=%u\n", (int)binding.type, binding.slot );
-
             if ( binding.type == nvrhi::ResourceType::PushConstants )
             {
-                // Special early branch for push constants.
                 nvrhi::BindingSetItem item;
                 if ( BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item, "PushConstants" ) )
-                {
                     bsetDesc.addItem( item );
-                }
                 continue;
             }
 
-            // Find the corresponding reflection resource.
             const vhShaderReflectionResource* reflectionPtr = ( binding.slot < s_slotToReflection.size() ) ? s_slotToReflection[binding.slot] : nullptr;
             if ( !reflectionPtr )
             {
@@ -1880,12 +1856,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
                 return false;
             }
             const auto& reflection = *reflectionPtr;
-
-            // Validate the reflection against the layout.
             if ( !vhShaderValidateBinding( reflection, binding, !!( state.debugFlags & VRHI_STATE_DEBUG_LOG_BINDING_MISMATCH ) ) )
-            {
                 return false;
-            }
 
             nvrhi::BindingSetItem item;
             if ( !BE_PreSubmitCommon_FindResource( state, stage, s_resolveCache, binding, item, reflection.name.c_str() ) )
@@ -1896,17 +1868,14 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
             bsetDesc.addItem( item );
         }
 
-        // Create Binding Set.
-        nvrhi::BindingSetHandle bset = vhGetBindingSet( bsetDesc, layout.Get() );
-        if ( !bset )
+        nvrhi::BindingSetHandle set = vhGetBindingSet( bsetDesc, layout.Get() );
+        if ( !set )
         {
             VRHI_ERR( "vhSetState() : Failed to create NVRHI binding set for shader %p!\n", shader->handle.Get() );
             return false;
         }
-
-        if ( computeState )  computeState->addBindingSet( bset );
-        if ( graphicsState ) graphicsState->addBindingSet( bset );
-        if ( rtState )       rtState->bindings.push_back( bset );
+        vhAddBindingSet( set, computeState, graphicsState, rtState );
+        entry.Store( key, set, cacheable );
     }
 
     if ( graphicsState )
@@ -2367,6 +2336,9 @@ void vhCmdBackendState::init()
         // Called from vhInit which already holds g_nvRHIStateMutex lock, and before RHI thread even starts.
         // So we don't need to lock g_nvRHIStateMutex here.
 
+        m_globalUniformCache.Clear();
+        m_worldUniformCache.Clear();
+
         nvrhi::BufferDesc desc;
         desc.setByteSize( g_vhInit.maxViewGlobals * sizeof( vhGlobalUniform ) );
         desc.setIsConstantBuffer( true );
@@ -2438,6 +2410,7 @@ void vhCmdBackendState::shutdown()
     s_resolveCacheVersion = 0;
     s_globalResourceVersion = 1;
     s_globalPipelineVersion = 1;
+    s_layoutBindingCache.clear();
     s_submitPSOCacheStateId = VRHI_INVALID_HANDLE;
     s_submitPSOCacheVersion = 0;
     s_submitPSOCachePSO = nullptr;
@@ -4561,8 +4534,6 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
 
         vhTransientBuffer* uniformBuffers[] = { &m_globalUniformBuffer, &m_worldUniformBuffer, &m_userUniformBuffer };
         for ( auto* buffer : uniformBuffers ) buffer->Flush_DeviceStateLocked();
-        m_globalUniformBufferLastHash = 0;
-        m_worldUniformBufferLastHash = 0;
         for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
     
         // Submit pending command lists.
