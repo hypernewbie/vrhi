@@ -4460,21 +4460,27 @@ void vhCmdBackendState::Handle_vhCmdSetStateIndexBuffer( VIDL_vhCmdSetStateIndex
 void vhCmdBackendState::Handle_vhCmdSetStateTextures( VIDL_vhCmdSetStateTextures* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    vhAssignFromSpan( backendStates[cmd->id].textures, cmd->textures );
+    auto& state = backendStates[cmd->id];
+    if ( vhBindingsEqual( state.textures, cmd->textures ) ) return;
+    vhAssignFromSpan( state.textures, cmd->textures );
     s_globalResourceVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateSamplers( VIDL_vhCmdSetStateSamplers* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    vhAssignFromSpan( backendStates[cmd->id].samplers, cmd->samplers );
+    auto& state = backendStates[cmd->id];
+    if ( vhBindingsEqual( state.samplers, cmd->samplers ) ) return;
+    vhAssignFromSpan( state.samplers, cmd->samplers );
     s_globalResourceVersion++;
 }
 
 void vhCmdBackendState::Handle_vhCmdSetStateBuffers( VIDL_vhCmdSetStateBuffers* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
-    vhAssignFromSpan( backendStates[cmd->id].buffers, cmd->buffers );
+    auto& state = backendStates[cmd->id];
+    if ( vhBindingsEqual( state.buffers, cmd->buffers ) ) return;
+    vhAssignFromSpan( state.buffers, cmd->buffers );
     s_globalResourceVersion++;
 }
 
@@ -4579,6 +4585,7 @@ void vhCmdBackendState::Handle_vhCmdSetStateAccelStructs( VIDL_vhCmdSetStateAcce
     auto it = backendStates.find( cmd->id );
     if ( it != backendStates.end() )
     {
+        if ( vhBindingsEqual( it->second.accelStructs, cmd->accelStructs ) ) return;
         vhAssignFromSpan( it->second.accelStructs, cmd->accelStructs );
         it->second.dirty |= VRHI_DIRTY_ACCEL_STRUCT;
         s_globalResourceVersion++;
