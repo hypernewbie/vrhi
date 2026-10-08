@@ -4846,6 +4846,255 @@ UTEST_F( Graphics, WorldResolve_W04_IdentitiesStillInvalidate )
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
+static uint32_t FloatBits( float f )
+{
+    uint32_t bits;
+    memcpy( &bits, &f, sizeof( bits ) );
+    return bits;
+}
+
+
+struct UniformBitsProbe
+{
+    vhShader shader = VRHI_INVALID_HANDLE;
+    vhBuffer out = VRHI_INVALID_HANDLE;
+    vhState state;
+    vhStateId id = 0;
+    uint32_t words = 8;
+
+    explicit UniformBitsProbe( vhStateId id, const char* source, uint32_t words = 8 )
+        : id( id ), words( words )
+    {
+        shader = CreateTestShader( source, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_PATCH_DSET0 );
+
+        out = vhAllocBuffer();
+        vhMem* initial = vhAllocMem( words * sizeof( uint32_t ) );
+        std::memset( initial->data(), 0, initial->size() );
+        vhCreateStorageStructuredBuffer( out, "Sweep8UniformBits", initial, initial->size(), sizeof( uint32_t ) );
+        if ( shader != VRHI_INVALID_HANDLE )
+        {
+            state.SetProgram( vhCreateComputeProgram( shader ) )
+                .SetBuffer( 0, { .name = "g_Out", .buffer = out, .computeUAV = true } );
+        }
+        vhFinish();
+    }
+
+    UniformBitsProbe( const UniformBitsProbe& ) = delete;
+    UniformBitsProbe& operator=( const UniformBitsProbe& ) = delete;
+
+    ~UniformBitsProbe()
+    {
+        vhFinish();
+        vhState reset;
+        vhSetState( id, reset, VRHI_DIRTY_ALL );
+        vhDestroyBuffer( out );
+        if ( shader != VRHI_INVALID_HANDLE ) vhDestroyShader( shader );
+        vhFinish();
+    }
+
+    bool Submit( const glm::vec4& viewRect, const glm::mat4& view, const glm::mat4& proj, const glm::mat4& world )
+    {
+        if ( shader == VRHI_INVALID_HANDLE ) return false;
+        state.SetViewRect( viewRect )
+            .SetViewTransform( view, proj )
+            .SetWorldTransform( world );
+        vhSetState( id, state );
+        vhDispatch( id, { 1, 1, 1 } );
+        vhFinish();
+        return true;
+    }
+
+    bool Read( std::span< uint32_t > bits ) const
+    {
+        if ( bits.size() != words ) return false;
+        vhMem data;
+        vhReadBufferSlow( out, 0, words * sizeof( uint32_t ), &data );
+        if ( data.size() != words * sizeof( uint32_t ) ) return false;
+        memcpy( bits.data(), data.data(), words * sizeof( uint32_t ) );
+        return true;
+    }
+};
+
+// Keep the resolve cache on B while A and B change different binding lists.
+UTEST_F( Graphics, BindingEquality_CrossCategoryStateOwnership )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    const char* source = R"(
+cbuffer WorldUniforms
+{
+    float4x4 u_world[4];
+    float4x4 u_worldView;
+    float4x4 u_worldViewProj;
+    float4 _worldPad[8];
+};
+RWStructuredBuffer<uint> g_Out : register(u0, VRHI_STAGE_SPACE);
+[numthreads(1,1,1)]
+void main() { g_Out[0] = asuint(u_world[0][0][0]); }
+)";
+    {
+        UniformBitsProbe a( 1983, source, 1 );
+        UniformBitsProbe b( 1984, source, 1 );
+        ASSERT_NE( a.shader, VRHI_INVALID_HANDLE );
+        ASSERT_NE( b.shader, VRHI_INVALID_HANDLE );
+        ASSERT_TRUE( b.Submit( glm::vec4( 0, 0, 16, 16 ), glm::mat4( 1 ), glm::mat4( 1 ), glm::mat4( 42 ) ) );
+        uint32_t aBits[1], bBits[1];
+        ASSERT_TRUE( a.Read( aBits ) );
+        ASSERT_TRUE( b.Read( bBits ) );
+        EXPECT_EQ( aBits[0], 0u );
+        EXPECT_EQ( bBits[0], FloatBits( 42.0f ) );
+
+        vhState::BufferBinding binding = { .name = "g_Out", .buffer = a.out, .computeUAV = true };
+        vhCmdSetStateBuffers( a.id, { binding } );
+        vhState::SamplerDefinition unused = { .name = "unused" };
+        vhCmdSetStateSamplers( b.id, { unused } );
+        vhDispatch( b.id, { 1, 1, 1 } );
+        vhFinish();
+        const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
+
+        vhCmdSetStateBuffers( b.id, { binding } );
+        vhCmdSetStateWorldTransform( b.id, { glm::mat4( 77 ) } );
+        vhDispatch( b.id, { 1, 1, 1 } );
+        vhFinish();
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 1 );
+        ASSERT_TRUE( a.Read( aBits ) );
+        ASSERT_TRUE( b.Read( bBits ) );
+        EXPECT_EQ( aBits[0], FloatBits( 77.0f ) );
+        EXPECT_EQ( bBits[0], FloatBits( 42.0f ) );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, Sweep8_TextureChange_StillRebuildsResolve )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const float values[] = { 0.25f, 0.5f, 0.75f };
+        WorldResolveResources resources( 1971, 3 );
+        vhTexture rebound = CreateTestTexture( 4, 4 * 3, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+        vhFinish();
+
+        // The mip-only rebind must change the descriptor despite an equal texture handle.
+        vhTexture mipped = vhAllocTexture();
+        vhCreateTexture2D( mipped, "TX02b_mips", glm::ivec2( 8, 24 ), 2, nvrhi::Format::R32_FLOAT,
+                           VRHI_TEXTURE_COMPUTE_WRITE );
+        vhMem* zeroBase = vhAllocMem( 8 * 24 * sizeof( float ) );
+        std::memset( zeroBase->data(), 0, zeroBase->size() );
+        vhMem* zeroRebound = vhAllocMem( 4 * 12 * sizeof( float ) );
+        std::memset( zeroRebound->data(), 0, zeroRebound->size() );
+        vhMem* zeroMip = vhAllocMem( 4 * 12 * sizeof( float ) );
+        std::memset( zeroMip->data(), 0, zeroMip->size() );
+        vhUpdateTexture( rebound, 0, 0, 1, 1, zeroRebound );
+        vhUpdateTexture( mipped, 0, 0, 1, 1, zeroBase );
+        vhUpdateTexture( mipped, 1, 0, 1, 1, zeroMip );
+        vhFinish();
+
+        vhState::TextureBinding mipView;
+        mipView.name = "g_Out";
+        mipView.texture = mipped;
+        mipView.computeUAV = true;
+        mipView.subresources = nvrhi::TextureSubresourceSet( 1, 1, 0, nvrhi::TextureSubresourceSet::AllArraySlices );
+
+        resources.Submit( values[0], 0 );
+        const uint64_t hits = g_vhPerf.resolveCacheHits.load();
+        const uint64_t rebuilds = g_vhPerf.resolveCacheRebuilds.load();
+
+        const std::array< float, 3 > afterFirst{ values[0], 0.0f, 0.0f };
+        const std::array< float, 3 > nothing{ 0.0f, 0.0f, 0.0f };
+        EXPECT_TRUE( CheckWorldRecords( resources.output, afterFirst ) );
+        EXPECT_TRUE( CheckWorldRecords( rebound, nothing ) );
+
+        vhState::TextureBinding binding;
+        binding.name = "g_Out";
+        binding.texture = rebound;
+        binding.computeUAV = true;
+        vhCmdSetStateTextures( 1971, { binding } );
+        glm::mat4 world( 1 );
+        world[0][0] = values[1];
+        world[1][1] = 1;
+        vhCmdSetStateWorldTransform( 1971, { world } );
+        vhDispatch( 1971, { 4, 4, 1 } );
+        vhFlush( true );
+
+        EXPECT_EQ( g_vhPerf.resolveCacheHits.load(), hits );
+        EXPECT_EQ( g_vhPerf.resolveCacheRebuilds.load(), rebuilds + 1 );
+
+        const std::array< float, 3 > afterRebind{ 0.0f, values[1], 0.0f };
+        EXPECT_TRUE( CheckWorldRecords( rebound, afterRebind ) );
+        EXPECT_TRUE( CheckWorldRecords( resources.output, afterFirst ) );
+
+        {
+            vhState::TextureBinding mipZero;
+            mipZero.name = "g_Out";
+            mipZero.texture = mipped;
+            mipZero.computeUAV = true;
+            mipZero.subresources = nvrhi::TextureSubresourceSet( 0, 1, 0, nvrhi::TextureSubresourceSet::AllArraySlices );
+            vhCmdSetStateTextures( 1971, { mipZero } );
+
+            glm::mat4 mipWorld( 1 );
+            mipWorld[0][0] = values[2];
+            mipWorld[1][1] = 2;
+            vhCmdSetStateWorldTransform( 1971, { mipWorld } );
+            vhDispatch( 1971, { 4, 4, 1 } );
+            vhFlush( true );
+        }
+
+        // Seed mip 1 so a stale mip-0 descriptor leaves a visible sentinel.
+        {
+            vhMem* seedMem = vhAllocMem( 4 * 12 * sizeof( float ) );
+            float* sp = ( float* ) seedMem->data();
+            for ( size_t i = 0; i < 4 * 12; ++i ) sp[i] = -1.0f;
+            vhUpdateTexture( mipped, 1, 0, 1, 1, seedMem );
+            vhFinish();
+        }
+
+        vhCmdSetStateTextures( 1971, { mipView } );
+        vhDispatch( 1971, { 4, 4, 1 } );
+        vhFlush( true );
+
+        vhMem mip1;
+        vhReadTextureSlow( mipped, 1, 0, &mip1 );
+        vhFinish();
+        ASSERT_EQ( mip1.size(), (size_t)( 4 * 12 * sizeof( float ) ) );
+        {
+            const float* px = ( const float* ) mip1.data();
+            const std::array< float, 12 > expectedMip1 = {
+                -1, -1, -1, -1, // record 0: seed, not written
+                -1, -1, -1, -1, // record 1: seed, not written
+                values[2], values[2], values[2], values[2] // record 2: overwritten
+            };
+            for ( size_t row = 0; row < expectedMip1.size(); ++row )
+                for ( size_t x = 0; x < 4; ++x )
+                    EXPECT_NEAR( px[row * 4 + x], expectedMip1[row], 0.0001f );
+        }
+        {
+            vhMem mip0;
+            vhReadTextureSlow( mipped, 0, 0, &mip0 );
+            vhFinish();
+            ASSERT_EQ( mip0.size(), (size_t)( 8 * 24 * sizeof( float ) ) );
+            const float* px = ( const float* ) mip0.data();
+            for ( size_t row = 0; row < 24; ++row )
+            {
+                const bool recordWritten = ( row >= 8 && row < 12 );
+                for ( size_t x = 0; x < 8; ++x )
+                {
+                    const bool columnDispatched = ( x < 4 );
+                    const float want = ( recordWritten && columnDispatched ) ? values[2] : 0.0f;
+                    EXPECT_NEAR( px[row * 8 + x], want, 0.0001f );
+                }
+            }
+        }
+
+        vhDestroyTexture( rebound );
+        vhDestroyTexture( mipped );
+        vhFinish();
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
 UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );

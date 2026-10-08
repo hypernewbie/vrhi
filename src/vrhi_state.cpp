@@ -279,6 +279,66 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     return true;
 }
 
+static bool vhBindingNameEqual( const char* a, const char* b )
+{
+    return a == b || ( a && b && strcmp( a, b ) == 0 );
+}
+
+static bool vhBindingEqual( const vhState::TextureBinding& a, const vhState::TextureBinding& b )
+{
+    return vhBindingNameEqual( a.name, b.name ) && a.slot == b.slot && a.texture == b.texture
+        && a.formatOverride == b.formatOverride && a.dimensionOverride == b.dimensionOverride
+        && a.computeUAV == b.computeUAV && a.subresources == b.subresources;
+}
+
+static bool vhBindingEqual( const vhState::SamplerDefinition& a, const vhState::SamplerDefinition& b )
+{
+    return vhBindingNameEqual( a.name, b.name ) && a.slot == b.slot && a.flags == b.flags;
+}
+
+static bool vhBindingEqual( const vhState::BufferBinding& a, const vhState::BufferBinding& b )
+{
+    return vhBindingNameEqual( a.name, b.name ) && a.slot == b.slot && a.buffer == b.buffer
+        && a.byteOffset == b.byteOffset && a.byteSize == b.byteSize && a.computeUAV == b.computeUAV;
+}
+
+static bool vhBindingEqual( const vhState::AccelStructBinding& a, const vhState::AccelStructBinding& b )
+{
+    return vhBindingNameEqual( a.name, b.name ) && a.slot == b.slot && a.as == b.as;
+}
+
+template< typename T >
+static bool vhBindingsEqual( const std::vector< T >& current, const vhArenaSpan< T >& incoming )
+{
+    // Resolve tables point into these vectors. Equal resends must not assign them.
+    if ( current.size() != incoming.size() ) return false;
+    for ( size_t i = 0; i < current.size(); i++ )
+    {
+        if ( !vhBindingEqual( current[i], incoming[i] ) ) return false;
+    }
+    return true;
+}
+
+bool vhBindingsEqual( const std::vector< vhState::TextureBinding >& current, const vhArenaSpan< vhState::TextureBinding >& incoming )
+{
+    return vhBindingsEqual< vhState::TextureBinding >( current, incoming );
+}
+
+bool vhBindingsEqual( const std::vector< vhState::SamplerDefinition >& current, const vhArenaSpan< vhState::SamplerDefinition >& incoming )
+{
+    return vhBindingsEqual< vhState::SamplerDefinition >( current, incoming );
+}
+
+bool vhBindingsEqual( const std::vector< vhState::BufferBinding >& current, const vhArenaSpan< vhState::BufferBinding >& incoming )
+{
+    return vhBindingsEqual< vhState::BufferBinding >( current, incoming );
+}
+
+bool vhBindingsEqual( const std::vector< vhState::AccelStructBinding >& current, const vhArenaSpan< vhState::AccelStructBinding >& incoming )
+{
+    return vhBindingsEqual< vhState::AccelStructBinding >( current, incoming );
+}
+
 nvrhi::VariableShadingRate vhTranslateShadingRate( uint32_t rate )
 {
     switch ( rate )
