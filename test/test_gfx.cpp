@@ -4691,6 +4691,10 @@ struct WorldResolveResources
         )";
         shader = CreateTestShader( push ? pushSource : g_worldResolveCS, VRHI_SHADER_STAGE_COMPUTE );
         output = CreateTestTexture( 4, 4 * records, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_COMPUTE_WRITE );
+        // Readback checks unwritten records too.
+        vhMem* zeroInit = vhAllocMem( 4 * 4 * records * sizeof( float ) );
+        std::memset( zeroInit->data(), 0, zeroInit->size() );
+        vhUpdateTexture( output, 0, 0, 1, 1, zeroInit );
         state.SetProgram( vhCreateComputeProgram( shader ) ).SetViewTransform( glm::mat4( 1 ), glm::mat4( 1 ) )
             .SetTexture( 0, output, -1, "g_Out", true );
         vhFinish();
