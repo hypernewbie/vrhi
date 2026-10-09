@@ -57,27 +57,97 @@ struct vhUniformPublication
     }
 };
 
+struct vhGlobalUniformSources
+{
+    glm::vec4 viewRect = {};
+    glm::mat4 view = {};
+    glm::mat4 proj = {};
+    bool valid = false;
+
+    inline bool Matches( const vhState& state ) const
+    {
+        // Byte equality preserves signed zero and NaN payloads.
+        if ( !valid ) return false;
+        return memcmp( &viewRect, &state.viewRect, sizeof( viewRect ) ) == 0
+            && memcmp( &view, &state.viewMatrix, sizeof( view ) ) == 0
+            && memcmp( &proj, &state.projMatrix, sizeof( proj ) ) == 0;
+    }
+
+    inline void Capture( const vhState& state )
+    {
+        viewRect = state.viewRect;
+        view = state.viewMatrix;
+        proj = state.projMatrix;
+        valid = true;
+    }
+
+    inline void Invalidate()
+    {
+        valid = false;
+    }
+};
+
+struct vhWorldUniformSources
+{
+    glm::mat4 view = {};
+    glm::mat4 proj = {};
+    glm::mat4 world[4] = {};
+    uint8_t worldCount = 0;
+    bool valid = false;
+
+    inline bool Matches( const vhState& state ) const
+    {
+        // Unused WORLD slots depend on the matrix count.
+        const size_t count = std::min( state.worldMatrix.size(), size_t( 4 ) );
+        return valid && worldCount == count
+            && memcmp( &view, &state.viewMatrix, sizeof( view ) ) == 0
+            && memcmp( &proj, &state.projMatrix, sizeof( proj ) ) == 0
+            && ( count == 0 || memcmp( world, state.worldMatrix.data(), count * sizeof( world[0] ) ) == 0 );
+    }
+
+    inline void Capture( const vhState& state )
+    {
+        view = state.viewMatrix;
+        proj = state.projMatrix;
+        worldCount = ( uint8_t ) std::min( state.worldMatrix.size(), size_t( 4 ) );
+        if ( worldCount ) memcpy( world, state.worldMatrix.data(), worldCount * sizeof( world[0] ) );
+        valid = true;
+    }
+
+    inline void Invalidate()
+    {
+        valid = false;
+    }
+};
+
 struct vhGlobalUniformCache
 {
     vhUniformPublication publication;
+    vhGlobalUniformSources sources;
+    vhGlobalUniform value = {};
+    uint64_t bytesHash = 0;
 
     inline void Clear()
     {
+        sources.Invalidate();
         publication = {};
     }
 
     inline int64_t Write( const vhState& state, vhTransientBuffer& tbuf )
     {
-        vhGlobalUniform u;
-        vhWriteStateToGlobalUniform( state, u );
-        const uint64_t hash = vhHashGlobalUniform( u );
+        if ( !sources.Matches( state ) )
+        {
+            vhWriteStateToGlobalUniform( state, value );
+            bytesHash = vhHashGlobalUniform( value );
+            sources.Capture( state );
+        }
 
-        if ( publication.Covers( tbuf, sizeof( u ), hash ) )
+        if ( publication.Covers( tbuf, sizeof( value ), bytesHash ) )
             return publication.offset;
 
-        const int64_t offset = tbuf.Write( &u, sizeof( u ) );
+        const int64_t offset = tbuf.Write( &value, sizeof( value ) );
         if ( offset < 0 ) return offset;
-        publication = { tbuf.handle[tbuf.frameIdx].Get(), offset, hash };
+        publication = { tbuf.handle[tbuf.frameIdx].Get(), offset, bytesHash };
         return offset;
     }
 };
@@ -85,24 +155,31 @@ struct vhGlobalUniformCache
 struct vhWorldUniformCache
 {
     vhUniformPublication publication;
+    vhWorldUniformSources sources;
+    vhWorldUniform value = {};
+    uint64_t bytesHash = 0;
 
     inline void Clear()
     {
+        sources.Invalidate();
         publication = {};
     }
 
     inline int64_t Write( const vhState& state, vhTransientBuffer& tbuf )
     {
-        vhWorldUniform u;
-        vhWriteStateToWorldUniform( state, u );
-        const uint64_t hash = vhHashWorldUniform( u );
+        if ( !sources.Matches( state ) )
+        {
+            vhWriteStateToWorldUniform( state, value );
+            bytesHash = vhHashWorldUniform( value );
+            sources.Capture( state );
+        }
 
-        if ( publication.Covers( tbuf, sizeof( u ), hash ) )
+        if ( publication.Covers( tbuf, sizeof( value ), bytesHash ) )
             return publication.offset;
 
-        const int64_t offset = tbuf.Write( &u, sizeof( u ) );
+        const int64_t offset = tbuf.Write( &value, sizeof( value ) );
         if ( offset < 0 ) return offset;
-        publication = { tbuf.handle[tbuf.frameIdx].Get(), offset, hash };
+        publication = { tbuf.handle[tbuf.frameIdx].Get(), offset, bytesHash };
         return offset;
     }
 };

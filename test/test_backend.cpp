@@ -227,6 +227,35 @@ uint64_t TestBindingLayoutReuseCount()
 }
 
 
+UTEST( BackendInternal, UniformSourceCache_WorldEffectiveCount )
+{
+    vhWorldUniformSources source;
+    vhState full;
+    full.worldMatrix = { glm::mat4( 1 ), glm::mat4( 2 ), glm::mat4( 3 ), glm::mat4( 4 ) };
+    vhState shortState = full;
+    shortState.worldMatrix.resize( 1 );
+
+    EXPECT_FALSE( source.Matches( full ) );
+    source.Capture( full );
+    EXPECT_TRUE( source.Matches( full ) );
+    EXPECT_FALSE( source.Matches( shortState ) );
+    source.Capture( shortState );
+    EXPECT_FALSE( source.Matches( full ) );
+
+    full.worldMatrix.push_back( glm::mat4( 9 ) );
+    source.Capture( full );
+    full.worldMatrix.back() = glm::mat4( 8 );
+    EXPECT_TRUE( source.Matches( full ) );
+
+    full.worldMatrix.clear();
+    source.Capture( full );
+    EXPECT_TRUE( source.Matches( full ) );
+    EXPECT_FALSE( source.Matches( shortState ) );
+    source.Invalidate();
+    EXPECT_FALSE( source.Matches( full ) );
+}
+
+
 UTEST( BackendInternal, ShaderStageMatches )
 {
     // Compute must be compute only

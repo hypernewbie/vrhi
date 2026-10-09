@@ -5393,6 +5393,218 @@ UTEST_F( Graphics, Sweep8_PerLayoutWorldDelta_UpdatesOnlyAffectedLayout )
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
+static const char* g_uniformBitsCS = R"(
+cbuffer GlobalUniforms
+{
+    float4 u_viewRect;
+    float4 u_viewTexel;
+    float4x4 u_view;
+    float4x4 u_invView;
+    float4x4 u_proj;
+    float4x4 u_invProj;
+    float4x4 u_viewProj;
+    float4x4 u_invViewProj;
+    float4 u_alphaRef4;
+    float4 u_global[21];
+};
+cbuffer WorldUniforms
+{
+    float4x4 u_world[4];
+    float4x4 u_worldView;
+    float4x4 u_worldViewProj;
+    float4 _worldPad[8];
+};
+RWStructuredBuffer<uint> g_Out : register(u0, VRHI_STAGE_SPACE);
+[numthreads(1, 1, 1)]
+void main()
+{
+    uint i = 0;
+    g_Out[i++] = asuint( u_viewRect.x );
+    g_Out[i++] = asuint( u_view[0][0] );
+    g_Out[i++] = asuint( u_proj[1][1] );
+    g_Out[i++] = asuint( u_viewProj[3][3] );
+    g_Out[i++] = asuint( u_invView[0][0] );
+    g_Out[i++] = asuint( u_world[0][0][0] );
+    g_Out[i++] = asuint( u_worldView[0][0] );
+    g_Out[i++] = asuint( u_worldViewProj[0][0] );
+}
+)";
+
+static void ExpectUniformBits( const glm::vec4& viewRect, const glm::mat4& view, const glm::mat4& proj,
+                               const glm::mat4& world, uint32_t out[8] )
+{
+    const glm::mat4 viewProj = proj * view;
+    const glm::mat4 invView = glm::inverse( view );
+    const glm::mat4 worldView = view * world;
+    const glm::mat4 worldViewProj = proj * worldView;
+    out[0] = FloatBits( viewRect.x );
+    out[1] = FloatBits( view[0][0] );
+    out[2] = FloatBits( proj[1][1] );
+    out[3] = FloatBits( viewProj[3][3] );
+    out[4] = FloatBits( invView[0][0] );
+    out[5] = FloatBits( world[0][0] );
+    out[6] = FloatBits( worldView[0][0] );
+    out[7] = FloatBits( worldViewProj[0][0] );
+}
+
+static bool CompareUniformBits( const char* label, const uint32_t got[8], const uint32_t want[8] )
+{
+    static const char* names[8] = { "viewRect.x", "view[0][0]", "proj[1][1]", "viewProj[3][3]",
+                                    "invView[0][0]", "world[0][0][0]", "worldView[0][0]", "worldViewProj[0][0]" };
+    bool equal = true;
+    for ( int i = 0; i < 8; ++i )
+    {
+        if ( got[i] != want[i] )
+        {
+            UTEST_PRINTF( "%s: %s bits 0x%08X, expected 0x%08X\n", label, names[i], got[i], want[i] );
+            equal = false;
+        }
+    }
+    return equal;
+}
+
+// Device reinit cannot run inside a Graphics fixture's GPU marker pair.
+UTEST( RHI, UniformCache_InvalidatedSnapshotCannotMatchInput )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
+    extern bool g_testInitQuiet;
+
+    const glm::vec4 viewRect( -1.0f, -1.0f, -1.0f, -1.0f );
+    // These values matched the old numeric invalidation sentinels.
+    const glm::mat4 doubleIdentity = glm::mat4( 1.0f ) + glm::mat4( 1.0f );
+    uint32_t want[8];
+    ExpectUniformBits( viewRect, doubleIdentity, doubleIdentity, doubleIdentity, want );
+
+    {
+        TestEnsureShutdown();
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+        vhFinish();
+        const int32_t errors = g_vhErrorCounter.load();
+
+        UniformBitsProbe probe( 1974, g_uniformBitsCS );
+        ASSERT_TRUE( probe.Submit( viewRect, doubleIdentity, doubleIdentity, doubleIdentity ) );
+        uint32_t got[8];
+        ASSERT_TRUE( probe.Read( got ) );
+        EXPECT_TRUE( CompareUniformBits( "first use after init", got, want ) );
+        EXPECT_EQ( g_vhErrorCounter.load(), errors );
+    }
+
+    {
+        uint32_t stale[8];
+        {
+            UniformBitsProbe probe( 1975, g_uniformBitsCS );
+            ASSERT_TRUE( probe.Submit( glm::vec4( 3.0f, 5.0f, 16.0f, 16.0f ),
+                glm::translate( glm::mat4( 1.0f ), glm::vec3( 11.0f, 0.0f, 0.0f ) ),
+                glm::scale( glm::mat4( 1.0f ), glm::vec3( 2.0f, 2.0f, 2.0f ) ),
+                glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 13.0f, 0.0f ) ) ) );
+            ASSERT_TRUE( probe.Read( stale ) );
+            EXPECT_NE( memcmp( stale, want, 8 * sizeof( uint32_t ) ), 0 );
+        }
+
+        TestEnsureShutdown();
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+        vhFinish();
+        const int32_t errors = g_vhErrorCounter.load();
+
+        UniformBitsProbe afterReinit( 1976, g_uniformBitsCS );
+        ASSERT_TRUE( afterReinit.Submit( viewRect, doubleIdentity, doubleIdentity, doubleIdentity ) );
+        uint32_t got[8];
+        ASSERT_TRUE( afterReinit.Read( got ) );
+        EXPECT_TRUE( CompareUniformBits( "first use after reinit", got, want ) );
+        EXPECT_EQ( g_vhErrorCounter.load(), errors );
+    }
+}
+
+UTEST_F( Graphics, Sweep8_UniformCache_SignedZeroSourceChangeIsVisible )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    {
+        const glm::mat4 view( 1.0f );
+        const glm::mat4 proj( 1.0f );
+        const glm::mat4 world( 1.0f );
+
+        UniformBitsProbe probe( 1977, g_uniformBitsCS );
+        ASSERT_TRUE( probe.Submit( glm::vec4( 0.0f, 0.0f, 16.0f, 16.0f ), view, proj, world ) );
+        uint32_t positiveZero[8];
+        ASSERT_TRUE( probe.Read( positiveZero ) );
+        EXPECT_EQ( positiveZero[0], 0x00000000u );
+
+        ASSERT_TRUE( probe.Submit( glm::vec4( -0.0f, 0.0f, 16.0f, 16.0f ), view, proj, world ) );
+        uint32_t negativeZero[8];
+        ASSERT_TRUE( probe.Read( negativeZero ) );
+
+        uint32_t want[8];
+        ExpectUniformBits( glm::vec4( -0.0f, 0.0f, 16.0f, 16.0f ), view, proj, world, want );
+        EXPECT_EQ( want[0], 0x80000000u );
+        EXPECT_TRUE( CompareUniformBits( "signed zero", negativeZero, want ) );
+
+        ASSERT_TRUE( probe.Submit( glm::vec4( 0.0f, 0.0f, 16.0f, 16.0f ), view, proj, world ) );
+        uint32_t back[8];
+        ASSERT_TRUE( probe.Read( back ) );
+        EXPECT_TRUE( CompareUniformBits( "signed zero round trip", back, positiveZero ) );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST_F( Graphics, UniformCache_WorldEffectiveCount_ShrinkGrowAndEmpty )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    const char* source = R"(
+cbuffer WorldUniforms
+{
+    float4x4 u_world[4];
+    float4x4 u_worldView;
+    float4x4 u_worldViewProj;
+    float4 _worldPad[8];
+};
+RWStructuredBuffer<uint> g_Out : register(u0, VRHI_STAGE_SPACE);
+[numthreads(1,1,1)]
+void main()
+{
+    for (uint i = 0; i < 4; ++i) g_Out[i] = asuint(u_world[i][0][0]);
+    g_Out[4] = asuint(u_worldView[0][0]);
+    g_Out[5] = asuint(u_worldViewProj[0][0]);
+}
+)";
+    {
+        UniformBitsProbe probe( 1982, source, 6 );
+        ASSERT_NE( probe.shader, VRHI_INVALID_HANDLE );
+        probe.state.SetViewTransform( glm::mat4( 2.0f ), glm::mat4( 3.0f ) );
+        vhSetState( probe.id, probe.state );
+        const std::vector< glm::mat4 > full = {
+            glm::mat4( 1.0f ), glm::mat4( 2.0f ), glm::mat4( 3.0f ), glm::mat4( 4.0f ) };
+        const std::vector< glm::mat4 > cases[] = {
+            full, { full[0] }, full, { full[0], full[1] }, {}, { full[0] },
+            { full[0], full[1], full[2], full[3], glm::mat4( 9.0f ) },
+            { full[0], full[1], full[2], full[3], glm::mat4( 8.0f ) } };
+        for ( const auto& matrices : cases )
+        {
+            vhCmdSetStateWorldTransform( probe.id, matrices );
+            vhDispatch( probe.id, { 1, 1, 1 } );
+            vhFinish();
+            uint32_t got[6];
+            ASSERT_TRUE( probe.Read( got ) );
+            for ( size_t i = 0; i < 4; ++i )
+            {
+                const float expected = i < matrices.size() ? matrices[i][0][0]
+                    : ( i == 0 && matrices.empty() ? 1.0f : 0.0f );
+                EXPECT_EQ( got[i], FloatBits( expected ) );
+            }
+            const float first = matrices.empty() ? 1.0f : matrices[0][0][0];
+            EXPECT_EQ( got[4], FloatBits( 2.0f * first ) );
+            EXPECT_EQ( got[5], FloatBits( 6.0f * first ) );
+        }
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
 UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU" );
