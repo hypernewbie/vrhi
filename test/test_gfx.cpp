@@ -2620,6 +2620,7 @@ UTEST_F( Graphics, DrawIndexedIndirect )
 UTEST_F( Graphics, DrawIndexedIndirectCount )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    if ( !g_vhDeviceInfo.drawIndirectCount ) { UTEST_SKIP( "Device does not support indirect draw counts" ); }
 
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
 
@@ -5950,6 +5951,7 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
 UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
+    if ( !g_vhDeviceInfo.drawIndirectCount ) { UTEST_SKIP( "Device does not support indirect draw counts" ); }
     const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int TILE = 32;  // 64x64 target, four 32x32 tiles

@@ -211,6 +211,27 @@ UTEST( RHI, ExtraDeviceExtensions )
     g_vhInit.extraDeviceExtensions.clear();
 }
 
+UTEST( RHI, IndirectCountCapability )
+{
+    TestEnsureShutdown();
+    vhInit( g_testInitQuiet );
+
+    if ( g_vhInit.nullMode )
+    {
+        EXPECT_FALSE( g_vhDeviceInfo.drawIndirectCount );
+    }
+    else
+    {
+        VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        features.pNext = &v12;
+        vkGetPhysicalDeviceFeatures2( vhGetVkPhysicalDevice(), &features );
+        EXPECT_EQ( g_vhDeviceInfo.drawIndirectCount, v12.drawIndirectCount == VK_TRUE );
+    }
+
+    vhShutdown( g_testInitQuiet );
+}
+
 UTEST( Allocator, FreeList )
 {
     vhAllocatorObjectFreeList allocator( 10 );
