@@ -896,6 +896,7 @@ struct vhDeviceInfo
     bool shaderInt16 = false;
     bool presentWait = false;
     bool samplerMipLodBias = false;   // non-zero VRHI_SAMPLER_MIPBIAS is accepted by vhGetSamplerHandle
+    bool drawIndirectCount = false;   // Vulkan drawIndirectCount feature is enabled
 
     uint32_t maxTextureSize = 0;
     uint32_t maxColorAttachments = 0;

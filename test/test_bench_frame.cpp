@@ -623,6 +623,13 @@ static void FrameSetMaterialUniforms( vhState& s, FrameRng& rng, int material )
     s.SetUniform( s.uniforms.size(), "pbrTexIdx2", &pbrTexIdx2 );
 }
 
+// Omit unsupported mip LOD bias so sampler creation does not reject the lit pass.
+static uint64_t FrameShadowSamplerFlags( float bias )
+{
+    if ( !g_vhDeviceInfo.samplerMipLodBias ) return VRHI_SAMPLER_UVW_CLAMP;
+    return VRHI_SAMPLER_UVW_CLAMP | VRHI_SAMPLER_MIPBIAS( bias );
+}
+
 // Runs one benchmark frame.
 static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t frame, vhStateId sidBase )
 {
@@ -676,11 +683,11 @@ static void RunFrameBench( FrameResources& R, const FrameWorkload& W, uint32_t f
             .SetSampler( 0, VRHI_SAMPLER_UVW_CLAMP | VRHI_SAMPLER_MIN_LINEAR | VRHI_SAMPLER_MAG_LINEAR | VRHI_SAMPLER_MIP_LINEAR, -1, "matPBRSampler" )
             .SetSampler( 1, VRHI_SAMPLER_UVW_CLAMP, -1, "envBRDFLUTTexture_sampler" )
             .SetTexture( 3, R.lightingTex[2], -1, "deferredSunShadow" )
-            .SetSampler( 2, VRHI_SAMPLER_UVW_CLAMP | VRHI_SAMPLER_MIPBIAS( -0.5f ), -1, "deferredSunShadow_sampler" )
+            .SetSampler( 2, FrameShadowSamplerFlags( -0.5f ), -1, "deferredSunShadow_sampler" )
             .SetTexture( 4, R.lightingTex[3], -1, "spotShadowMap" )
-            .SetSampler( 3, VRHI_SAMPLER_UVW_CLAMP | VRHI_SAMPLER_MIPBIAS( -0.5f ), -1, "spotShadowMap_sampler" )
+            .SetSampler( 3, FrameShadowSamplerFlags( -0.5f ), -1, "spotShadowMap_sampler" )
             .SetTexture( 5, R.lightingTex[4], -1, "sunshadowMapFallback" )
-            .SetSampler( 4, VRHI_SAMPLER_UVW_CLAMP | VRHI_SAMPLER_MIPBIAS( -1.0f ), -1, "sunshadowMapFallback_sampler" )
+            .SetSampler( 4, FrameShadowSamplerFlags( -1.0f ), -1, "sunshadowMapFallback_sampler" )
             .SetTexture( 6, R.lightingTex[5], -1, "gtaoTexture" )
             .SetSampler( 5, VRHI_SAMPLER_UVW_CLAMP, -1, "gtaoTexture_sampler" )
             .SetDescriptorTable( 0, R.bindlessTable );
@@ -894,6 +901,7 @@ UTEST_F( FrameBench, Bench_Frame_GCInterval )
 
 static bool RunHeavyFrameBench( const char* label, int scale )
 {
+    const int32_t startErrors = g_vhErrorCounter.load();
     FrameResources R;
     if ( !R.Init( true ) ) return false;
 
@@ -955,7 +963,8 @@ static bool RunHeavyFrameBench( const char* label, int scale )
         label, (unsigned long long) checksum( colour ), (unsigned long long) checksum( compute ),
         (unsigned) colour.data()[centre], (unsigned) colour.data()[centre + 1],
         (unsigned) colour.data()[centre + 2], (unsigned) compute.data()[centre] );
-    return int( colour.data()[centre] ) + int( colour.data()[centre + 1] ) + int( colour.data()[centre + 2] ) > 0 && compute.data()[centre] > 0;
+    return g_vhErrorCounter.load() == startErrors
+        && int( colour.data()[centre] ) + int( colour.data()[centre + 1] ) + int( colour.data()[centre + 2] ) > 0 && compute.data()[centre] > 0;
 }
 
 UTEST_F( FrameBench, Bench_Frame_Heavy_500 )

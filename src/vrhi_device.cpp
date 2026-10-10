@@ -523,7 +523,7 @@ void vhInit( bool quiet )
 
         VkPhysicalDeviceVulkan12Features drawIndirectCountFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         drawIndirectCountFeatures.drawIndirectCount = VK_TRUE;
-        vkbPhys.enable_extension_features_if_present( drawIndirectCountFeatures );
+        g_vhDeviceInfo.drawIndirectCount = vkbPhys.enable_extension_features_if_present( drawIndirectCountFeatures );
 
         g_vhDeviceInfo.shaderFloat16 = false;
         if ( g_vhInit.shaderFloat16 )
