@@ -180,7 +180,7 @@ void vhEnableRenderDoc()
 
 // -------------------------------------------------------- RHI Device --------------------------------------------------------
 
-static vkb::PhysicalDevice vhSelectPhysicalDevice_1_3( vkb::Instance& vkbInst, VkSurfaceKHR surface, bool headless, bool robust, bool withRT, int deviceIndex )
+static vkb::PhysicalDevice vhSelectPhysicalDevice_1_3( vkb::Instance& vkbInst, VkSurfaceKHR surface, bool headless, bool robust, bool withRT, int deviceIndex, vkb::PreferredDeviceType deviceType )
 {
     vkb::PhysicalDeviceSelector selector( vkbInst );
     selector.require_present( !headless );
@@ -221,11 +221,12 @@ static vkb::PhysicalDevice vhSelectPhysicalDevice_1_3( vkb::Instance& vkbInst, V
         if ( !ret || deviceIndex >= ( int ) ret.value().size() ) return {};
         return ret.value()[deviceIndex];
     }
+    selector.prefer_gpu_device_type( deviceType ).allow_any_gpu_device_type( false );
     auto ret = selector.select();
     return ret ? ret.value() : vkb::PhysicalDevice{};
 }
 
-static vkb::PhysicalDevice vhSelectPhysicalDevice_1_2( vkb::Instance& vkbInst, VkSurfaceKHR surface, bool headless, bool robust, int deviceIndex )
+static vkb::PhysicalDevice vhSelectPhysicalDevice_1_2( vkb::Instance& vkbInst, VkSurfaceKHR surface, bool headless, bool robust, int deviceIndex, vkb::PreferredDeviceType deviceType )
 {
     vkb::PhysicalDeviceSelector selector( vkbInst );
     selector.require_present( !headless );
@@ -261,6 +262,7 @@ static vkb::PhysicalDevice vhSelectPhysicalDevice_1_2( vkb::Instance& vkbInst, V
         if ( !ret || deviceIndex >= ( int ) ret.value().size() ) return {};
         return ret.value()[deviceIndex];
     }
+    selector.prefer_gpu_device_type( deviceType ).allow_any_gpu_device_type( false );
     auto ret = selector.select();
     return ret ? ret.value() : vkb::PhysicalDevice{};
 }
@@ -365,26 +367,31 @@ void vhInit( bool quiet )
         bool selectedRT = false;
         bool using12Fallback = false;
 
-        if ( !g_vhInit.forceVulkan12 )
+        const bool autoPick = g_vhInit.deviceIndex < 0;
+        for ( auto deviceType : { vkb::PreferredDeviceType::discrete, vkb::PreferredDeviceType::integrated, vkb::PreferredDeviceType::virtual_gpu, vkb::PreferredDeviceType::other, vkb::PreferredDeviceType::cpu } )
         {
-            vkbPhys = vhSelectPhysicalDevice_1_3( vkbInst, primarySurface, g_vhInit.headless, g_vhInit.robust, g_vhInit.raytracing, g_vhInit.deviceIndex );
-            if ( vkbPhys.physical_device )
+            if ( !g_vhInit.forceVulkan12 )
             {
-                selectedRT = g_vhInit.raytracing;
+                vkbPhys = vhSelectPhysicalDevice_1_3( vkbInst, primarySurface, g_vhInit.headless, g_vhInit.robust, g_vhInit.raytracing, g_vhInit.deviceIndex, deviceType );
+                if ( vkbPhys.physical_device )
+                {
+                    selectedRT = g_vhInit.raytracing;
+                }
+                else if ( g_vhInit.raytracing && autoPick )
+                {
+                    if ( !quiet ) VRHI_LOG( "    No RT-capable Vulkan 1.3 device found, retrying without RT.\n" );
+                    vkbPhys = vhSelectPhysicalDevice_1_3( vkbInst, primarySurface, g_vhInit.headless, g_vhInit.robust, false, g_vhInit.deviceIndex, deviceType );
+                }
             }
-            else if ( g_vhInit.raytracing && g_vhInit.deviceIndex < 0 )
-            {
-                if ( !quiet ) VRHI_LOG( "    No RT-capable Vulkan 1.3 device found, retrying without RT.\n" );
-                vkbPhys = vhSelectPhysicalDevice_1_3( vkbInst, primarySurface, g_vhInit.headless, g_vhInit.robust, false, g_vhInit.deviceIndex );
-            }
-        }
 
-        if ( !vkbPhys.physical_device )
-        {
-            if ( !quiet ) VRHI_LOG( "    %s, trying Vulkan 1.2 + KHR_dynamic_rendering + KHR_synchronization2.\n",
-                g_vhInit.forceVulkan12 ? "forceVulkan12 set" : "No Vulkan 1.3 device found" );
-            vkbPhys = vhSelectPhysicalDevice_1_2( vkbInst, primarySurface, g_vhInit.headless, g_vhInit.robust, g_vhInit.deviceIndex );
-            if ( vkbPhys.physical_device ) using12Fallback = true;
+            if ( !vkbPhys.physical_device )
+            {
+                if ( !quiet ) VRHI_LOG( "    %s, trying Vulkan 1.2 + KHR_dynamic_rendering + KHR_synchronization2.\n",
+                    g_vhInit.forceVulkan12 ? "forceVulkan12 set" : "No Vulkan 1.3 device found" );
+                vkbPhys = vhSelectPhysicalDevice_1_2( vkbInst, primarySurface, g_vhInit.headless, g_vhInit.robust, g_vhInit.deviceIndex, deviceType );
+                if ( vkbPhys.physical_device ) using12Fallback = true;
+            }
+            if ( vkbPhys.physical_device || !autoPick ) break;
         }
 
         if ( !vkbPhys.physical_device )
