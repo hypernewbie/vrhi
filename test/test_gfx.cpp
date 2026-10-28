@@ -337,7 +337,11 @@ UTEST_F_SETUP( Graphics )
 }
 UTEST_F_TEARDOWN( Graphics )
 {
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
     vhEndMarker();
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
 UTEST_F( Graphics, DrawTriangle )
@@ -3738,10 +3742,15 @@ UTEST_F( Graphics, VRS_Smoke )
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
     if ( !g_vhInit.fragmentShadingRate && !TestIsSoftwareVulkan() )
     {
+        // Keep the fixture's marker and capture inside each device lifetime.
+        vhEndMarker();
         TestEnsureShutdown();
         g_vhInit.fragmentShadingRate = true;
         vhInit( g_testInitQuiet );
         g_testInit = true;
+        vhCaptureStart();
+        g_captureActive = true;
+        vhBeginMarker( "Graphics.VRS_Smoke" );
     }
     if ( !g_vhDeviceInfo.vrs ) { UTEST_SKIP( "VRS not supported on this device" ); }
 
