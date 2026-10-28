@@ -50,6 +50,7 @@ UTEST_F( Native, BracketAndRebaseline )
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
 
     vhFlush();
+    const int32_t startErrors = g_vhErrorCounter.load();
 
     vhBuffer outBuf = vhAllocBuffer();
     vhCreateStorageBuffer( outBuf, "NativeBuf", nullptr, 64, VRHI_BUFFER_COMPUTE_READ_WRITE, sizeof( uint32_t ) );
@@ -73,9 +74,24 @@ UTEST_F( Native, BracketAndRebaseline )
     }};
 
     vhExecuteNative(
-        []( const vhNativeContext& ctx, vhNativeResource* /*resources*/, uint32_t /*count*/, void* user )
+        []( const vhNativeContext& ctx, vhNativeResource* resources, uint32_t /*count*/, void* user )
         {
             vkCmdFillBuffer( ctx.cmdbuf, *(VkBuffer*) user, 0, VK_WHOLE_SIZE, 0xDEADBEEFu );
+
+            // stateAfter only rebaselines the tracker; the callback must perform the transition.
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = resources[0].image;
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            vkCmdPipelineBarrier( ctx.cmdbuf,
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &barrier );
         },
         &vkBuf, 0, resources
     );
@@ -130,6 +146,7 @@ UTEST_F( Native, BracketAndRebaseline )
     vhDestroyShader( cs );
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
 UTEST_F( Native, DeviceLock )
