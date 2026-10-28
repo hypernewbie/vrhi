@@ -194,5 +194,6 @@ int main( int argc, const char* const argv[] )
 
     int result = utest_main( argc, argv );
     TestEnsureShutdown();
+    TestShutdownWindowSystem();
     return result;
 }

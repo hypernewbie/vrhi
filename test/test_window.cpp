@@ -44,6 +44,25 @@
 #include <vrhi_internal.h>
 #include <vrhi.h>
 
+static bool g_testRGFWInitialised = false;
+
+static RGFW_window* TestCreateWindow( const char* name, int x, int y, int width, int height, RGFW_windowFlags flags )
+{
+    if ( !g_testRGFWInitialised )
+    {
+        if ( RGFW_init( "vrhi_test", 0 ) != 0 ) return nullptr;
+        g_testRGFWInitialised = true;
+    }
+    return RGFW_createWindow( name, x, y, width, height, flags );
+}
+
+void TestShutdownWindowSystem()
+{
+    if ( !g_testRGFWInitialised ) return;
+    RGFW_deinit();
+    g_testRGFWInitialised = false;
+}
+
 static const char* TestWindowSkipReason()
 {
     if ( g_vhInit.nullMode ) return "Window tests not supported in null/headless mode";
@@ -152,7 +171,7 @@ UTEST( Window, SwapchainClear )
 #endif
 
     // Create RGFW Window
-    RGFW_window* win = RGFW_createWindow( "VRHI Test", 128, 128, 128, 128, RGFW_windowNoResize );
+    RGFW_window* win = TestCreateWindow( "VRHI Test", 128, 128, 128, 128, RGFW_windowNoResize );
     ASSERT_TRUE( win != nullptr );
 
     // Get Native Handles
@@ -258,7 +277,7 @@ UTEST( Window, ResizeSwapchain )
 #endif
 
     // Create RGFW Window with allow resize flag
-    RGFW_window* win = RGFW_createWindow( "VRHI Test Resize", 128, 128, 128, 128, 0 );
+    RGFW_window* win = TestCreateWindow( "VRHI Test Resize", 128, 128, 128, 128, 0 );
     ASSERT_TRUE( win != nullptr );
 
     // Get Native Handles
@@ -628,8 +647,8 @@ UTEST( Window, TwoWindowsPresent )
     vhInit( false );
     g_testInit = true;
 
-    RGFW_window* win1 = RGFW_createWindow( "VRHI Window 1", 0, 0, 128, 128, RGFW_windowNoResize );
-    RGFW_window* win2 = RGFW_createWindow( "VRHI Window 2", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* win1 = TestCreateWindow( "VRHI Window 1", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* win2 = TestCreateWindow( "VRHI Window 2", 0, 0, 128, 128, RGFW_windowNoResize );
     ASSERT_TRUE( win1 != nullptr );
     ASSERT_TRUE( win2 != nullptr );
 
@@ -708,7 +727,7 @@ UTEST( Window, OutOfDateRecreate )
     vhInit( false );
     g_testInit = true;
 
-    RGFW_window* win = RGFW_createWindow( "VRHI OOD", 0, 0, 128, 128, 0 );
+    RGFW_window* win = TestCreateWindow( "VRHI OOD", 0, 0, 128, 128, 0 );
     ASSERT_TRUE( win != nullptr );
 
     void* nativeWin = nullptr;
@@ -774,8 +793,8 @@ UTEST( Window, DestroySecondaryDuringPrimaryFrameInFlight )
     vhInit( false );
     g_testInit = true;
 
-    RGFW_window* winP = RGFW_createWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
-    RGFW_window* winS = RGFW_createWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* winP = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* winS = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );
     ASSERT_TRUE( winP != nullptr && winS != nullptr );
 
     void* nP = nullptr, * nS = nullptr, * nD = nullptr;
@@ -845,7 +864,7 @@ UTEST( Window, ResizeDuringInFlightFrame )
     vhInit( false );
     g_testInit = true;
 
-    RGFW_window* win = RGFW_createWindow( "VRHI ResizeInflight", 0, 0, 128, 128, 0 );
+    RGFW_window* win = TestCreateWindow( "VRHI ResizeInflight", 0, 0, 128, 128, 0 );
     ASSERT_TRUE( win != nullptr );
 
     void* nW = nullptr, * nD = nullptr;
@@ -879,8 +898,8 @@ UTEST( Swapchain, ZeroSizeCreateThenRestore )
 {
     if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
 
-    RGFW_window* primary = RGFW_createWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
-    RGFW_window* secondary = RGFW_createWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* primary = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* secondary = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );
     ASSERT_TRUE( primary != nullptr && secondary != nullptr );
 
     void* primaryWindow; void* primaryDisplay;
@@ -911,8 +930,8 @@ UTEST( Swapchain, ResizeDoesNotAccumulateTextureIDs )
 {
     if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
 
-    RGFW_window* primary = RGFW_createWindow( "VRHI Primary", 0, 0, 128, 128, 0 );
-    RGFW_window* secondary = RGFW_createWindow( "VRHI Secondary", 0, 0, 128, 128, 0 );
+    RGFW_window* primary = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, 0 );
+    RGFW_window* secondary = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, 0 );
     ASSERT_TRUE( primary != nullptr && secondary != nullptr );
 
     void* primaryWindow; void* primaryDisplay;
@@ -944,8 +963,8 @@ UTEST( Swapchain, RenderResizeRenderSecondary )
 {
     if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
 
-    RGFW_window* primary = RGFW_createWindow( "VRHI Primary", 0, 0, 128, 128, 0 );
-    RGFW_window* secondary = RGFW_createWindow( "VRHI Secondary", 0, 0, 128, 128, 0 );
+    RGFW_window* primary = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, 0 );
+    RGFW_window* secondary = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, 0 );
     ASSERT_TRUE( primary != nullptr && secondary != nullptr );
 
     void* primaryWindow; void* primaryDisplay;
@@ -983,8 +1002,8 @@ UTEST( Swapchain, SemaphoreArraysCoverFrameSlots )
 {
     if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
 
-    RGFW_window* primary = RGFW_createWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
-    RGFW_window* secondary = RGFW_createWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* primary = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
+    RGFW_window* secondary = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );
     ASSERT_TRUE( primary != nullptr && secondary != nullptr );
 
     void* primaryWindow; void* primaryDisplay;
@@ -1017,8 +1036,8 @@ UTEST( Swapchain, PrimaryResizeWithLiveSecondary )
 {
     if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
 
-    RGFW_window* primary = RGFW_createWindow( "VRHI Primary", 0, 0, 128, 128, 0 );
-    RGFW_window* secondary = RGFW_createWindow( "VRHI Secondary", 0, 0, 128, 128, 0 );
+    RGFW_window* primary = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, 0 );
+    RGFW_window* secondary = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, 0 );
     ASSERT_TRUE( primary != nullptr && secondary != nullptr );
 
     void* primaryWindow; void* primaryDisplay;

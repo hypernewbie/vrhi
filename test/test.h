@@ -40,6 +40,7 @@ extern bool g_captureActive;
 extern bool g_testInit;
 extern struct vhInitData g_testInitDefaults;
 void TestEnsureShutdown();
+void TestShutdownWindowSystem();
 
 // Returns true when running on a software Vulkan ICD (llvmpipe/lavapipe/SwiftShader/Microsoft Basic).
 // Used to skip stress benchmarks that race on software command submission paths.
