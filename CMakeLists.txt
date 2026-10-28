@@ -446,7 +446,7 @@ else()
 endif()
 
 if(UNIX AND NOT APPLE)
-    target_link_libraries(vrhi PUBLIC X11 Xi Xext)
+    target_link_libraries(vrhi PUBLIC X11 Xi Xext Xrandr)
 endif()
 
 if(APPLE)
