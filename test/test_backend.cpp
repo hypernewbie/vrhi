@@ -370,6 +370,50 @@ UTEST( BackendInternal, PipelineValidation )
     vhFinish();
 }
 
+UTEST( BackendInternal, PipelineShadingRateState )
+{
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhBackendShader shader;
+    shader.flags = VRHI_SHADER_STAGE_VERTEX;
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Vertex;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        shader.layout = g_vhDevice->createBindingLayout( layoutDesc );
+    }
+    ASSERT_NE( shader.layout, nullptr );
+    vhBackendShader* shaders[] = { &shader };
+    struct RateCase
+    {
+        uint32_t flags;
+        vhTexture image;
+        bool enabled;
+        nvrhi::VariableShadingRate rate;
+        nvrhi::ShadingRateCombiner combiner;
+    };
+    const RateCase cases[] = {
+        { VRHI_VRS_2X2, VRHI_INVALID_HANDLE, true, nvrhi::VariableShadingRate::e2x2, nvrhi::ShadingRateCombiner::Passthrough },
+        { VRHI_VRS_4X4 | VRHI_VRS_COMBINER_MAX, VRHI_INVALID_HANDLE, true, nvrhi::VariableShadingRate::e4x4, nvrhi::ShadingRateCombiner::Max },
+        { VRHI_VRS_1X1 | VRHI_VRS_COMBINER_OVERRIDE, 42, true, nvrhi::VariableShadingRate::e1x1, nvrhi::ShadingRateCombiner::Override },
+        { VRHI_VRS_1X1, 42, true, nvrhi::VariableShadingRate::e1x1, nvrhi::ShadingRateCombiner::Passthrough },
+        { VRHI_VRS_1X1, VRHI_INVALID_HANDLE, false, nvrhi::VariableShadingRate::e1x1, nvrhi::ShadingRateCombiner::Passthrough }
+    };
+    for ( const auto& test : cases )
+    {
+        vhState state;
+        state.SetShadingRate( test.flags, test.image );
+        nvrhi::GraphicsPipelineDesc desc;
+        desc.shadingRateState.enabled = true;
+        desc.shadingRateState.shadingRate = nvrhi::VariableShadingRate::e4x4;
+        desc.shadingRateState.pipelinePrimitiveCombiner = nvrhi::ShadingRateCombiner::Override;
+        ASSERT_TRUE( vhCmdBackendStateTest::PreSubmitCommon_PipelineDesc( state, shaders, 1, nullptr, &desc ) );
+        EXPECT_EQ( desc.shadingRateState.enabled, test.enabled );
+        EXPECT_EQ( desc.shadingRateState.shadingRate, test.rate );
+        EXPECT_EQ( desc.shadingRateState.pipelinePrimitiveCombiner, nvrhi::ShadingRateCombiner::Passthrough );
+        EXPECT_EQ( desc.shadingRateState.imageCombiner, test.combiner );
+    }
+}
+
 UTEST( BackendInternal, PreSubmitCommon_PipelineDesc_Compute )
 {
     if ( !g_testInit )

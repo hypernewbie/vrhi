@@ -103,6 +103,16 @@ static void vhResetComputeState( nvrhi::ComputeState& state )
 // Backend :: Utils & Helpers
 // --------------------------------------------------------------------------
 
+// Pipeline creation and draw-time state must agree on whether VRS is dynamic.
+static nvrhi::VariableRateShadingState vhTranslateShadingRateState( const vhState& state )
+{
+    nvrhi::VariableRateShadingState vrs;
+    vrs.enabled = state.shadingRateFlags != VRHI_VRS_1X1 || state.shadingRateImage != VRHI_INVALID_HANDLE;
+    vrs.shadingRate = vhTranslateShadingRate( state.shadingRateFlags & 0xF );
+    vrs.imageCombiner = vhTranslateShadingRateCombiner( state.shadingRateFlags & 0xF0 );
+    return vrs;
+}
+
 static const char* vhResourceTypeToString( nvrhi::ResourceType type )
 {
     switch ( type )
@@ -687,6 +697,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
     {
         vhProfile( "BE_PresubmitCommon_PipelineDesc_RenderState", true );
         graphicsPipelineDesc->setPrimType( vhTranslatePrimitiveType( state.stateFlags ) );
+        graphicsPipelineDesc->shadingRateState = vhTranslateShadingRateState( state );
         graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
         graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.stencilState );
         if ( state.depthAttachment.texture == VRHI_INVALID_HANDLE )
@@ -1885,15 +1896,8 @@ bool vhCmdBackendState::BE_PreSubmitCommon_State(
         // Set blend constant color
         graphicsState->blendConstantColor = nvrhi::Color( state.blendConstantColor.r, state.blendConstantColor.g, state.blendConstantColor.b, state.blendConstantColor.a );
 
-        // Set shading rate
-        if ( state.shadingRateFlags != VRHI_VRS_1X1 || state.shadingRateImage != VRHI_INVALID_HANDLE )
-        {
-            auto& vrs = graphicsState->shadingRateState;
-            vrs.enabled = true;
-            vrs.shadingRate = vhTranslateShadingRate( state.shadingRateFlags & 0xF );
-            vrs.imageCombiner = vhTranslateShadingRateCombiner( ( state.shadingRateFlags >> 4 ) & 0xF );
-            // Image is bound in the framebuffer.
-        }
+        // The shading-rate image itself is bound in the framebuffer.
+        graphicsState->shadingRateState = vhTranslateShadingRateState( state );
 
         // Set viewport
         graphicsState->viewport.viewports.resize( 0 );

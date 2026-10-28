@@ -3745,28 +3745,46 @@ UTEST_F( Graphics, VRS_Smoke )
     }
     if ( !g_vhDeviceInfo.vrs ) { UTEST_SKIP( "VRS not supported on this device" ); }
 
+    const int32_t errors = g_vhErrorCounter.load();
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     struct Vertex { glm::vec3 pos; glm::vec4 col; };
     Vertex verts[3] = { { {-1,-1,0},{1,0,0,1} }, { {3,-1,0},{1,0,0,1} }, { {-1,3,0},{1,0,0,1} } };
     vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof(verts) );
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
-    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    const char* ratePS = R"(
+[shader("pixel")]
+float4 main( float4 colour : COLOUR, uint rate : SV_ShadingRate ) : SV_Target
+{
+    return float4( float(rate) / 255.0, colour.gb, colour.a );
+}
+)";
+    vhShader ps = CreateTestShader( ratePS, VRHI_SHADER_STAGE_PIXEL );
+    ASSERT_NE( ps, VRHI_INVALID_HANDLE );
 
     vhState state;
     state.SetColourAttachment(0,rt).SetViewRect(glm::vec4(0,0,64,64))
          .SetViewClear(VRHI_CLEAR_COLOR,glm::vec4(0))
          .SetStateFlags(VRHI_STATE_WRITE_MASK|VRHI_STATE_MSAA)
-         .SetShadingRate(VRHI_VRS_2X2)
          .SetVertexBuffer(vb,0).SetProgram(vhCreateGfxProgram(vs,ps));
 
-    vhStateId sid = 1750;
-    vhSetState(sid,state); vhClear(sid,VRHI_CLEAR_COLOR); vhDraw(sid,3); vhFinish();
-
-    // Just verify the draw completed successfully (VRS doesn't change colour output)
-    EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF0000FF ) );
+    // SV_ShadingRate encodes 1x1 as 0 and 2x2 as 5. Reuse the same state ID
+    // across rate changes and consecutive draws to exercise both PSO cache paths.
+    const vhStateId sid = 1750;
+    for ( uint32_t rate : { VRHI_VRS_1X1, VRHI_VRS_2X2, VRHI_VRS_1X1, VRHI_VRS_2X2 } )
+    {
+        state.SetShadingRate( rate );
+        vhSetState( sid, state );
+        vhClear( sid, VRHI_CLEAR_COLOR );
+        vhDraw( sid, 3 );
+        vhDraw( sid, 3 );
+        vhFinish();
+        const uint32_t expected = 0xFF000000u | ( rate == VRHI_VRS_2X2 ? 5u : 0u );
+        EXPECT_TRUE( VerifyPixel( rt, 32, 32, expected, 0 ) );
+    }
 
     vhDestroyTexture(rt); vhDestroyBuffer(vb); vhDestroyShader(vs); vhDestroyShader(ps);
     vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
 // --------------------------------------------------------------------------
