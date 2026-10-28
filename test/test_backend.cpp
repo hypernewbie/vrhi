@@ -3836,6 +3836,70 @@ UTEST( Backend, Transient_T02_BlockedReaderStopsSlotReuse )
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
+// A clear-only submission must retain its texture after the public handle is destroyed.
+UTEST( Backend, ClearOnlyRetainsTextureUntilGpuCompletion )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Clear lifetime requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    struct ClearCase
+    {
+        nvrhi::Format format;
+        uint16_t flags;
+    };
+    const ClearCase cases[] = {
+        { nvrhi::Format::RGBA8_UNORM, VRHI_CLEAR_COLOR },
+        { nvrhi::Format::R32_UINT, VRHI_CLEAR_COLOR | VRHI_CLEAR_UINT },
+        { nvrhi::Format::D32, VRHI_CLEAR_DEPTH },
+        { nvrhi::Format::D32S8, VRHI_CLEAR_STENCIL },
+        { nvrhi::Format::D32S8, VRHI_CLEAR_DEPTH | VRHI_CLEAR_STENCIL }
+    };
+    const vhStateId sid = 19990;
+    for ( const auto& test : cases )
+    {
+        vhTexture texture = vhAllocTexture();
+        vhCreateTexture2D( texture, "ClearOnlyLifetime", { 16, 16 }, 1, test.format, VRHI_TEXTURE_RT );
+        vhState state;
+        if ( test.flags & VRHI_CLEAR_COLOR ) state.SetColourAttachment( 0, texture );
+        else state.SetDepthAttachment( texture );
+        state.SetViewClear( test.flags, glm::vec4( 0.25f ), 0.5f, 7 );
+        vhSetState( sid, state );
+        vhFinish();
+
+        // Keep the negative case safe: the test owns one reference, so a missing GPU
+        // reference fails the count check without freeing an image still in flight.
+        auto keepAlive = vhGetTextureNvrhiHandle( texture );
+        ASSERT_NE( keepAlive, nullptr );
+        {
+            vrhi_test::VhGpuGate gate( utest_result );
+            if ( !gate.Supported() )
+            {
+                vhDestroyTexture( texture );
+                vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+                vhFinish();
+                UTEST_SKIP( "Timeline semaphore unsupported" );
+            }
+            gate.WaitBefore();
+            vhClear( sid, test.flags );
+            vhFlush( true );
+            gate.CaptureReader();
+            ASSERT_TRUE( gate.Pending() );
+
+            vhDestroyTexture( texture );
+            vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+            vhFlush( true );
+            EXPECT_TRUE( gate.Pending() );
+            EXPECT_GT( keepAlive->GetRefCount(), 1ul );
+            EXPECT_FALSE( gate.TimedOut() );
+            gate.Release();
+        }
+        vhFinish();
+        EXPECT_EQ( keepAlive->GetRefCount(), 1ul );
+    }
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
 UTEST( Backend, GpuGate_ArmedReturnConsumesWait )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Native gate requires Vulkan" );

@@ -4797,6 +4797,7 @@ void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
 
+        // setTextureState retains each texture until GPU completion; NVRHI's clear helpers do not.
             if ( ( cmd->clearFlags & VRHI_CLEAR_COLOR ) && ( cmd->clearFlags & VRHI_CLEAR_UINT ) )
             {
                 // Integer Clear
@@ -4818,6 +4819,7 @@ void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
                         subresources.baseArraySlice = rt.arrayLayer;
                         subresources.numArraySlices = 1;
 
+                        cmdlist->setTextureState( it->second->handle, subresources, nvrhi::ResourceStates::CopyDest );
                         cmdlist->clearTextureUInt( it->second->handle, subresources, clearVal );
                     }
                 }
@@ -4839,6 +4841,7 @@ void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
                         subresources.baseArraySlice = rt.arrayLayer;
                         subresources.numArraySlices = 1;
 
+                        cmdlist->setTextureState( it->second->handle, subresources, nvrhi::ResourceStates::CopyDest );
                         cmdlist->clearTextureFloat( it->second->handle, subresources, clearVal );
                     }
                 }
@@ -4861,6 +4864,7 @@ void vhCmdBackendState::Handle_vhClear( VIDL_vhClear* cmd )
                     bool clearDepth = ( cmd->clearFlags & VRHI_CLEAR_DEPTH ) != 0;
                     bool clearStencil = ( cmd->clearFlags & VRHI_CLEAR_STENCIL ) != 0;
 
+                    cmdlist->setTextureState( it->second->handle, subresources, nvrhi::ResourceStates::CopyDest );
                     cmdlist->clearDepthStencilTexture( it->second->handle, subresources, clearDepth, state.clearDepth, clearStencil, state.clearStencil );
                 }
             }
