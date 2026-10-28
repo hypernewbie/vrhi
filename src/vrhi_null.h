@@ -57,7 +57,7 @@ class vhNullTexture : public vhNullResource< nvrhi::ITexture >
 public:
     vhNullTexture( const nvrhi::TextureDesc& desc ) : m_desc( desc ) {}
     const nvrhi::TextureDesc& getDesc() const override { return m_desc; }
-    nvrhi::Object getNativeView( nvrhi::ObjectType, nvrhi::Format, nvrhi::TextureSubresourceSet, nvrhi::TextureDimension, bool ) override { return nullptr; }
+    nvrhi::Object getNativeView( nvrhi::ObjectType, nvrhi::Format, nvrhi::TextureSubresourceSet, nvrhi::TextureDimension, bool, std::optional< nvrhi::ComponentMapping > ) override { return nullptr; }
 };
 
 class vhNullStagingTexture : public vhNullResource< nvrhi::IStagingTexture >
@@ -242,6 +242,7 @@ public:
     vhNullCommandList( const nvrhi::CommandListParameters& params, nvrhi::IDevice* device ) : m_params( params ), m_device( device ) {}
     const nvrhi::CommandListParameters& getDesc() override { return m_params; }
     nvrhi::IDevice* getDevice() override { return m_device; }
+    nvrhi::CommandListMemoryUsage getInternalMemoryUsage() const override { return {}; }
 
     void open() override {}
     void close() override {}
@@ -310,6 +311,7 @@ class vhNullDevice : public vhNullResource< nvrhi::IDevice >
 
 public:
     nvrhi::HeapHandle createHeap( const nvrhi::HeapDesc& desc ) override { return nvrhi::HeapHandle::Create( new vhNullHeap( desc ) ); }
+    bool queryTopLevelAccelStructPrebuildInfo( const nvrhi::rt::AccelStructDesc&, uint32_t, nvrhi::rt::AccelStructPrebuildInfo& ) override { return false; }
     nvrhi::TextureHandle createTexture( const nvrhi::TextureDesc& desc ) override { return nvrhi::TextureHandle::Create( new vhNullTexture( desc ) ); }
     nvrhi::MemoryRequirements getTextureMemoryRequirements( nvrhi::ITexture* ) override { return { 0, 0 }; }
     bool bindTextureMemory( nvrhi::ITexture*, nvrhi::IHeap*, uint64_t ) override { return true; }

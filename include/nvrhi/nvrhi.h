@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -64,7 +65,7 @@ namespace nvrhi
 {
     // Version of the public API provided by NVRHI.
     // Increment this when any changes to the API are made.
-    static constexpr uint32_t c_HeaderVersion = 26;
+    static constexpr uint32_t c_HeaderVersion = 28;
 
     // Verifies that the version of the implementation matches the version of the header.
     // Returns true if they match. Use this when initializing apps using NVRHI as a shared library.
@@ -404,6 +405,87 @@ namespace nvrhi
 
     NVRHI_ENUM_CLASS_FLAG_OPERATORS(SharedResourceFlags)
 
+    // Per-output-component source selector for an SRV, mirroring
+    // D3D12_SHADER_COMPONENT_MAPPING / VkComponentSwizzle. For each shader-visible
+    // component (r,g,b,a) it names which source channel it reads (or a constant).
+    enum class ComponentSwizzle : uint8_t
+    {
+        R = 0,
+        G = 1,
+        B = 2,
+        A = 3,
+        Zero = 4,
+        One = 5,
+    };
+
+    // A 4-channel SRV component mapping. The default is identity (r<-R, g<-G, ...),
+    // which every backend encodes to its native "default mapping" so behavior is
+    // bit-identical to no swizzle. Used to reinterpret a texture's channels at the
+    // view level, e.g. to sample a BC5 (2-channel) map as if it were a packed
+    // RGBA layout. NOTE: D3D11 SRVs have no component-mapping field, so a
+    // non-identity mapping is unsupported there (the backend warns and ignores it).
+    struct ComponentMapping
+    {
+        ComponentSwizzle r = ComponentSwizzle::R;
+        ComponentSwizzle g = ComponentSwizzle::G;
+        ComponentSwizzle b = ComponentSwizzle::B;
+        ComponentSwizzle a = ComponentSwizzle::A;
+
+        constexpr bool isIdentity() const
+        {
+            return r == ComponentSwizzle::R && g == ComponentSwizzle::G
+                && b == ComponentSwizzle::B && a == ComponentSwizzle::A;
+        }
+        constexpr bool operator==(const ComponentMapping& o) const
+        {
+            return r == o.r && g == o.g && b == o.b && a == o.a;
+        }
+        constexpr bool operator!=(const ComponentMapping& o) const { return !(*this == o); }
+
+        // Pack into 16 bits (3 bits per channel) for compact storage in BindingSetItem.
+        constexpr uint16_t pack() const
+        {
+            return uint16_t(uint32_t(r) | (uint32_t(g) << 3) | (uint32_t(b) << 6) | (uint32_t(a) << 9));
+        }
+        static constexpr ComponentMapping unpack(uint16_t v)
+        {
+            return ComponentMapping{
+                ComponentSwizzle(v & 0x7),
+                ComponentSwizzle((v >> 3) & 0x7),
+                ComponentSwizzle((v >> 6) & 0x7),
+                ComponentSwizzle((v >> 9) & 0x7) };
+        }
+
+        constexpr ComponentMapping& setR(ComponentSwizzle v) { r = v; return *this; }
+        constexpr ComponentMapping& setG(ComponentSwizzle v) { g = v; return *this; }
+        constexpr ComponentMapping& setB(ComponentSwizzle v) { b = v; return *this; }
+        constexpr ComponentMapping& setA(ComponentSwizzle v) { a = v; return *this; }
+    };
+
+    // pack() only uses bits 0-11, so bit 15 marks a BindingSetItem's mapping as
+    // explicitly set rather than inherited from the texture.
+    constexpr uint16_t c_ComponentMappingExplicit = 0x8000;
+
+    // Encodes a BindingSetItem override; std::nullopt means "inherit the texture's default".
+    constexpr uint16_t packComponentMapping(std::optional<ComponentMapping> mapping)
+    {
+        return mapping ? uint16_t(mapping->pack() | c_ComponentMappingExplicit) : uint16_t(0);
+    }
+
+    // An explicit binding-level mapping replaces the texture's default, which lets a
+    // binding request identity even when the texture carries a non-identity default.
+    constexpr ComponentMapping resolveComponentMapping(uint16_t overrideMapping, const ComponentMapping& textureDefault)
+    {
+        return (overrideMapping & c_ComponentMappingExplicit)
+            ? ComponentMapping::unpack(overrideMapping)
+            : textureDefault;
+    }
+
+    constexpr ComponentMapping resolveComponentMapping(std::optional<ComponentMapping> overrideMapping, const ComponentMapping& textureDefault)
+    {
+        return overrideMapping ? *overrideMapping : textureDefault;
+    }
+
     struct TextureDesc
     {
         uint32_t width = 1;
@@ -416,6 +498,12 @@ namespace nvrhi
         Format format = Format::UNKNOWN;
         TextureDimension dimension = TextureDimension::Texture2D;
         std::string debugName;
+
+        // Default SRV component mapping for views of this texture. Identity unless
+        // an SRV BindingSetItem overrides it. Lets a texture carry a channel
+        // reinterpretation (e.g. BC5 packed as RGBA) without every binding site
+        // having to specify it.
+        ComponentMapping defaultComponentMapping;
 
         bool isShaderResource = true; // Note: isShaderResource is initialized to 'true' for backward compatibility
         bool isRenderTarget = false;
@@ -449,6 +537,7 @@ namespace nvrhi
         constexpr TextureDesc& setSampleCount(uint32_t value) { sampleCount = value; return *this; }
         constexpr TextureDesc& setSampleQuality(uint32_t value) { sampleQuality = value; return *this; }
         constexpr TextureDesc& setFormat(Format value) { format = value; return *this; }
+        constexpr TextureDesc& setDefaultComponentMapping(ComponentMapping value) { defaultComponentMapping = value; return *this; }
         constexpr TextureDesc& setDimension(TextureDimension value) { dimension = value; return *this; }
                   TextureDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
         constexpr TextureDesc& setIsRenderTarget(bool value) { isRenderTarget = value; return *this; }
@@ -547,7 +636,8 @@ namespace nvrhi
 
         // Similar to getNativeObject, returns a native view for a specified set of subresources. Returns nullptr if unavailable.
         // TODO: on D3D12, the views might become invalid later if the view heap is grown/reallocated, we should do something about that.
-        virtual Object getNativeView(ObjectType objectType, Format format = Format::UNKNOWN, TextureSubresourceSet subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown, bool isReadOnlyDSV = false) = 0;
+        // 'overrideComponentMapping' applies to SRV object types only; std::nullopt uses the texture's defaultComponentMapping.
+        virtual Object getNativeView(ObjectType objectType, Format format = Format::UNKNOWN, TextureSubresourceSet subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown, bool isReadOnlyDSV = false, std::optional<ComponentMapping> overrideComponentMapping = std::nullopt) = 0;
     };
     typedef RefCountPtr<ITexture> TextureHandle;
 
@@ -1713,6 +1803,13 @@ namespace nvrhi
 
         NVRHI_ENUM_CLASS_FLAG_OPERATORS(AccelStructBuildFlags)
 
+        struct AccelStructPrebuildInfo
+        {
+            uint64_t resultBytes = 0;
+            uint64_t scratchBytes = 0;
+            uint64_t updateScratchBytes = 0;
+        };
+
         struct AccelStructDesc
         {
             size_t topLevelMaxInstances = 0; // only applies when isTopLevel = true
@@ -1806,7 +1903,8 @@ namespace nvrhi
 
             struct OperationClasBuildParams
             {
-                // See D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC for accepted formats and how they are interpreted
+                // One of RG32_FLOAT, RGB32_FLOAT, RG16_FLOAT, RG16_UNORM, RG16_SNORM, RG8_UNORM, RG8_SNORM
+                // or R10G10B10A2_UNORM. Two-component formats take 0 for Z.
                 Format vertexFormat = Format::RGB32_FLOAT;
 
                 // Index of the last geometry in a single CLAS
@@ -1829,6 +1927,15 @@ namespace nvrhi
 
                 // Minimum number of bits to be truncated in vertex positions across all CLAS (in the current cluster operation)
                 uint32_t minPositionTruncateBitCount = 0;
+
+                // Maximum number of opacity micromaps referenced by a single CLAS. Must be non-zero
+                // when OperationFlags::AllowOMM is set. Only the DXR cluster API reads it.
+                uint32_t maxOpacityMicromapIndexCount = 0;
+
+                // Index format of every argument's index buffer. Only the DXR cluster API reads it: NVAPI and
+                // Vulkan take indexFormat from each argument, so a DXR cluster operation cannot mix
+                // index formats across arguments.
+                OperationIndexFormat indexFormat = OperationIndexFormat::IndexFormat32bit;
             };
 
             struct OperationBlasBuildParams
@@ -1864,7 +1971,7 @@ namespace nvrhi
                 // Input Resources
                 IBuffer* inIndirectArgCountBuffer = nullptr;            // Buffer containing the number of AS to build, instantiate, or move
                 uint64_t inIndirectArgCountOffsetInBytes = 0;           // Offset (in bytes) to where the count is in the inIndirectArgCountBuffer 
-                IBuffer* inIndirectArgsBuffer = nullptr;                // Buffer of descriptor array of format IndirectTriangleClasArgs, IndirectTriangleTemplateArgs, IndirectInstantiateTemplateArgs
+                IBuffer* inIndirectArgsBuffer = nullptr;                // Buffer of descriptor array of format IndirectTriangleClasArgs, IndirectTriangleTemplateArgs, IndirectInstantiateTemplateArgs (nv:: or dxr:: layout, see ClusterApi)
                 uint64_t inIndirectArgsOffsetInBytes = 0;               // Offset (in bytes) to where the descriptor array starts inIndirectArgsBuffer
 
                 // In/Out Resources
@@ -2057,7 +2164,7 @@ namespace nvrhi
         static_vector<BindingLayoutItem, c_MaxBindlessRegisterSpaces> registerSpaces;
 
         LayoutType layoutType = LayoutType::Immutable;
-        bool updateAfterBind = false; // [UAA]
+        bool updateAfterBind = true; // [UAA] Preserve the current upstream bindless default; set false to opt out.
 
         BindlessLayoutDesc& setVisibility(ShaderType value) { visibility = value; return *this; }
         BindlessLayoutDesc& setFirstSlot(uint32_t value) { firstSlot = value; return *this; }
@@ -2098,9 +2205,12 @@ namespace nvrhi
         Format format              : 8; // valid for Texture_SRV, Texture_UAV, Buffer_SRV, Buffer_UAV
         uint8_t unused             : 8;
 
-        uint32_t unused2; // padding
+        // Packed ComponentMapping for Texture_SRV; 0 inherits the texture's
+        // defaultComponentMapping. See resolveComponentMapping().
+        uint16_t overrideComponentMapping;
+        uint16_t unused2; // padding
 
-        union 
+        union
         {
             TextureSubresourceSet subresources; // valid for Texture_SRV, Texture_UAV
             BufferRange range; // valid for Buffer_SRV, Buffer_UAV, ConstantBuffer
@@ -2118,6 +2228,7 @@ namespace nvrhi
                 && type == b.type
                 && dimension == b.dimension
                 && format == b.format
+                && overrideComponentMapping == b.overrideComponentMapping
                 && rawData[0] == b.rawData[0]
                 && rawData[1] == b.rawData[1];
         }
@@ -2145,12 +2256,14 @@ namespace nvrhi
             result.rawData[0] = 0;
             result.rawData[1] = 0;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
 
         static BindingSetItem Texture_SRV(uint32_t slot, ITexture* texture, Format format = Format::UNKNOWN,
-            TextureSubresourceSet subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown)
+            TextureSubresourceSet subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown,
+            std::optional<ComponentMapping> overrideComponentMapping = std::nullopt)
         {
             BindingSetItem result;
             result.slot = slot;
@@ -2161,6 +2274,7 @@ namespace nvrhi
             result.dimension = dimension;
             result.subresources = subresources;
             result.unused = 0;
+            result.overrideComponentMapping = packComponentMapping(overrideComponentMapping);
             result.unused2 = 0;
             return result;
         }
@@ -2178,6 +2292,7 @@ namespace nvrhi
             result.dimension = dimension;
             result.subresources = subresources;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2193,6 +2308,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.range = range;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2208,6 +2324,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.range = range;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2225,6 +2342,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.range = range;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2241,6 +2359,7 @@ namespace nvrhi
             result.rawData[0] = 0;
             result.rawData[1] = 0;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2257,6 +2376,7 @@ namespace nvrhi
             result.rawData[0] = 0;
             result.rawData[1] = 0;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2272,6 +2392,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.range = range;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2287,6 +2408,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.range = range;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2302,6 +2424,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.range = range;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2317,6 +2440,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.range = range;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2333,6 +2457,7 @@ namespace nvrhi
             result.range.byteOffset = 0;
             result.range.byteSize = byteSize;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2348,6 +2473,7 @@ namespace nvrhi
             result.dimension = TextureDimension::Unknown;
             result.subresources = AllSubresources;
             result.unused = 0;
+            result.overrideComponentMapping = 0;
             result.unused2 = 0;
             return result;
         }
@@ -2357,6 +2483,15 @@ namespace nvrhi
         BindingSetItem& setDimension(TextureDimension value) { dimension = value; return *this; }
         BindingSetItem& setSubresources(TextureSubresourceSet value) { subresources = value; return *this; }
         BindingSetItem& setRange(BufferRange value) { range = value; return *this; }
+
+        // Overrides the texture's defaultComponentMapping for this binding, including
+        // when 'value' is identity -- pass ComponentMapping() to force identity and
+        // std::nullopt to inherit. Only valid on Texture_SRV.
+        BindingSetItem& setOverrideComponentMapping(std::optional<ComponentMapping> value)
+        {
+            overrideComponentMapping = packComponentMapping(value);
+            return *this;
+        }
     };
 
     // verify the packing of BindingSetItem for good alignment
@@ -2821,6 +2956,8 @@ namespace nvrhi
             uint32_t maxRecursionDepth = 1;
             int32_t hlslExtensionsUAV = -1;
             bool allowOpacityMicromaps = false;
+            // Required to trace against cluster BLAS. Leave off otherwise: it can slow down traversal.
+            bool allowClusters = false;
 
             PipelineDesc& addShader(const PipelineShaderDesc& value) { shaders.push_back(value); return *this; }
             PipelineDesc& addHitGroup(const PipelineHitGroupDesc& value) { hitGroups.push_back(value); return *this; }
@@ -2830,6 +2967,7 @@ namespace nvrhi
             PipelineDesc& setMaxRecursionDepth(uint32_t value) { maxRecursionDepth = value; return *this; }
             PipelineDesc& setHlslExtensionsUAV(int32_t value) { hlslExtensionsUAV = value; return *this; }
             PipelineDesc& setAllowOpacityMicromaps(bool value) { allowOpacityMicromaps = value; return *this; }
+            PipelineDesc& setAllowClusters(bool value) { allowClusters = value; return *this; }
         };
 
         class IPipeline;
@@ -3053,6 +3191,7 @@ namespace nvrhi
         RayTracingClusters,
         RayTracingOpacityMicromap,
         RayTracingPipeline,
+        RayTracingPositionFetch,
         SamplerFeedback,
         ShaderExecutionReordering,
         ShaderSpecializations,
@@ -3092,6 +3231,21 @@ namespace nvrhi
     {
         uint32_t minWaveLaneCount;
         uint32_t maxWaveLaneCount;
+    };
+
+    // The API that runs a device's cluster operations, named after the argument layouts it
+    // reads: Nv for NVAPI and VK_NV_cluster_acceleration_structure (rt::cluster::nv), Dxr
+    // for DXR clusters (rt::cluster::dxr).
+    enum class ClusterApi : uint8_t
+    {
+        None,
+        Nv,
+        Dxr
+    };
+
+    struct RayTracingClustersFeatureInfo
+    {
+        ClusterApi api;
     };
 
     // IMessageCallback should be implemented by the application.
@@ -3167,6 +3321,16 @@ namespace nvrhi
     };
 
     typedef RefCountPtr<ICommandListLifetimeTracker> CommandListLifetimeTrackerHandle;
+
+    // Memory held by a command list's internal chunk pools, see ICommandList::getInternalMemoryUsage.
+    struct CommandListMemoryUsage
+    {
+        // AS build scratch chunks, in device-local memory.
+        uint64_t scratchBytes = 0;
+
+        // Upload chunks, in CPU-visible memory.
+        uint64_t uploadBytes = 0;
+    };
 
     //////////////////////////////////////////////////////////////////////////
     // ICommandList
@@ -3663,6 +3827,12 @@ namespace nvrhi
 
         // Returns the CommandListParameters structure that was used to create the command list. 
         virtual const CommandListParameters& getDesc() = 0;
+
+        // Returns the total size of the chunks created by the upload and scratch managers. The chunks are only
+        // freed when the command list is destroyed, so this never decreases. Not safe to call while another thread
+        // is recording into this command list.
+        // - DX11: Always returns zeros.
+        [[nodiscard]] virtual CommandListMemoryUsage getInternalMemoryUsage() const = 0;
     };
 
     typedef RefCountPtr<ICommandList> CommandListHandle;
@@ -3677,6 +3847,11 @@ namespace nvrhi
     {
     public:
         virtual HeapHandle createHeap(const HeapDesc& d) = 0;
+
+        // Optional TLAS prebuild query. See doc/memory-queries.md for the contract
+        // and backend limitations.
+        virtual bool queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
+            uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) = 0;
 
         virtual TextureHandle createTexture(const TextureDesc& d) = 0;
         virtual MemoryRequirements getTextureMemoryRequirements(ITexture* texture) = 0;
@@ -3864,6 +4039,7 @@ namespace std
             nvrhi::hash_combine(value, s.type);
             nvrhi::hash_combine(value, s.dimension);
             nvrhi::hash_combine(value, s.format);
+            nvrhi::hash_combine(value, s.overrideComponentMapping);
             nvrhi::hash_combine(value, s.rawData[0]);
             nvrhi::hash_combine(value, s.rawData[1]);
             return value;

@@ -1108,8 +1108,7 @@ void vhDescriptorTableSetBuffer( vhDescriptorTable table, uint32_t index, vhBuff
     uint64_t byteOffset, uint64_t byteSize,
     nvrhi::Format format )
 {
-    nvrhi::BindingSetItem item;
-    item.slot = index;
+    nvrhi::BindingSetItem item = nvrhi::BindingSetItem::None( index );
     item.type = type;
     item.resourceHandle = nullptr;
     item.format = format;
