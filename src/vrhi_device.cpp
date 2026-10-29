@@ -2151,7 +2151,8 @@ nvrhi::BindingSetItem vhGetDummyBindingItem( const nvrhi::BindingLayoutItem& lay
         // Determine Format Mode
         int mode = 0; // Float
         const auto& fmtInfo = getFormatInfo( expectedFormat );
-        if ( fmtInfo.kind == FormatKind::Integer )
+        // UNKNOWN carries no scalar type; retain the float fallback rather than infer UInt.
+        if ( fmtInfo.kind == FormatKind::Integer && expectedFormat != Format::UNKNOWN )
         {
             mode = fmtInfo.isSigned ? 2 : 1; // SInt : UInt
         }

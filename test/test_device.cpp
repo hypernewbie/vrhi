@@ -326,6 +326,43 @@ UTEST( Device, DummyResources )
     EXPECT_NE( samp.resourceHandle, nullptr );
 }
 
+// Sampled float images can have an unknown image format without being integer textures.
+UTEST( Device, DummyResources_UnknownFloatTexture )
+{
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    const char* source = R"(
+Texture2D<float4> g_Texture : register(t0, VRHI_STAGE_SPACE);
+SamplerState g_Sampler : register(s0, VRHI_STAGE_SPACE);
+[shader("pixel")]
+float4 main() : SV_Target
+{
+    return g_Texture.SampleLevel( g_Sampler, float2(0.5, 0.5), 0 );
+}
+)";
+    std::vector< uint32_t > spirv;
+    std::string error;
+    ASSERT_TRUE_MSG( vhCompileShader( "UnknownFloatTexture", source,
+        VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ), error.c_str() );
+
+    nvrhi::BindingLayoutDesc layout;
+    std::vector< vhShaderReflectionResource > resources;
+    glm::uvec3 groupSize;
+    std::vector< vhPushConstantRange > pushConstants;
+    ASSERT_TRUE( vhReflectSpirv( spirv, layout, resources, groupSize, pushConstants ) );
+    const vhShaderReflectionResource* texture = nullptr;
+    for ( const auto& resource : resources )
+        if ( resource.name == "g_Texture" ) texture = &resource;
+    ASSERT_NE( texture, nullptr );
+    ASSERT_EQ( texture->type, nvrhi::ResourceType::Texture_SRV );
+    ASSERT_EQ( texture->format, nvrhi::Format::UNKNOWN );
+
+    const auto binding = vhGetDummyBindingItem(
+        nvrhi::BindingLayoutItem::Texture_SRV( texture->slot ), texture->format, texture->dim );
+    ASSERT_NE( binding.resourceHandle, nullptr );
+    const auto* dummy = static_cast< nvrhi::ITexture* >( binding.resourceHandle );
+    EXPECT_EQ( dummy->getDesc().format, nvrhi::Format::RGBA8_UNORM );
+}
+
 UTEST( Device, HashingReflectionMembers )
 {
     // Test empty vector
