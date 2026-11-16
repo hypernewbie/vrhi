@@ -580,11 +580,7 @@ bool vhTransientBuffer::Flush_DeviceStateLocked()
 
     const int64_t flushEnd = VRHI_ROUND_UP( offset, flushAlignment );
 
-    if ( !g_vhVulkanDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd ) )
-    {
-        VRHI_ERR( "vhTransientBuffer::Flush_DeviceStateLocked(): Failed to flush the mapped buffer\n" );
-        return false;
-    }
+    if ( !g_vhVulkanDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd ) ) return false;
 
     offset = flushEnd;
     flushedEnd = flushEnd;

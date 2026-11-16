@@ -59,6 +59,184 @@ UTEST_F_TEARDOWN( Texture )
     vhEndMarker();
 }
 
+UTEST_F( Texture, PlacementBindingRangeBoundaries )
+{
+    TestLogCapture logs;
+    nvrhi::TextureDesc desc;
+    desc.debugName = "RangeTest";
+    struct Case
+    {
+        glm::u64vec2 requirements;
+        uint64_t offset;
+        uint64_t capacity;
+        const char* error;
+    };
+    const Case cases[] = {
+        { { 256, 256 }, 0, 256, nullptr },
+        { { 256, 256 }, 256, 512, nullptr },
+        { { 255, 1 }, UINT64_MAX - 255, UINT64_MAX, nullptr },
+        { { 0, 256 }, 0, 256, "Invalid memory requirements" },
+        { { 256, 0 }, 0, 256, "Invalid memory requirements" },
+        { { 256, 256 }, 1, 512, "is not aligned" },
+        { { 256, 256 }, 0, 255, "exceeds heap capacity" },
+        { { 256, 256 }, 256, 256, "exceeds heap capacity" },
+        { { 256, 256 }, UINT64_MAX - 255, UINT64_MAX, "exceeds heap capacity" },
+        { { UINT64_MAX, 1 }, 1, UINT64_MAX, "exceeds heap capacity" },
+        { { 1, 1 }, UINT64_MAX, UINT64_MAX - 1, "exceeds heap capacity" }
+    };
+    for ( const auto& test : cases )
+    {
+        logs.Clear();
+        EXPECT_EQ( vhVerifyTextureMemoryBinding( desc, test.requirements, test.offset, test.capacity ), test.error == nullptr );
+        EXPECT_EQ( logs.ErrorCount(), test.error ? 1 : 0 );
+        if ( test.error ) EXPECT_TRUE( logs.Contains( test.error ) );
+    }
+}
+
+UTEST_F( Texture, PlacementOverlapBoundaries )
+{
+    TestLogCapture logs;
+    nvrhi::TextureDesc desc;
+    desc.debugName = "OverlapTest";
+    desc.format = nvrhi::Format::RGBA8_UNORM;
+    desc.isVirtual = true;
+    desc.isRenderTarget = true;
+    struct Case
+    {
+        glm::u64vec2 first;
+        glm::u64vec2 second;
+        bool valid;
+    };
+    const Case cases[] = {
+        { { 0, 256 }, { 256, 256 }, true },
+        { { 256, 256 }, { 0, 256 }, true },
+        { { 0, 128 }, { 256, 128 }, true },
+        { { UINT64_MAX - 512, 256 }, { UINT64_MAX - 256, 256 }, true },
+        { { 0, 512 }, { 256, 512 }, false },
+        { { 256, 512 }, { 0, 512 }, false },
+        { { 0, 512 }, { 256, 128 }, false },
+        { { 256, 128 }, { 0, 512 }, false }
+    };
+    for ( const auto& test : cases )
+    {
+        logs.Clear();
+        EXPECT_EQ( vhVerifyTextureMemoryOverlap( desc, test.first, desc, test.second ), test.valid );
+        EXPECT_EQ( logs.ErrorCount(), test.valid ? 0 : 1 );
+        if ( !test.valid ) EXPECT_TRUE( logs.Contains( "must start at offset" ) );
+    }
+
+    logs.Clear();
+#ifdef __APPLE__
+    EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, desc, { 0, 256 } ) );
+    EXPECT_TRUE( logs.Contains( "not supported on macOS" ) );
+#else
+    EXPECT_TRUE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, desc, { 0, 256 } ) );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+
+    nvrhi::TextureDesc other = desc;
+    other.format = nvrhi::Format::R32_FLOAT;
+    EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, other, { 0, 256 } ) );
+    EXPECT_TRUE( logs.Contains( "format does not match" ) );
+    logs.Clear();
+    other = desc;
+    other.isUAV = true;
+    EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, other, { 0, 256 } ) );
+    EXPECT_TRUE( logs.Contains( "usage does not match" ) );
+#endif
+}
+
+UTEST_F( Texture, AliasActivationStateAndClassMatrix )
+{
+    TestLogCapture logs;
+    using State = nvrhi::ResourceStates;
+    struct Case
+    {
+        nvrhi::Format format;
+        bool renderTarget;
+        bool uav;
+        State state;
+        bool valid;
+    };
+    const Case cases[] = {
+        { nvrhi::Format::RGBA8_UNORM, false, false, State::CopyDest, true },
+        { nvrhi::Format::RGBA8_UNORM, false, false, State::RenderTarget, false },
+        { nvrhi::Format::RGBA8_UNORM, true, false, State::RenderTarget, true },
+        { nvrhi::Format::RGBA8_UNORM, true, false, State::DepthWrite, false },
+        { nvrhi::Format::RGBA8_UNORM, true, false, State::UnorderedAccess, false },
+        { nvrhi::Format::RGBA8_UNORM, false, true, State::UnorderedAccess, true },
+        { nvrhi::Format::D32, false, false, State::CopyDest, true },
+        { nvrhi::Format::D32, false, false, State::DepthWrite, false },
+        { nvrhi::Format::D32, true, false, State::DepthWrite, true },
+        { nvrhi::Format::D32, true, false, State::RenderTarget, false },
+        { nvrhi::Format::D32S8, true, false, State::DepthWrite, true },
+        { nvrhi::Format::RGBA8_UNORM, true, true, State::Unknown, false },
+        { nvrhi::Format::RGBA8_UNORM, true, true, State::Common, false },
+        { nvrhi::Format::RGBA8_UNORM, true, true, State::ShaderResource, false },
+        { nvrhi::Format::RGBA8_UNORM, true, true, State::CopySource, false },
+        { nvrhi::Format::RGBA8_UNORM, true, true, State::RenderTarget | State::CopyDest, false }
+    };
+    nvrhi::TextureDesc desc;
+    desc.debugName = "StateTest";
+    desc.isVirtual = true;
+    for ( const auto& test : cases )
+    {
+        desc.format = test.format;
+        desc.isRenderTarget = test.renderTarget;
+        desc.isUAV = test.uav;
+        logs.Clear();
+        EXPECT_EQ( vhVerifyTextureAliasState( desc, test.state ), test.valid );
+        EXPECT_EQ( logs.ErrorCount(), test.valid ? 0 : 1 );
+        if ( !test.valid ) EXPECT_TRUE( logs.Contains( "Invalid activation state" ) );
+    }
+
+    desc.format = nvrhi::Format::RGBA8_UNORM;
+    std::vector< nvrhi::TextureDesc > unsupported( 9, desc );
+    unsupported[0].dimension = nvrhi::TextureDimension::Texture3D;
+    unsupported[1].dimension = nvrhi::TextureDimension::Texture2DArray;
+    unsupported[2].depth = 2;
+    unsupported[3].arraySize = 2;
+    unsupported[4].sampleCount = 2;
+    unsupported[5].isVirtual = false;
+    unsupported[6].isTiled = true;
+    unsupported[7].isTypeless = true;
+    unsupported[8].sharedResourceFlags = nvrhi::SharedResourceFlags::Shared;
+    for ( const auto& invalid : unsupported )
+    {
+        logs.Clear();
+        EXPECT_FALSE( vhVerifyTextureAliasState( invalid, State::CopyDest ) );
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+        EXPECT_TRUE( logs.Contains( "does not satisfy 2D alias contract" ) );
+    }
+    desc.format = nvrhi::Format::UNKNOWN;
+    logs.Clear();
+    EXPECT_FALSE( vhVerifyTextureAliasState( desc, State::CopyDest ) );
+    EXPECT_TRUE( logs.Contains( "does not satisfy 2D alias contract" ) );
+}
+
+UTEST_F( Texture, VirtualInitialDataRejectedAndCreationCanRetry )
+{
+    TestLogCapture logs;
+    vhTexture texture = vhAllocTexture();
+    vhMem* data = vhAllocMem( 16 * 16 * 4 );
+    std::memset( data->data(), 0x4A, data->size() );
+    vhCreateTexture2D( texture, "VirtualInitialData", { 16, 16 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL, data );
+    vhFlush( true );
+    EXPECT_EQ( vhGetTextureNvrhiHandle( texture ), nullptr );
+    EXPECT_FALSE( vhIsTextureMemoryBound( texture ) );
+    EXPECT_TRUE( logs.Contains( "Virtual texture cannot have initial upload data" ) );
+    EXPECT_EQ( logs.ErrorCount(), 1 );
+
+    logs.Clear();
+    vhCreateTexture2D( texture, "VirtualRetry", { 16, 16 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    EXPECT_NE( vhGetTextureNvrhiHandle( texture ), nullptr );
+    EXPECT_FALSE( vhIsTextureMemoryBound( texture ) );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    vhDestroyTexture( texture );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
 UTEST_F( Texture, CreateDestroyError )
 {
 

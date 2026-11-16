@@ -26,6 +26,7 @@
 #include <vrhi_internal.h>
 #include <vrhi.h>
 #include <vrhi_backend.h>
+#include <vrhi_null.h>
 #include "test_gpu_gate.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <atomic>
@@ -196,6 +197,16 @@ public:
     static uint64_t GetGlobalPipelineVersion()
     {
         return g_vhCmdBackendState.s_globalPipelineVersion;
+    }
+
+    static std::mutex& BackendMutex()
+    {
+        return g_vhCmdBackendState.backendMutex;
+    }
+
+    static vhTransientBuffer& GlobalUniformBuffer()
+    {
+        return g_vhCmdBackendState.m_globalUniformBuffer;
     }
 
     static uint64_t GlobalPublishHash()
@@ -2208,6 +2219,442 @@ UTEST( Backend, TexturePlacementValidation )
     vhDestroyTexture( tex2D );
     vhDestroyHeap( heap );
     vhFinish();
+}
+
+UTEST( Backend, TexturePlacementExactEndAndHeapIdentity )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Physical placement requires GPU" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    TestLogCapture logs;
+
+    vhTexture first = vhAllocTexture();
+    vhTexture adjacent = vhAllocTexture();
+    vhTexture other = vhAllocTexture();
+    for ( vhTexture texture : { first, adjacent, other } )
+    {
+        vhCreateTexture2D( texture, "PlacementBoundary", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    }
+    vhFlush( true );
+    const glm::u64vec2 req = vhGetTextureMemoryRequirements( first );
+    ASSERT_GT( req.x, 0ull );
+    ASSERT_GT( req.y, 0ull );
+    const uint64_t stride = VRHI_ROUND_UP( req.x, req.y );
+
+    vhHeap heap = vhAllocHeap();
+    vhHeap otherHeap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, stride + req.x, "ExactEndHeap" ) );
+    ASSERT_TRUE( vhCreateHeap( otherHeap, req.x, "OtherHeap" ) );
+    vhBindTextureMemory( first, heap, 0 );
+    vhBindTextureMemory( adjacent, heap, stride );
+    vhBindTextureMemory( other, otherHeap, 0 );
+    vhFlush( true );
+    EXPECT_TRUE( vhIsTextureMemoryBound( first ) );
+    EXPECT_TRUE( vhIsTextureMemoryBound( adjacent ) );
+    EXPECT_TRUE( vhIsTextureMemoryBound( other ) );
+    const glm::u64vec2 adjacentReq = vhGetTextureMemoryRequirements( adjacent );
+    EXPECT_EQ( adjacentReq.x, req.x );
+    EXPECT_EQ( adjacentReq.y, req.y );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+
+    vhActivateTextureAliases( { { first, nvrhi::ResourceStates::CopyDest }, { adjacent, nvrhi::ResourceStates::CopyDest }, { other, nvrhi::ResourceStates::CopyDest } } );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+
+    vhDestroyTexture( first );
+    vhFlush( true );
+    EXPECT_FALSE( vhIsTextureMemoryBound( first ) );
+    vhTexture replacement = vhAllocTexture();
+    vhCreateTexture2D( replacement, "ReusedPlacement", { 16, 16 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    const glm::u64vec2 replacementReq = vhGetTextureMemoryRequirements( replacement );
+    ASSERT_GT( replacementReq.x, 0ull );
+    ASSERT_LE( replacementReq.x, req.x );
+    vhBindTextureMemory( replacement, heap, 0 );
+    vhFlush( true );
+    EXPECT_TRUE( vhIsTextureMemoryBound( replacement ) );
+    EXPECT_TRUE( vhIsTextureMemoryBound( adjacent ) );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+
+    vhDestroyTexture( replacement );
+    vhDestroyTexture( adjacent );
+    vhDestroyTexture( other );
+    vhDestroyHeap( heap );
+    vhDestroyHeap( otherHeap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST( Backend, AliasRejectedBatchLeavesEveryEarlierTextureUnactivated )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Physical placement requires GPU" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    TestLogCapture logs;
+    constexpr int count = 6;
+    vhTexture valid[count][2];
+    for ( auto& pair : valid )
+    {
+        for ( auto& texture : pair )
+        {
+            texture = vhAllocTexture();
+            vhCreateTexture2D( texture, "RejectedBatch", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+        }
+    }
+    vhTexture unbound = vhAllocTexture();
+    vhTexture permanent = vhAllocTexture();
+    vhCreateTexture2D( unbound, "BatchUnbound", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhCreateTexture2D( permanent, "BatchPermanent", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    const glm::u64vec2 req = vhGetTextureMemoryRequirements( valid[0][0] );
+    ASSERT_GT( req.x, 0ull );
+    ASSERT_GT( req.y, 0ull );
+    const uint64_t stride = VRHI_ROUND_UP( req.x, req.y );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, stride * ( count * 2 + 1 ), "RejectedBatchHeap" ) );
+    uint64_t offset = 0;
+    for ( const auto& pair : valid )
+    {
+        for ( vhTexture texture : pair )
+        {
+            vhBindTextureMemory( texture, heap, offset );
+            offset += stride;
+        }
+    }
+    vhBindTextureMemory( permanent, heap, offset );
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, count * 2 + 1 );
+    vhDescriptorTableSetTexture( table, count * 2, permanent );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    ASSERT_TRUE( vhIsTextureMemoryBound( permanent ) );
+    EXPECT_FALSE( vhIsTextureMemoryBound( unbound ) );
+
+    for ( int i = 0; i < count; i++ )
+    {
+        const vhTextureAlias rejected[] = {
+            { 0xDEADC0DE, nvrhi::ResourceStates::CopyDest },
+            { unbound, nvrhi::ResourceStates::CopyDest },
+            { valid[i][0], nvrhi::ResourceStates::Common },
+            { valid[i][0], nvrhi::ResourceStates::CopyDest },
+            { permanent, nvrhi::ResourceStates::CopyDest },
+            { VRHI_INVALID_HANDLE, nvrhi::ResourceStates::CopyDest }
+        };
+        const char* errors[] = {
+            "not found or invalid", "does not have bound heap memory", "Invalid activation state",
+            "Overlapping textures in batch", "has a permanent descriptor-table state", "Invalid texture handle"
+        };
+        logs.Clear();
+        vhActivateTextureAliases( { { valid[i][0], nvrhi::ResourceStates::CopyDest }, { valid[i][1], nvrhi::ResourceStates::CopyDest }, rejected[i] } );
+        vhFlush( true );
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+        EXPECT_TRUE( logs.Contains( errors[i] ) );
+
+        logs.Clear();
+        vhDescriptorTableSetTexture( table, i * 2, valid[i][0] );
+        vhDescriptorTableSetTexture( table, i * 2 + 1, valid[i][1] );
+        vhFlush( true );
+        EXPECT_EQ( logs.ErrorCount(), 0 );
+    }
+
+    vhDestroyDescriptorTable( table );
+    for ( const auto& pair : valid ) for ( vhTexture texture : pair ) vhDestroyTexture( texture );
+    vhDestroyTexture( unbound );
+    vhDestroyTexture( permanent );
+    vhDestroyHeap( heap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST( Backend, AliasActivationWaitsForItsOutgoingSubmission )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU submission requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    TestLogCapture logs;
+    vhTexture textures[2] = { vhAllocTexture(), vhAllocTexture() };
+    for ( vhTexture texture : textures ) vhCreateTexture2D( texture, "ObservedAlias", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    const auto req = vhGetTextureMemoryRequirements( textures[0] );
+    ASSERT_GT( req.x, 0ull );
+    ASSERT_GT( req.y, 0ull );
+    const uint64_t stride = VRHI_ROUND_UP( req.x, req.y );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, stride * 2, "ObservedAliasHeap" ) );
+    vhBindTextureMemory( textures[0], heap, 0 );
+    vhBindTextureMemory( textures[1], heap, stride );
+    vhFinish();
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[0] ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[1] ) );
+    ASSERT_EQ( logs.ErrorCount(), 0 );
+
+    struct Event
+    {
+        bool wait;
+        nvrhi::CommandQueue queue;
+        nvrhi::CommandQueue source;
+        uint64_t instance;
+    };
+    struct QueueDevice : vhNullDevice
+    {
+        nvrhi::DeviceHandle device;
+        std::vector< Event > events;
+
+        nvrhi::CommandListHandle createCommandList( const nvrhi::CommandListParameters& params ) override
+        {
+            return device->createCommandList( params );
+        }
+        uint64_t executeCommandLists( nvrhi::ICommandList* const* lists, size_t count, nvrhi::CommandQueue queue ) override
+        {
+            uint64_t instance = device->executeCommandLists( lists, count, queue );
+            events.push_back( { false, queue, queue, instance } );
+            return instance;
+        }
+        void queueWaitForCommandList( nvrhi::CommandQueue queue, nvrhi::CommandQueue source, uint64_t instance ) override
+        {
+            events.push_back( { true, queue, source, instance } );
+            device->queueWaitForCommandList( queue, source, instance );
+        }
+    };
+    auto originalDevice = g_vhDevice;
+    auto* observer = new QueueDevice;
+    observer->device = originalDevice;
+    auto observerHandle = nvrhi::DeviceHandle::Create( observer );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        EXPECT_FALSE( g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Graphics] );
+        g_vhDevice = observerHandle;
+    }
+    vhActivateTextureAliases( {} );
+    vhActivateTextureAliases( { { textures[0], nvrhi::ResourceStates::CopyDest } } );
+    vhActivateTextureAliases( { { textures[0], nvrhi::ResourceStates::CopyDest }, { textures[1], nvrhi::ResourceStates::CopyDest } } );
+    vhActivateTextureAliases( { { textures[1], nvrhi::ResourceStates::CopyDest } } );
+    vhGetPSOCacheSize();
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        g_vhDevice = originalDevice;
+    }
+    EXPECT_EQ( observer->events.size(), size_t( 6 ) );
+    if ( observer->events.size() == 6 )
+    {
+        for ( int i = 0; i < 3; i++ )
+        {
+            const Event& submit = observer->events[i * 2];
+            const Event& wait = observer->events[i * 2 + 1];
+            EXPECT_FALSE( submit.wait );
+            EXPECT_TRUE( wait.wait );
+            EXPECT_TRUE( submit.queue == nvrhi::CommandQueue::Graphics );
+            EXPECT_TRUE( wait.queue == nvrhi::CommandQueue::Graphics );
+            EXPECT_TRUE( wait.source == nvrhi::CommandQueue::Graphics );
+            EXPECT_GT( submit.instance, 0ull );
+            EXPECT_EQ( wait.instance, submit.instance );
+            if ( i > 0 ) EXPECT_GT( submit.instance, observer->events[i * 2 - 2].instance );
+        }
+    }
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    for ( vhTexture texture : textures ) vhDestroyTexture( texture );
+    vhDestroyHeap( heap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST( Backend, AliasRejectedBatchDoesNotSubmitPendingCommands )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Physical placement requires GPU" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    TestLogCapture logs;
+    vhTexture texture = vhAllocTexture();
+    vhCreateTexture2D( texture, "RejectedSubmission", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    const auto req = vhGetTextureMemoryRequirements( texture );
+    ASSERT_GT( req.x, 0ull );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, req.x, "RejectedSubmissionHeap" ) );
+    vhBindTextureMemory( texture, heap, 0 );
+    vhFinish();
+    ASSERT_TRUE( vhIsTextureMemoryBound( texture ) );
+    ASSERT_EQ( logs.ErrorCount(), 0 );
+
+    for ( int i = 0; i < 2; i++ )
+    {
+        uint64_t previous = 0;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            previous = vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        }
+        ASSERT_GT( previous, 0ull );
+        const vhTextureAlias good = { texture, nvrhi::ResourceStates::CopyDest };
+        const vhTextureAlias bad = { 0xDEADC0DE, nvrhi::ResourceStates::CopyDest };
+        if ( i == 0 ) vhActivateTextureAliases( { good, bad } );
+        else vhActivateTextureAliases( { bad, good } );
+        vhGetPSOCacheSize();
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+        EXPECT_TRUE( logs.Contains( "not found or invalid" ) );
+        logs.Clear();
+
+        uint64_t next = 0;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            next = vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        }
+        EXPECT_EQ( next, previous + 1 );
+    }
+    vhActivateTextureAliases( { { texture, nvrhi::ResourceStates::CopyDest } } );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    vhDestroyTexture( texture );
+    vhDestroyHeap( heap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST( Backend, RejectedDescriptorWritesDoNotBlockAliasActivation )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Physical placement requires GPU" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    TestLogCapture logs;
+    vhTexture textures[2] = { vhAllocTexture(), vhAllocTexture() };
+    for ( vhTexture texture : textures ) vhCreateTexture2D( texture, "RejectedDescriptor", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL | VRHI_TEXTURE_COMPUTE_WRITE );
+    vhFlush( true );
+    const auto req = vhGetTextureMemoryRequirements( textures[0] );
+    ASSERT_GT( req.x, 0ull );
+    ASSERT_GT( req.y, 0ull );
+    const uint64_t stride = VRHI_ROUND_UP( req.x, req.y );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, stride * 2, "RejectedDescriptorHeap" ) );
+    vhBindTextureMemory( textures[0], heap, 0 );
+    vhBindTextureMemory( textures[1], heap, stride );
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 2 );
+    vhFlush( true );
+    ASSERT_EQ( logs.ErrorCount(), 0 );
+
+    vhDescriptorTableSetTexture( table, 0, textures[0], nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, true );
+    vhDescriptorTableSetTexture( table, 100, textures[1] );
+    vhFlush( true );
+    EXPECT_TRUE( logs.Contains( "does not declare resource type" ) );
+    EXPECT_TRUE( logs.Contains( "Failed to write descriptor table" ) );
+    logs.Clear();
+    vhActivateTextureAliases( { { textures[0], nvrhi::ResourceStates::CopyDest }, { textures[1], nvrhi::ResourceStates::CopyDest } } );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    vhDescriptorTableSetTexture( table, 0, textures[0] );
+    vhDescriptorTableSetTexture( table, 1, textures[1] );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 2 );
+    EXPECT_TRUE( logs.Contains( "Cannot assign permanent state to alias-activated texture" ) );
+
+    logs.Clear();
+    vhDestroyDescriptorTable( table );
+    for ( vhTexture texture : textures ) vhDestroyTexture( texture );
+    vhDestroyHeap( heap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST( Backend, AliasBatchCopiesCallerStorage )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Physical placement requires GPU" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    TestLogCapture logs;
+    vhTexture textures[2] = { vhAllocTexture(), vhAllocTexture() };
+    for ( vhTexture texture : textures ) vhCreateTexture2D( texture, "BatchCopy", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    const glm::u64vec2 req = vhGetTextureMemoryRequirements( textures[0] );
+    ASSERT_GT( req.x, 0ull );
+    ASSERT_GT( req.y, 0ull );
+    const uint64_t stride = VRHI_ROUND_UP( req.x, req.y );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, stride * 2, "BatchCopyHeap" ) );
+    vhBindTextureMemory( textures[0], heap, 0 );
+    vhBindTextureMemory( textures[1], heap, stride );
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 2 );
+    vhFlush( true );
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[0] ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[1] ) );
+
+    std::vector< vhTextureAlias > aliases = { { textures[0], nvrhi::ResourceStates::CopyDest }, { textures[1], nvrhi::ResourceStates::CopyDest } };
+    {
+        std::lock_guard< std::mutex > lock( vhCmdBackendStateTest::BackendMutex() );
+        vhActivateTextureAliases( aliases );
+        aliases[0].texture = 0xDEADC0DE;
+        aliases[1].state = nvrhi::ResourceStates::Common;
+        aliases.clear();
+    }
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    vhDescriptorTableSetTexture( table, 0, textures[0] );
+    vhDescriptorTableSetTexture( table, 1, textures[1] );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 2 );
+    EXPECT_TRUE( logs.Contains( "Cannot assign permanent state to alias-activated texture" ) );
+
+    logs.Clear();
+    vhDestroyDescriptorTable( table );
+    for ( vhTexture texture : textures ) vhDestroyTexture( texture );
+    vhDestroyHeap( heap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST( Backend, AliasAndFrameFlushDoNotSubmitAfterMappedFlushFailure )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU flush requires GPU" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    TestLogCapture logs;
+    vhTexture texture = vhAllocTexture();
+    vhCreateTexture2D( texture, "FailedFlushAlias", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    const auto req = vhGetTextureMemoryRequirements( texture );
+    ASSERT_GT( req.x, 0ull );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, req.x, "FailedFlushHeap" ) );
+    vhBindTextureMemory( texture, heap, 0 );
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 1 );
+    vhFinish();
+    ASSERT_TRUE( vhIsTextureMemoryBound( texture ) );
+    ASSERT_EQ( logs.ErrorCount(), 0 );
+
+    auto& buffer = vhCmdBackendStateTest::GlobalUniformBuffer();
+    uint8_t marker[32];
+    std::memset( marker, 0xA7, sizeof( marker ) );
+    ASSERT_EQ( buffer.Write( marker, sizeof( marker ) ), 0 );
+    const uint32_t slot = buffer.frameIdx;
+    const int64_t alignment = buffer.flushAlignment;
+    uint64_t previous = 0;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        previous = vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        while ( uint64_t( buffer.flushAlignment ) <= buffer.handle[slot]->getDesc().byteSize ) buffer.flushAlignment *= 2;
+    }
+    EXPECT_GT( previous, 0ull );
+    vhActivateTextureAliases( { { texture, nvrhi::ResourceStates::CopyDest } } );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 2 );
+    EXPECT_TRUE( logs.Contains( "flushMappedBuffer: the range is invalid" ) );
+
+    uint64_t next = 0;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        EXPECT_EQ( buffer.frameIdx, slot );
+        EXPECT_EQ( buffer.offset, ( int64_t ) sizeof( marker ) );
+        EXPECT_EQ( buffer.flushedEnd, 0 );
+        EXPECT_EQ( std::memcmp( buffer.mapped[slot], marker, sizeof( marker ) ), 0 );
+        next = vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        buffer.flushAlignment = alignment;
+        EXPECT_TRUE( buffer.Flush_DeviceStateLocked() );
+    }
+    EXPECT_EQ( next, previous + 1 );
+    logs.Clear();
+    vhDescriptorTableSetTexture( table, 0, texture );
+    vhFlush( true );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+
+    vhDestroyDescriptorTable( table );
+    vhDestroyTexture( texture );
+    vhDestroyHeap( heap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
 }
 
 UTEST( Backend, OrderedAliasActivation )
@@ -4534,6 +4981,184 @@ UTEST( Backend, AliasActivationDoesNotWaitForGpu )
     vhDestroyHeap( heap );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST( Backend, AliasHandoffsResetEveryMip )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU aliasing requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+#ifdef __APPLE__
+    UTEST_SKIP( "Shared placement is not supported on macOS" );
+#endif
+    TestLogCapture logs;
+    constexpr int mips = 4;
+    constexpr int passes = 6;
+    vhTexture textures[2] = { vhAllocTexture(), vhAllocTexture() };
+    for ( vhTexture texture : textures ) vhCreateTexture2D( texture, "MipAlias", { 32, 32 }, mips, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhTexture snapshots[passes];
+    for ( auto& snapshot : snapshots )
+    {
+        snapshot = vhAllocTexture();
+        vhCreateTexture2D( snapshot, "MipSnapshot", { 32, 32 }, mips, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    }
+    vhFlush( true );
+    const auto req = vhGetTextureMemoryRequirements( textures[0] );
+    ASSERT_GT( req.x, 0ull );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, req.x, "MipAliasHeap" ) );
+    for ( vhTexture texture : textures ) vhBindTextureMemory( texture, heap, 0 );
+    vhFlush( true );
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[0] ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[1] ) );
+    ASSERT_EQ( logs.ErrorCount(), 0 );
+
+    for ( int pass = 0; pass < passes; pass++ )
+    {
+        vhTexture texture = textures[pass % 2];
+        vhActivateTextureAliases( { { texture, nvrhi::ResourceStates::CopyDest } } );
+        for ( int mip = 0; mip < mips; mip++ )
+        {
+            const int dim = 32 >> mip;
+            vhMem* data = vhAllocMem( dim * dim * 4 );
+            for ( size_t p = 0; p < data->size(); p += 4 )
+            {
+                ( *data )[p] = uint8_t( 17 + pass * 29 );
+                ( *data )[p + 1] = uint8_t( 13 + mip * 47 );
+                ( *data )[p + 2] = uint8_t( p / 4 );
+                ( *data )[p + 3] = 255;
+            }
+            vhUpdateTexture( texture, mip, 0, 1, 1, data );
+            vhBlitTexture( snapshots[pass], texture, mip, mip );
+        }
+        if ( pass == 2 ) vhFlush( true );
+    }
+    for ( vhTexture texture : textures ) vhDestroyTexture( texture );
+    vhDestroyHeap( heap );
+    for ( int pass = 0; pass < passes; pass++ )
+    {
+        for ( int mip = 0; mip < mips; mip++ )
+        {
+            const int dim = 32 >> mip;
+            vhMem data;
+            vhReadTextureSlow( snapshots[pass], mip, 0, &data );
+            ASSERT_EQ( data.size(), size_t( dim * dim * 4 ) );
+            for ( size_t p = 0; p < data.size(); p += 4 )
+            {
+                ASSERT_EQ( data[p], uint8_t( 17 + pass * 29 ) );
+                ASSERT_EQ( data[p + 1], uint8_t( 13 + mip * 47 ) );
+                ASSERT_EQ( data[p + 2], uint8_t( p / 4 ) );
+                ASSERT_EQ( data[p + 3], 255 );
+            }
+        }
+    }
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    for ( vhTexture snapshot : snapshots ) vhDestroyTexture( snapshot );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST( Backend, AliasHandoffsRetainDestroyedResourcesWhileGpuIsBlocked )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU aliasing requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+#ifdef __APPLE__
+    UTEST_SKIP( "Shared placement is not supported on macOS" );
+#endif
+    vhFinish();
+    TestLogCapture logs;
+    constexpr int count = 8;
+    const vhStateId sid = 19989;
+    vhTexture textures[2] = { vhAllocTexture(), vhAllocTexture() };
+    for ( vhTexture texture : textures ) vhCreateTexture2D( texture, "PendingAlias", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhTexture snapshots[count];
+    for ( auto& snapshot : snapshots )
+    {
+        snapshot = vhAllocTexture();
+        vhCreateTexture2D( snapshot, "PendingSnapshot", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    }
+    vhFlush( true );
+    const auto req = vhGetTextureMemoryRequirements( textures[0] );
+    ASSERT_GT( req.x, 0ull );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, req.x, "PendingAliasHeap" ) );
+    for ( vhTexture texture : textures ) vhBindTextureMemory( texture, heap, 0 );
+    vhFinish();
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[0] ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( textures[1] ) );
+    ASSERT_EQ( logs.ErrorCount(), 0 );
+
+    vhHeap replacementHeap = VRHI_INVALID_HANDLE;
+    vhTexture replacementTexture = VRHI_INVALID_HANDLE;
+    {
+        vrhi_test::VhGpuGate gate( utest_result );
+        if ( !gate.Supported() )
+        {
+            for ( vhTexture snapshot : snapshots ) vhDestroyTexture( snapshot );
+            for ( vhTexture texture : textures ) vhDestroyTexture( texture );
+            vhDestroyHeap( heap );
+            vhFinish();
+            UTEST_SKIP( "Timeline semaphore unsupported" );
+        }
+        gate.WaitBefore();
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        }
+        gate.CaptureReader();
+        ASSERT_TRUE( gate.Pending() );
+        gate.StartProducer( [&]
+        {
+            for ( int i = 0; i < count; i++ )
+            {
+                const vhTexture texture = textures[i % 2];
+                const glm::vec4 colour( ( i & 1 ) ? 1.0f : 0.0f, ( i & 2 ) ? 1.0f : 0.0f, ( i & 4 ) ? 1.0f : 0.0f, 1.0f );
+                vhActivateTextureAliases( { { texture, nvrhi::ResourceStates::RenderTarget } } );
+                vhState state = g_state0;
+                state.SetColourAttachment( 0, texture ).SetViewRect( { 0, 0, 32, 32 } ).SetViewClear( VRHI_CLEAR_COLOR, colour );
+                vhSetState( sid, state );
+                vhClear( sid, VRHI_CLEAR_COLOR );
+                vhBlitTexture( snapshots[i], texture );
+            }
+            vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+            for ( vhTexture texture : textures ) vhDestroyTexture( texture );
+            vhDestroyHeap( heap );
+            replacementHeap = vhAllocHeap();
+            replacementTexture = vhAllocTexture();
+            vhCreateHeap( replacementHeap, req.x, "ReplacementPendingHeap" );
+            vhCreateTexture2D( replacementTexture, "ReplacementPendingTexture", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+            vhBindTextureMemory( replacementTexture, replacementHeap, 0 );
+            vhFlush( true );
+        } );
+        EXPECT_TRUE( gate.ProducerFinished( std::chrono::seconds( 3 ) ) );
+        EXPECT_TRUE( gate.Pending() );
+        EXPECT_FALSE( gate.TimedOut() );
+        gate.Release();
+        gate.JoinProducer();
+    }
+    EXPECT_EQ( replacementHeap, heap );
+    EXPECT_TRUE( replacementTexture == textures[0] || replacementTexture == textures[1] );
+    EXPECT_TRUE( vhIsHeapReady( replacementHeap ) );
+    EXPECT_TRUE( vhIsTextureMemoryBound( replacementTexture ) );
+    for ( int i = 0; i < count; i++ )
+    {
+        vhMem data;
+        vhReadTextureSlow( snapshots[i], 0, 0, &data );
+        ASSERT_EQ( data.size(), size_t( 32 * 32 * 4 ) );
+        for ( size_t p = 0; p < data.size(); p += 4 )
+        {
+            ASSERT_EQ( data[p], ( i & 1 ) ? 255 : 0 );
+            ASSERT_EQ( data[p + 1], ( i & 2 ) ? 255 : 0 );
+            ASSERT_EQ( data[p + 2], ( i & 4 ) ? 255 : 0 );
+            ASSERT_EQ( data[p + 3], 255 );
+        }
+    }
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+    for ( vhTexture snapshot : snapshots ) vhDestroyTexture( snapshot );
+    vhDestroyTexture( replacementTexture );
+    vhDestroyHeap( replacementHeap );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
 }
 
 // A clear-only submission must retain its texture after the public handle is destroyed.

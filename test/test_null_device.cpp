@@ -238,6 +238,97 @@ UTEST( NullDevice, TexturePlacementBackendFailures )
     g_vhInit = g_testInitDefaults;
 }
 
+UTEST( NullDevice, TexturePlacementCachesAndValidatesRequirements )
+{
+    TestEnsureShutdown();
+    g_vhInit = vhInitData{};
+    g_vhInit.nullMode = true;
+    vhInit( true );
+    vhFlush( true );
+
+    struct PlacementDevice : vhNullDevice
+    {
+        nvrhi::MemoryRequirements requirements = {};
+        int queries = 0;
+        int binds = 0;
+
+        nvrhi::MemoryRequirements getTextureMemoryRequirements( nvrhi::ITexture* ) override
+        {
+            queries++;
+            return requirements;
+        }
+        bool bindTextureMemory( nvrhi::ITexture*, nvrhi::IHeap*, uint64_t ) override
+        {
+            binds++;
+            return true;
+        }
+    };
+    auto originalDevice = g_vhDevice;
+    auto* device = new PlacementDevice;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        g_vhDevice = nvrhi::DeviceHandle::Create( device );
+        g_vhNullMode = false;
+    }
+    {
+        TestLogCapture logs;
+        vhHeap heap = vhAllocHeap();
+        vhCreateHeap( heap, 8192, "RequirementsHeap" );
+        vhTexture textures[3];
+        const nvrhi::MemoryRequirements requirements[] = { { 0, 256 }, { 4096, 0 }, { 4096, 256 } };
+        for ( int i = 0; i < 3; i++ )
+        {
+            device->requirements = requirements[i];
+            textures[i] = vhAllocTexture();
+            vhCreateTexture2D( textures[i], "RequirementsTexture", { 16, 16 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+            vhFlush( true );
+        }
+        EXPECT_EQ( device->queries, 3 );
+        device->requirements = { 0, 0 };
+        const glm::u64vec2 cached = vhGetTextureMemoryRequirements( textures[2] );
+        EXPECT_EQ( cached.x, 4096ull );
+        EXPECT_EQ( cached.y, 256ull );
+        EXPECT_EQ( device->queries, 3 );
+
+        vhBindTextureMemory( textures[0], heap, 0 );
+        vhBindTextureMemory( textures[1], heap, 0 );
+        vhBindTextureMemory( textures[2], heap, 1 );
+        vhBindTextureMemory( textures[2], heap, 8192 );
+        vhFlush( true );
+        EXPECT_EQ( device->binds, 0 );
+        EXPECT_EQ( logs.ErrorCount(), 4 );
+        EXPECT_TRUE( logs.Contains( "Invalid memory requirements" ) );
+        EXPECT_TRUE( logs.Contains( "is not aligned" ) );
+        EXPECT_TRUE( logs.Contains( "exceeds heap capacity" ) );
+        for ( vhTexture texture : textures ) EXPECT_FALSE( vhIsTextureMemoryBound( texture ) );
+
+        logs.Clear();
+        vhBindTextureMemory( textures[2], heap, 4096 );
+        vhFlush( true );
+        EXPECT_TRUE( vhIsTextureMemoryBound( textures[2] ) );
+        EXPECT_EQ( device->binds, 1 );
+        EXPECT_EQ( device->queries, 3 );
+        EXPECT_EQ( logs.ErrorCount(), 0 );
+        vhBindTextureMemory( textures[2], heap, 0 );
+        vhFlush( true );
+        EXPECT_EQ( device->binds, 1 );
+        EXPECT_TRUE( vhIsTextureMemoryBound( textures[2] ) );
+        EXPECT_TRUE( logs.Contains( "already has memory bound" ) );
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+
+        for ( vhTexture texture : textures ) vhDestroyTexture( texture );
+        vhDestroyHeap( heap );
+        vhFlush( true );
+    }
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        g_vhNullMode = true;
+        g_vhDevice = originalDevice;
+    }
+    vhShutdown( true );
+    g_vhInit = g_testInitDefaults;
+}
+
 UTEST( NullDevice, FrameLoop )
 {
     TestEnsureShutdown();

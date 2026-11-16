@@ -1270,6 +1270,222 @@ UTEST_F( Buffer, Transient_PartialFlushSealsWrittenRange )
     EXPECT_EQ( logs.ErrorCount(), 0 );
 }
 
+UTEST_F( Buffer, Transient_PartialFlushFinalPaddedAtom )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU flush requires GPU" );
+
+    TestLogCapture logs;
+    struct Buffer : vhTransientBuffer
+    {
+        ~Buffer()
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            Shutdown_DeviceStateLocked();
+        }
+    } tb;
+    const int64_t alignment = VRHI_ROUND_UP( VRHI_CBUF_ALIGN, g_vhVulkanDevice->getMappedBufferFlushAlignment() );
+    nvrhi::BufferDesc desc;
+    desc.byteSize = alignment + 16;
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+    EXPECT_EQ( tb.size, alignment + 16 );
+    EXPECT_EQ( tb.handle[0]->getDesc().byteSize, uint64_t( alignment * 2 ) );
+
+    uint8_t first[VRHI_CBUF_ALIGN];
+    uint8_t last[16];
+    std::memset( first, 0x36, sizeof( first ) );
+    std::memset( last, 0xC9, sizeof( last ) );
+    ASSERT_EQ( tb.Write( first, sizeof( first ) ), 0 );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        ASSERT_TRUE( tb.Flush_DeviceStateLocked() );
+    }
+    ASSERT_EQ( tb.Write( last, sizeof( last ) ), alignment );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        ASSERT_TRUE( tb.Flush_DeviceStateLocked() );
+        EXPECT_EQ( tb.offset, alignment * 2 );
+        EXPECT_EQ( tb.flushedEnd, alignment * 2 );
+        ASSERT_TRUE( tb.Flush_DeviceStateLocked() );
+    }
+    EXPECT_EQ( tb.Write( last, sizeof( last ) ), -1 );
+
+    nvrhi::BufferDesc readDesc;
+    readDesc.setByteSize( sizeof( first ) + sizeof( last ) ).setCpuAccess( nvrhi::CpuAccessMode::Read );
+    auto staging = g_vhDevice->createBuffer( readDesc );
+    ASSERT_NE( staging, nullptr );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        commands->copyBuffer( staging, 0, tb.handle[0], 0, sizeof( first ) );
+        commands->copyBuffer( staging, sizeof( first ), tb.handle[0], alignment, sizeof( last ) );
+        vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+    }
+    vhFinish();
+    const auto* data = ( const uint8_t* ) g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+    ASSERT_NE( data, nullptr );
+    EXPECT_EQ( std::memcmp( data, first, sizeof( first ) ), 0 );
+    EXPECT_EQ( std::memcmp( data + sizeof( first ), last, sizeof( last ) ), 0 );
+    g_vhDevice->unmapBuffer( staging );
+
+    tb.Step();
+    EXPECT_EQ( tb.offset, 0 );
+    EXPECT_EQ( tb.flushedEnd, 0 );
+    EXPECT_EQ( tb.Write( last, sizeof( last ) ), 0 );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        ASSERT_TRUE( tb.Flush_DeviceStateLocked() );
+    }
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST_F( Buffer, MappedFlushRejectsInvalidResourcesAndRanges )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Vulkan mapped flush requires GPU" );
+    TestLogCapture logs;
+    const uint64_t alignment = g_vhVulkanDevice->getMappedBufferFlushAlignment();
+    ASSERT_GT( alignment, 0ull );
+    const uint64_t size = alignment * 4;
+    nvrhi::BufferDesc writeDesc;
+    writeDesc.setByteSize( size ).setCpuAccess( nvrhi::CpuAccessMode::Write );
+    auto writeBuffer = g_vhDevice->createBuffer( writeDesc );
+    auto readBuffer = g_vhDevice->createBuffer( nvrhi::BufferDesc().setByteSize( size ).setCpuAccess( nvrhi::CpuAccessMode::Read ) );
+    auto deviceBuffer = g_vhDevice->createBuffer( nvrhi::BufferDesc().setByteSize( size ) );
+    auto virtualBuffer = g_vhVulkanDevice->createBuffer( nvrhi::BufferDesc().setByteSize( size ).setCpuAccess( nvrhi::CpuAccessMode::Write ).setIsVirtual( true ) );
+    ASSERT_NE( writeBuffer, nullptr );
+    ASSERT_NE( readBuffer, nullptr );
+    ASSERT_NE( deviceBuffer, nullptr );
+    ASSERT_NE( virtualBuffer, nullptr );
+    auto imported = g_vhVulkanDevice->createHandleForNativeBuffer( nvrhi::ObjectTypes::VK_Buffer, writeBuffer->getNativeObject( nvrhi::ObjectTypes::VK_Buffer ), writeDesc );
+    ASSERT_NE( imported, nullptr );
+    auto* mapped = ( uint8_t* ) g_vhDevice->mapBuffer( writeBuffer, nvrhi::CpuAccessMode::Write );
+    ASSERT_NE( mapped, nullptr );
+    for ( uint64_t i = 0; i < size; i++ ) mapped[i] = uint8_t( i * 13 + 37 );
+
+    nvrhi::IBuffer* unsupported[] = { nullptr, readBuffer.Get(), deviceBuffer.Get(), virtualBuffer.Get(), imported.Get() };
+    for ( nvrhi::IBuffer* buffer : unsupported )
+    {
+        logs.Clear();
+        EXPECT_FALSE( g_vhVulkanDevice->flushMappedBuffer( buffer, 0, alignment ) );
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+        EXPECT_TRUE( logs.Contains( "buffer must be an NVRHI-owned write buffer" ) );
+    }
+    struct Range { uint64_t offset; uint64_t size; };
+    const uint64_t largestAligned = UINT64_MAX - UINT64_MAX % alignment;
+    const Range invalid[] = {
+        { 0, 0 }, { size, alignment }, { size - alignment, 2 * alignment },
+        { largestAligned, alignment }, { 0, largestAligned }
+    };
+    for ( const auto& range : invalid )
+    {
+        logs.Clear();
+        EXPECT_FALSE( g_vhVulkanDevice->flushMappedBuffer( writeBuffer, range.offset, range.size ) );
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+        EXPECT_TRUE( logs.Contains( "range is invalid" ) );
+    }
+    if ( alignment > 1 )
+    {
+        logs.Clear();
+        EXPECT_FALSE( g_vhVulkanDevice->flushMappedBuffer( writeBuffer, 1, alignment ) );
+        EXPECT_FALSE( g_vhVulkanDevice->flushMappedBuffer( writeBuffer, 0, alignment - 1 ) );
+        EXPECT_EQ( logs.ErrorCount(), 2 );
+        EXPECT_TRUE( logs.Contains( "range is invalid" ) );
+    }
+    logs.Clear();
+    EXPECT_TRUE( g_vhVulkanDevice->flushMappedBuffer( writeBuffer, 0, 2 * alignment ) );
+    EXPECT_TRUE( g_vhVulkanDevice->flushMappedBuffer( writeBuffer, 2 * alignment, 2 * alignment ) );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        commands->copyBuffer( readBuffer, 0, writeBuffer, 0, size );
+        vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+    }
+    vhFinish();
+    const auto* read = ( const uint8_t* ) g_vhDevice->mapBuffer( readBuffer, nvrhi::CpuAccessMode::Read );
+    ASSERT_NE( read, nullptr );
+    for ( uint64_t i = 0; i < size; i++ ) EXPECT_EQ( read[i], uint8_t( i * 13 + 37 ) );
+    g_vhDevice->unmapBuffer( readBuffer );
+    g_vhDevice->unmapBuffer( writeBuffer );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST_F( Buffer, Transient_FailedPartialFlushCanRetry )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU flush requires GPU" );
+
+    TestLogCapture logs;
+    struct Buffer : vhTransientBuffer
+    {
+        ~Buffer()
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            Shutdown_DeviceStateLocked();
+        }
+    } tb;
+    const int64_t alignment = VRHI_ROUND_UP( VRHI_CBUF_ALIGN, g_vhVulkanDevice->getMappedBufferFlushAlignment() );
+    nvrhi::BufferDesc desc;
+    desc.byteSize = alignment * 4;
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+
+    uint8_t first[VRHI_CBUF_ALIGN];
+    uint8_t second[32];
+    std::memset( first, 0x53, sizeof( first ) );
+    std::memset( second, 0xA6, sizeof( second ) );
+    ASSERT_EQ( tb.Write( first, sizeof( first ) ), 0 );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        ASSERT_TRUE( tb.Flush_DeviceStateLocked() );
+    }
+    ASSERT_EQ( tb.Write( second, sizeof( second ) ), alignment );
+    const int64_t writtenEnd = tb.offset;
+    const uint32_t slot = tb.frameIdx;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.flushAlignment = 2 * tb.handle[slot]->getDesc().byteSize;
+        EXPECT_FALSE( tb.Flush_DeviceStateLocked() );
+        EXPECT_EQ( tb.offset, writtenEnd );
+        EXPECT_EQ( tb.flushedEnd, alignment );
+        EXPECT_EQ( tb.frameIdx, slot );
+        EXPECT_TRUE( tb.ready[slot] );
+        EXPECT_EQ( std::memcmp( tb.mapped[slot] + alignment, second, sizeof( second ) ), 0 );
+        tb.flushAlignment = alignment;
+        EXPECT_TRUE( tb.Flush_DeviceStateLocked() );
+        EXPECT_EQ( tb.offset, alignment * 2 );
+        EXPECT_EQ( tb.flushedEnd, alignment * 2 );
+    }
+    EXPECT_TRUE( logs.Contains( "flushMappedBuffer: the range is invalid" ) );
+    EXPECT_EQ( logs.ErrorCount(), 1 );
+    logs.Clear();
+
+    nvrhi::BufferDesc readDesc;
+    readDesc.setByteSize( sizeof( first ) + sizeof( second ) ).setCpuAccess( nvrhi::CpuAccessMode::Read );
+    auto staging = g_vhDevice->createBuffer( readDesc );
+    ASSERT_NE( staging, nullptr );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        commands->copyBuffer( staging, 0, tb.handle[slot], 0, sizeof( first ) );
+        commands->copyBuffer( staging, sizeof( first ), tb.handle[slot], alignment, sizeof( second ) );
+        vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+    }
+    vhFinish();
+    const auto* data = ( const uint8_t* ) g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+    ASSERT_NE( data, nullptr );
+    EXPECT_EQ( std::memcmp( data, first, sizeof( first ) ), 0 );
+    EXPECT_EQ( std::memcmp( data + sizeof( first ), second, sizeof( second ) ), 0 );
+    g_vhDevice->unmapBuffer( staging );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
 UTEST_F( Buffer, Transient_StepWithoutWriteKeepsQueries )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );
