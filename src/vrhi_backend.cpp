@@ -2662,6 +2662,12 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     {
         snprintf( temps, sizeof( temps ), "Texture %d", cmd->texture );
     }
+    if ( ( cmd->flag & VRHI_TEXTURE_VIRTUAL ) && cmd->data )
+    {
+        VRHI_ERR( "vhCreateTexture() : Virtual texture cannot have initial upload data\n" );
+        return;
+    }
+
     const char* debugName = cmd->name ? cmd->name : temps;
     auto textureDesc = nvrhi::TextureDesc()
         .setDimension( cmd->target )
@@ -2678,9 +2684,14 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
         .setDebugName( debugName );
 
     nvrhi::TextureHandle texture = nullptr;
+    nvrhi::MemoryRequirements memReq = {};
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         texture = g_vhDevice->createTexture( textureDesc );
+        if ( texture && ( cmd->flag & VRHI_TEXTURE_VIRTUAL ) != 0 )
+        {
+            memReq = g_vhDevice->getTextureMemoryRequirements( texture );
+        }
     }
     if ( !texture )
     {
@@ -2698,6 +2709,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     btex->info.mipLevels = cmd->numMips;
     btex->info.arrayLayers = cmd->numLayers;
     btex->flags = cmd->flag;
+    btex->memoryRequirements = glm::u64vec2( memReq.size, memReq.alignment );
     vhTextureMiplevelInfo( btex->mipInfo, btex->pitchSize, btex->arraySize, btex->info );
 
     if ( cmd->data )
@@ -3164,6 +3176,11 @@ void vhCmdBackendState::Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd )
         return;
     }
 
+    if ( cmd->size == 0 )
+    {
+        VRHI_ERR( "vhCreateHeap(): Size must be greater than zero\n" );
+        return;
+    }
     if ( cmd->size > UINT32_MAX )
     {
         VRHI_ERR( "vhCreateHeap(): Size %llu exceeds maximum supported size %u\n", cmd->size, UINT32_MAX );
@@ -3222,6 +3239,11 @@ void vhCmdBackendState::Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd )
 void vhCmdBackendState::Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
+    if ( g_vhNullMode )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Physical texture placement is unsupported in null mode\n" );
+        return;
+    }
     if ( cmd->texture == VRHI_INVALID_HANDLE || cmd->heap == VRHI_INVALID_HANDLE )
     {
         VRHI_ERR( "vhBindTextureMemory(): Invalid texture or heap handle\n" );
@@ -3247,17 +3269,99 @@ void vhCmdBackendState::Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cm
         return;
     }
 
-    if ( cmd->offset >= heapIt->second->desc.capacity )
+    auto& btex = *texIt->second;
+    if ( btex.heap )
     {
-        VRHI_ERR( "vhBindTextureMemory(): Offset %llu exceeds heap %d capacity %llu\n", cmd->offset, cmd->heap, heapIt->second->desc.capacity );
+        VRHI_ERR( "vhBindTextureMemory(): Texture %d already has memory bound\n", cmd->texture );
+        return;
+    }
+    const auto& desc = btex.handle->getDesc();
+    if ( !vhVerifyTextureMemoryBinding( desc, btex.memoryRequirements, cmd->offset, heapIt->second->desc.capacity ) ) return;
+
+    for ( const auto& entry : backendTextures )
+    {
+        const auto& otherTex = *entry.second;
+        if ( otherTex.heap != heapIt->second->handle ) continue;
+        if ( !vhVerifyTextureMemoryOverlap( desc, { cmd->offset, btex.memoryRequirements.x }, otherTex.handle->getDesc(), { otherTex.heapOffset, otherTex.memoryRequirements.x } ) ) return;
+    }
+
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        if ( !vhBindTextureMemory_DeviceStateLocked( btex.handle, heapIt->second->handle, cmd->offset ) ) return;
+    }
+    btex.heap = heapIt->second->handle;
+    btex.heapOffset = cmd->offset;
+}
+
+void vhCmdBackendState::Handle_vhActivateTextureAliases( VIDL_vhActivateTextureAliases* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    if ( cmd->aliases.empty() ) return;
+    if ( g_vhNullMode )
+    {
+        VRHI_ERR( "vhActivateTextureAliases(): Physical texture placement is unsupported in null mode\n" );
         return;
     }
 
-    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    if ( !g_vhDevice->bindTextureMemory( texIt->second->handle, heapIt->second->handle, cmd->offset ) )
+    static std::vector< vhBackendTexture* > s_textures;
+    s_textures.clear();
+    s_textures.reserve( cmd->aliases.size() );
+
+    for ( uint32_t i = 0; i < cmd->aliases.size(); i++ )
     {
-        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture %d to heap %d at offset %llu\n", cmd->texture, cmd->heap, cmd->offset );
+        const vhTextureAlias& alias = cmd->aliases[i];
+        auto texIt = backendTextures.find( alias.texture );
+        if ( texIt == backendTextures.end() || !texIt->second->handle )
+        {
+            VRHI_ERR( "vhActivateTextureAliases(): Texture %d not found or invalid\n", alias.texture );
+            return;
+        }
+        auto& btex = *texIt->second;
+        if ( !btex.heap )
+        {
+            VRHI_ERR( "vhActivateTextureAliases(): Texture %d does not have bound heap memory\n", alias.texture );
+            return;
+        }
+        if ( btex.permanentStateAssigned )
+        {
+            VRHI_ERR( "vhActivateTextureAliases(): Texture %d has a permanent descriptor-table state\n", alias.texture );
+            return;
+        }
+        if ( !vhVerifyTextureAliasState( btex.handle->getDesc(), alias.state ) ) return;
+
+        for ( uint32_t j = 0; j < i; j++ )
+        {
+            const auto& prev = *s_textures[j];
+            if ( prev.heap != btex.heap ) continue;
+            const uint64_t prevEnd = prev.heapOffset + prev.memoryRequirements.x;
+            const uint64_t curEnd = btex.heapOffset + btex.memoryRequirements.x;
+            if ( prev.heapOffset < curEnd && btex.heapOffset < prevEnd )
+            {
+                VRHI_ERR( "vhActivateTextureAliases(): Overlapping textures in batch for texture %d\n", alias.texture );
+                return;
+            }
+        }
+        s_textures.push_back( &btex );
     }
+
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    if ( !BE_FlushTransientBuffers_DeviceStateLocked() ) return;
+
+    // Submit an empty list if necessary so the queue wait covers earlier submissions too.
+    const auto queue = nvrhi::CommandQueue::Graphics;
+    vhCmdListGet_DeviceStateLocked( queue );
+    const uint64_t instance = vhCmdListFlush_DeviceStateLocked( queue );
+    g_vhDevice->queueWaitForCommandList( queue, queue, instance );
+
+    auto cmdlist = vhCmdListGet_DeviceStateLocked( queue );
+    for ( uint32_t i = 0; i < s_textures.size(); i++ )
+    {
+        auto& btex = *s_textures[i];
+        vhActivateTextureAlias_DeviceStateLocked( cmdlist, btex.handle, cmd->aliases[i].state );
+        btex.aliasActivated = true;
+    }
+    cmdlist->commitBarriers();
+    BE_InvalidateGfxCache();
 }
 
 void vhCmdBackendState::Handle_vhBindBufferMemory( VIDL_vhBindBufferMemory* cmd )
@@ -3494,8 +3598,19 @@ void vhCmdBackendState::Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd )
     }
 }
 
+bool vhCmdBackendState::BE_FlushTransientBuffers_DeviceStateLocked()
+{
+    vhTransientBuffer* buffers[] = { &m_globalUniformBuffer, &m_worldUniformBuffer, &m_userUniformBuffer };
+    for ( auto* buffer : buffers )
+    {
+        if ( !buffer->Flush_DeviceStateLocked() ) return false;
+    }
+    return true;
+}
+
 void vhCmdBackendState::BE_InvalidateGfxCache()
 {
+    for ( auto& entry : backendStates ) entry.second.dirty |= VRHI_DIRTY_PUSH_CONSTANTS;
 }
 
 void vhCmdBackendState::BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist )
@@ -3852,6 +3967,7 @@ void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescrip
 
     // Resolve the vrhi handle here so writes compose with queued resource creation.
     nvrhi::BindingSetItem item = cmd->item;
+    vhBackendTexture* texture = nullptr;
     if ( cmd->resource == VRHI_INVALID_HANDLE )
     {
         item.type = nvrhi::ResourceType::None;
@@ -3874,7 +3990,13 @@ void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescrip
             VRHI_ERR( "vhDescriptorTableSetTexture() : Texture %d not found!\n", cmd->resource );
             return;
         }
-        item.resourceHandle = tit->second->handle.Get();
+        texture = tit->second.get();
+        if ( texture->aliasActivated )
+        {
+            VRHI_ERR( "vhDescriptorTableSetTexture() : Cannot assign permanent state to alias-activated texture %d\n", cmd->resource );
+            return;
+        }
+        item.resourceHandle = texture->handle.Get();
     }
 
     // nvrhi matches bindless writes by exact resource type and drops undeclared ones silently.
@@ -3906,6 +4028,7 @@ void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescrip
     // Bindless resources skip binding-set state tracking, so pin them to a permanent shader-visible state once.
     if ( item.resourceHandle )
     {
+        if ( texture ) texture->permanentStateAssigned = true;
         const bool isUAV = ( item.type == nvrhi::ResourceType::Texture_UAV
             || item.type == nvrhi::ResourceType::TypedBuffer_UAV
             || item.type == nvrhi::ResourceType::StructuredBuffer_UAV
@@ -4536,8 +4659,16 @@ void vhCmdBackendState::Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd )
         // Flush transient buffer maps here.
         // This needs to be done *before* we flush the command lists to GPU!!
 
+        if ( !BE_FlushTransientBuffers_DeviceStateLocked() )
+        {
+            if ( fence )
+            {
+                fence->store( true, std::memory_order_release );
+                fence->notify_one();
+            }
+            return;
+        }
         vhTransientBuffer* uniformBuffers[] = { &m_globalUniformBuffer, &m_worldUniformBuffer, &m_userUniformBuffer };
-        for ( auto* buffer : uniformBuffers ) buffer->Flush_DeviceStateLocked();
         for ( int i = 0; i <= VRHI_SHADER_STAGE_MAX; i++ ) m_userGlobalsLast[i] = UserGlobalsLastWrite{};
     
         // Submit pending command lists.
@@ -5043,6 +5174,11 @@ glm::u64vec2 vhCmdBackendState::QueryTextureMemoryRequirements( vhTexture textur
         return glm::u64vec2( 0 );
     }
 
+    if ( ( texIt->second->flags & VRHI_TEXTURE_VIRTUAL ) != 0 )
+    {
+        return texIt->second->memoryRequirements;
+    }
+
     uint64_t size = 0;
     uint64_t alignment = 0;
     {
@@ -5052,6 +5188,20 @@ glm::u64vec2 vhCmdBackendState::QueryTextureMemoryRequirements( vhTexture textur
         alignment = req.alignment;
     }
     return glm::u64vec2( size, alignment );
+}
+
+bool vhCmdBackendState::QueryHeapReady( vhHeap heap )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto heapIt = backendHeaps.find( heap );
+    return heapIt != backendHeaps.end() && heapIt->second->handle != nullptr;
+}
+
+bool vhCmdBackendState::QueryTextureMemoryBound( vhTexture texture )
+{
+    std::lock_guard< std::mutex > lock( backendMutex );
+    auto texIt = backendTextures.find( texture );
+    return texIt != backendTextures.end() && texIt->second->heap != nullptr;
 }
 
 glm::u64vec2 vhCmdBackendState::QueryAccelStructMemoryRequirements( vhAccelStruct as )
@@ -5342,6 +5492,16 @@ float vhBackendQueryTimer( vhTimerID timerID )
 glm::u64vec2 vhBackendQueryTextureMemoryRequirements( vhTexture texture )
 {
     return g_vhCmdBackendState.QueryTextureMemoryRequirements( texture );
+}
+
+bool vhBackendQueryHeapReady( vhHeap heap )
+{
+    return g_vhCmdBackendState.QueryHeapReady( heap );
+}
+
+bool vhBackendQueryTextureMemoryBound( vhTexture texture )
+{
+    return g_vhCmdBackendState.QueryTextureMemoryBound( texture );
 }
 
 glm::u64vec2 vhBackendAllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment )

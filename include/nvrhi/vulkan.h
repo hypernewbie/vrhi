@@ -52,6 +52,14 @@ namespace nvrhi::vulkan
         virtual bool getPipelineCacheData(std::vector<uint8_t>& outData) = 0;
         virtual size_t getPipelineCacheDataSize() = 0; // cheap size-only query, no full serialise
         // [UAA] - END
+
+        // [UAA] - START - mapped buffer write flush
+        // Publishes host writes in a mapped buffer range to the device.
+        // The buffer must be NVRHI-owned, non-virtual, and mapped for CPU write access.
+        // The offset and the size must be multiples of getMappedBufferFlushAlignment().
+        virtual uint64_t getMappedBufferFlushAlignment() = 0;
+        virtual bool flushMappedBuffer(IBuffer* buffer, uint64_t offset, uint64_t size) = 0;
+        // [UAA] - END
     };
 
     typedef RefCountPtr<IDevice> DeviceHandle;

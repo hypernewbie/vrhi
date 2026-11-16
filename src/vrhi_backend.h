@@ -39,6 +39,11 @@ struct vhBackendTexture
     int64_t arraySize;
     std::vector< vhTextureMipInfo > mipInfo;
     uint64_t flags = 0;
+    nvrhi::HeapHandle heap;
+    uint64_t heapOffset = 0;
+    glm::u64vec2 memoryRequirements = { 0, 0 };
+    bool permanentStateAssigned = false;
+    bool aliasActivated = false;
 };
 
 struct vhBackendBuffer
@@ -166,6 +171,7 @@ class vhCmdBackendState : public VIDLHandler
         if ( mem ) g_vhMemList.push_back( const_cast< vhMem* >( mem ) );
     }
 
+    bool BE_FlushTransientBuffers_DeviceStateLocked();
     void BE_InvalidateGfxCache();
     void BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist );
 
@@ -365,6 +371,7 @@ public:
     void Handle_vhCreateHeap( VIDL_vhCreateHeap* cmd ) override;
     void Handle_vhDestroyHeap( VIDL_vhDestroyHeap* cmd ) override;
     void Handle_vhBindTextureMemory( VIDL_vhBindTextureMemory* cmd ) override;
+    void Handle_vhActivateTextureAliases( VIDL_vhActivateTextureAliases* cmd ) override;
     void Handle_vhBindBufferMemory( VIDL_vhBindBufferMemory* cmd ) override;
     void Handle_vhCreateAS( VIDL_vhCreateAS* cmd ) override;
     void Handle_vhDestroyAS( VIDL_vhDestroyAS* cmd ) override;
@@ -479,6 +486,8 @@ public:
     nvrhi::rt::ShaderTableHandle QueryShaderTableHandle( vhShaderTable table );
     
     glm::u64vec2 QueryTextureMemoryRequirements( vhTexture texture );
+    bool QueryHeapReady( vhHeap heap );
+    bool QueryTextureMemoryBound( vhTexture texture );
     glm::u64vec2 AllocTextureMemory( vhHeap heap, uint64_t size, uint64_t alignment );
     void FreeTextureMemory( vhHeap heap, uint64_t offset );
     glm::u64vec2 QueryBufferMemoryRequirements( vhBuffer buffer );

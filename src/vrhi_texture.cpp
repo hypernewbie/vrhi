@@ -126,6 +126,110 @@ bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions,
     return true;
 }
 
+static bool vhIsAliasEligible2DTextureDesc( const nvrhi::TextureDesc& desc )
+{
+    const bool isPlain2D =
+        desc.dimension == nvrhi::TextureDimension::Texture2D &&
+        desc.depth == 1 &&
+        desc.arraySize == 1 &&
+        desc.sampleCount == 1;
+    const bool isStandardPlacement =
+        desc.isVirtual &&
+        !desc.isTiled &&
+        desc.sharedResourceFlags == nvrhi::SharedResourceFlags::None &&
+        !desc.isTypeless &&
+        desc.format != nvrhi::Format::UNKNOWN;
+    return isPlain2D && isStandardPlacement;
+}
+
+static bool vhIsValidAliasActivationState( nvrhi::ResourceStates state, const nvrhi::TextureDesc& desc )
+{
+    const auto& format = nvrhi::getFormatInfo( desc.format );
+    const bool isDepthStencil = format.hasDepth || format.hasStencil;
+    switch ( state )
+    {
+        case nvrhi::ResourceStates::CopyDest:
+            return true;
+        case nvrhi::ResourceStates::RenderTarget:
+            return desc.isRenderTarget && !isDepthStencil;
+        case nvrhi::ResourceStates::DepthWrite:
+            return desc.isRenderTarget && isDepthStencil;
+        case nvrhi::ResourceStates::UnorderedAccess:
+            return desc.isUAV;
+        default:
+            return false;
+    }
+}
+
+bool vhVerifyTextureMemoryBinding( const nvrhi::TextureDesc& desc, glm::u64vec2 requirements, uint64_t offset, uint64_t capacity )
+{
+    if ( requirements.x == 0 || requirements.y == 0 )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Invalid memory requirements for texture '%s'\n", desc.debugName.c_str() );
+        return false;
+    }
+    if ( ( offset % requirements.y ) != 0 )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Offset %llu is not aligned to %llu for texture '%s'\n", offset, requirements.y, desc.debugName.c_str() );
+        return false;
+    }
+    if ( offset > capacity || requirements.x > capacity - offset )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Range [%llu, +%llu) exceeds heap capacity %llu\n", offset, requirements.x, capacity );
+        return false;
+    }
+    return true;
+}
+
+bool vhVerifyTextureMemoryOverlap( const nvrhi::TextureDesc& desc, glm::u64vec2 range, const nvrhi::TextureDesc& otherDesc, glm::u64vec2 otherRange )
+{
+    const bool overlaps = range.x < otherRange.x + otherRange.y && otherRange.x < range.x + range.y;
+    if ( !overlaps ) return true;
+
+    if ( range.x != otherRange.x )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Overlapping binding for texture '%s' must start at offset %llu (got %llu)\n", desc.debugName.c_str(), otherRange.x, range.x );
+        return false;
+    }
+    if ( !vhIsAliasEligible2DTextureDesc( desc ) || !vhIsAliasEligible2DTextureDesc( otherDesc ) )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Textures '%s' and '%s' cannot overlap: unsupported texture class\n", desc.debugName.c_str(), otherDesc.debugName.c_str() );
+        return false;
+    }
+#ifdef __APPLE__
+    // Shared placement has not been qualified with MoltenVK's Metal heap configurations.
+    VRHI_ERR( "vhBindTextureMemory(): Shared texture placement is not supported on macOS\n" );
+    return false;
+#endif
+    if ( desc.format != otherDesc.format )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Texture '%s' format does not match texture '%s' in the same region\n", desc.debugName.c_str(), otherDesc.debugName.c_str() );
+        return false;
+    }
+    const bool sameUsage = desc.isRenderTarget == otherDesc.isRenderTarget && desc.isUAV == otherDesc.isUAV;
+    if ( !sameUsage )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Texture '%s' render-target/UAV usage does not match texture '%s' in the same region\n", desc.debugName.c_str(), otherDesc.debugName.c_str() );
+        return false;
+    }
+    return true;
+}
+
+bool vhVerifyTextureAliasState( const nvrhi::TextureDesc& desc, nvrhi::ResourceStates state )
+{
+    if ( !vhIsAliasEligible2DTextureDesc( desc ) )
+    {
+        VRHI_ERR( "vhActivateTextureAliases(): Texture '%s' does not satisfy 2D alias contract\n", desc.debugName.c_str() );
+        return false;
+    }
+    if ( !vhIsValidAliasActivationState( state, desc ) )
+    {
+        VRHI_ERR( "vhActivateTextureAliases(): Invalid activation state for texture '%s'\n", desc.debugName.c_str() );
+        return false;
+    }
+    return true;
+}
+
 // ------------ Texture Implementation ------------
 
 vhTexture vhAllocTexture()
@@ -270,6 +374,66 @@ vhTexInfo vhGetTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* 
 nvrhi::TextureHandle vhGetTextureNvrhiHandle( vhTexture texture )
 {
     return vhBackendQueryTextureHandle( texture );
+}
+
+bool vhBindTextureMemory_DeviceStateLocked( nvrhi::ITexture* texture, nvrhi::IHeap* heap, uint64_t offset )
+{
+    // NVRHI uses a throwing Vulkan-Hpp overload for the native image bind.
+    bool bound = false;
+    try
+    {
+        bound = g_vhDevice->bindTextureMemory( texture, heap, offset );
+    }
+    catch ( const vk::SystemError& e )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture '%s' at offset %llu: %s\n", texture->getDesc().debugName.c_str(), offset, e.what() );
+        return false;
+    }
+    if ( !bound )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture '%s' at offset %llu\n", texture->getDesc().debugName.c_str(), offset );
+        return false;
+    }
+    return true;
+}
+
+bool vhIsTextureMemoryBound( vhTexture texture )
+{
+    if ( texture == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhIsTextureMemoryBound(): Invalid texture handle\n" );
+        return false;
+    }
+    if ( g_vhNullMode ) return false;
+
+    return vhBackendQueryTextureMemoryBound( texture );
+}
+
+void vhActivateTextureAliases( const std::vector< vhTextureAlias >& aliases )
+{
+    if ( aliases.empty() )
+    {
+        return;
+    }
+
+    for ( const vhTextureAlias& alias : aliases )
+    {
+        if ( alias.texture == VRHI_INVALID_HANDLE )
+        {
+            VRHI_ERR( "vhActivateTextureAliases(): Invalid texture handle\n" );
+            return;
+        }
+    }
+
+    auto cmd = vhCmdAlloc<VIDL_vhActivateTextureAliases>( vhArenaCopySpan( aliases ) );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
+void vhActivateTextureAlias_DeviceStateLocked( nvrhi::ICommandList* cmdList, nvrhi::ITexture* texture, nvrhi::ResourceStates state )
+{
+    cmdList->beginTrackingTextureState( texture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common );
+    cmdList->setTextureState( texture, nvrhi::AllSubresources, state );
 }
 
 // ------------ Sampler Implementation ------------

@@ -1218,6 +1218,58 @@ UTEST_F( Buffer, Transient_NoSecondReuseWait )
     }
 }
 
+// Exercise an atom larger than a uniform allocation, even on coherent hardware.
+UTEST_F( Buffer, Transient_PartialFlushSealsWrittenRange )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU flush requires GPU" );
+
+    TestLogCapture logs;
+    vhTransientBuffer tb;
+    nvrhi::BufferDesc desc;
+    desc.byteSize = 8 * VRHI_CBUF_ALIGN;
+    desc.isConstantBuffer = true;
+    desc.cpuAccess = nvrhi::CpuAccessMode::Write;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Init_DeviceStateLocked( desc );
+    }
+    EXPECT_EQ( tb.size, ( int64_t ) desc.byteSize );
+    tb.flushAlignment = std::max( tb.flushAlignment, int64_t( 2 * VRHI_CBUF_ALIGN ) );
+    const uint32_t slot = tb.frameIdx;
+    std::vector< uint8_t > data( VRHI_CBUF_ALIGN, 42 );
+    while ( tb.offset < tb.size )
+    {
+        const int64_t start = tb.offset;
+        const int64_t previousEnd = tb.flushedEnd;
+        ASSERT_EQ( tb.Write( data.data(), data.size() ), start );
+        EXPECT_GE( start, previousEnd );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            ASSERT_TRUE( tb.Flush_DeviceStateLocked() );
+            const int64_t end = tb.flushedEnd;
+            ASSERT_TRUE( tb.Flush_DeviceStateLocked() );
+            EXPECT_EQ( tb.flushedEnd, end );
+        }
+        EXPECT_EQ( tb.flushedEnd, tb.offset );
+        EXPECT_EQ( tb.offset, VRHI_ROUND_UP( start + ( int64_t ) data.size(), tb.flushAlignment ) );
+        EXPECT_LE( tb.flushedEnd, ( int64_t ) tb.handle[slot]->getDesc().byteSize );
+        EXPECT_GT( tb.flushedEnd, start );
+        EXPECT_EQ( tb.frameIdx, slot );
+        EXPECT_TRUE( tb.ready[slot] );
+    }
+    EXPECT_EQ( tb.Write( data.data(), data.size() ), -1 );
+    tb.Step();
+    EXPECT_EQ( tb.flushedEnd, 0 );
+    EXPECT_EQ( tb.offset, 0 );
+    EXPECT_EQ( tb.Write( data.data(), data.size() ), 0 );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        tb.Flush_DeviceStateLocked();
+        tb.Shutdown_DeviceStateLocked();
+    }
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
 UTEST_F( Buffer, Transient_StepWithoutWriteKeepsQueries )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU map not exercised in Null RHI mode" );

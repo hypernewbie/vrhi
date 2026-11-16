@@ -22,6 +22,7 @@
 #include <vrhi_internal.h>
 #include "test.h"
 #include <vrhi.h>
+#include <vrhi_null.h>
 #include <set>
 #include <vector>
 
@@ -73,6 +74,167 @@ UTEST( NullDevice, ResourceCreation )
 
     vhShutdown( true );
 
+    g_vhInit = g_testInitDefaults;
+}
+
+UTEST( NullDevice, TexturePlacementUnsupported )
+{
+    TestEnsureShutdown();
+
+    g_vhInit = vhInitData{};
+    g_vhInit.nullMode = true;
+    vhInit( true );
+
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, 4 * 1024 * 1024, "NullHeap" ) );
+
+    vhTexture virtualTex = vhAllocTexture();
+    vhCreateTexture2D( virtualTex, "NullVirtualTex", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+
+    vhTexture normalTex = vhAllocTexture();
+    vhCreateTexture2D( normalTex, "NullNormalTex", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM );
+
+    vhBuffer virtualBuf = vhAllocBuffer();
+    vhCreateStorageBuffer( virtualBuf, "NullVirtualBuf", nullptr, 4096, VRHI_BUFFER_VIRTUAL );
+    vhFlush();
+
+    {
+        TestLogCapture logs;
+        int32_t errors = g_vhErrorCounter.load();
+        EXPECT_FALSE( vhIsHeapReady( heap ) );
+        EXPECT_FALSE( vhIsTextureMemoryBound( virtualTex ) );
+        EXPECT_EQ( g_vhErrorCounter.load(), errors );
+        EXPECT_FALSE( vhIsHeapReady( VRHI_INVALID_HANDLE ) );
+        EXPECT_FALSE( vhIsTextureMemoryBound( VRHI_INVALID_HANDLE ) );
+        EXPECT_EQ( g_vhErrorCounter.load(), errors + 2 );
+        EXPECT_TRUE( logs.Contains( "vhIsHeapReady(): Invalid heap handle" ) );
+        EXPECT_TRUE( logs.Contains( "vhIsTextureMemoryBound(): Invalid texture handle" ) );
+    }
+    EXPECT_GT( vhAllocBindBufferMemory( virtualBuf, heap ).y, 0ull );
+
+    glm::u64vec2 texReq = vhGetTextureMemoryRequirements( virtualTex );
+    EXPECT_EQ( texReq.x, 0ull );
+    EXPECT_EQ( texReq.y, 0ull );
+
+    int32_t errors = g_vhErrorCounter.load();
+    glm::u64vec2 texAlloc = vhAllocBindTextureMemory( virtualTex, heap );
+    EXPECT_EQ( texAlloc.y, 0ull );
+    vhFlush();
+    EXPECT_FALSE( vhIsTextureMemoryBound( virtualTex ) );
+    EXPECT_GT( g_vhErrorCounter.load(), errors );
+
+    errors = g_vhErrorCounter.load();
+    vhBindTextureMemory( virtualTex, heap, 0 );
+    vhActivateTextureAliases( { { virtualTex, nvrhi::ResourceStates::RenderTarget } } );
+    vhFlush();
+    EXPECT_FALSE( vhIsTextureMemoryBound( virtualTex ) );
+    EXPECT_GE( g_vhErrorCounter.load(), errors + 2 );
+
+    EXPECT_TRUE( vhFrame() );
+
+    vhDestroyBuffer( virtualBuf );
+    vhDestroyTexture( virtualTex );
+    vhDestroyTexture( normalTex );
+    vhDestroyHeap( heap );
+    vhFlush();
+
+    vhShutdown( true );
+
+    g_vhInit = g_testInitDefaults;
+}
+
+UTEST( NullDevice, TexturePlacementBackendFailures )
+{
+    TestEnsureShutdown();
+    g_vhInit = vhInitData{};
+    g_vhInit.nullMode = true;
+    vhInit( true );
+    vhFlush( true );
+
+    struct PlacementDevice : vhNullDevice
+    {
+        enum Failure { None, ReturnFailure, Throw };
+        Failure failure = None;
+
+        nvrhi::MemoryRequirements getTextureMemoryRequirements( nvrhi::ITexture* ) override
+        {
+            nvrhi::MemoryRequirements req = {};
+            req.size = 4096;
+            req.alignment = 256;
+            return req;
+        }
+        nvrhi::HeapHandle createHeap( const nvrhi::HeapDesc& desc ) override
+        {
+            if ( failure == ReturnFailure ) return nullptr;
+            return vhNullDevice::createHeap( desc );
+        }
+        bool bindTextureMemory( nvrhi::ITexture*, nvrhi::IHeap*, uint64_t ) override
+        {
+            if ( failure == Throw ) throw vk::OutOfDeviceMemoryError( "injected bind failure" );
+            return failure != ReturnFailure;
+        }
+    };
+
+    auto originalDevice = g_vhDevice;
+    auto* device = new PlacementDevice;
+
+    // Exercise the physical handlers with a failure-injection device, not a GPU allocation.
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        g_vhDevice = nvrhi::DeviceHandle::Create( device );
+        g_vhNullMode = false;
+    }
+    {
+        TestLogCapture logs;
+
+        // Bypass the frontend guard to exercise the backend zero-size check.
+        vhHeap heap = vhAllocHeap();
+        auto zeroHeap = vhCmdAlloc< VIDL_vhCreateHeap >( heap, 0, nullptr );
+        vhCmdEnqueue( zeroHeap );
+        vhFlush( true );
+        EXPECT_FALSE( vhIsHeapReady( heap ) );
+        EXPECT_TRUE( logs.Contains( "Size must be greater than zero" ) );
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+        logs.Clear();
+
+        device->failure = PlacementDevice::ReturnFailure;
+        vhCreateHeap( heap, 16384, "InjectedHeap" );
+        vhFlush( true );
+        EXPECT_FALSE( vhIsHeapReady( heap ) );
+        EXPECT_TRUE( logs.Contains( "Failed to create heap of size 16384" ) );
+        EXPECT_EQ( logs.ErrorCount(), 1 );
+
+        device->failure = PlacementDevice::None;
+        vhCreateHeap( heap, 16384, "RecoveredHeap" );
+        vhTexture texture = vhAllocTexture();
+        vhCreateTexture2D( texture, "InjectedTexture", { 16, 16 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+        vhFlush( true );
+        EXPECT_TRUE( vhIsHeapReady( heap ) );
+        logs.Clear();
+        for ( auto failure : { PlacementDevice::ReturnFailure, PlacementDevice::Throw } )
+        {
+            device->failure = failure;
+            vhBindTextureMemory( texture, heap, 0 );
+            vhFlush( true );
+            EXPECT_FALSE( vhIsTextureMemoryBound( texture ) );
+        }
+        EXPECT_TRUE( logs.Contains( "injected bind failure" ) );
+        EXPECT_EQ( logs.ErrorCount(), 2 );
+
+        device->failure = PlacementDevice::None;
+        vhBindTextureMemory( texture, heap, 0 );
+        vhFlush( true );
+        EXPECT_TRUE( vhIsTextureMemoryBound( texture ) );
+        vhDestroyTexture( texture );
+        vhDestroyHeap( heap );
+        vhFlush( true );
+    }
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        g_vhNullMode = true;
+        g_vhDevice = originalDevice;
+    }
+    vhShutdown( true );
     g_vhInit = g_testInitDefaults;
 }
 

@@ -510,6 +510,8 @@ void vhTransientBuffer::Reset()
     size = 0;
     frameIdx = 0;
     offset = 0;
+    flushedEnd = 0;
+    flushAlignment = VRHI_CBUF_ALIGN;
 }
 
 int64_t vhTransientBuffer::Alloc( int64_t bytes )
@@ -525,6 +527,7 @@ void vhTransientBuffer::Step()
 {
     frameIdx = ( frameIdx + 1 ) % VRHI_MAX_FRAMES_INFLIGHT;
     offset = 0;
+    flushedEnd = 0;
     ready[frameIdx] = false;
 }
 
@@ -532,10 +535,20 @@ void vhTransientBuffer::Init_DeviceStateLocked( const nvrhi::BufferDesc& desc )
 {
     // WARNING: Lock g_nvRHIStateMutex before calling this.
     Reset();
+
+    if ( !g_vhNullMode )
+    {
+        flushAlignment = VRHI_ROUND_UP( VRHI_CBUF_ALIGN, g_vhVulkanDevice->getMappedBufferFlushAlignment() );
+    }
+
+    // The buffer must hold the rounded-up flush range.
+    nvrhi::BufferDesc alignedDesc = desc;
+    alignedDesc.byteSize = VRHI_ROUND_UP( desc.byteSize, flushAlignment );
     size = desc.byteSize;
+
     for ( uint32_t i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ )
     {
-        handle[i] = g_vhDevice->createBuffer( desc );
+        handle[i] = g_vhDevice->createBuffer( alignedDesc );
         assert( handle[i] != nullptr );
         mapped[i] = nullptr;
         ready[i] = false;
@@ -560,14 +573,22 @@ uint8_t* vhTransientBuffer::Map_DeviceStateLocked()
     return mapped[frameIdx];
 }
 
-void vhTransientBuffer::Flush_DeviceStateLocked()
+bool vhTransientBuffer::Flush_DeviceStateLocked()
 {
-    if ( !offset || !mapped[frameIdx] ) return;
-    VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
-    range.memory = ( VkDeviceMemory ) handle[frameIdx]->getNativeObject( nvrhi::ObjectTypes::VK_DeviceMemory ).pointer;
-    range.size = size;
-    VkResult result = vkFlushMappedMemoryRanges( vhGetVkDevice(), 1, &range );
-    if ( result != VK_SUCCESS ) VRHI_ERR( "vhTransientBuffer::Flush_DeviceStateLocked(): Vulkan flush failed (%d)\n", result );
+    // Flush and seal written atoms so later host writes cannot touch an in-flight GPU read.
+    if ( offset <= flushedEnd || !mapped[frameIdx] ) return true;
+
+    const int64_t flushEnd = VRHI_ROUND_UP( offset, flushAlignment );
+
+    if ( !g_vhVulkanDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd ) )
+    {
+        VRHI_ERR( "vhTransientBuffer::Flush_DeviceStateLocked(): Failed to flush the mapped buffer\n" );
+        return false;
+    }
+
+    offset = flushEnd;
+    flushedEnd = flushEnd;
+    return true;
 }
 
 void vhTransientBuffer::Shutdown_DeviceStateLocked()

@@ -1504,14 +1504,17 @@ nvrhi::BufferHandle vhGetBufferNvrhiHandle( vhBuffer buffer );
 // Returns VRHI_INVALID_HANDLE on failure.
 vhHeap vhAllocHeap();
 
-// Create the actual NVRHI heap.
-// `size` in bytes. Returns true on success.
+// Queues heap creation. `size` is in bytes. Flush, then check vhIsHeapReady.
 // VIDL_GENERATE
 bool vhCreateHeap( vhHeap heap, uint64_t size, const char* name = nullptr );
 
 // Destroy heap.
 // VIDL_GENERATE
 void vhDestroyHeap( vhHeap heap );
+
+// True once the heap exists on the backend. Flush first. Always false in null mode.
+// An invalid handle logs an error.
+bool vhIsHeapReady( vhHeap heap );
 
 // Returns memory requirements for a texture.
 // x = size, y = alignment.
@@ -1523,6 +1526,23 @@ glm::u64vec2 vhGetTextureMemoryRequirements( vhTexture texture );
 // Binds a virtual texture to a specific heap at a specific offset.
 // VIDL_GENERATE
 void vhBindTextureMemory( vhTexture texture, vhHeap heap, uint64_t offset );
+
+// True once the texture is bound. Flush first. Always false in null mode.
+// An invalid handle logs an error.
+bool vhIsTextureMemoryBound( vhTexture texture );
+
+struct vhTextureAlias
+{
+    vhTexture texture = VRHI_INVALID_HANDLE; // Bound virtual 2D texture.
+    nvrhi::ResourceStates state = nvrhi::ResourceStates::Unknown; // CopyDest, RenderTarget, DepthWrite, or UnorderedAccess.
+};
+
+// Starts bound 2D textures in the given writable state. Old contents are lost, so write before you read.
+// Batch must not overlap. Empty does nothing. Graphics queue only, no permanent states.
+// Shared texture placement is not supported on macOS.
+// VIDL_GENERATE
+// VIDL_STORAGE: aliases = vhArenaSpan< vhTextureAlias >
+void vhActivateTextureAliases( const std::vector< vhTextureAlias >& aliases );
 
 // Allocates from heap with specified size and alignment.
 // Returns { offset, size } where offset is aligned to the alignment.

@@ -1902,8 +1902,7 @@ UTEST( Backend, HeapAliasing )
     }
 
 #ifdef __APPLE__
-    // MoltenVK/Metal does not support texture memory aliasing in the same way as Vulkan
-    UTEST_SKIP( "Texture heap aliasing not supported on macOS/MoltenVK" );
+    UTEST_SKIP( "Requires a Mac configuration with placement heaps enabled" );
 #endif
 
     vhHeap heap = vhAllocHeap();
@@ -1979,8 +1978,8 @@ UTEST( Backend, HeapAliasing )
         state.SetUniform( 0, ub );
 
         vhSetState( sid, state );
+        vhActivateTextureAliases( { { tex, nvrhi::ResourceStates::UnorderedAccess } } );
         vhDispatch( sid, { 64, 64, 1 } );
-        vhFinish();
     };
 
     DispatchWithColour( texA, glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ), 310 );
@@ -1989,10 +1988,10 @@ UTEST( Backend, HeapAliasing )
     vhSetState( 311, g_state0, VRHI_DIRTY_ALL );
 
     vhMem readData;
-    vhReadTextureSlow( texA, 0, 0, &readData );
+    vhReadTextureSlow( texB, 0, 0, &readData );
     vhFinish();
 
-    vhTexInfo info = vhGetTextureInfo( texA );
+    vhTexInfo info = vhGetTextureInfo( texB );
     ASSERT_EQ( readData.size(), ( size_t ) info.dimensions.x * info.dimensions.y * 4 );
 
     uint8_t r = readData[0];
@@ -2010,6 +2009,549 @@ UTEST( Backend, HeapAliasing )
     vhDestroyTexture( texA );
     vhDestroyTexture( texB );
     vhDestroyHeap( heap );
+    vhFinish();
+}
+
+UTEST( Backend, TexturePlacementValidation )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping physical texture placement test in Null RHI mode" );
+    }
+
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+#ifdef __APPLE__
+    UTEST_SKIP( "Requires a Mac configuration with placement heaps enabled" );
+#endif
+
+    TestLogCapture logs;
+    int32_t errors = g_vhErrorCounter.load();
+    EXPECT_FALSE( vhIsHeapReady( VRHI_INVALID_HANDLE ) );
+    EXPECT_FALSE( vhIsTextureMemoryBound( VRHI_INVALID_HANDLE ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 2 );
+    EXPECT_TRUE( logs.Contains( "vhIsHeapReady(): Invalid heap handle" ) );
+    EXPECT_TRUE( logs.Contains( "vhIsTextureMemoryBound(): Invalid texture handle" ) );
+
+    errors = g_vhErrorCounter.load();
+
+    vhHeap badHeap = vhAllocHeap();
+    EXPECT_FALSE( vhCreateHeap( badHeap, 0, "ZeroHeap" ) );
+    EXPECT_FALSE( vhIsHeapReady( badHeap ) );
+    EXPECT_TRUE( logs.Contains( "Size must be greater than zero" ) );
+    errors = g_vhErrorCounter.load();
+    ASSERT_TRUE( vhCreateHeap( badHeap, uint64_t( UINT32_MAX ) + 4096ull, "OversizedHeap" ) );
+    vhFlush();
+    EXPECT_FALSE( vhIsHeapReady( badHeap ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 1 );
+    EXPECT_TRUE( logs.Contains( "exceeds maximum supported size" ) );
+    vhDestroyHeap( badHeap );
+    vhFlush();
+
+    errors = g_vhErrorCounter.load();
+    vhHeap heap = vhAllocHeap();
+    const uint64_t heapSize = 16ull * 1024ull * 1024ull;
+    ASSERT_TRUE( vhCreateHeap( heap, heapSize, "CheckedHeap" ) );
+    vhFlush();
+    EXPECT_TRUE( vhIsHeapReady( heap ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+
+    // Non-virtual 2D texture must be rejected and remain unbound.
+    vhTexture nonVirtualTex = vhAllocTexture();
+    vhCreateTexture2D( nonVirtualTex, "NonVirtualTex", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+    vhFlush();
+    errors = g_vhErrorCounter.load();
+    vhBindTextureMemory( nonVirtualTex, heap, 0 );
+    vhFlush();
+    EXPECT_FALSE( vhIsTextureMemoryBound( nonVirtualTex ) );
+    EXPECT_GT( g_vhErrorCounter.load(), errors );
+
+    // Disjoint 3D and array placement remains supported. Alias activation is 2D-only.
+    vhTexture tex3D = vhAllocTexture();
+    vhCreateTexture3D( tex3D, "Virtual3DTex", { 16, 16, 4 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhTexture texArray = vhAllocTexture();
+    vhCreateTexture( texArray, "VirtualArrayTex", nvrhi::TextureDimension::Texture2DArray, { 16, 16, 1 }, 1, 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush();
+
+    const glm::u64vec2 req3D = vhGetTextureMemoryRequirements( tex3D );
+    const glm::u64vec2 reqArray = vhGetTextureMemoryRequirements( texArray );
+    ASSERT_GT( req3D.y, 0ull );
+    ASSERT_GT( reqArray.y, 0ull );
+    const uint64_t offset3D = VRHI_ROUND_UP( heapSize / 2, req3D.y );
+    const uint64_t offsetArray = VRHI_ROUND_UP( offset3D + req3D.x, reqArray.y );
+    ASSERT_LE( offsetArray + reqArray.x, heapSize );
+    errors = g_vhErrorCounter.load();
+    vhBindTextureMemory( tex3D, heap, offset3D );
+    vhBindTextureMemory( texArray, heap, offsetArray );
+    vhFlush( true );
+    EXPECT_TRUE( vhIsTextureMemoryBound( tex3D ) );
+    EXPECT_TRUE( vhIsTextureMemoryBound( texArray ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+
+    vhActivateTextureAliases( { { tex3D, nvrhi::ResourceStates::CopyDest } } );
+    vhActivateTextureAliases( { { texArray, nvrhi::ResourceStates::CopyDest } } );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 2 );
+    EXPECT_TRUE( logs.Contains( "does not satisfy 2D alias contract" ) );
+
+    // Virtual 2D texture: check alignment, overflow-safe bounds, activation before bind, valid bind, and double-bind.
+    vhTexture tex2D = vhAllocTexture();
+    vhCreateTexture2D( tex2D, "Virtual2DTex", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhFlush();
+    EXPECT_FALSE( vhIsTextureMemoryBound( tex2D ) );
+
+    glm::u64vec2 req = vhGetTextureMemoryRequirements( tex2D );
+    ASSERT_GT( req.x, 0ull );
+    ASSERT_GT( req.y, 0ull );
+    ASSERT_LE( req.x, heapSize );
+
+    errors = g_vhErrorCounter.load();
+    vhActivateTextureAliases( { { tex2D, nvrhi::ResourceStates::RenderTarget } } );
+    vhFlush();
+    EXPECT_GT( g_vhErrorCounter.load(), errors );
+
+    if ( req.y > 1 )
+    {
+        errors = g_vhErrorCounter.load();
+        vhBindTextureMemory( tex2D, heap, 1 );
+        vhFlush();
+        EXPECT_FALSE( vhIsTextureMemoryBound( tex2D ) );
+        EXPECT_EQ( g_vhErrorCounter.load(), errors + 1 );
+        EXPECT_TRUE( logs.Contains( "is not aligned" ) );
+    }
+
+    errors = g_vhErrorCounter.load();
+    vhBindTextureMemory( tex2D, heap, ( UINT64_MAX / req.y ) * req.y );
+    vhBindTextureMemory( tex2D, heap, heapSize );
+    vhFlush();
+    EXPECT_FALSE( vhIsTextureMemoryBound( tex2D ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 2 );
+    EXPECT_TRUE( logs.Contains( "exceeds heap" ) );
+
+    errors = g_vhErrorCounter.load();
+    vhBindTextureMemory( tex2D, heap, 0 );
+    vhFlush();
+    EXPECT_TRUE( vhIsTextureMemoryBound( tex2D ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+
+    errors = g_vhErrorCounter.load();
+    vhBindTextureMemory( tex2D, heap, req.y );
+    vhFlush();
+    EXPECT_TRUE( vhIsTextureMemoryBound( tex2D ) );
+    EXPECT_GT( g_vhErrorCounter.load(), errors );
+
+    vhTexture aliasTex = vhAllocTexture();
+    vhTexture wrongFormat = vhAllocTexture();
+    vhTexture wrongUsage = vhAllocTexture();
+    vhTexture wrongDimension = vhAllocTexture();
+    vhCreateTexture2D( aliasTex, "CheckedAlias", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhCreateTexture2D( wrongFormat, "WrongAliasFormat", { 32, 32 }, 1, nvrhi::Format::R32_FLOAT, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhCreateTexture2D( wrongUsage, "WrongAliasUsage", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhCreateTexture3D( wrongDimension, "WrongAliasDimension", { 16, 16, 4 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    errors = g_vhErrorCounter.load();
+    vhBindTextureMemory( wrongDimension, heap, 0 );
+    vhBindTextureMemory( wrongFormat, heap, 0 );
+    vhBindTextureMemory( wrongUsage, heap, 0 );
+    vhBindTextureMemory( aliasTex, heap, 0 );
+    vhFlush( true );
+    EXPECT_FALSE( vhIsTextureMemoryBound( wrongFormat ) );
+    EXPECT_FALSE( vhIsTextureMemoryBound( wrongUsage ) );
+    EXPECT_FALSE( vhIsTextureMemoryBound( wrongDimension ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( aliasTex ) );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 3 );
+    EXPECT_TRUE( logs.Contains( "unsupported texture class" ) );
+    EXPECT_TRUE( logs.Contains( "format does not match" ) );
+    EXPECT_TRUE( logs.Contains( "render-target/UAV usage does not match" ) );
+
+    errors = g_vhErrorCounter.load();
+    vhActivateTextureAliases( {} );
+    vhActivateTextureAliases( { { tex2D, nvrhi::ResourceStates::RenderTarget }, { aliasTex, nvrhi::ResourceStates::RenderTarget } } );
+    vhActivateTextureAliases( { { tex2D, nvrhi::ResourceStates::RenderTarget }, { tex2D, nvrhi::ResourceStates::RenderTarget } } );
+    vhActivateTextureAliases( { { tex2D, nvrhi::ResourceStates::Common } } );
+    vhActivateTextureAliases( { { tex2D, nvrhi::ResourceStates::DepthWrite } } );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 4 );
+    EXPECT_TRUE( logs.Contains( "Overlapping textures in batch" ) );
+    EXPECT_TRUE( logs.Contains( "Invalid activation state" ) );
+
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 2 );
+    vhActivateTextureAliases( { { tex2D, nvrhi::ResourceStates::RenderTarget } } );
+    vhFlush( true );
+    errors = g_vhErrorCounter.load();
+    vhDescriptorTableSetTexture( table, 0, tex2D );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 1 );
+    EXPECT_TRUE( logs.Contains( "Cannot assign permanent state" ) );
+    const glm::u64vec2 permanentReq = vhGetTextureMemoryRequirements( wrongFormat );
+    vhBindTextureMemory( wrongFormat, heap, VRHI_ROUND_UP( heapSize / 4, permanentReq.y ) );
+    vhDescriptorTableSetTexture( table, 1, wrongFormat );
+    vhFlush( true );
+    errors = g_vhErrorCounter.load();
+    vhActivateTextureAliases( { { wrongFormat, nvrhi::ResourceStates::RenderTarget } } );
+    vhFlush( true );
+    EXPECT_EQ( g_vhErrorCounter.load(), errors + 1 );
+    EXPECT_TRUE( logs.Contains( "has a permanent descriptor-table state" ) );
+
+    vhDestroyDescriptorTable( table );
+    vhDestroyTexture( aliasTex );
+    vhDestroyTexture( wrongFormat );
+    vhDestroyTexture( wrongUsage );
+    vhDestroyTexture( wrongDimension );
+    vhDestroyTexture( nonVirtualTex );
+    vhDestroyTexture( tex3D );
+    vhDestroyTexture( texArray );
+    vhDestroyTexture( tex2D );
+    vhDestroyHeap( heap );
+    vhFinish();
+}
+
+UTEST( Backend, OrderedAliasActivation )
+{
+    if ( g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Skipping ordered alias activation test in Null RHI mode" );
+    }
+
+    if ( !g_testInit )
+    {
+        vhInit( g_testInitQuiet );
+        g_testInit = true;
+    }
+
+#ifdef __APPLE__
+    UTEST_SKIP( "Depth placement requires native Vulkan; Mac color placement needs separate qualification" );
+#endif
+
+    const int32_t startErrors = g_vhErrorCounter.load();
+
+    // Virtual aliased textures covering colour, depth, and differing 2D extents at one heap base.
+    vhTexture texSmall = vhAllocTexture();
+    vhTexture texLarge = vhAllocTexture();
+    vhTexture colourBuddy = vhAllocTexture();
+    vhTexture depthA = vhAllocTexture();
+    vhTexture depthB = vhAllocTexture();
+
+    const uint64_t rwAliasFlags = VRHI_TEXTURE_RT | VRHI_TEXTURE_COMPUTE_WRITE | VRHI_TEXTURE_VIRTUAL;
+    vhCreateTexture2D( texSmall, "AliasSmall", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, rwAliasFlags );
+    vhCreateTexture2D( texLarge, "AliasLarge", { 128, 128 }, 1, nvrhi::Format::RGBA8_UNORM, rwAliasFlags );
+    vhCreateTexture2D( colourBuddy, "AliasBuddy", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, rwAliasFlags );
+    vhCreateTexture2D( depthA, "AliasDepth", { 64, 64 }, 1, nvrhi::Format::D32, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhCreateTexture2D( depthB, "AliasDepthSmall", { 32, 32 }, 1, nvrhi::Format::D32, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhFlush();
+
+    glm::u64vec2 reqSmall = vhGetTextureMemoryRequirements( texSmall );
+    glm::u64vec2 reqLarge = vhGetTextureMemoryRequirements( texLarge );
+    glm::u64vec2 reqBuddy = vhGetTextureMemoryRequirements( colourBuddy );
+    glm::u64vec2 reqDepth = vhGetTextureMemoryRequirements( depthA );
+    glm::u64vec2 reqDepthB = vhGetTextureMemoryRequirements( depthB );
+    ASSERT_GT( reqSmall.x, 0ull );
+    ASSERT_GT( reqLarge.x, 0ull );
+    ASSERT_GT( reqBuddy.x, 0ull );
+    ASSERT_GT( reqDepth.x, 0ull );
+
+    const uint64_t colorMax = std::max( { reqSmall.x, reqLarge.x, reqBuddy.x } );
+    const uint64_t depthAlignment = std::max( reqDepth.y, reqDepthB.y );
+    ASSERT_GT( depthAlignment, 0ull );
+    const uint64_t depthOffset = VRHI_ROUND_UP( colorMax, depthAlignment );
+    const uint64_t heapSize = depthOffset + std::max( reqDepth.x, reqDepthB.x );
+
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, heapSize, "OrderedAliasHeap" ) );
+    vhBindTextureMemory( texSmall, heap, 0 );
+    vhBindTextureMemory( texLarge, heap, 0 );
+    vhBindTextureMemory( colourBuddy, heap, 0 );
+    vhBindTextureMemory( depthA, heap, depthOffset );
+    vhBindTextureMemory( depthB, heap, depthOffset );
+    vhFlush();
+
+    ASSERT_TRUE( vhIsHeapReady( heap ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( texSmall ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( texLarge ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( colourBuddy ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( depthA ) );
+    ASSERT_TRUE( vhIsTextureMemoryBound( depthB ) );
+
+    // Retiring a frontend heap ID must not change the identity retained by its textures.
+    vhDestroyHeap( heap );
+    vhHeap replacementHeap = vhAllocHeap();
+    EXPECT_EQ( replacementHeap, heap );
+    ASSERT_TRUE( vhCreateHeap( replacementHeap, 1024 * 1024, "ReplacementAliasHeap" ) );
+    vhTexture replacementTexture = vhAllocTexture();
+    vhCreateTexture2D( replacementTexture, "ReplacementHeapTexture", { 32, 32 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhBindTextureMemory( replacementTexture, replacementHeap, 0 );
+    vhFlush( true );
+    ASSERT_TRUE( vhIsTextureMemoryBound( replacementTexture ) );
+
+    // Snapshot targets receive copies of each occupant while it is active.
+    vhTexture snap1 = vhAllocTexture();
+    vhTexture snap2 = vhAllocTexture();
+    vhTexture snap3 = vhAllocTexture();
+    vhTexture snap3b = vhAllocTexture();
+    vhTexture snap4 = vhAllocTexture();
+    vhTexture snap5 = vhAllocTexture();
+    vhCreateTexture2D( snap1, "Snap1", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    vhCreateTexture2D( snap2, "Snap2", { 128, 128 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    vhCreateTexture2D( snap3, "Snap3", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    vhCreateTexture2D( snap3b, "Snap3b", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    vhCreateTexture2D( snap4, "Snap4", { 64, 64 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    vhCreateTexture2D( snap5, "Snap5", { 128, 128 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+
+    vhTexture depthSnapshots[3];
+    const int depthDimensions[] = { 64, 32, 64 };
+    for ( int i = 0; i < 3; i++ )
+    {
+        depthSnapshots[i] = vhAllocTexture();
+        vhCreateTexture2D( depthSnapshots[i], "DepthAliasSnapshot", { depthDimensions[i], depthDimensions[i] }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    }
+
+    const char* csSource = R"(
+        struct PushConst { float4 tint; };
+        [[vk::image_format("rgba8")]] RWTexture2D<float4> g_Out : register(u0, VRHI_STAGE_SPACE);
+        cbuffer globalParams : register(b300, VRHI_STAGE_SPACE) { float4 g_Colour; };
+        [numthreads(8, 8, 1)]
+        void main( uint3 id : SV_DispatchThreadID, uniform PushConst pc : push_constant )
+        {
+            g_Out[id.xy] = g_Colour * pc.tint;
+        }
+    )";
+    const char* vsSource = R"(
+        struct VSIn { float3 pos : POSITION; float4 col : COLOR0; };
+        struct VSOut { float4 pos : SV_Position; float4 col : COLOR0; };
+        VSOut main( VSIn i )
+        {
+            VSOut o;
+            o.pos = float4( i.pos, 1.0 );
+            o.col = i.col;
+            return o;
+        }
+    )";
+    const char* psSource = R"(
+        struct PSIn { float4 pos : SV_Position; float4 col : COLOR0; };
+        float4 main( PSIn i ) : SV_Target0
+        {
+            return i.col;
+        }
+    )";
+
+    std::vector< uint32_t > csSpirv, vsSpirv, psSpirv;
+    std::string err;
+    ASSERT_TRUE( vhCompileShader( "CS_AliasOrder", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, csSpirv, "main", {}, {}, &err ) );
+    ASSERT_TRUE( vhCompileShader( "VS_AliasOrder", vsSource, VRHI_SHADER_STAGE_VERTEX | VRHI_SHADER_SM_6_0, vsSpirv, "main", {}, {}, &err ) );
+    ASSERT_TRUE( vhCompileShader( "PS_AliasOrder", psSource, VRHI_SHADER_STAGE_PIXEL | VRHI_SHADER_SM_6_0, psSpirv, "main", {}, {}, &err ) );
+
+    vhShader cs = vhAllocShader();
+    vhShader vs = vhAllocShader();
+    vhShader ps = vhAllocShader();
+    vhCreateShader( cs, "CS_AliasOrder", VRHI_SHADER_STAGE_COMPUTE, csSpirv, "main" );
+    vhCreateShader( vs, "VS_AliasOrder", VRHI_SHADER_STAGE_VERTEX, vsSpirv, "main" );
+    vhCreateShader( ps, "PS_AliasOrder", VRHI_SHADER_STAGE_PIXEL, psSpirv, "main" );
+    vhProgram csProg = vhCreateComputeProgram( cs );
+    vhProgram gfxProg = vhCreateGfxProgram( vs, ps );
+
+    struct TriVert { glm::vec3 pos; glm::vec4 col; };
+    auto MakeTriVB = []( float z, const glm::vec4& c )
+    {
+        TriVert verts[3] = {
+            { { -1.0f, -1.0f, z }, c },
+            { {  3.0f, -1.0f, z }, c },
+            { { -1.0f,  3.0f, z }, c },
+        };
+        vhMem* mem = vhAllocMem( sizeof( verts ) );
+        std::memcpy( mem->data(), verts, sizeof( verts ) );
+        vhBuffer vb = vhAllocBuffer();
+        vhCreateVertexBuffer( vb, "AliasTriVB", mem, "float3 float4" );
+        return vb;
+    };
+
+    vhBuffer vbGreen = MakeTriVB( 0.5f, { 0.0f, 1.0f, 0.0f, 1.0f } );
+    vhBuffer vbRedNear = MakeTriVB( 0.2f, { 1.0f, 0.0f, 0.0f, 1.0f } );
+    vhBuffer vbGreenFar = MakeTriVB( 0.8f, { 0.0f, 1.0f, 0.0f, 1.0f } );
+    vhBuffer vbCyan = MakeTriVB( 0.5f, { 0.0f, 1.0f, 1.0f, 1.0f } );
+
+    auto DispatchFill = [&]( vhTexture tex, uint32_t dim, const glm::vec4& colour, vhStateId sid )
+    {
+        vhState st = g_state0;
+        st.SetProgram( csProg );
+        st.SetPushConstants( glm::vec4( 1.0f ) );
+        vhState::TextureBinding tb;
+        tb.name = "g_Out";
+        tb.texture = tex;
+        tb.dimensionOverride = nvrhi::TextureDimension::Texture2D;
+        tb.formatOverride = nvrhi::Format::RGBA8_UNORM;
+        tb.computeUAV = true;
+        st.SetTexture( 0, tb );
+        vhState::UniformBufferValue ub;
+        ub.name = "g_Colour";
+        ub.data = { colour };
+        st.SetUniform( 0, ub );
+        vhSetState( sid, st );
+        vhDispatch( sid, { dim / 8, dim / 8, 1 } );
+    };
+
+    const vhStateId sidGfx = 312;
+    const vhStateId sidComp = 313;
+    const vhStateId sidDepth = 314;
+
+    vhFlush( true );
+
+    // Small(gfx) -> Large(cs) -> Small(cs) -> Small(cs) -> {Buddy+Depth} -> Large(gfx).
+    vhActivateTextureAliases( { { texSmall, nvrhi::ResourceStates::RenderTarget } } );
+    {
+        vhState st = g_state0;
+        st.SetColourAttachment( 0, texSmall )
+          .SetViewRect( { 0, 0, 32, 32 } )
+          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+          .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_NONE )
+          .SetVertexBuffer( vbGreen, 0 )
+          .SetProgram( gfxProg );
+        vhSetState( sidGfx, st );
+        vhClear( sidGfx, VRHI_CLEAR_COLOR );
+        vhDraw( sidGfx, 3 );
+    }
+    vhBlitTexture( snap1, texSmall );
+
+    bool nativeSawImage = false;
+    vhActivateTextureAliases( { { texLarge, nvrhi::ResourceStates::UnorderedAccess } } );
+    vhExecuteNative( []( const vhNativeContext& ctx, vhNativeResource* resources, uint32_t count, void* user )
+    {
+        *( bool* ) user = ctx.cmdbuf != VK_NULL_HANDLE && count == 1 && resources[0].image != VK_NULL_HANDLE && resources[0].width == 128;
+    }, &nativeSawImage, 0, { { .texture = texLarge, .stateBefore = nvrhi::ResourceStates::UnorderedAccess, .stateAfter = nvrhi::ResourceStates::UnorderedAccess } } );
+    DispatchFill( texLarge, 128, { 0.0f, 0.0f, 1.0f, 1.0f }, sidComp );
+    vhBlitTexture( snap2, texLarge );
+
+    vhActivateTextureAliases( { { texSmall, nvrhi::ResourceStates::UnorderedAccess } } );
+    DispatchFill( texSmall, 32, { 1.0f, 0.0f, 0.0f, 1.0f }, sidComp );
+    vhBlitTexture( snap3, texSmall );
+
+    // Same-image reactivation must remain valid and discard/re-baseline cleanly.
+    vhActivateTextureAliases( { { texSmall, nvrhi::ResourceStates::UnorderedAccess } } );
+    vhDispatch( sidComp, { 4, 4, 1 } );
+    vhBlitTexture( snap3b, texSmall );
+
+    vhActivateTextureAliases( {
+        { colourBuddy, nvrhi::ResourceStates::RenderTarget },
+        { depthA, nvrhi::ResourceStates::DepthWrite }
+    } );
+    {
+        vhState st = g_state0;
+        st.SetColourAttachment( 0, colourBuddy )
+          .SetDepthAttachment( depthA )
+          .SetViewRect( { 0, 0, 64, 64 } )
+          .SetViewClear( VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ), 1.0f, 0 )
+          .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_NONE | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE )
+          .SetVertexBuffer( vbRedNear, 0 )
+          .SetProgram( gfxProg );
+        vhSetState( sidDepth, st );
+        vhClear( sidDepth, VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH );
+        vhDraw( sidDepth, 3 );
+
+        st.SetVertexBuffer( vbGreenFar, 0 );
+        vhSetState( sidDepth, st );
+        vhDraw( sidDepth, 3 );
+    }
+    vhBlitTexture( snap4, colourBuddy );
+
+    vhActivateTextureAliases( { { texLarge, nvrhi::ResourceStates::RenderTarget } } );
+    {
+        vhState st = g_state0;
+        st.SetColourAttachment( 0, texLarge )
+          .SetViewRect( { 0, 0, 128, 128 } )
+          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+          .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_NONE )
+          .SetVertexBuffer( vbCyan, 0 )
+          .SetProgram( gfxProg );
+        vhSetState( sidGfx, st );
+        vhClear( sidGfx, VRHI_CLEAR_COLOR );
+        vhDraw( sidGfx, 3 );
+    }
+    vhBlitTexture( snap5, texLarge );
+
+    const vhTexture colors[] = { colourBuddy, texSmall, colourBuddy };
+    const vhTexture depths[] = { depthA, depthB, depthA };
+    for ( int i = 0; i < 3; i++ )
+    {
+        vhActivateTextureAliases( { { colors[i], nvrhi::ResourceStates::RenderTarget }, { depths[i], nvrhi::ResourceStates::DepthWrite } } );
+        vhState st = g_state0;
+        st.SetColourAttachment( 0, colors[i] )
+          .SetDepthAttachment( depths[i] )
+          .SetViewRect( { 0, 0, depthDimensions[i], depthDimensions[i] } )
+          .SetViewClear( VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH, glm::vec4( 0.0f ), 1.0f, 0 )
+          .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_CULL_NONE | VRHI_STATE_DEPTH_TEST_LESS | VRHI_STATE_DEPTH_TEST_ENABLE )
+          .SetVertexBuffer( vbRedNear, 0 )
+          .SetProgram( gfxProg );
+        vhSetState( sidDepth, st );
+        vhClear( sidDepth, VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH );
+        vhDraw( sidDepth, 3 );
+        st.SetVertexBuffer( vbGreenFar, 0 );
+        vhSetState( sidDepth, st );
+        vhDraw( sidDepth, 3 );
+        vhBlitTexture( depthSnapshots[i], colors[i] );
+    }
+
+    vhDestroyTexture( texSmall );
+    vhDestroyTexture( texLarge );
+    vhDestroyTexture( colourBuddy );
+    vhDestroyTexture( depthA );
+    vhDestroyTexture( depthB );
+    vhDestroyTexture( replacementTexture );
+    vhDestroyHeap( replacementHeap );
+
+    vhMem depthResults[3];
+    for ( int i = 0; i < 3; i++ ) vhReadTextureSlow( depthSnapshots[i], 0, 0, &depthResults[i] );
+    vhMem d1, d2, d3, d3b, d4, d5;
+    vhReadTextureSlow( snap1, 0, 0, &d1 );
+    vhReadTextureSlow( snap2, 0, 0, &d2 );
+    vhReadTextureSlow( snap3, 0, 0, &d3 );
+    vhReadTextureSlow( snap3b, 0, 0, &d3b );
+    vhReadTextureSlow( snap4, 0, 0, &d4 );
+    vhReadTextureSlow( snap5, 0, 0, &d5 );
+    vhFinish();
+
+    auto CheckPixel = [&]( const vhMem& m, uint8_t er, uint8_t eg, uint8_t eb )
+    {
+        ASSERT_GE( m.size(), size_t( 4 ) );
+        for ( size_t i = 0; i < m.size(); i += 4 )
+        {
+            ASSERT_NEAR( int( m[i] ), int( er ), 10 );
+            ASSERT_NEAR( int( m[i + 1] ), int( eg ), 10 );
+            ASSERT_NEAR( int( m[i + 2] ), int( eb ), 10 );
+            ASSERT_GT( int( m[i + 3] ), 240 );
+        }
+    };
+
+    CheckPixel( d1, 0, 255, 0 );
+    CheckPixel( d2, 0, 0, 255 );
+    CheckPixel( d3, 255, 0, 0 );
+    CheckPixel( d3b, 255, 0, 0 );
+    CheckPixel( d4, 255, 0, 0 );
+    CheckPixel( d5, 0, 255, 255 );
+    for ( const auto& result : depthResults ) CheckPixel( result, 255, 0, 0 );
+    EXPECT_TRUE( nativeSawImage );
+
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    vhSetState( sidGfx, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sidComp, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sidDepth, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyShader( cs );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhDestroyBuffer( vbGreen );
+    vhDestroyBuffer( vbRedNear );
+    vhDestroyBuffer( vbGreenFar );
+    vhDestroyBuffer( vbCyan );
+    vhDestroyTexture( snap1 );
+    vhDestroyTexture( snap2 );
+    vhDestroyTexture( snap3 );
+    vhDestroyTexture( snap3b );
+    vhDestroyTexture( snap4 );
+    vhDestroyTexture( snap5 );
+    for ( vhTexture snapshot : depthSnapshots ) vhDestroyTexture( snapshot );
     vhFinish();
 }
 
@@ -3876,6 +4418,120 @@ UTEST( Backend, Transient_T02_BlockedReaderStopsSlotReuse )
     ASSERT_NE( data, nullptr );
     EXPECT_EQ( std::memcmp( data, markers, sizeof( markers ) ), 0 );
     g_vhDevice->unmapBuffer( staging );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST( Backend, Transient_PartialFlushKeepsPendingAtomSeparate )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU reader requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    struct Buffer : vhTransientBuffer
+    {
+        ~Buffer()
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            Shutdown_DeviceStateLocked();
+        }
+    } buffer;
+    VkPhysicalDeviceProperties props = {};
+    vkGetPhysicalDeviceProperties( vhGetVkPhysicalDevice(), &props );
+    const uint64_t alignment = std::max( uint64_t( 2 * VRHI_CBUF_ALIGN ), props.limits.nonCoherentAtomSize );
+    nvrhi::BufferDesc desc;
+    desc.setByteSize( 4 * alignment ).setIsConstantBuffer( true ).setCpuAccess( nvrhi::CpuAccessMode::Write );
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        buffer.Init_DeviceStateLocked( desc );
+    }
+    buffer.flushAlignment = alignment;
+    nvrhi::BufferDesc readDesc;
+    readDesc.setByteSize( 2 * VRHI_CBUF_ALIGN ).setCpuAccess( nvrhi::CpuAccessMode::Read );
+    auto staging = g_vhDevice->createBuffer( readDesc );
+    ASSERT_NE( staging, nullptr );
+    uint8_t data[2][VRHI_CBUF_ALIGN];
+    std::memset( data[0], 0x31, sizeof( data[0] ) );
+    std::memset( data[1], 0x72, sizeof( data[1] ) );
+    {
+        vrhi_test::VhGpuGate gate( utest_result );
+        if ( !gate.Supported() ) UTEST_SKIP( "Timeline semaphore unsupported" );
+        ASSERT_EQ( buffer.Write( data[0], sizeof( data[0] ) ), 0 );
+        gate.WaitBefore();
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            ASSERT_TRUE( buffer.Flush_DeviceStateLocked() );
+            auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            commands->copyBuffer( staging, 0, buffer.handle[buffer.frameIdx], 0, sizeof( data[0] ) );
+            vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        }
+        gate.CaptureReader();
+        ASSERT_TRUE( gate.Pending() );
+        const int64_t second = buffer.Write( data[1], sizeof( data[1] ) );
+        ASSERT_EQ( second, buffer.flushAlignment );
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            ASSERT_TRUE( buffer.Flush_DeviceStateLocked() );
+            auto commands = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            commands->copyBuffer( staging, sizeof( data[0] ), buffer.handle[buffer.frameIdx], second, sizeof( data[1] ) );
+            vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        }
+        EXPECT_TRUE( gate.Pending() );
+        gate.Release();
+    }
+    const void* mapped = g_vhDevice->mapBuffer( staging, nvrhi::CpuAccessMode::Read );
+    ASSERT_NE( mapped, nullptr );
+    EXPECT_EQ( std::memcmp( mapped, data, sizeof( data ) ), 0 );
+    g_vhDevice->unmapBuffer( staging );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+}
+
+UTEST( Backend, AliasActivationDoesNotWaitForGpu )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU reader requires Vulkan" );
+    if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
+    const int32_t errors = g_vhErrorCounter.load();
+    vhTexture texture = vhAllocTexture();
+    vhCreateTexture2D( texture, "AliasPending", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+    const auto requirements = vhGetTextureMemoryRequirements( texture );
+    ASSERT_GT( requirements.x, 0ull );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, requirements.x, "AliasPendingHeap" ) );
+    vhBindTextureMemory( texture, heap, 0 );
+    vhFlush( true );
+    ASSERT_TRUE( vhIsTextureMemoryBound( texture ) );
+    {
+        vrhi_test::VhGpuGate gate( utest_result );
+        if ( !gate.Supported() )
+        {
+            vhDestroyTexture( texture );
+            vhDestroyHeap( heap );
+            vhFinish();
+            UTEST_SKIP( "Timeline semaphore unsupported" );
+        }
+        gate.WaitBefore();
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+            vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        }
+        gate.CaptureReader();
+        ASSERT_TRUE( gate.Pending() );
+        gate.StartProducer( [texture]
+        {
+            vhActivateTextureAliases( { { texture, nvrhi::ResourceStates::CopyDest } } );
+            vhFlush( true );
+        } );
+        EXPECT_TRUE( gate.ProducerFinished( std::chrono::seconds( 2 ) ) );
+        EXPECT_TRUE( gate.Pending() );
+        gate.Release();
+        gate.JoinProducer();
+    }
+    vhDestroyTexture( texture );
+    vhDestroyHeap( heap );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }

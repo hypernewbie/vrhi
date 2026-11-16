@@ -326,7 +326,7 @@ bool vhCreateHeap( vhHeap heap, uint64_t size, const char* name )
     }
     if ( size == 0 )
     {
-        VRHI_ERR( "vhCreateHeap(): Invalid size 0\n" );
+        VRHI_ERR( "vhCreateHeap(): Size must be greater than zero\n" );
         return false;
     }
 
@@ -353,6 +353,18 @@ void vhDestroyHeap( vhHeap heap )
     auto cmd = vhCmdAlloc<VIDL_vhDestroyHeap>( heap );
     assert( cmd );
     vhCmdEnqueue( cmd );
+}
+
+bool vhIsHeapReady( vhHeap heap )
+{
+    if ( heap == VRHI_INVALID_HANDLE )
+    {
+        VRHI_ERR( "vhIsHeapReady(): Invalid heap handle\n" );
+        return false;
+    }
+    if ( g_vhNullMode ) return false;
+
+    return vhBackendQueryHeapReady( heap );
 }
 
 void vhBindTextureMemory( vhTexture texture, vhHeap heap, uint64_t offset )

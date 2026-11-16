@@ -2,7 +2,7 @@
 	path = vdeps/nvrhi
 	url = https://github.com/hypernewbie/NVRHI.git
 	ignore = dirty
-	branch = yolo
+	branch = ai_slop
 [submodule "vdeps/vk-bootstrap"]
 	path = vdeps/vk-bootstrap
 	url = https://github.com/charles-lunarg/vk-bootstrap.git
