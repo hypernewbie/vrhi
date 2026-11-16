@@ -82,7 +82,7 @@ jobs:
             install_llvm: false
 
           - name: macOS
-            os: macos-14 # Apple Silicon (M1/M2)
+            os: macos-15 # Apple Silicon (M1/M2)
             cmake_gen: "-G Ninja"
             # Explicitly using Homebrew Clang 17
             cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
@@ -284,7 +284,7 @@ jobs:
           # TSan false positive on std::once_flag; keep this matrix entry
           # narrow.
           - name: macOS Address
-            os: macos-14
+            os: macos-15
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++ -DVDEPS_SANITIZE=address"
             lib_tag: mac_address
@@ -521,7 +521,7 @@ jobs:
             install_llvm: false
 
           - name: macOS
-            os: macos-14
+            os: macos-15
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=$(brew --prefix llvm@17)/bin/clang -DCMAKE_CXX_COMPILER=$(brew --prefix llvm@17)/bin/clang++"
             zip_name: vrhi-${{ github.ref_name }}-macos-arm64
