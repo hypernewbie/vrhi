@@ -155,6 +155,7 @@ UTEST( NullDevice, TexturePlacementBackendFailures )
     {
         enum Failure { None, ReturnFailure, Throw };
         Failure failure = None;
+        int binds = 0;
 
         nvrhi::MemoryRequirements getTextureMemoryRequirements( nvrhi::ITexture* ) override
         {
@@ -170,6 +171,7 @@ UTEST( NullDevice, TexturePlacementBackendFailures )
         }
         bool bindTextureMemory( nvrhi::ITexture*, nvrhi::IHeap*, uint64_t ) override
         {
+            binds++;
             if ( failure == Throw ) throw vk::OutOfDeviceMemoryError( "injected bind failure" );
             return failure != ReturnFailure;
         }
@@ -211,6 +213,7 @@ UTEST( NullDevice, TexturePlacementBackendFailures )
         vhFlush( true );
         EXPECT_TRUE( vhIsHeapReady( heap ) );
         logs.Clear();
+        const int bindsBefore = device->binds;
         for ( auto failure : { PlacementDevice::ReturnFailure, PlacementDevice::Throw } )
         {
             device->failure = failure;
@@ -218,7 +221,8 @@ UTEST( NullDevice, TexturePlacementBackendFailures )
             vhFlush( true );
             EXPECT_FALSE( vhIsTextureMemoryBound( texture ) );
         }
-        EXPECT_TRUE( logs.Contains( "injected bind failure" ) );
+        EXPECT_EQ( device->binds, bindsBefore + 2 );
+        EXPECT_TRUE( logs.Contains( "Failed to bind texture 'InjectedTexture' at offset 0" ) );
         EXPECT_EQ( logs.ErrorCount(), 2 );
 
         device->failure = PlacementDevice::None;

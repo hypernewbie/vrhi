@@ -379,19 +379,22 @@ nvrhi::TextureHandle vhGetTextureNvrhiHandle( vhTexture texture )
 bool vhBindTextureMemory_DeviceStateLocked( nvrhi::ITexture* texture, nvrhi::IHeap* heap, uint64_t offset )
 {
     // NVRHI uses a throwing Vulkan-Hpp overload for the native image bind.
+    // The catch is deliberately untyped: reading the caught exception (what(), code())
+    // dereferences the exception object, which is not safe on every toolchain.
+    const char* debugName = texture->getDesc().debugName.c_str();
     bool bound = false;
     try
     {
         bound = g_vhDevice->bindTextureMemory( texture, heap, offset );
     }
-    catch ( const vk::SystemError& e )
+    catch ( ... )
     {
-        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture '%s' at offset %llu: %s\n", texture->getDesc().debugName.c_str(), offset, e.what() );
+        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture '%s' at offset %llu\n", debugName, offset );
         return false;
     }
     if ( !bound )
     {
-        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture '%s' at offset %llu\n", texture->getDesc().debugName.c_str(), offset );
+        VRHI_ERR( "vhBindTextureMemory(): Failed to bind texture '%s' at offset %llu\n", debugName, offset );
         return false;
     }
     return true;
