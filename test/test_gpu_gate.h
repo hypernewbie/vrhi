@@ -18,6 +18,14 @@
 namespace vrhi_test
 {
 
+// [UAA] - START - native Metal backend
+// The Metal side of the gate lives in test_gpu_gate_metal.mm because the tests are C++.
+void* MetalGateCreate( void* device, void* queue );
+void MetalGateWaitBefore( void* gate );
+void MetalGateRelease( void* gate );
+void MetalGateDestroy( void* gate );
+// [UAA] - END
+
 template< typename Predicate >
 bool WaitUntil( Predicate predicate, std::chrono::seconds timeout = std::chrono::seconds( 5 ) )
 {
@@ -33,8 +41,19 @@ bool WaitUntil( Predicate predicate, std::chrono::seconds timeout = std::chrono:
 class VhGpuGate
 {
 public:
-    explicit VhGpuGate( int* result ) : result( result ), device( vhGetVkDevice() )
+    explicit VhGpuGate( int* result ) : result( result )
     {
+#ifdef __APPLE__
+        // [UAA] - START - native Metal backend
+        if ( g_vhInit.useMetal )
+        {
+            if ( !g_vhMetalDevice ) return;
+            metalGate = MetalGateCreate( g_vhMetalDevice->getNativeDevice().pointer, g_vhMetalDevice->getNativeCommandQueue().pointer );
+            return;
+        }
+        // [UAA] - END
+#endif
+        device = vhGetVkDevice();
         VkPhysicalDeviceVulkan12Features features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         VkPhysicalDeviceFeatures2 query = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
         query.pNext = &features;
@@ -58,28 +77,37 @@ public:
         if ( signalResult != VK_SUCCESS ) Fail( "vkSignalSemaphore failed" );
         if ( armed ) Drain();
         if ( semaphore ) vkDestroySemaphore( device, semaphore, nullptr );
+#ifdef __APPLE__
+        // [UAA] native Metal backend
+        if ( metalGate ) MetalGateDestroy( metalGate );
+#endif
     }
 
     VhGpuGate( const VhGpuGate& ) = delete;
     VhGpuGate& operator=( const VhGpuGate& ) = delete;
 
-    bool Supported() const { return semaphore != VK_NULL_HANDLE; }
+    bool Supported() const { return semaphore != VK_NULL_HANDLE || metalGate != nullptr; }
     bool TimedOut() const { return timedOut.load(); }
 
     void WaitBefore( nvrhi::CommandQueue queue = nvrhi::CommandQueue::Graphics )
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+#ifdef __APPLE__
+        // [UAA] - START - native Metal backend
+        if ( metalGate )
+        {
+            MetalGateWaitBefore( metalGate );
+            armed = true;
+            this->queue = queue;
+            StartWatchdog();
+            return;
+        }
+        // [UAA] - END
+#endif
         g_vhVulkanDevice->queueWaitForSemaphore( queue, semaphore, 1 );
         armed = true;
         this->queue = queue;
-        watchdog = std::thread( [this]
-        {
-            std::unique_lock< std::mutex > lock( mutex );
-            if ( released.wait_for( lock, std::chrono::seconds( 5 ), [this] { return signalled; } ) ) return;
-            timedOut.store( true );
-            lock.unlock();
-            Release();
-        } );
+        StartWatchdog();
     }
 
     void CaptureReader()
@@ -95,6 +123,17 @@ public:
     {
         std::lock_guard< std::mutex > lock( mutex );
         if ( signalled ) return;
+#ifdef __APPLE__
+        // [UAA] - START - native Metal backend
+        if ( metalGate )
+        {
+            MetalGateRelease( metalGate );
+            signalled = true;
+            released.notify_all();
+            return;
+        }
+        // [UAA] - END
+#endif
         if ( semaphore )
         {
             VkSemaphoreSignalInfo signal = { VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
@@ -135,6 +174,18 @@ public:
     }
 
 private:
+    void StartWatchdog()
+    {
+        watchdog = std::thread( [this]
+        {
+            std::unique_lock< std::mutex > lock( mutex );
+            if ( released.wait_for( lock, std::chrono::seconds( 5 ), [this] { return signalled; } ) ) return;
+            timedOut.store( true );
+            lock.unlock();
+            Release();
+        } );
+    }
+
     void Fail( const char* message )
     {
         std::fprintf( stderr, "VhGpuGate: %s\n", message );
@@ -177,8 +228,12 @@ private:
     }
 
     int* result;
-    VkDevice device;
+    VkDevice device = VK_NULL_HANDLE;
     VkSemaphore semaphore = VK_NULL_HANDLE;
+#ifdef __APPLE__
+    // [UAA] native Metal backend
+    void* metalGate = nullptr;
+#endif
     VkResult createResult = VK_SUCCESS;
     VkResult signalResult = VK_SUCCESS;
     nvrhi::CommandQueue queue = nvrhi::CommandQueue::Graphics;

@@ -2075,6 +2075,12 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhStateId stateId, 
             VRHI_ERR( "BE_DispatchIndirect() : Indirect buffer %s was not created with VRHI_BUFFER_DRAW_INDIRECT! SKIPPING COMPUTE DISPATCH.\n", indirectBuffer.name.c_str() );
             return;
         }
+        // [UAA] NVRHI takes a 32 bit offset, so an unrepresentable byte offset is rejected instead of truncating.
+        if ( byteOffset > UINT32_MAX )
+        {
+            VRHI_ERR( "BE_DispatchIndirect() : Indirect byte offset %llu exceeds the 32 bit limit. SKIPPING COMPUTE DISPATCH.\n", ( unsigned long long ) byteOffset );
+            return;
+        }
     }
 
     vhBackendShader* shaderPtr = &computeShader;

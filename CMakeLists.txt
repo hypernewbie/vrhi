@@ -487,8 +487,20 @@ endif()
          test/test_bench_bindingset.cpp
          test/test_precompile.cpp
      )
- 
+
+     # [UAA] - START - native Metal backend
+     if(APPLE)
+         list(APPEND TEST_SOURCES test/test_gpu_gate_metal.mm)
+     endif()
+     # [UAA] - END
+
      add_executable(vrhi_test ${TEST_SOURCES})
+
+     # [UAA] - START - native Metal backend
+     if(APPLE)
+         set_source_files_properties(test/test_gpu_gate_metal.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+     endif()
+     # [UAA] - END
  
      target_link_libraries(vrhi_test PRIVATE vrhi)
      target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW" "${SPIRV_TOOLS_INCLUDE_DIR}")
@@ -496,6 +508,11 @@ endif()
  
  # NVRHI and related libraries (shared by tests and examples)
  set(NVRHI_LIBS nvrhi_vk nvrhi vk-bootstrap rtxmu)
+
+ # The native Metal backend lives in the nvrhi fork and translates SPIR-V with SPIRV-Cross.
+ if(APPLE)
+     list(APPEND NVRHI_LIBS nvrhi_metal spirv-cross-msl spirv-cross-glsl spirv-cross-core)
+ endif()
  
  # Helper function to link NVRHI and platform dependencies
  function(vrhi_link_dependencies target)
@@ -508,6 +525,7 @@ endif()
              "-framework CoreGraphics"
              "-framework Foundation"
              "-framework AppKit"
+             "-framework Metal"
              ${NVRHI_LIBS}
              Vulkan::Vulkan
          )
