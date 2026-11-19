@@ -320,6 +320,7 @@ void vhInit( bool quiet )
     // [UAA] - START - native Metal backend
     if ( g_vhInit.useMetal )
     {
+#if defined(__APPLE__)
         if ( !quiet ) VRHI_LOG( "    Creating Metal device...\n" );
 
         nvrhi::metal::DeviceDesc metalDesc;
@@ -371,6 +372,10 @@ void vhInit( bool quiet )
         // [UAA] - END
 
         goto vrhi_init_post_device;
+#else
+        VRHI_ERR( "vhInit(): The Metal backend is macOS only.\n" );
+        exit( 1 );
+#endif
     }
     // [UAA] - END
 
@@ -1660,6 +1665,17 @@ nvrhi::Format vhNvFormatFromVkFormat( VkFormat vkFormat )
         default:                                 return nvrhi::Format::UNKNOWN;
     }
 }
+
+// [UAA] - START - native Metal backend
+// The Metal swapchain internals live in src/metal on macOS only; useMetal cannot be
+// set on the other platforms, so unreachable definitions keep the link whole.
+#if !defined(__APPLE__)
+void* vhMetalResolveLayer( void*, bool ) { return nullptr; }
+void vhSwapchainCreateMetal_Internal( vhSwapchain&, int, int ) {}
+bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain&, uint64_t& ) { return true; }
+void vhSwapchainDestroyMetal_Internal( vhSwapchain& ) {}
+#endif
+// [UAA] - END
 
 void vhSwapchainReleaseTexture( vhTexture texture ) // [UAA] shared with the Metal swapchain module
 {
