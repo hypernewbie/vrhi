@@ -1273,6 +1273,7 @@ UTEST_F( Buffer, Transient_PartialFlushSealsWrittenRange )
 UTEST_F( Buffer, Transient_PartialFlushFinalPaddedAtom )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU flush requires GPU" );
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test uses the Vulkan device directly" ); // [UAA]
 
     TestLogCapture logs;
     struct Buffer : vhTransientBuffer
@@ -1346,6 +1347,7 @@ UTEST_F( Buffer, Transient_PartialFlushFinalPaddedAtom )
 UTEST_F( Buffer, MappedFlushRejectsInvalidResourcesAndRanges )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Vulkan mapped flush requires GPU" );
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test uses the Vulkan device directly" ); // [UAA]
     TestLogCapture logs;
     const uint64_t alignment = g_vhVulkanDevice->getMappedBufferFlushAlignment();
     ASSERT_GT( alignment, 0ull );
@@ -1416,6 +1418,7 @@ UTEST_F( Buffer, MappedFlushRejectsInvalidResourcesAndRanges )
 UTEST_F( Buffer, Transient_FailedPartialFlushCanRetry )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU flush requires GPU" );
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test uses the Vulkan device directly" ); // [UAA]
 
     TestLogCapture logs;
     struct Buffer : vhTransientBuffer

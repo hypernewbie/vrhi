@@ -38,6 +38,7 @@ VkInstance g_vulkanInstance = VK_NULL_HANDLE;
 VkPhysicalDevice g_vulkanPhysicalDevice = VK_NULL_HANDLE;
 VkDevice g_vulkanDevice = VK_NULL_HANDLE;
 nvrhi::vulkan::IDevice* g_vhVulkanDevice = nullptr;
+nvrhi::metal::IDevice* g_vhMetalDevice = nullptr; // [UAA] native Metal backend
 VkDebugUtilsMessengerEXT g_vulkanDebugMessenger = VK_NULL_HANDLE;
 uint32_t g_vulkanEnabledExtensionCount = 0;
 

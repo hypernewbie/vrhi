@@ -48,6 +48,7 @@ UTEST_F_TEARDOWN( Native )
 UTEST_F( Native, BracketAndRebaseline )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test drives raw Vulkan handles" ); // [UAA]
 
     vhFlush();
     const int32_t startErrors = g_vhErrorCounter.load();
@@ -152,6 +153,7 @@ UTEST_F( Native, BracketAndRebaseline )
 UTEST_F( Native, DeviceLock )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test drives raw Vulkan handles" ); // [UAA]
 
     vhNativeDeviceLock lock;
     ASSERT_TRUE( vhGetVkDevice() != VK_NULL_HANDLE );
@@ -171,6 +173,7 @@ UTEST_F( Native, DeviceLock )
 UTEST_F( Native, NV01_NativeCallbackWritesTexture )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test drives raw Vulkan handles" ); // [UAA]
     vhFlush();
     const int32_t startErrors = g_vhErrorCounter.load();
 

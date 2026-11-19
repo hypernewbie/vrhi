@@ -4731,10 +4731,15 @@ void vhCmdBackendState::Handle_vhGetPSOCacheInternal( VIDL_vhGetPSOCacheInternal
     {
         BE_CmdRAII cmdRAII( cmd );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        if ( cmd->outData )
-            g_vhVulkanDevice->getPipelineCacheData( *cmd->outData );
+        if ( g_vhVulkanDevice ) // [UAA] the Metal backend has no driver pipeline cache
+        {
+            if ( cmd->outData )
+                g_vhVulkanDevice->getPipelineCacheData( *cmd->outData );
+            else if ( cmd->outSize )
+                *cmd->outSize = g_vhVulkanDevice->getPipelineCacheDataSize();
+        }
         else if ( cmd->outSize )
-            *cmd->outSize = g_vhVulkanDevice->getPipelineCacheDataSize();
+            *cmd->outSize = 0;
     }
     if ( fence )
     {

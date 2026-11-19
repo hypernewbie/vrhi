@@ -132,6 +132,7 @@ UTEST( RHI, RayTracingControl )
 
 UTEST( RHI, Shader16BitControl )
 {
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test queries the Vulkan physical device" ); // [UAA]
     TestEnsureShutdown();
 
     // Case 1: Both false (default) — device must come up, flags must stay false.
@@ -180,6 +181,7 @@ UTEST( RHI, Shader16BitControl )
 
 UTEST( RHI, ExtraDeviceExtensions )
 {
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test queries the Vulkan physical device" ); // [UAA]
     TestEnsureShutdown();
 
     g_vhInit.extraDeviceExtensions = {
@@ -213,6 +215,7 @@ UTEST( RHI, ExtraDeviceExtensions )
 
 UTEST( RHI, IndirectCountCapability )
 {
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test queries the Vulkan physical device" ); // [UAA]
     TestEnsureShutdown();
     vhInit( g_testInitQuiet );
 

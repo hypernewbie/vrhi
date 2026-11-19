@@ -132,6 +132,7 @@ UTEST( RHI, PSOCache_RoundTrip )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -176,6 +177,7 @@ UTEST( RHI, PSOCache_StaleBlobIgnored )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -199,6 +201,7 @@ UTEST( RHI, PSOCache_NoFlushSizeMatchesBlob )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -230,6 +233,7 @@ UTEST( RHI, PSOCache_KeyStable )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -262,6 +266,7 @@ UTEST( RHI, PSOCache_ConcurrentQueryDuringPipelineCreation )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
     g_vhInit.psoCacheInitialData.clear();
@@ -333,6 +338,7 @@ UTEST( RHI, PSOCache_ValidateKeyMismatchDiscardsSeed )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
     if ( TestIsSoftwareVulkan() ) { UTEST_SKIP( "Seeded vs cold cache size is not observable on software Vulkan." ); }
 
     TestEnsureShutdown();
@@ -387,6 +393,7 @@ UTEST( Bench, PSOCache_ColdVsWarm )
     {
         UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
     }
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 

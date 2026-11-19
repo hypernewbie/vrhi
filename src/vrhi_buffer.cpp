@@ -538,7 +538,11 @@ void vhTransientBuffer::Init_DeviceStateLocked( const nvrhi::BufferDesc& desc )
 
     if ( !g_vhNullMode )
     {
-        flushAlignment = VRHI_ROUND_UP( VRHI_CBUF_ALIGN, g_vhVulkanDevice->getMappedBufferFlushAlignment() );
+        // [UAA] native Metal backend
+        const uint64_t alignment = g_vhMetalDevice
+            ? g_vhMetalDevice->getMappedBufferFlushAlignment()
+            : g_vhVulkanDevice->getMappedBufferFlushAlignment();
+        flushAlignment = VRHI_ROUND_UP( VRHI_CBUF_ALIGN, alignment );
     }
 
     // The buffer must hold the rounded-up flush range.
@@ -580,7 +584,11 @@ bool vhTransientBuffer::Flush_DeviceStateLocked()
 
     const int64_t flushEnd = VRHI_ROUND_UP( offset, flushAlignment );
 
-    if ( !g_vhVulkanDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd ) ) return false;
+    // [UAA] native Metal backend
+    const bool flushed = g_vhMetalDevice
+        ? g_vhMetalDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd )
+        : g_vhVulkanDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd );
+    if ( !flushed ) return false;
 
     offset = flushEnd;
     flushedEnd = flushEnd;

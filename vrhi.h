@@ -145,6 +145,12 @@ struct vhInitData
     // foreign blob safely, so this only saves the wasted parse. Ignored when psoCacheInitialData is
     // empty. vhInit() never clears psoCacheInitialData; the caller still owns and frees it as usual.
     vhPSOCacheKey psoCacheValidateKey;
+
+    // [UAA] - START - native Metal backend
+    // Use the native Metal backend instead of Vulkan. macOS only, and headless for now.
+    // The Vulkan pipeline cache and the renderdoc hook do not apply to it.
+    bool useMetal = false;
+    // [UAA] - END
 };
 
 typedef uint32_t vhTexture;

@@ -62,6 +62,7 @@
 #endif // #if VK_USE_PLATFORM_XLIB_KHR
 
 #include <nvrhi/vulkan.h>
+#include <nvrhi/metal.h> // [UAA] native Metal backend
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
     #if !defined( WIN32_LEAN_AND_MEAN ) || !defined( NOMINMAX )
@@ -160,6 +161,7 @@ extern VkInstance g_vulkanInstance;
 extern VkPhysicalDevice g_vulkanPhysicalDevice;
 extern VkDevice g_vulkanDevice;
 extern nvrhi::vulkan::IDevice* g_vhVulkanDevice;
+extern nvrhi::metal::IDevice* g_vhMetalDevice; // [UAA] native Metal backend
 extern VkDebugUtilsMessengerEXT g_vulkanDebugMessenger;
 extern uint32_t g_vulkanEnabledExtensionCount;
 extern std::mutex g_nvRHIStateMutex;

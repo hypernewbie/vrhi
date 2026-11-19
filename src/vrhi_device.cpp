@@ -277,7 +277,7 @@ void vhInit( bool quiet )
 
     VkSurfaceKHR primarySurface = VK_NULL_HANDLE;
 
-    if ( g_vhInit.renderdoc )
+    if ( g_vhInit.renderdoc && !g_vhInit.useMetal ) // [UAA] RenderDoc hooks into the Vulkan loader
     {
         if ( !quiet ) VRHI_LOG( "    Enabling RenderDoc support...\n" );
         vhEnableRenderDoc();
@@ -316,6 +316,69 @@ void vhInit( bool quiet )
         // Skip straight to frame state, dummy resources, and backend thread
         goto vrhi_init_post_device;
     }
+
+    // [UAA] - START - native Metal backend
+    if ( g_vhInit.useMetal )
+    {
+        if ( !g_vhInit.headless )
+        {
+            VRHI_LOG( "vhInit(): The Metal backend only supports headless mode for now.\n" );
+            exit( 1 );
+        }
+
+        if ( !quiet ) VRHI_LOG( "    Creating Metal device...\n" );
+
+        nvrhi::metal::DeviceDesc metalDesc;
+        metalDesc.errorCB = &g_vhVKMessageCallback;
+        g_vhDevice = nvrhi::metal::createDevice( metalDesc );
+        if ( !g_vhDevice )
+        {
+            VRHI_LOG( "Failed to create the Metal device!\n" );
+            exit( 1 );
+        }
+        g_vhMetalDevice = ( nvrhi::metal::IDevice* ) g_vhDevice.Get();
+        g_vhVulkanDevice = nullptr;
+
+        if ( g_vhInit.debug )
+        {
+            // Wrap with validation layer in debug builds - catches state tracking errors
+            if ( !quiet ) VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
+            g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
+        }
+
+        g_vhDeviceInfo = {};
+        g_vhDeviceInfo.name = "Metal Device";
+        g_vhDeviceInfo.driver = "Metal";
+        g_vhDeviceInfo.apiVersion = "Metal";
+        g_vhDeviceInfo.queues = "Graphics";
+        g_vhDeviceInfo.summary = "Native Metal backend";
+
+        // [UAA] - START - Metal capability reporting
+        // The classic Metal binding path binds descriptor arrays as consecutive argument
+        // table entries, so a table leaves room for the discrete resources next to it.
+        g_vhDeviceInfo.bindless = true;
+        g_vhDeviceInfo.maxBindlessSampledImages = 96;
+        g_vhDeviceInfo.maxBindlessStorageImages = 96;
+        g_vhDeviceInfo.maxBindlessStorageBuffers = 96;
+        g_vhDeviceInfo.maxBindlessUniformBuffers = 96;
+        g_vhDeviceInfo.maxBindlessSamplers = 16;
+        g_vhDeviceInfo.maxBoundDescriptorSets = 8;
+        g_vhDeviceInfo.maxPerStageResources = 128;
+        g_vhDeviceInfo.bindlessUpdateAfterBind = VRHI_UAB_SAMPLED_IMAGE | VRHI_UAB_STORAGE_IMAGE | VRHI_UAB_STORAGE_BUFFER | VRHI_UAB_UNIFORM_BUFFER
+            | VRHI_UAB_UNIFORM_TEXEL_BUFFER | VRHI_UAB_STORAGE_TEXEL_BUFFER | VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+        g_vhDeviceInfo.maxBindlessSampledImagesUAB = 96;
+        g_vhDeviceInfo.maxBindlessStorageImagesUAB = 96;
+        g_vhDeviceInfo.maxBindlessStorageBuffersUAB = 96;
+        g_vhDeviceInfo.maxBindlessUniformBuffersUAB = 96;
+        g_vhDeviceInfo.maxBindlessSamplersUAB = 16;
+        g_vhDeviceInfo.maxTextureSize = 16384;
+        g_vhDeviceInfo.maxColorAttachments = 8;
+        g_vhDeviceInfo.totalVRAM = g_vhMetalDevice->getNativeDeviceMemorySize();
+        // [UAA] - END
+
+        goto vrhi_init_post_device;
+    }
+    // [UAA] - END
 
     // Create VkInstance (via vk-bootstrap)
     {
@@ -1011,6 +1074,7 @@ void vhShutdown( bool quiet )
     for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ ) g_vhDevice->runGarbageCollection();
     g_vhDevice = nullptr;
     g_vhVulkanDevice = nullptr;
+    g_vhMetalDevice = nullptr; // [UAA] native Metal backend
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
@@ -1040,7 +1104,7 @@ void vhShutdown( bool quiet )
 bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush )
 {
     outData.clear();
-    if ( g_vhNullMode || !g_vhVulkanDevice ) return false;
+    if ( g_vhNullMode || !g_vhDevice ) return false; // [UAA] the Metal backend has no driver pipeline cache, the query still round-trips
     if ( flush ) vhFinish();
     std::atomic<bool> fence = false;
     vhGetPSOCacheInternal( &fence, &outData, nullptr );
@@ -1050,7 +1114,7 @@ bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush )
 
 size_t vhGetPSOCacheSize()
 {
-    if ( g_vhNullMode || !g_vhVulkanDevice ) return 0;
+    if ( g_vhNullMode || !g_vhDevice ) return 0; // [UAA] the Metal backend has no driver pipeline cache, the query still round-trips
     std::atomic<bool> fence = false;
     size_t size = 0;
     vhGetPSOCacheInternal( &fence, nullptr, &size );
@@ -1090,6 +1154,18 @@ vhMemoryStats vhStatsMemory()
     if ( !g_vhDevice || g_vhNullMode )
     {
         if ( !g_vhDevice ) VRHI_ERR( "vhStatsMemory(): Device not initialised.\n" );
+        return stats;
+    }
+
+    if ( g_vhInit.useMetal ) // [UAA] unified memory exposes one device heap
+    {
+        if ( !g_vhMetalDevice ) return stats;
+
+        stats.heapCount = 1;
+        stats.heapSize[0] = g_vhMetalDevice->getNativeDeviceMemorySize();
+        stats.heapBudget[0] = g_vhMetalDevice->getNativeDeviceMemorySize();
+        stats.heapUsage[0] = g_vhMetalDevice->getNativeAllocatedSize();
+        stats.supported = true;
         return stats;
     }
     

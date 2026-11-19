@@ -1,12 +1,13 @@
 [[dependency]]
 name = "nvrhi"
 rel_path = "nvrhi"
-libs = ["nvrhi_vk", "rtxmu", "nvrhi"]
+libs = ["nvrhi_vk", "rtxmu", "nvrhi", "mac:nvrhi_metal", "mac:spirv-cross-msl", "mac:spirv-cross-glsl", "mac:spirv-cross-core"]
 cmake_options = [
     "-DNVRHI_INSTALL=OFF",
     "-DNVRHI_WITH_RTXMU=ON",
     "-DNVRHI_WITH_VALIDATION=ON",
     "-DNVRHI_WITH_VULKAN=ON",
+    "mac:-DNVRHI_WITH_METAL=ON", # native Metal backend
     "-DNVRHI_WITH_DX11=OFF",
     "-DNVRHI_WITH_DX12=OFF",
     "-DNVRHI_WITH_NVAPI=OFF",
