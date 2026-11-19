@@ -66,7 +66,6 @@ void TestShutdownWindowSystem()
 static const char* TestWindowSkipReason()
 {
     if ( g_vhInit.nullMode ) return "Window tests not supported in null/headless mode";
-    if ( g_vhInit.useMetal ) return "Metal windowing is not implemented yet"; // [UAA]
 #if defined(__linux__)
     const char* display = std::getenv( "DISPLAY" );
     if ( display == nullptr || display[0] == '\0' ) return "No DISPLAY detected, skipping window test";
@@ -106,6 +105,7 @@ static void TestInitWindowed( void* nativeWindow, void* nativeDisplay, int width
     g_vhInit.displayHandle = nativeDisplay;
     g_vhInit.headless = false;
     g_vhInit.vsync = vsync;
+    g_vhInit.useMetal = g_testInitDefaults.useMetal; // [UAA] keep the backend across re-init
     vhInit( false );
     g_testInit = true;
 }
@@ -143,7 +143,6 @@ static void TestResizeWindow( RGFW_window* window, void* nativeDisplay, VkSurfac
 
 UTEST( Window, SwapchainClear )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
@@ -250,7 +249,6 @@ UTEST( Window, SwapchainClear )
 
 UTEST( Window, ResizeSwapchain )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
@@ -439,7 +437,6 @@ UTEST( Window, ResizeSwapchain )
 
 UTEST( Window, FrameNumber )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     // Ensure clean state
     TestEnsureShutdown();
     g_vhInit.headless = true;
@@ -458,7 +455,6 @@ UTEST( Window, FrameNumber )
 
 UTEST( Window, HeadlessBackbuffer )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer requires GPU" ); }
     TestEnsureShutdown();
     g_vhInit.headless = true;
@@ -479,7 +475,6 @@ UTEST( Window, HeadlessBackbuffer )
 
 UTEST( Window, HeadlessBackbufferRender )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer rendering requires GPU" ); }
     TestEnsureShutdown();
     g_vhInit.headless = true;
@@ -508,7 +503,6 @@ UTEST( Window, HeadlessBackbufferRender )
 
 UTEST( Window, HeadlessBackbufferBlit )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer blit requires GPU" ); }
     TestEnsureShutdown();
     g_vhInit.headless = true;
@@ -559,7 +553,6 @@ UTEST( Window, HeadlessBackbufferBlit )
 
 UTEST( Window, HeadlessBackbufferInitShutdownChurn )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer churn requires GPU" ); }
     for ( int i = 0; i < 8; ++i )
     {
@@ -592,10 +585,9 @@ UTEST( Window, HeadlessBackbufferInitShutdownChurn )
 
 UTEST( Window, ResizeDuringDraws )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Resize during draws requires GPU" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "vhResize during active command buffers triggers Metal device lost on MoltenVK" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) UTEST_SKIP( "vhResize during active command buffers triggers Metal device lost on MoltenVK" ); // [UAA] the native backend is not affected
 #endif
     TestEnsureShutdown();
     g_vhInit.headless = true;
@@ -629,7 +621,6 @@ UTEST( Window, ResizeDuringDraws )
 
 UTEST( Window, TwoWindowsPresent )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
@@ -710,7 +701,6 @@ UTEST( Window, TwoWindowsPresent )
 
 UTEST( Window, OutOfDateRecreate )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
@@ -777,7 +767,6 @@ UTEST( Window, OutOfDateRecreate )
 
 UTEST( Window, DestroySecondaryDuringPrimaryFrameInFlight )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
@@ -849,7 +838,6 @@ UTEST( Window, DestroySecondaryDuringPrimaryFrameInFlight )
 
 UTEST( Window, ResizeDuringInFlightFrame )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Metal windowing is not implemented yet" ); // [UAA]
     if ( g_vhInit.nullMode )
     {
         UTEST_SKIP( "Window tests not supported in null/headless mode" );
@@ -1014,6 +1002,7 @@ UTEST( Swapchain, RenderResizeRenderSecondary )
 UTEST( Swapchain, SemaphoreArraysCoverFrameSlots )
 {
     if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Vulkan acquire semaphores are a Vulkan concept" ); // [UAA]
 
     RGFW_window* primary = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
     RGFW_window* secondary = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );

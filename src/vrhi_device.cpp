@@ -320,12 +320,6 @@ void vhInit( bool quiet )
     // [UAA] - START - native Metal backend
     if ( g_vhInit.useMetal )
     {
-        if ( !g_vhInit.headless )
-        {
-            VRHI_LOG( "vhInit(): The Metal backend only supports headless mode for now.\n" );
-            exit( 1 );
-        }
-
         if ( !quiet ) VRHI_LOG( "    Creating Metal device...\n" );
 
         nvrhi::metal::DeviceDesc metalDesc;
@@ -979,21 +973,43 @@ vrhi_init_post_device:
         }
         else
         {
-            if ( !quiet ) VRHI_LOG( "    Creating Swapchain...\n" );
-            vhSwapchainCreate_Internal( sc, g_vhInit.resolution.x, g_vhInit.resolution.y );
-            sc.currentSwapchainIndex = 0;
-
-            int imageCount = ( int ) sc.images.size();
-            if ( !g_vhInit.vsync )
+            // [UAA] - START - native Metal backend
+            if ( g_vhInit.useMetal )
             {
-                g_vhFramesInFlight = imageCount;
-                if ( g_vhFramesInFlight > VRHI_MAX_FRAMES_INFLIGHT ) g_vhFramesInFlight = VRHI_MAX_FRAMES_INFLIGHT;
+                sc.metalLayer = vhMetalResolveLayer( g_vhInit.windowHandle, g_vhInit.macOSWindowIsNSView );
+                if ( sc.metalLayer )
+                {
+                    if ( !quiet ) VRHI_LOG( "    Creating Metal swapchain...\n" );
+                    vhSwapchainCreateMetal_Internal( sc, g_vhInit.resolution.x, g_vhInit.resolution.y );
+                }
+                else
+                {
+                    // No layer to draw into: the Vulkan path fails its surface the same way,
+                    // so the primary falls back to a headless backbuffer.
+                    if ( !quiet ) VRHI_LOG( "    No window handle: allocating headless backbuffer\n" );
+                    sc.isHeadless = true;
+                    vhSwapchainResizeHeadless_Internal( sc, g_vhInit.resolution.x, g_vhInit.resolution.y );
+                }
             }
-            sc.acquireSemaphoreIndex = 0;
-            VkResult acqResult = vkAcquireNextImageKHR( g_vulkanDevice, sc.swapchain, UINT64_MAX,
-                sc.acquireSemaphores[sc.acquireSemaphoreIndex], VK_NULL_HANDLE, &sc.currentSwapchainIndex );
-            if ( acqResult != VK_SUCCESS && acqResult != VK_SUBOPTIMAL_KHR )
-                VRHI_LOG( "Warning: Initial acquire returned %d.\n", acqResult );
+            // [UAA] - END
+            else
+            {
+                if ( !quiet ) VRHI_LOG( "    Creating Swapchain...\n" );
+                vhSwapchainCreate_Internal( sc, g_vhInit.resolution.x, g_vhInit.resolution.y );
+                sc.currentSwapchainIndex = 0;
+
+                int imageCount = ( int ) sc.images.size();
+                if ( !g_vhInit.vsync )
+                {
+                    g_vhFramesInFlight = imageCount;
+                    if ( g_vhFramesInFlight > VRHI_MAX_FRAMES_INFLIGHT ) g_vhFramesInFlight = VRHI_MAX_FRAMES_INFLIGHT;
+                }
+                sc.acquireSemaphoreIndex = 0;
+                VkResult acqResult = vkAcquireNextImageKHR( g_vulkanDevice, sc.swapchain, UINT64_MAX,
+                    sc.acquireSemaphores[sc.acquireSemaphoreIndex], VK_NULL_HANDLE, &sc.currentSwapchainIndex );
+                if ( acqResult != VK_SUCCESS && acqResult != VK_SUBOPTIMAL_KHR )
+                    VRHI_LOG( "Warning: Initial acquire returned %d.\n", acqResult );
+            }
         }
         g_vhPrimarySwapchain = id;
     }
@@ -1529,7 +1545,36 @@ bool vhFrame()
     if ( it == g_vhSwapchains.end() ) return false;
     vhSwapchain& primary = it->second;
 
-    if ( primary.isHeadless || primary.isMinimized || primary.swapchain == VK_NULL_HANDLE )
+    if ( primary.isHeadless || primary.isMinimized )
+        return false;
+
+    // [UAA] - START - native Metal backend
+    // Drain backend so the main thread can present and acquire on the graphics list.
+    if ( g_vhInit.useMetal )
+    {
+        vhFlush( true );
+
+        uint64_t primaryInstance = 0;
+        if ( !vhSwapchainPresentAndAcquireMetal_Internal( primary, primaryInstance ) )
+            return false;
+        g_vhFrameInstances[g_vhFrameIndex] = primaryInstance;
+
+        g_vhFrameIndex = ( uint32_t ) ( ( g_vhFrameIndex + 1 ) % g_vhFramesInFlight );
+
+        // Wait for the frame slot's previous work to retire before reusing it.
+        uint64_t nextFrameInstance = g_vhFrameInstances[g_vhFrameIndex];
+        if ( nextFrameInstance != 0 )
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            g_vhDevice->queueWaitForCommandList( nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Graphics, nextFrameInstance );
+        }
+
+        g_vhFrameCount++;
+        return true;
+    }
+    // [UAA] - END
+
+    if ( primary.swapchain == VK_NULL_HANDLE )
         return false;
 
     // Drain backend so the main thread can use the same nvrhi command list for swapchain semaphore ops below.
@@ -1572,7 +1617,7 @@ vhTexture vhGetBackbuffer()
     if ( it == g_vhSwapchains.end() ) return VRHI_INVALID_HANDLE;
     vhSwapchain& sc = it->second;
     if ( sc.isHeadless ) return sc.headlessBackbuffer;
-    if ( sc.isMinimized || sc.swapchain == VK_NULL_HANDLE ) return VRHI_INVALID_HANDLE;
+    if ( sc.isMinimized || ( sc.swapchain == VK_NULL_HANDLE && !sc.metalLayer ) ) return VRHI_INVALID_HANDLE; // [UAA] the Metal swapchain keeps no VkSwapchainKHR
     if ( sc.textures.empty() ) return VRHI_INVALID_HANDLE;
     return sc.textures[sc.currentSwapchainIndex];
 }
@@ -1616,7 +1661,7 @@ nvrhi::Format vhNvFormatFromVkFormat( VkFormat vkFormat )
     }
 }
 
-static void vhSwapchainReleaseTexture( vhTexture texture )
+void vhSwapchainReleaseTexture( vhTexture texture ) // [UAA] shared with the Metal swapchain module
 {
     if ( texture == VRHI_INVALID_HANDLE ) return;
     g_vhCmdBackendState.UnregisterInternalTexture( texture );
@@ -1627,6 +1672,13 @@ static void vhSwapchainReleaseTexture( vhTexture texture )
 
 void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height )
 {
+    // [UAA] native Metal backend
+    if ( g_vhInit.useMetal )
+    {
+        vhSwapchainCreateMetal_Internal( sc, width, height );
+        return;
+    }
+
     // Build swapchain via vkb::SwapchainBuilder
     vkb::SwapchainBuilder builder( *g_vulkanBDevice, sc.surface );
     builder
@@ -1727,6 +1779,13 @@ void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height )
 
 void vhSwapchainDestroy_Internal( vhSwapchain& sc )
 {
+    // [UAA] native Metal backend
+    if ( g_vhInit.useMetal )
+    {
+        vhSwapchainDestroyMetal_Internal( sc );
+        return;
+    }
+
     for ( auto sem : sc.acquireSemaphores )
     {
         if ( sem != VK_NULL_HANDLE )
@@ -1767,6 +1826,12 @@ void vhSwapchainDestroy_Internal( vhSwapchain& sc )
 
 bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstance )
 {
+    // [UAA] native Metal backend
+    if ( g_vhInit.useMetal )
+    {
+        return vhSwapchainPresentAndAcquireMetal_Internal( sc, outInstance );
+    }
+
     if ( sc.isHeadless || sc.isMinimized || sc.swapchain == VK_NULL_HANDLE )
         return true;
 
@@ -1915,6 +1980,17 @@ void vhResize( int width, int height )
         return;
     }
 
+    // [UAA] - START - native Metal backend
+    if ( g_vhInit.useMetal )
+    {
+        vhFinish();
+        vhSwapchainCreateMetal_Internal( sc, width, height );
+        if ( !sc.isMinimized ) return;
+        sc.windowSize = glm::uvec2( 0, 0 );
+        return;
+    }
+    // [UAA] - END
+
     VRHI_LOG( "Resizing swapchain to %dx%d\n", width, height );
 
     // Flush all commands and wait for GPU idle for safety
@@ -1966,6 +2042,30 @@ vhSwapchainID vhCreateSwapchain( void* windowHandle, void* displayHandle, int wi
         g_vhSwapchains[id] = std::move( sc );
         return id;
     }
+
+    // [UAA] - START - native Metal backend
+    if ( g_vhInit.useMetal )
+    {
+        sc.metalLayer = vhMetalResolveLayer( windowHandle, g_vhInit.macOSWindowIsNSView );
+        if ( !sc.metalLayer )
+        {
+            VRHI_ERR( "vhCreateSwapchain(): No CAMetalLayer for the window handle\n" );
+            return VRHI_INVALID_SWAPCHAIN;
+        }
+
+        if ( width <= 0 || height <= 0 )
+        {
+            sc.isMinimized = true;
+            sc.windowSize = glm::uvec2( 0, 0 );
+            g_vhSwapchains[id] = std::move( sc );
+            return id;
+        }
+
+        vhSwapchainCreateMetal_Internal( sc, width, height );
+        g_vhSwapchains[id] = std::move( sc );
+        return id;
+    }
+    // [UAA] - END
 
     sc.surface = vhCreateSurface( g_vulkanInstance, windowHandle, displayHandle,
         false, g_vhInit.linuxUseWayland, g_vhInit.macOSWindowIsNSView, true );
@@ -2029,7 +2129,7 @@ vhTexture vhGetSwapchainBackbuffer( vhSwapchainID swapchain )
     vhSwapchain& sc = it->second;
     if ( sc.isMinimized ) return VRHI_INVALID_HANDLE;
     if ( sc.isHeadless ) return sc.headlessBackbuffer;
-    if ( sc.swapchain == VK_NULL_HANDLE ) return VRHI_INVALID_HANDLE;
+    if ( sc.swapchain == VK_NULL_HANDLE && !sc.metalLayer ) return VRHI_INVALID_HANDLE; // [UAA] the Metal swapchain keeps no VkSwapchainKHR
     if ( sc.textures.empty() ) return VRHI_INVALID_HANDLE;
     return sc.textures[sc.currentSwapchainIndex];
 }
@@ -2066,6 +2166,15 @@ void vhResizeSwapchain( vhSwapchainID swapchain, int width, int height )
         vhSwapchainResizeHeadless_Internal( sc, width, height );
         return;
     }
+
+    // [UAA] - START - native Metal backend
+    if ( g_vhInit.useMetal )
+    {
+        vhFinish();
+        vhSwapchainCreateMetal_Internal( sc, width, height );
+        return;
+    }
+    // [UAA] - END
 
     vhFinish();
     vhSwapchainCreate_Internal( sc, width, height );

@@ -380,6 +380,9 @@ endif()
  
  if(APPLE)
      list(APPEND VRHI_SOURCES src/vrhi_device.mm)
+     # [UAA] native Metal backend: the windowing seams live in their own module
+     # (manual memory: vulkan.hpp cannot compile under ARC on macOS)
+     list(APPEND VRHI_SOURCES src/metal/vrhi_metal_swapchain.mm)
  endif()
  
   add_library(vrhi STATIC ${VRHI_SOURCES})

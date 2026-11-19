@@ -291,12 +291,27 @@ struct vhSwapchain
     nvrhi::TextureHandle                headlessBackbufferHandle;
     bool                                isHeadless            = false;
     bool                                isMinimized           = false;
+
+    // [UAA] - START - native Metal backend
+    // Core Foundation retained CAMetalLayer* and id<CAMetalDrawable> for a
+    // windowed Metal swapchain. The drawable rotates inside the layer's pool.
+    void*                               metalLayer            = nullptr;
+    void*                               metalDrawable         = nullptr;
+    // [UAA] - END
 };
 
 void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height );
 void vhSwapchainDestroy_Internal( vhSwapchain& sc );
 bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstance );
 void vhSwapchainResizeHeadless_Internal( vhSwapchain& sc, int width, int height );
+
+// [UAA] - START - native Metal backend
+void* vhMetalResolveLayer( void* windowHandle, bool macOSWindowIsNSView );
+void vhSwapchainCreateMetal_Internal( vhSwapchain& sc, int width, int height );
+bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain& sc, uint64_t& outInstance );
+void vhSwapchainDestroyMetal_Internal( vhSwapchain& sc );
+void vhSwapchainReleaseTexture( vhTexture texture );
+// [UAA] - END
 
 extern std::unordered_map< vhSwapchainID, vhSwapchain > g_vhSwapchains;
 extern vhSwapchainID g_vhPrimarySwapchain;
