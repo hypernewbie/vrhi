@@ -128,11 +128,10 @@ namespace
 
 UTEST( RHI, PSOCache_RoundTrip )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.useMetal )
     {
-        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+        UTEST_SKIP( "Requires a Vulkan pipeline cache" );
     }
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -173,11 +172,10 @@ UTEST( RHI, PSOCache_RoundTrip )
 
 UTEST( RHI, PSOCache_StaleBlobIgnored )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.useMetal )
     {
-        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+        UTEST_SKIP( "Requires a Vulkan pipeline cache" );
     }
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -197,11 +195,10 @@ UTEST( RHI, PSOCache_StaleBlobIgnored )
 
 UTEST( RHI, PSOCache_NoFlushSizeMatchesBlob )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.useMetal )
     {
-        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+        UTEST_SKIP( "Requires a Vulkan pipeline cache" );
     }
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -229,11 +226,10 @@ UTEST( RHI, PSOCache_NoFlushSizeMatchesBlob )
 
 UTEST( RHI, PSOCache_KeyStable )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.useMetal )
     {
-        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+        UTEST_SKIP( "Requires a Vulkan pipeline cache" );
     }
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 
@@ -262,11 +258,10 @@ UTEST( RHI, PSOCache_KeyStable )
 
 UTEST( RHI, PSOCache_ConcurrentQueryDuringPipelineCreation )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.useMetal )
     {
-        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+        UTEST_SKIP( "Requires a Vulkan pipeline cache" );
     }
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
     g_vhInit.psoCacheInitialData.clear();
@@ -334,11 +329,10 @@ UTEST( RHI, PSOCache_ConcurrentQueryDuringPipelineCreation )
 
 UTEST( RHI, PSOCache_ValidateKeyMismatchDiscardsSeed )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.useMetal )
     {
-        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+        UTEST_SKIP( "Requires a Vulkan pipeline cache" );
     }
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
     if ( TestIsSoftwareVulkan() ) { UTEST_SKIP( "Seeded vs cold cache size is not observable on software Vulkan." ); }
 
     TestEnsureShutdown();
@@ -389,11 +383,10 @@ UTEST( RHI, PSOCache_ValidateKeyMismatchDiscardsSeed )
 
 UTEST( Bench, PSOCache_ColdVsWarm )
 {
-    if ( g_vhInit.nullMode )
+    if ( g_vhInit.nullMode || g_vhInit.useMetal )
     {
-        UTEST_SKIP( "Driver pipeline cache requires a real Vulkan device." );
+        UTEST_SKIP( "Requires a Vulkan pipeline cache" );
     }
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Driver pipeline cache is a Vulkan concept" ); // [UAA]
 
     TestEnsureShutdown();
 

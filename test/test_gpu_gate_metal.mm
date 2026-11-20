@@ -19,61 +19,49 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-// [UAA] Metal side of VhGpuGate: the tests are C++, so the shared event gate lives here
-// behind a small pointer interface and the queue is blocked with a wait command buffer.
-
-#include <Metal/Metal.h>
+#import <Metal/Metal.h>
 
 namespace vrhi_test
 {
 
-struct MetalGate
+struct vhMetalGpuGate
 {
-    id<MTLCommandQueue> queue = nil;
-    id<MTLSharedEvent> event = nil;
+    id< MTLCommandQueue > queue = nil;
+    id< MTLSharedEvent >  event = nil;
 };
 
-void* MetalGateCreate( void* device, void* queue )
+vhMetalGpuGate* vhMetalGpuGateCreate( void* device, void* queue )
 {
-    id<MTLDevice> metalDevice = (__bridge id<MTLDevice>)device;
-    if ( !metalDevice || !queue )
-        return nullptr;
+    if ( !device || !queue ) return nullptr;
 
-    MetalGate* gate = new MetalGate();
-    gate->queue = (__bridge id<MTLCommandQueue>)queue;
-    gate->event = [metalDevice newSharedEvent];
-    if ( !gate->event )
-    {
-        delete gate;
-        return nullptr;
-    }
+    id< MTLDevice > metalDevice = ( __bridge id< MTLDevice > )device;
+    id< MTLSharedEvent > event = [metalDevice newSharedEvent];
+    if ( !event ) return nullptr;
 
-    return gate;
+    return new vhMetalGpuGate{ ( __bridge id< MTLCommandQueue > )queue, event };
 }
 
-void MetalGateWaitBefore( void* gatePointer )
+bool vhMetalGpuGateEnqueueWait( vhMetalGpuGate* gate )
 {
-    MetalGate* gate = (MetalGate*)gatePointer;
-
     @autoreleasepool
     {
-        // A committed wait blocks the queue, so every later submission stays pending
-        // until the event is signalled, like the Vulkan timeline wait.
-        id<MTLCommandBuffer> buffer = [gate->queue commandBuffer];
+        id< MTLCommandBuffer > buffer = [gate->queue commandBuffer];
+        if ( !buffer ) return false;
+
         [buffer encodeWaitForEvent:gate->event value:1];
         [buffer commit];
+        return true;
     }
 }
 
-void MetalGateRelease( void* gatePointer )
+void vhMetalGpuGateRelease( vhMetalGpuGate* gate )
 {
-    MetalGate* gate = (MetalGate*)gatePointer;
     [gate->event setSignaledValue:1];
 }
 
-void MetalGateDestroy( void* gatePointer )
+void vhMetalGpuGateDestroy( vhMetalGpuGate* gate )
 {
-    delete (MetalGate*)gatePointer;
+    delete gate;
 }
 
 }

@@ -80,8 +80,13 @@ target_link_directories(test_package_exe PRIVATE
 )
 
 # Link libraries
+set(VRHI_LIBRARY_NAME vrhi)
+if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(VRHI_LIBRARY_NAME vrhid)
+endif()
+
 target_link_libraries(test_package_exe PRIVATE
-    vrhi
+    ${VRHI_LIBRARY_NAME}
     nvrhi_vk
     nvrhi
     vk-bootstrap
@@ -105,6 +110,11 @@ elseif(APPLE)
         "-framework Foundation"
         "-framework AppKit"
         "-framework QuartzCore"
+        "-framework Metal"
+        nvrhi_metal
+        spirv-cross-msl
+        spirv-cross-glsl
+        spirv-cross-core
     )
 else()
     # Linux

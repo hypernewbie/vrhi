@@ -379,10 +379,10 @@ endif()
  )
  
  if(APPLE)
-     list(APPEND VRHI_SOURCES src/vrhi_device.mm)
-     # [UAA] native Metal backend: the windowing seams live in their own module
-     # (manual memory: vulkan.hpp cannot compile under ARC on macOS)
-     list(APPEND VRHI_SOURCES src/metal/vrhi_metal_swapchain.mm)
+     list(APPEND VRHI_SOURCES
+         src/vrhi_device.mm
+         src/metal/vrhi_metal_swapchain.mm
+     )
  endif()
  
   add_library(vrhi STATIC ${VRHI_SOURCES})
@@ -491,20 +491,12 @@ endif()
          test/test_precompile.cpp
      )
 
-     # [UAA] - START - native Metal backend
      if(APPLE)
          list(APPEND TEST_SOURCES test/test_gpu_gate_metal.mm)
-     endif()
-     # [UAA] - END
-
-     add_executable(vrhi_test ${TEST_SOURCES})
-
-     # [UAA] - START - native Metal backend
-     if(APPLE)
          set_source_files_properties(test/test_gpu_gate_metal.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
      endif()
-     # [UAA] - END
- 
+
+     add_executable(vrhi_test ${TEST_SOURCES})
      target_link_libraries(vrhi_test PRIVATE vrhi)
      target_include_directories(vrhi_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vdeps/RGFW" "${SPIRV_TOOLS_INCLUDE_DIR}")
  endif()
@@ -512,7 +504,6 @@ endif()
  # NVRHI and related libraries (shared by tests and examples)
  set(NVRHI_LIBS nvrhi_vk nvrhi vk-bootstrap rtxmu)
 
- # The native Metal backend lives in the nvrhi fork and translates SPIR-V with SPIRV-Cross.
  if(APPLE)
      list(APPEND NVRHI_LIBS nvrhi_metal spirv-cross-msl spirv-cross-glsl spirv-cross-core)
  endif()

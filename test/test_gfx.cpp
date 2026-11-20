@@ -388,6 +388,56 @@ UTEST_F( Graphics, DrawTriangle )
     vhFinish();
 }
 
+UTEST_F( Graphics, MetalDrawAfterBackbufferResize )
+{
+    if ( !g_vhInit.useMetal || !g_vhInit.headless || g_vhInit.nullMode )
+    {
+        UTEST_SKIP( "Requires a headless Metal backbuffer" );
+    }
+
+    const glm::uvec2 originalSize = vhGetWindowSize();
+    vhResize( 64, 64 );
+    const vhTexture backbuffer = vhGetBackbuffer();
+
+    struct Vertex { glm::vec3 pos; glm::vec4 colour; };
+    const Vertex verts[] = {
+        { { -1.f, -1.f, 0.f }, { 0.f, 1.f, 0.f, 1.f } },
+        { {  3.f, -1.f, 0.f }, { 0.f, 1.f, 0.f, 1.f } },
+        { { -1.f,  3.f, 0.f }, { 0.f, 1.f, 0.f, 1.f } }
+    };
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+
+    const vhStateId sid = 210;
+    vhState state;
+    state.SetColourAttachment( 0, backbuffer )
+         .SetViewRect( glm::vec4( 0, 0, 64, 64 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetVertexBuffer( vb, 0 )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    EXPECT_TRUE( VerifyPixel( backbuffer, 32, 32, 0xFF00FF00 ) );
+
+    vhResize( 80, 80 );
+    EXPECT_EQ( vhGetBackbuffer(), backbuffer );
+    EXPECT_EQ( vhGetWindowSize(), glm::uvec2( 80, 80 ) );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+    EXPECT_TRUE( VerifyPixel( backbuffer, 32, 32, 0xFF00FF00 ) );
+
+    vhState reset;
+    vhSetState( sid, reset, VRHI_DIRTY_ALL );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhResize( originalSize.x, originalSize.y );
+    vhFinish();
+}
+
 UTEST_F( Graphics, DrawIndexedTriangle )
 {
     if ( g_vhInit.nullMode )
@@ -2680,6 +2730,22 @@ UTEST_F( Graphics, DrawIndexedIndirectCount )
 
     // GPU count was 0, so the green triangle does not fire; pixel stays cleared black.
     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF000000 ) );
+
+    if ( g_vhInit.useMetal )
+    {
+        // Both offsets would truncate to zero without the range checks.
+        TestLogCapture logs;
+        const uint64_t badOffset = ( uint64_t ) UINT32_MAX + 1;
+        vhCmdSetStateIndirectParams( sid, argBuf, badOffset );
+        vhDrawIndexedIndirectCount( sid, 1 );
+        vhCmdSetStateIndirectParams( sid, argBuf, 0 );
+        vhCmdSetStateIndirectCountBuffer( sid, countBuf, badOffset );
+        vhDrawIndexedIndirectCount( sid, 1 );
+        vhCmdSetStateIndirectCountBuffer( sid, countBuf, 0 );
+        vhFinish();
+        EXPECT_TRUE( logs.Contains( "Invalid Metal indirect argument range" ) );
+        EXPECT_TRUE( logs.Contains( "Invalid Metal indirect count range" ) );
+    }
 
     vhDestroyTexture( rt ); vhDestroyBuffer( vb ); vhDestroyBuffer( ib );
     vhDestroyBuffer( argBuf ); vhDestroyBuffer( countBuf );

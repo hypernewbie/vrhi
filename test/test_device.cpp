@@ -62,50 +62,19 @@ UTEST( RHI, Init )
 
 UTEST( RHI, LogCallback )
 {
-    // Ensure clean state
-    // Ensure clean state
     TestEnsureShutdown();
 
-    std::vector<std::string> logs;
-    int errorCount = 0;
-
+    const bool useMetal = g_vhInit.useMetal && !g_vhInit.nullMode;
+    TestLogCapture logs;
     g_vhInit.debug = true;
-    g_vhInit.fnLogCallback = [&]( bool err, const std::string& msg ) {
-        if ( err ) errorCount++;
-        logs.push_back( msg );
-    };
-
-    // We want logs here; pass quiet=false explicitly.
     vhInit( false );
 
-    // Verify we captured logs
-    EXPECT_GT( logs.size(), 0 ); // "Initialising Vulkan RHI ..." etc
-
-    // Check if we captured expected startup messages
-    bool foundInit = false;
-    for ( const auto& l : logs )
-    {
-        if ( l.find( "Initialising Vulkan RHI" ) != std::string::npos ) foundInit = true;
-    }
-    EXPECT_TRUE( foundInit );
-
-    // Verify error counting (should be 0 on clean init)
-    EXPECT_EQ( errorCount, 0 );
+    EXPECT_TRUE( logs.Contains( useMetal ? "Initialising Metal RHI" : "Initialising Vulkan RHI" ) );
+    EXPECT_EQ( logs.ErrorCount(), 0 );
     EXPECT_EQ( g_vhErrorCounter.load(), 0 );
 
-
     vhShutdown( false );
-
-    // Verify shutdown logs
-    bool foundShutdown = false;
-    for ( const auto& l : logs )
-    {
-        if ( l.find( "Shutdown Vulkan RHI" ) != std::string::npos ) foundShutdown = true;
-    }
-    EXPECT_TRUE( foundShutdown );
-
-    // Cleanup callback
-    g_vhInit.fnLogCallback = nullptr;
+    EXPECT_TRUE( logs.Contains( useMetal ? "Shutdown Metal RHI" : "Shutdown Vulkan RHI" ) );
 }
 
 UTEST( RHI, RayTracingControl )
@@ -132,7 +101,8 @@ UTEST( RHI, RayTracingControl )
 
 UTEST( RHI, Shader16BitControl )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test queries the Vulkan physical device" ); // [UAA]
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Requires Vulkan shader feature queries" );
+
     TestEnsureShutdown();
 
     // Case 1: Both false (default) — device must come up, flags must stay false.
@@ -181,7 +151,8 @@ UTEST( RHI, Shader16BitControl )
 
 UTEST( RHI, ExtraDeviceExtensions )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test queries the Vulkan physical device" ); // [UAA]
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Requires Vulkan device extensions" );
+
     TestEnsureShutdown();
 
     g_vhInit.extraDeviceExtensions = {
@@ -215,7 +186,8 @@ UTEST( RHI, ExtraDeviceExtensions )
 
 UTEST( RHI, IndirectCountCapability )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test queries the Vulkan physical device" ); // [UAA]
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Requires Vulkan drawIndirectCount feature queries" );
+
     TestEnsureShutdown();
     vhInit( g_testInitQuiet );
 

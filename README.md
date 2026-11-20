@@ -117,6 +117,18 @@
   target_link_libraries(your_app PRIVATE vrhi_md_d nvrhi_md_d_vk nvrhi_md_d vk-bootstrap_md_d rtxmu_md_d Vulkan::Vulkan)
   ```
 
+  On macOS, use `vrhid` for Debug or `vrhi` for Release. Also link the Metal backend and its dependencies:
+
+  ```cmake
+  target_link_libraries(your_app PRIVATE
+      nvrhi_metal spirv-cross-msl spirv-cross-glsl spirv-cross-core
+      "-framework Metal" "-framework QuartzCore" "-framework AppKit"
+      "-framework CoreFoundation" "-framework CoreGraphics" "-framework Foundation"
+  )
+  ```
+
+  Vulkan is the default. Set `g_vhInit.useMetal = true` before `vhInit()` to use Metal on macOS.
+
   ### Requirements
 
   - Vulkan SDK (https://vulkan.lunarg.com/sdk/home)

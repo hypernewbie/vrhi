@@ -47,8 +47,7 @@ UTEST_F_TEARDOWN( Native )
 
 UTEST_F( Native, BracketAndRebaseline )
 {
-    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test drives raw Vulkan handles" ); // [UAA]
+    if ( g_vhInit.nullMode || g_vhInit.useMetal ) UTEST_SKIP( "Requires native Vulkan objects" );
 
     vhFlush();
     const int32_t startErrors = g_vhErrorCounter.load();
@@ -152,8 +151,7 @@ UTEST_F( Native, BracketAndRebaseline )
 
 UTEST_F( Native, DeviceLock )
 {
-    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test drives raw Vulkan handles" ); // [UAA]
+    if ( g_vhInit.nullMode || g_vhInit.useMetal ) UTEST_SKIP( "Requires native Vulkan objects" );
 
     vhNativeDeviceLock lock;
     ASSERT_TRUE( vhGetVkDevice() != VK_NULL_HANDLE );
@@ -172,8 +170,8 @@ UTEST_F( Native, DeviceLock )
 // captured into a test-owned record and read only after backend completion.
 UTEST_F( Native, NV01_NativeCallbackWritesTexture )
 {
-    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "The test drives raw Vulkan handles" ); // [UAA]
+    if ( g_vhInit.nullMode || g_vhInit.useMetal ) UTEST_SKIP( "Requires native Vulkan objects" );
+
     vhFlush();
     const int32_t startErrors = g_vhErrorCounter.load();
 

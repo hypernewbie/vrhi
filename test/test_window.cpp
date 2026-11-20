@@ -44,6 +44,11 @@
 #include <vrhi_internal.h>
 #include <vrhi.h>
 
+#if defined(__APPLE__)
+#include "test_gpu_gate.h"
+#include <memory>
+#endif
+
 static bool g_testRGFWInitialised = false;
 
 static RGFW_window* TestCreateWindow( const char* name, int x, int y, int width, int height, RGFW_windowFlags flags )
@@ -96,7 +101,7 @@ static void TestGetNativeWindowHandles( RGFW_window* window, void*& nativeWindow
 #endif
 }
 
-static void TestInitWindowed( void* nativeWindow, void* nativeDisplay, int width, int height, bool vsync = false )
+static void TestInitWindowed( void* nativeWindow, void* nativeDisplay, int width, int height, bool vsync = false, bool scrgb = false )
 {
     TestEnsureShutdown();
     g_vhInit = vhInitData{};
@@ -105,7 +110,8 @@ static void TestInitWindowed( void* nativeWindow, void* nativeDisplay, int width
     g_vhInit.displayHandle = nativeDisplay;
     g_vhInit.headless = false;
     g_vhInit.vsync = vsync;
-    g_vhInit.useMetal = g_testInitDefaults.useMetal; // [UAA] keep the backend across re-init
+    g_vhInit.scrgb = scrgb;
+    g_vhInit.useMetal = g_testInitDefaults.useMetal;
     vhInit( false );
     g_testInit = true;
 }
@@ -473,6 +479,27 @@ UTEST( Window, HeadlessBackbuffer )
     TestEnsureShutdown();
 }
 
+UTEST( Window, HeadlessSwapchainDestroyReleasesBackbuffer )
+{
+    if ( g_testInitDefaults.nullMode ) UTEST_SKIP( "Backbuffer requires GPU" );
+
+    TestEnsureShutdown();
+    g_vhInit.headless = true;
+    vhInit( true );
+    g_testInit = true;
+
+    const size_t textureCount = g_vhTextureIDValid.size();
+    const vhSwapchainID swapchain = vhCreateSwapchain( nullptr, nullptr, 64, 64 );
+    EXPECT_NE( swapchain, VRHI_INVALID_SWAPCHAIN );
+    EXPECT_NE( vhGetSwapchainBackbuffer( swapchain ), VRHI_INVALID_HANDLE );
+    EXPECT_EQ( g_vhTextureIDValid.size(), textureCount + 1 );
+
+    vhDestroySwapchain( swapchain );
+    EXPECT_EQ( g_vhTextureIDValid.size(), textureCount );
+
+    TestEnsureShutdown();
+}
+
 UTEST( Window, HeadlessBackbufferRender )
 {
     if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Backbuffer rendering requires GPU" ); }
@@ -587,7 +614,7 @@ UTEST( Window, ResizeDuringDraws )
 {
     if ( g_testInitDefaults.nullMode ) { UTEST_SKIP( "Resize during draws requires GPU" ); }
 #if defined(__APPLE__)
-    if ( !g_vhInit.useMetal ) UTEST_SKIP( "vhResize during active command buffers triggers Metal device lost on MoltenVK" ); // [UAA] the native backend is not affected
+    if ( !g_vhInit.useMetal ) UTEST_SKIP( "Resizing with active command buffers can lose the MoltenVK device" );
 #endif
     TestEnsureShutdown();
     g_vhInit.headless = true;
@@ -643,6 +670,7 @@ UTEST( Window, TwoWindowsPresent )
 
     TestEnsureShutdown();
     g_vhInit = vhInitData{};
+    g_vhInit.useMetal = g_testInitDefaults.useMetal;
     g_vhInit.resolution = glm::ivec2( 128, 128 );
     g_vhInit.vsync = false;
     vhInit( false );
@@ -723,6 +751,7 @@ UTEST( Window, OutOfDateRecreate )
 
     TestEnsureShutdown();
     g_vhInit = vhInitData{};
+    g_vhInit.useMetal = g_testInitDefaults.useMetal;
     g_vhInit.resolution = glm::ivec2( 128, 128 );
     g_vhInit.vsync = false;
     vhInit( false );
@@ -789,6 +818,7 @@ UTEST( Window, DestroySecondaryDuringPrimaryFrameInFlight )
 
     TestEnsureShutdown();
     g_vhInit = vhInitData{};
+    g_vhInit.useMetal = g_testInitDefaults.useMetal;
     g_vhInit.resolution = glm::ivec2( 128, 128 );
     g_vhInit.vsync = false;
     vhInit( false );
@@ -860,6 +890,7 @@ UTEST( Window, ResizeDuringInFlightFrame )
 
     TestEnsureShutdown();
     g_vhInit = vhInitData{};
+    g_vhInit.useMetal = g_testInitDefaults.useMetal;
     g_vhInit.resolution = glm::ivec2( 128, 128 );
     g_vhInit.vsync = false;
     vhInit( false );
@@ -912,6 +943,7 @@ UTEST( Swapchain, ZeroSizeCreateThenRestore )
     vhSwapchainID sc = vhCreateSwapchain( secondaryWindow, secondaryDisplay, 0, 0 );
     ASSERT_NE( sc, VRHI_INVALID_SWAPCHAIN );
     EXPECT_EQ( vhGetSwapchainSize( sc ), glm::uvec2( 0, 0 ) );
+    if ( g_vhInit.useMetal ) EXPECT_FALSE( vhPresentSwapchain( sc ) );
 
     vhResizeSwapchain( sc, 128, 128 );
     EXPECT_EQ( vhGetSwapchainSize( sc ), glm::uvec2( 128, 128 ) );
@@ -1002,7 +1034,7 @@ UTEST( Swapchain, RenderResizeRenderSecondary )
 UTEST( Swapchain, SemaphoreArraysCoverFrameSlots )
 {
     if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Vulkan acquire semaphores are a Vulkan concept" ); // [UAA]
+    if ( g_vhInit.useMetal ) UTEST_SKIP( "Requires Vulkan acquire semaphores" );
 
     RGFW_window* primary = TestCreateWindow( "VRHI Primary", 0, 0, 128, 128, RGFW_windowNoResize );
     RGFW_window* secondary = TestCreateWindow( "VRHI Secondary", 0, 0, 128, 128, RGFW_windowNoResize );
@@ -1033,6 +1065,54 @@ UTEST( Swapchain, SemaphoreArraysCoverFrameSlots )
     RGFW_window_close( secondary );
     RGFW_window_close( primary );
 }
+
+#if defined(__APPLE__)
+UTEST( Window, MetalFrameWaitsForSlot )
+{
+    if ( !g_testInitDefaults.useMetal ) UTEST_SKIP( "Requires the Metal backend" );
+    if ( const char* reason = TestWindowSkipReason() ) UTEST_SKIP( reason );
+
+    auto fnCloseWindow = []( RGFW_window* window )
+    {
+        TestEnsureShutdown();
+        RGFW_window_close( window );
+    };
+    std::unique_ptr< RGFW_window, decltype( fnCloseWindow ) > window(
+        TestCreateWindow( "VRHI Frame Wait", 0, 0, 128, 128, 0 ), fnCloseWindow );
+    ASSERT_TRUE( window != nullptr );
+
+    void* nativeWindow;
+    void* nativeDisplay;
+    TestGetNativeWindowHandles( window.get(), nativeWindow, nativeDisplay );
+    TestInitWindowed( nativeWindow, nativeDisplay, 128, 128, false, true );
+    ASSERT_NE( vhGetBackbuffer(), VRHI_INVALID_HANDLE );
+    EXPECT_EQ( vhGetTextureInfo( vhGetBackbuffer() ).format, nvrhi::Format::RGBA16_FLOAT );
+    vhFinish();
+
+    // With one frame slot, vhFrame must wait for the frame it just submitted.
+    g_vhFramesInFlight = 1;
+    std::promise< void > frameReturned;
+    auto returned = frameReturned.get_future();
+    vrhi_test::VhGpuGate gate( utest_result );
+    ASSERT_TRUE( gate.Supported() );
+    gate.WaitBefore();
+
+    gate.StartProducer( [&]
+    {
+        returned.wait_for( std::chrono::milliseconds( 500 ) );
+        gate.Release();
+    } );
+
+    const bool presented = vhFrame();
+    gate.CaptureReader();
+    const bool pending = gate.Pending();
+    frameReturned.set_value();
+    gate.JoinProducer();
+
+    EXPECT_TRUE( presented );
+    EXPECT_FALSE( pending );
+}
+#endif
 
 UTEST( Swapchain, PrimaryResizeWithLiveSecondary )
 {

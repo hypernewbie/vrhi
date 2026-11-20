@@ -19,79 +19,73 @@
     IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-// [UAA] - START - native Metal backend
-// The windowing seams of the Metal backend. VRHI owns the layer, the drawable and
-// the presentation order; the fork owns the device and command buffers.
-// Compiled without ARC, like the fork's Metal sources: the retained layer and
-// drawable pointers live in the C++ swapchain struct.
-
-#import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
 
-#include <vrhi_internal.h>
+#include "vrhi_internal.h"
 #include "vrhi_backend.h"
 
 extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr );
 
-// Resolves the swapchain handle contract into the layer the backend draws into.
-void* vhMetalResolveLayer( void* windowHandle, bool macOSWindowIsNSView )
+void* vhGetMetalLayer( void* windowHandle, bool macOSWindowIsNSView )
 {
-    if ( !windowHandle ) return nullptr;
     if ( macOSWindowIsNSView ) return vhGetMetalLayerFromNSView( windowHandle );
     return windowHandle;
 }
 
-// Acquires the next drawable of the swapchain's layer and re-registers the
-// backbuffer texture for it. The drawable rotates inside the layer's pool, so
-// the single backbuffer keeps its texture ID and changes its backing.
-static bool vhMetalAcquireDrawable( vhSwapchain& sc )
+// Keep the backbuffer ID when the underlying drawable changes.
+static bool vhAcquireMetalDrawable( vhSwapchain& sc )
 {
-    CAMetalLayer* layer = ( CAMetalLayer* )sc.metalLayer;
-    id< CAMetalDrawable > drawable = [layer nextDrawable];
-    if ( !drawable )
-    {
-        // No drawable means the layer is detached or has no size left, the
-        // equivalent of a minimized window.
-        [( id )sc.metalDrawable release];
-        sc.metalDrawable = nil;
-        sc.isMinimized = true;
-        return false;
-    }
-
     [( id )sc.metalDrawable release];
-    sc.metalDrawable = [drawable retain];
+    sc.metalDrawable = nil;
+    sc.isMinimized = true;
+    sc.windowSize = glm::uvec2( 0, 0 );
 
-    nvrhi::TextureDesc desc;
-    desc.width = ( uint32_t )drawable.texture.width;
-    desc.height = ( uint32_t )drawable.texture.height;
-    desc.format = nvrhi::Format::BGRA8_UNORM;
-    desc.initialState = nvrhi::ResourceStates::RenderTarget;
-    desc.keepInitialState = true;
-    desc.setIsRenderTarget( true );
-    desc.debugName = "MetalDrawable";
-
-    nvrhi::TextureHandle handle = g_vhDevice->createHandleForNativeTexture(
-        nvrhi::ObjectTypes::Metal_Texture, nvrhi::Object( ( void* )drawable.texture ), desc );
-    if ( !handle )
+    @autoreleasepool
     {
-        VRHI_ERR( "vhMetalAcquireDrawable(): Failed to wrap the drawable texture.\n" );
-        return false;
-    }
+        CAMetalLayer* layer = ( CAMetalLayer* )sc.metalLayer;
+        id< CAMetalDrawable > drawable = [layer nextDrawable];
+        if ( !drawable ) return false;
 
-    if ( sc.textures.empty() )
-    {
-        sc.textures.push_back( vhAllocTexture() );
+        id< MTLTexture > texture = drawable.texture;
+        nvrhi::TextureDesc desc;
+        desc.width = ( uint32_t )texture.width;
+        desc.height = ( uint32_t )texture.height;
+        switch ( texture.pixelFormat )
+        {
+            case MTLPixelFormatBGRA8Unorm:      desc.format = nvrhi::Format::BGRA8_UNORM; break;
+            case MTLPixelFormatBGRA8Unorm_sRGB: desc.format = nvrhi::Format::SBGRA8_UNORM; break;
+            case MTLPixelFormatRGBA16Float:     desc.format = nvrhi::Format::RGBA16_FLOAT; break;
+            case MTLPixelFormatRGB10A2Unorm:    desc.format = nvrhi::Format::R10G10B10A2_UNORM; break;
+            default:
+                VRHI_ERR( "vhAcquireMetalDrawable(): Unsupported drawable format %lu.\n", ( unsigned long )texture.pixelFormat );
+                return false;
+        }
+
+        desc.initialState = nvrhi::ResourceStates::RenderTarget;
+        desc.keepInitialState = true;
+        desc.isRenderTarget = true;
+        desc.debugName = "MetalDrawable";
+
+        nvrhi::TextureHandle handle = g_vhDevice->createHandleForNativeTexture(
+            nvrhi::ObjectTypes::Metal_Texture, nvrhi::Object( ( __bridge void* )texture ), desc );
+        if ( !handle )
+        {
+            VRHI_ERR( "vhAcquireMetalDrawable(): Failed to wrap the drawable texture.\n" );
+            return false;
+        }
+
+        sc.metalDrawable = [drawable retain];
+        if ( sc.textures.empty() ) sc.textures.push_back( vhAllocTexture() );
+        g_vhCmdBackendState.RegisterInternalTexture( sc.textures[0], handle, desc );
+        sc.nvrhiHandles.assign( 1, handle );
+        sc.currentSwapchainIndex = 0;
+        sc.isMinimized = false;
+        sc.windowSize = glm::uvec2( desc.width, desc.height );
+        return true;
     }
-    g_vhCmdBackendState.RegisterInternalTexture( sc.textures[0], handle, desc );
-    sc.nvrhiHandles.assign( 1, handle );
-    sc.currentSwapchainIndex = 0;
-    sc.isMinimized = false;
-    sc.windowSize = glm::uvec2( desc.width, desc.height );
-    return true;
 }
 
-// Configures the layer for the requested size and format and acquires the first
-// drawable. The layer belongs to the caller; only the drawable is retained.
 void vhSwapchainCreateMetal_Internal( vhSwapchain& sc, int width, int height )
 {
     CAMetalLayer* layer = ( CAMetalLayer* )sc.metalLayer;
@@ -103,54 +97,44 @@ void vhSwapchainCreateMetal_Internal( vhSwapchain& sc, int width, int height )
 
     if ( !layer.device )
     {
-        layer.device = ( id< MTLDevice > )g_vhMetalDevice->getNativeObject( nvrhi::ObjectTypes::Metal_Device ).pointer;
-        // Reads and blits against the backbuffer rule out a framebuffer-only layer.
-        layer.framebufferOnly = NO;
+        layer.device = ( __bridge id< MTLDevice > )g_vhMetalDevice->getNativeDevice().pointer;
         layer.displaySyncEnabled = g_vhInit.vsync ? YES : NO;
-        if ( g_vhInit.scrgb )
-        {
-            layer.pixelFormat = MTLPixelFormatRGBA16Float;
-        }
-        else
-        {
-            layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-        }
+        layer.pixelFormat = g_vhInit.scrgb ? MTLPixelFormatRGBA16Float : MTLPixelFormatBGRA8Unorm;
     }
 
+    // Allow copies from the backbuffer.
+    layer.framebufferOnly = NO;
     layer.drawableSize = CGSizeMake( width, height );
-    vhMetalAcquireDrawable( sc );
+    vhAcquireMetalDrawable( sc );
 }
 
-// Presents the current drawable through the graphics command list and acquires
-// the next one. The present is scheduled on the borrowed Metal command buffer
-// before the flush commits it, so it follows the frame's work in queue order.
-bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain& sc, uint64_t& outInstance )
+// Schedule the present before the command-list flush commits it.
+bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain& sc, uint64_t& outInstance, nvrhi::EventQueryHandle* frameQuery )
 {
-    if ( sc.isHeadless ) return true;
-    if ( sc.isMinimized || !sc.metalLayer ) return true;
-
     outInstance = 0;
+    if ( sc.isHeadless ) return true;
+    if ( sc.isMinimized || !sc.metalLayer || !sc.metalDrawable ) return false;
+
+    @autoreleasepool
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         auto cmdList = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
-        if ( sc.metalDrawable )
-        {
-            id< MTLCommandBuffer > commandBuffer =
-                ( id< MTLCommandBuffer > )cmdList->getNativeObject( nvrhi::ObjectTypes::Metal_CommandBuffer ).pointer;
-            if ( commandBuffer )
-            {
-                [commandBuffer presentDrawable:( id< CAMetalDrawable > )sc.metalDrawable];
-            }
-        }
+        id< MTLCommandBuffer > commandBuffer =
+            ( id< MTLCommandBuffer > )cmdList->getNativeObject( nvrhi::ObjectTypes::Metal_CommandBuffer ).pointer;
+        if ( !commandBuffer ) return false;
+        [commandBuffer presentDrawable:( id< CAMetalDrawable > )sc.metalDrawable];
         outInstance = vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+        if ( frameQuery && outInstance != 0 )
+        {
+            if ( !*frameQuery ) *frameQuery = g_vhDevice->createEventQuery();
+            else g_vhDevice->resetEventQuery( *frameQuery );
+            g_vhDevice->setEventQuery( *frameQuery, nvrhi::CommandQueue::Graphics );
+        }
     }
 
-    vhMetalAcquireDrawable( sc );
-    return true;
+    return outInstance != 0 && vhAcquireMetalDrawable( sc );
 }
 
-// Drops the current drawable and the backbuffer texture ID. The layer belongs
-// to the caller and stays untouched.
 void vhSwapchainDestroyMetal_Internal( vhSwapchain& sc )
 {
     [( id )sc.metalDrawable release];
@@ -162,4 +146,3 @@ void vhSwapchainDestroyMetal_Internal( vhSwapchain& sc )
     sc.textures.clear();
     sc.nvrhiHandles.clear();
 }
-// [UAA] - END

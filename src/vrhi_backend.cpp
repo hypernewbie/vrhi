@@ -2075,10 +2075,9 @@ void vhCmdBackendState::BE_DispatchIndirect( vhState& state, vhStateId stateId, 
             VRHI_ERR( "BE_DispatchIndirect() : Indirect buffer %s was not created with VRHI_BUFFER_DRAW_INDIRECT! SKIPPING COMPUTE DISPATCH.\n", indirectBuffer.name.c_str() );
             return;
         }
-        // [UAA] NVRHI takes a 32 bit offset, so an unrepresentable byte offset is rejected instead of truncating.
         if ( byteOffset > UINT32_MAX )
         {
-            VRHI_ERR( "BE_DispatchIndirect() : Indirect byte offset %llu exceeds the 32 bit limit. SKIPPING COMPUTE DISPATCH.\n", ( unsigned long long ) byteOffset );
+            VRHI_ERR( "BE_DispatchIndirect(): Byte offset %llu exceeds the 32-bit limit.\n", ( unsigned long long ) byteOffset );
             return;
         }
     }
@@ -2443,9 +2442,25 @@ void vhCmdBackendState::HandleLogFunction( const char* str )
     if ( g_vhInit.logBackendCmds ) VRHI_LOG( "BackendCmd: %s\n", str );
 }
 
+void vhCmdBackendState::BE_InvalidateInternalTexture( nvrhi::ITexture* texture )
+{
+    s_globalResourceVersion++;
+    s_globalPipelineVersion++;
+    s_submitPSOCacheFB = nullptr;
+    if ( texture ) vhFBOCacheInvalidateTexture( texture );
+}
+
 void vhCmdBackendState::RegisterInternalTexture( vhTexture id, const nvrhi::TextureHandle& handle, const nvrhi::TextureDesc& desc )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
+
+    // The Metal backbuffer ID stays the same when its texture changes.
+    if ( g_vhInit.useMetal )
+    {
+        auto it = backendTextures.find( id );
+        BE_InvalidateInternalTexture( it != backendTextures.end() ? it->second->handle.Get() : nullptr );
+    }
+
     auto btex = std::make_unique< vhBackendTexture >();
     btex->handle = handle;
     btex->name = desc.debugName;
@@ -2462,7 +2477,11 @@ void vhCmdBackendState::RegisterInternalTexture( vhTexture id, const nvrhi::Text
 void vhCmdBackendState::UnregisterInternalTexture( vhTexture id )
 {
     std::lock_guard< std::mutex > lock( backendMutex );
-    backendTextures.erase( id );
+    auto it = backendTextures.find( id );
+    if ( it == backendTextures.end() ) return;
+
+    if ( g_vhInit.useMetal ) BE_InvalidateInternalTexture( it->second->handle );
+    backendTextures.erase( it );
 }
 
 // --------------------------------------------------------------------------
@@ -3913,6 +3932,7 @@ void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorT
         return;
     }
     backend->handle = g_vhDevice->createDescriptorTable( backend->layout );
+    backend->metalSlotResources.clear();
     if ( !backend->handle )
     {
         VRHI_ERR( "vhCreateDescriptorTable() : Failed to create descriptor table!\n" );
@@ -3957,6 +3977,19 @@ void vhCmdBackendState::Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorT
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
     g_vhDevice->resizeDescriptorTable( it->second->handle, targetSize, cmd->keepContents );
     it->second->capacity = targetSize;
+
+    auto& resources = it->second->metalSlotResources;
+    if ( cmd->keepContents )
+    {
+        std::erase_if( resources, [targetSize]( const auto& entry )
+        {
+            return entry.first.second >= targetSize;
+        } );
+    }
+    else
+    {
+        resources.clear();
+    }
 }
 
 void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd )
@@ -4029,6 +4062,14 @@ void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescrip
     {
         VRHI_ERR( "vhCmdWriteDescriptorTable() : Failed to write descriptor table %d at slot %d!\n", cmd->table, item.slot );
         return;
+    }
+
+    if ( g_vhMetalDevice && item.resourceHandle )
+    {
+        // Metal reads slot pointers when binding and pin pointers at submit.
+        const nvrhi::ResourceType type = item.type;
+        backend->metalSlotResources[{ type, item.slot }] = item.resourceHandle;
+        g_vhMetalPendingPins.emplace_back( item.resourceHandle );
     }
 
     // Bindless resources skip binding-set state tracking, so pin them to a permanent shader-visible state once.
@@ -4731,7 +4772,7 @@ void vhCmdBackendState::Handle_vhGetPSOCacheInternal( VIDL_vhGetPSOCacheInternal
     {
         BE_CmdRAII cmdRAII( cmd );
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        if ( g_vhVulkanDevice ) // [UAA] the Metal backend has no driver pipeline cache
+        if ( g_vhVulkanDevice )
         {
             if ( cmd->outData )
                 g_vhVulkanDevice->getPipelineCacheData( *cmd->outData );
@@ -4847,6 +4888,37 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
     {
         if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDraw(): No valid shaders in program!\n" );
         return;
+    }
+
+    if ( g_vhInit.useMetal && ( cmd->flags & VRHI_DRAW_INDIRECT ) )
+    {
+        if ( cmd->drawCount == 0 ) return;
+
+        auto fnIsValidIndirectRange = [&]( vhBuffer buffer, uint64_t offset, uint64_t size )
+        {
+            if ( offset > UINT32_MAX || offset % sizeof( uint32_t ) != 0 || size > UINT32_MAX - offset ) return false;
+
+            auto it = backendBuffers.find( buffer );
+            if ( it == backendBuffers.end() || !it->second->handle || !it->second->desc.isDrawIndirectArgs ) return false;
+
+            const uint64_t bufferSize = it->second->desc.byteSize;
+            return offset <= bufferSize && size <= bufferSize - offset;
+        };
+
+        const uint64_t stride = ( cmd->flags & VRHI_DRAW_INDEXED )
+            ? sizeof( nvrhi::DrawIndexedIndirectArguments )
+            : sizeof( nvrhi::DrawIndirectArguments );
+        if ( !fnIsValidIndirectRange( state.indirectParams.buffer, state.indirectParams.byteOffset, cmd->drawCount * stride ) )
+        {
+            VRHI_ERR( "vhDraw(): Invalid Metal indirect argument range\n" );
+            return;
+        }
+        if ( ( cmd->flags & VRHI_DRAW_INDIRECT_COUNT ) &&
+             !fnIsValidIndirectRange( state.indirectCountBuffer.buffer, state.indirectCountBuffer.byteOffset, sizeof( uint32_t ) ) )
+        {
+            VRHI_ERR( "vhDrawIndexedIndirectCount(): Invalid Metal indirect count range\n" );
+            return;
+        }
     }
 
     // Clear indirect buffer if it's NOT an indirect draw to prevent BE_PreSubmitCommon_State from binding it

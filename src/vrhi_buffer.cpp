@@ -538,7 +538,6 @@ void vhTransientBuffer::Init_DeviceStateLocked( const nvrhi::BufferDesc& desc )
 
     if ( !g_vhNullMode )
     {
-        // [UAA] native Metal backend
         const uint64_t alignment = g_vhMetalDevice
             ? g_vhMetalDevice->getMappedBufferFlushAlignment()
             : g_vhVulkanDevice->getMappedBufferFlushAlignment();
@@ -584,7 +583,6 @@ bool vhTransientBuffer::Flush_DeviceStateLocked()
 
     const int64_t flushEnd = VRHI_ROUND_UP( offset, flushAlignment );
 
-    // [UAA] native Metal backend
     const bool flushed = g_vhMetalDevice
         ? g_vhMetalDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd )
         : g_vhVulkanDevice->flushMappedBuffer( handle[frameIdx], flushedEnd, flushEnd - flushedEnd );

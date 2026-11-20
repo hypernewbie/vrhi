@@ -38,7 +38,7 @@ VkInstance g_vulkanInstance = VK_NULL_HANDLE;
 VkPhysicalDevice g_vulkanPhysicalDevice = VK_NULL_HANDLE;
 VkDevice g_vulkanDevice = VK_NULL_HANDLE;
 nvrhi::vulkan::IDevice* g_vhVulkanDevice = nullptr;
-nvrhi::metal::IDevice* g_vhMetalDevice = nullptr; // [UAA] native Metal backend
+nvrhi::metal::IDevice* g_vhMetalDevice = nullptr;
 VkDebugUtilsMessengerEXT g_vulkanDebugMessenger = VK_NULL_HANDLE;
 uint32_t g_vulkanEnabledExtensionCount = 0;
 
@@ -179,6 +179,7 @@ void vhCmdEnqueue( void* cmd, bool wait )
 
 nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };
 bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count] = { false, false, false };
+std::vector< nvrhi::ResourceHandle > g_vhMetalPendingPins;
 uint64_t g_vhCmdListTransferSizeHeuristic = 0;
 
 // Persistent: handle is created once and re-opened after each execute to keep the upload pool alive.
@@ -222,6 +223,10 @@ uint64_t vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQue
         // Handle is intentionally retained; the next vhCmdListGet() will re-open it.
         instance = g_vhDevice->executeCommandList( g_vhCmdLists[typeIdx], type );
         g_vhCmdListOpen[typeIdx] = false;
+        if ( g_vhMetalDevice && type == nvrhi::CommandQueue::Graphics && instance != 0 )
+        {
+            g_vhMetalPendingPins.clear();
+        }
 
         // Automatic Synchronisation
         if ( instance )
@@ -251,6 +256,7 @@ void vhCmdListReleaseAll_DeviceStateLocked()
         g_vhCmdLists[i] = nullptr;
         g_vhCmdListOpen[i] = false;
     }
+    g_vhMetalPendingPins.clear();
 }
 
 // Semaphores for frame synchronisation

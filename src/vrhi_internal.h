@@ -62,7 +62,7 @@
 #endif // #if VK_USE_PLATFORM_XLIB_KHR
 
 #include <nvrhi/vulkan.h>
-#include <nvrhi/metal.h> // [UAA] native Metal backend
+#include <nvrhi/metal.h>
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
     #if !defined( WIN32_LEAN_AND_MEAN ) || !defined( NOMINMAX )
@@ -161,7 +161,7 @@ extern VkInstance g_vulkanInstance;
 extern VkPhysicalDevice g_vulkanPhysicalDevice;
 extern VkDevice g_vulkanDevice;
 extern nvrhi::vulkan::IDevice* g_vhVulkanDevice;
-extern nvrhi::metal::IDevice* g_vhMetalDevice; // [UAA] native Metal backend
+extern nvrhi::metal::IDevice* g_vhMetalDevice;
 extern VkDebugUtilsMessengerEXT g_vulkanDebugMessenger;
 extern uint32_t g_vulkanEnabledExtensionCount;
 extern std::mutex g_nvRHIStateMutex;
@@ -292,26 +292,21 @@ struct vhSwapchain
     bool                                isHeadless            = false;
     bool                                isMinimized           = false;
 
-    // [UAA] - START - native Metal backend
-    // Core Foundation retained CAMetalLayer* and id<CAMetalDrawable> for a
-    // windowed Metal swapchain. The drawable rotates inside the layer's pool.
-    void*                               metalLayer            = nullptr;
-    void*                               metalDrawable         = nullptr;
-    // [UAA] - END
+    void*                               metalLayer            = nullptr; // Borrowed CAMetalLayer.
+    void*                               metalDrawable         = nullptr; // Retained CAMetalDrawable.
+    nvrhi::EventQueryHandle             metalFrameQueries[VRHI_MAX_FRAMES_INFLIGHT];
 };
 
 void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height );
 void vhSwapchainDestroy_Internal( vhSwapchain& sc );
 bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstance );
 void vhSwapchainResizeHeadless_Internal( vhSwapchain& sc, int width, int height );
-
-// [UAA] - START - native Metal backend
-void* vhMetalResolveLayer( void* windowHandle, bool macOSWindowIsNSView );
-void vhSwapchainCreateMetal_Internal( vhSwapchain& sc, int width, int height );
-bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain& sc, uint64_t& outInstance );
-void vhSwapchainDestroyMetal_Internal( vhSwapchain& sc );
 void vhSwapchainReleaseTexture( vhTexture texture );
-// [UAA] - END
+
+void* vhGetMetalLayer( void* windowHandle, bool macOSWindowIsNSView );
+void vhSwapchainCreateMetal_Internal( vhSwapchain& sc, int width, int height );
+bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain& sc, uint64_t& outInstance, nvrhi::EventQueryHandle* frameQuery = nullptr );
+void vhSwapchainDestroyMetal_Internal( vhSwapchain& sc );
 
 extern std::unordered_map< vhSwapchainID, vhSwapchain > g_vhSwapchains;
 extern vhSwapchainID g_vhPrimarySwapchain;
@@ -601,6 +596,7 @@ glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count];
 extern bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count];
+extern std::vector< nvrhi::ResourceHandle > g_vhMetalPendingPins; // Protected by g_nvRHIStateMutex.
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 nvrhi::CommandListHandle vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 uint64_t vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
@@ -637,6 +633,7 @@ void vhBindingSetCacheClear();
 void vhBindingSetCacheClear_DeviceStateLocked();
 nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLayout* layout );
 nvrhi::FramebufferHandle vhFBOCacheGet( const nvrhi::FramebufferDesc& desc );
+void vhFBOCacheInvalidateTexture( nvrhi::ITexture* texture );
 void vhFBOCacheReset();
 
 struct vhTransientBuffer

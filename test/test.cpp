@@ -168,7 +168,7 @@ int main( int argc, const char* const argv[] )
         {
             g_vhInit.forceVulkan12 = true;
         }
-        else if ( strcmp( argv[i], "--backend=metal" ) == 0 ) // [UAA] native Metal backend
+        else if ( strcmp( argv[i], "--backend=metal" ) == 0 )
         {
             g_vhInit.useMetal = true;
         }

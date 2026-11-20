@@ -2709,6 +2709,59 @@ UTEST_F( Bindless, DestroyResource_WhileInTable_OtherSlotsSurvive )
     vhFinish();
 }
 
+UTEST_F( Bindless, MetalDescriptorTableReleasesDiscardedSlots )
+{
+    if ( !g_vhInit.useMetal || g_vhInit.nullMode ) UTEST_SKIP( "Requires Metal descriptor tables" );
+
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 4 );
+    vhTexture texture = vhAllocTexture();
+    vhCreateTexture2D( texture, "MetalTableSlot", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE );
+    vhFinish();
+
+    nvrhi::TextureHandle handle = vhGetTextureNvrhiHandle( texture );
+    ASSERT_TRUE( handle );
+
+    vhDescriptorTableSetTexture( table, 3, texture );
+    vhDestroyTexture( texture );
+    vhFinish();
+    EXPECT_EQ( handle->GetRefCount(), 2ul );
+
+    vhResizeDescriptorTable( table, 2, true );
+    vhFinish();
+    EXPECT_EQ( handle->GetRefCount(), 1ul );
+
+    vhDestroyDescriptorTable( table );
+    vhFinish();
+}
+
+UTEST_F( Bindless, MetalDescriptorTableClearKeepsSlotAlive )
+{
+    if ( !g_vhInit.useMetal || g_vhInit.nullMode ) UTEST_SKIP( "Requires Metal descriptor tables" );
+
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 4 );
+    vhTexture texture = vhAllocTexture();
+    vhCreateTexture2D( texture, "MetalTableClear", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE );
+    vhFinish();
+
+    nvrhi::TextureHandle handle = vhGetTextureNvrhiHandle( texture );
+    ASSERT_TRUE( handle );
+
+    vhDescriptorTableSetTexture( table, 1, texture );
+    vhDescriptorTableClear( table, 1, nvrhi::ResourceType::Texture_SRV );
+    vhFinish();
+
+    // Metal keeps the old descriptor in the slot, so the resource must stay alive.
+    EXPECT_EQ( handle->GetRefCount(), 3ul );
+
+    vhDestroyTexture( texture );
+    vhFinish();
+    EXPECT_EQ( handle->GetRefCount(), 2ul );
+
+    vhDestroyDescriptorTable( table );
+    vhFinish();
+    EXPECT_EQ( handle->GetRefCount(), 1ul );
+}
+
 UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );

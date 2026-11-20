@@ -146,11 +146,8 @@ struct vhInitData
     // empty. vhInit() never clears psoCacheInitialData; the caller still owns and frees it as usual.
     vhPSOCacheKey psoCacheValidateKey;
 
-    // [UAA] - START - native Metal backend
-    // Use the native Metal backend instead of Vulkan. macOS only, and headless for now.
-    // The Vulkan pipeline cache and the renderdoc hook do not apply to it.
+    // Use Metal instead of Vulkan on macOS.
     bool useMetal = false;
-    // [UAA] - END
 };
 
 typedef uint32_t vhTexture;
@@ -827,7 +824,7 @@ struct vhMemoryStats
     uint64_t heapUsage[16] = {};     // Current usage per heap (bytes)
     uint64_t heapSize[16] = {};      // Total heap size per heap (bytes)
     uint32_t heapCount = 0;          // Number of valid heaps
-    bool supported = false;          // True if VK_EXT_memory_budget is available
+    bool supported = false;          // True if the backend reports a memory budget.
 };
 
 struct vhRenderStats
@@ -902,7 +899,7 @@ struct vhDeviceInfo
     bool shaderInt16 = false;
     bool presentWait = false;
     bool samplerMipLodBias = false;   // non-zero VRHI_SAMPLER_MIPBIAS is accepted by vhGetSamplerHandle
-    bool drawIndirectCount = false;   // Vulkan drawIndirectCount feature is enabled
+    bool drawIndirectCount = false;  // Indexed indirect draws can read a draw count from a buffer.
 
     uint32_t maxTextureSize = 0;
     uint32_t maxColorAttachments = 0;

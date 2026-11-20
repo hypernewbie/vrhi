@@ -29,6 +29,7 @@
 #include <nvrhi/vulkan.h>
 #include <vk-bootstrap/VkBootstrap.h>
 #include <komihash/komihash.h>
+#include <memory>
 
 #ifdef __APPLE__
 #include <vulkan/vulkan_metal.h>
@@ -269,7 +270,7 @@ static vkb::PhysicalDevice vhSelectPhysicalDevice_1_2( vkb::Instance& vkbInst, V
 
 void vhInit( bool quiet )
 {
-    if ( !quiet ) VRHI_LOG( "Initialising Vulkan RHI ...\n" );
+    if ( !quiet ) VRHI_LOG( "Initialising %s RHI ...\n", g_vhInit.useMetal && !g_vhInit.nullMode ? "Metal" : "Vulkan" );
     g_vhErrorCounter = 0;
     g_vhPSOCompileCounter = 0;
     g_vhFrameCount = 0;
@@ -277,7 +278,7 @@ void vhInit( bool quiet )
 
     VkSurfaceKHR primarySurface = VK_NULL_HANDLE;
 
-    if ( g_vhInit.renderdoc && !g_vhInit.useMetal ) // [UAA] RenderDoc hooks into the Vulkan loader
+    if ( g_vhInit.renderdoc && !g_vhInit.useMetal )
     {
         if ( !quiet ) VRHI_LOG( "    Enabling RenderDoc support...\n" );
         vhEnableRenderDoc();
@@ -317,26 +318,24 @@ void vhInit( bool quiet )
         goto vrhi_init_post_device;
     }
 
-    // [UAA] - START - native Metal backend
     if ( g_vhInit.useMetal )
     {
 #if defined(__APPLE__)
         if ( !quiet ) VRHI_LOG( "    Creating Metal device...\n" );
 
-        nvrhi::metal::DeviceDesc metalDesc;
-        metalDesc.errorCB = &g_vhVKMessageCallback;
-        g_vhDevice = nvrhi::metal::createDevice( metalDesc );
-        if ( !g_vhDevice )
+        nvrhi::metal::DeviceDesc deviceDesc;
+        deviceDesc.errorCB = &g_vhVKMessageCallback;
+        nvrhi::metal::DeviceHandle device = nvrhi::metal::createDevice( deviceDesc );
+        if ( !device || !device->getNativeDevice().pointer || !device->getNativeCommandQueue().pointer )
         {
-            VRHI_LOG( "Failed to create the Metal device!\n" );
+            VRHI_ERR( "vhInit(): Failed to create the Metal device.\n" );
             exit( 1 );
         }
-        g_vhMetalDevice = ( nvrhi::metal::IDevice* ) g_vhDevice.Get();
-        g_vhVulkanDevice = nullptr;
+        g_vhMetalDevice = device.Get();
+        g_vhDevice = device;
 
         if ( g_vhInit.debug )
         {
-            // Wrap with validation layer in debug builds - catches state tracking errors
             if ( !quiet ) VRHI_LOG( "    Wrapping nvrhi device with validation layer...\n" );
             g_vhDevice = nvrhi::validation::createValidationLayer( g_vhDevice );
         }
@@ -348,28 +347,28 @@ void vhInit( bool quiet )
         g_vhDeviceInfo.queues = "Graphics";
         g_vhDeviceInfo.summary = "Native Metal backend";
 
-        // [UAA] - START - Metal capability reporting
-        // The classic Metal binding path binds descriptor arrays as consecutive argument
-        // table entries, so a table leaves room for the discrete resources next to it.
-        g_vhDeviceInfo.bindless = true;
-        g_vhDeviceInfo.maxBindlessSampledImages = 96;
-        g_vhDeviceInfo.maxBindlessStorageImages = 96;
-        g_vhDeviceInfo.maxBindlessStorageBuffers = 96;
-        g_vhDeviceInfo.maxBindlessUniformBuffers = 96;
-        g_vhDeviceInfo.maxBindlessSamplers = 16;
-        g_vhDeviceInfo.maxBoundDescriptorSets = 8;
-        g_vhDeviceInfo.maxPerStageResources = 128;
-        g_vhDeviceInfo.bindlessUpdateAfterBind = VRHI_UAB_SAMPLED_IMAGE | VRHI_UAB_STORAGE_IMAGE | VRHI_UAB_STORAGE_BUFFER | VRHI_UAB_UNIFORM_BUFFER
-            | VRHI_UAB_UNIFORM_TEXEL_BUFFER | VRHI_UAB_STORAGE_TEXEL_BUFFER | VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
-        g_vhDeviceInfo.maxBindlessSampledImagesUAB = 96;
-        g_vhDeviceInfo.maxBindlessStorageImagesUAB = 96;
-        g_vhDeviceInfo.maxBindlessStorageBuffersUAB = 96;
-        g_vhDeviceInfo.maxBindlessUniformBuffersUAB = 96;
-        g_vhDeviceInfo.maxBindlessSamplersUAB = 16;
-        g_vhDeviceInfo.maxTextureSize = 16384;
+        // Descriptor arrays share the stage's argument slots with regular bindings.
+        g_vhDeviceInfo.bindless                     = true;
+        g_vhDeviceInfo.maxBindlessSampledImages     = 96;
+        g_vhDeviceInfo.maxBindlessStorageImages     = 96;
+        g_vhDeviceInfo.maxBindlessStorageBuffers    = 31;
+        g_vhDeviceInfo.maxBindlessUniformBuffers    = 31;
+        g_vhDeviceInfo.maxBindlessSamplers          = 16;
+        g_vhDeviceInfo.maxBoundDescriptorSets       = 8;
+        g_vhDeviceInfo.maxPerStageResources         = 128;
+        g_vhDeviceInfo.bindlessUpdateAfterBind      = VRHI_UAB_SAMPLED_IMAGE | VRHI_UAB_STORAGE_IMAGE |
+            VRHI_UAB_STORAGE_BUFFER | VRHI_UAB_UNIFORM_BUFFER | VRHI_UAB_UNIFORM_TEXEL_BUFFER |
+            VRHI_UAB_STORAGE_TEXEL_BUFFER | VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+        g_vhDeviceInfo.maxBindlessSampledImagesUAB  = g_vhDeviceInfo.maxBindlessSampledImages;
+        g_vhDeviceInfo.maxBindlessStorageImagesUAB  = g_vhDeviceInfo.maxBindlessStorageImages;
+        g_vhDeviceInfo.maxBindlessStorageBuffersUAB = g_vhDeviceInfo.maxBindlessStorageBuffers;
+        g_vhDeviceInfo.maxBindlessUniformBuffersUAB = g_vhDeviceInfo.maxBindlessUniformBuffers;
+        g_vhDeviceInfo.maxBindlessSamplersUAB       = g_vhDeviceInfo.maxBindlessSamplers;
+
+        g_vhDeviceInfo.maxTextureSize      = 16384;
         g_vhDeviceInfo.maxColorAttachments = 8;
-        g_vhDeviceInfo.totalVRAM = g_vhMetalDevice->getNativeDeviceMemorySize();
-        // [UAA] - END
+        g_vhDeviceInfo.drawIndirectCount   = true;
+        g_vhDeviceInfo.totalVRAM           = g_vhMetalDevice->getNativeDeviceMemorySize();
 
         goto vrhi_init_post_device;
 #else
@@ -377,7 +376,6 @@ void vhInit( bool quiet )
         exit( 1 );
 #endif
     }
-    // [UAA] - END
 
     // Create VkInstance (via vk-bootstrap)
     {
@@ -978,10 +976,9 @@ vrhi_init_post_device:
         }
         else
         {
-            // [UAA] - START - native Metal backend
             if ( g_vhInit.useMetal )
             {
-                sc.metalLayer = vhMetalResolveLayer( g_vhInit.windowHandle, g_vhInit.macOSWindowIsNSView );
+                sc.metalLayer = vhGetMetalLayer( g_vhInit.windowHandle, g_vhInit.macOSWindowIsNSView );
                 if ( sc.metalLayer )
                 {
                     if ( !quiet ) VRHI_LOG( "    Creating Metal swapchain...\n" );
@@ -989,14 +986,11 @@ vrhi_init_post_device:
                 }
                 else
                 {
-                    // No layer to draw into: the Vulkan path fails its surface the same way,
-                    // so the primary falls back to a headless backbuffer.
                     if ( !quiet ) VRHI_LOG( "    No window handle: allocating headless backbuffer\n" );
                     sc.isHeadless = true;
                     vhSwapchainResizeHeadless_Internal( sc, g_vhInit.resolution.x, g_vhInit.resolution.y );
                 }
             }
-            // [UAA] - END
             else
             {
                 if ( !quiet ) VRHI_LOG( "    Creating Swapchain...\n" );
@@ -1043,7 +1037,7 @@ vrhi_init_post_device:
 
 void vhShutdown( bool quiet )
 {
-    if ( !quiet ) VRHI_LOG( "Shutdown Vulkan RHI ...\n" );
+    if ( !quiet ) VRHI_LOG( "Shutdown %s RHI ...\n", g_vhMetalDevice ? "Metal" : "Vulkan" );
     vhFinish();
 
     // Join RHI Command Buffer Thread
@@ -1095,7 +1089,7 @@ void vhShutdown( bool quiet )
     for ( int i = 0; i < VRHI_MAX_FRAMES_INFLIGHT; i++ ) g_vhDevice->runGarbageCollection();
     g_vhDevice = nullptr;
     g_vhVulkanDevice = nullptr;
-    g_vhMetalDevice = nullptr; // [UAA] native Metal backend
+    g_vhMetalDevice = nullptr;
 
     if ( g_vulkanDevice != VK_NULL_HANDLE )
     {
@@ -1125,7 +1119,7 @@ void vhShutdown( bool quiet )
 bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush )
 {
     outData.clear();
-    if ( g_vhNullMode || !g_vhDevice ) return false; // [UAA] the Metal backend has no driver pipeline cache, the query still round-trips
+    if ( g_vhNullMode || !g_vhDevice ) return false;
     if ( flush ) vhFinish();
     std::atomic<bool> fence = false;
     vhGetPSOCacheInternal( &fence, &outData, nullptr );
@@ -1135,7 +1129,7 @@ bool vhGetPSOCache( std::vector< uint8_t >& outData, bool flush )
 
 size_t vhGetPSOCacheSize()
 {
-    if ( g_vhNullMode || !g_vhDevice ) return 0; // [UAA] the Metal backend has no driver pipeline cache, the query still round-trips
+    if ( g_vhNullMode || !g_vhDevice ) return 0;
     std::atomic<bool> fence = false;
     size_t size = 0;
     vhGetPSOCacheInternal( &fence, nullptr, &size );
@@ -1178,13 +1172,14 @@ vhMemoryStats vhStatsMemory()
         return stats;
     }
 
-    if ( g_vhInit.useMetal ) // [UAA] unified memory exposes one device heap
+    if ( g_vhInit.useMetal )
     {
         if ( !g_vhMetalDevice ) return stats;
 
+        // Metal reports a single recommended working set size.
         stats.heapCount = 1;
         stats.heapSize[0] = g_vhMetalDevice->getNativeDeviceMemorySize();
-        stats.heapBudget[0] = g_vhMetalDevice->getNativeDeviceMemorySize();
+        stats.heapBudget[0] = stats.heapSize[0];
         stats.heapUsage[0] = g_vhMetalDevice->getNativeAllocatedSize();
         stats.supported = true;
         return stats;
@@ -1553,31 +1548,27 @@ bool vhFrame()
     if ( primary.isHeadless || primary.isMinimized )
         return false;
 
-    // [UAA] - START - native Metal backend
-    // Drain backend so the main thread can present and acquire on the graphics list.
     if ( g_vhInit.useMetal )
     {
         vhFlush( true );
 
         uint64_t primaryInstance = 0;
-        if ( !vhSwapchainPresentAndAcquireMetal_Internal( primary, primaryInstance ) )
-            return false;
+        auto* frameQuery = std::addressof( primary.metalFrameQueries[g_vhFrameIndex] );
+        const bool acquired = vhSwapchainPresentAndAcquireMetal_Internal( primary, primaryInstance, frameQuery );
+        if ( primaryInstance == 0 ) return false;
         g_vhFrameInstances[g_vhFrameIndex] = primaryInstance;
 
-        g_vhFrameIndex = ( uint32_t ) ( ( g_vhFrameIndex + 1 ) % g_vhFramesInFlight );
+        g_vhFrameIndex = ( g_vhFrameIndex + 1 ) % g_vhFramesInFlight;
 
-        // Wait for the frame slot's previous work to retire before reusing it.
-        uint64_t nextFrameInstance = g_vhFrameInstances[g_vhFrameIndex];
-        if ( nextFrameInstance != 0 )
+        // Wait on the CPU before reusing the next frame slot.
+        if ( g_vhFrameInstances[g_vhFrameIndex] != 0 )
         {
-            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-            g_vhDevice->queueWaitForCommandList( nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Graphics, nextFrameInstance );
+            g_vhDevice->waitEventQuery( primary.metalFrameQueries[g_vhFrameIndex] );
         }
 
-        g_vhFrameCount++;
-        return true;
+        if ( acquired ) g_vhFrameCount++;
+        return acquired;
     }
-    // [UAA] - END
 
     if ( primary.swapchain == VK_NULL_HANDLE )
         return false;
@@ -1622,7 +1613,7 @@ vhTexture vhGetBackbuffer()
     if ( it == g_vhSwapchains.end() ) return VRHI_INVALID_HANDLE;
     vhSwapchain& sc = it->second;
     if ( sc.isHeadless ) return sc.headlessBackbuffer;
-    if ( sc.isMinimized || ( sc.swapchain == VK_NULL_HANDLE && !sc.metalLayer ) ) return VRHI_INVALID_HANDLE; // [UAA] the Metal swapchain keeps no VkSwapchainKHR
+    if ( sc.isMinimized || ( sc.swapchain == VK_NULL_HANDLE && !sc.metalDrawable ) ) return VRHI_INVALID_HANDLE;
     if ( sc.textures.empty() ) return VRHI_INVALID_HANDLE;
     return sc.textures[sc.currentSwapchainIndex];
 }
@@ -1666,18 +1657,28 @@ nvrhi::Format vhNvFormatFromVkFormat( VkFormat vkFormat )
     }
 }
 
-// [UAA] - START - native Metal backend
-// The Metal swapchain internals live in src/metal on macOS only; useMetal cannot be
-// set on the other platforms, so unreachable definitions keep the link whole.
 #if !defined(__APPLE__)
-void* vhMetalResolveLayer( void*, bool ) { return nullptr; }
-void vhSwapchainCreateMetal_Internal( vhSwapchain&, int, int ) {}
-bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain&, uint64_t& ) { return true; }
-void vhSwapchainDestroyMetal_Internal( vhSwapchain& ) {}
-#endif
-// [UAA] - END
+// vhInit rejects Metal on other platforms.
+void* vhGetMetalLayer( void*, bool )
+{
+    return nullptr;
+}
 
-void vhSwapchainReleaseTexture( vhTexture texture ) // [UAA] shared with the Metal swapchain module
+void vhSwapchainCreateMetal_Internal( vhSwapchain&, int, int )
+{
+}
+
+bool vhSwapchainPresentAndAcquireMetal_Internal( vhSwapchain&, uint64_t&, nvrhi::EventQueryHandle* )
+{
+    return false;
+}
+
+void vhSwapchainDestroyMetal_Internal( vhSwapchain& )
+{
+}
+#endif
+
+void vhSwapchainReleaseTexture( vhTexture texture )
 {
     if ( texture == VRHI_INVALID_HANDLE ) return;
     g_vhCmdBackendState.UnregisterInternalTexture( texture );
@@ -1688,13 +1689,6 @@ void vhSwapchainReleaseTexture( vhTexture texture ) // [UAA] shared with the Met
 
 void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height )
 {
-    // [UAA] native Metal backend
-    if ( g_vhInit.useMetal )
-    {
-        vhSwapchainCreateMetal_Internal( sc, width, height );
-        return;
-    }
-
     // Build swapchain via vkb::SwapchainBuilder
     vkb::SwapchainBuilder builder( *g_vulkanBDevice, sc.surface );
     builder
@@ -1795,7 +1789,10 @@ void vhSwapchainCreate_Internal( vhSwapchain& sc, int width, int height )
 
 void vhSwapchainDestroy_Internal( vhSwapchain& sc )
 {
-    // [UAA] native Metal backend
+    vhSwapchainReleaseTexture( sc.headlessBackbuffer );
+    sc.headlessBackbuffer = VRHI_INVALID_HANDLE;
+    sc.headlessBackbufferHandle = nullptr;
+
     if ( g_vhInit.useMetal )
     {
         vhSwapchainDestroyMetal_Internal( sc );
@@ -1820,9 +1817,6 @@ void vhSwapchainDestroy_Internal( vhSwapchain& sc )
         vhSwapchainReleaseTexture( texture );
     sc.nvrhiHandles.clear();
     sc.textures.clear();
-    vhSwapchainReleaseTexture( sc.headlessBackbuffer );
-    sc.headlessBackbuffer = VRHI_INVALID_HANDLE;
-    sc.headlessBackbufferHandle = nullptr;
 
     for ( auto iv : sc.imageViews )
         vkDestroyImageView( g_vulkanDevice, iv, nullptr );
@@ -1842,7 +1836,6 @@ void vhSwapchainDestroy_Internal( vhSwapchain& sc )
 
 bool vhSwapchainPresentAndAcquire_Internal( vhSwapchain& sc, uint64_t& outInstance )
 {
-    // [UAA] native Metal backend
     if ( g_vhInit.useMetal )
     {
         return vhSwapchainPresentAndAcquireMetal_Internal( sc, outInstance );
@@ -1996,16 +1989,12 @@ void vhResize( int width, int height )
         return;
     }
 
-    // [UAA] - START - native Metal backend
     if ( g_vhInit.useMetal )
     {
         vhFinish();
         vhSwapchainCreateMetal_Internal( sc, width, height );
-        if ( !sc.isMinimized ) return;
-        sc.windowSize = glm::uvec2( 0, 0 );
         return;
     }
-    // [UAA] - END
 
     VRHI_LOG( "Resizing swapchain to %dx%d\n", width, height );
 
@@ -2059,10 +2048,9 @@ vhSwapchainID vhCreateSwapchain( void* windowHandle, void* displayHandle, int wi
         return id;
     }
 
-    // [UAA] - START - native Metal backend
     if ( g_vhInit.useMetal )
     {
-        sc.metalLayer = vhMetalResolveLayer( windowHandle, g_vhInit.macOSWindowIsNSView );
+        sc.metalLayer = vhGetMetalLayer( windowHandle, g_vhInit.macOSWindowIsNSView );
         if ( !sc.metalLayer )
         {
             VRHI_ERR( "vhCreateSwapchain(): No CAMetalLayer for the window handle\n" );
@@ -2072,16 +2060,16 @@ vhSwapchainID vhCreateSwapchain( void* windowHandle, void* displayHandle, int wi
         if ( width <= 0 || height <= 0 )
         {
             sc.isMinimized = true;
-            sc.windowSize = glm::uvec2( 0, 0 );
-            g_vhSwapchains[id] = std::move( sc );
-            return id;
+        }
+        else
+        {
+            vhSwapchainCreateMetal_Internal( sc, width, height );
+            if ( !sc.metalDrawable ) return VRHI_INVALID_SWAPCHAIN;
         }
 
-        vhSwapchainCreateMetal_Internal( sc, width, height );
         g_vhSwapchains[id] = std::move( sc );
         return id;
     }
-    // [UAA] - END
 
     sc.surface = vhCreateSurface( g_vulkanInstance, windowHandle, displayHandle,
         false, g_vhInit.linuxUseWayland, g_vhInit.macOSWindowIsNSView, true );
@@ -2145,7 +2133,7 @@ vhTexture vhGetSwapchainBackbuffer( vhSwapchainID swapchain )
     vhSwapchain& sc = it->second;
     if ( sc.isMinimized ) return VRHI_INVALID_HANDLE;
     if ( sc.isHeadless ) return sc.headlessBackbuffer;
-    if ( sc.swapchain == VK_NULL_HANDLE && !sc.metalLayer ) return VRHI_INVALID_HANDLE; // [UAA] the Metal swapchain keeps no VkSwapchainKHR
+    if ( sc.swapchain == VK_NULL_HANDLE && !sc.metalDrawable ) return VRHI_INVALID_HANDLE;
     if ( sc.textures.empty() ) return VRHI_INVALID_HANDLE;
     return sc.textures[sc.currentSwapchainIndex];
 }
@@ -2183,16 +2171,13 @@ void vhResizeSwapchain( vhSwapchainID swapchain, int width, int height )
         return;
     }
 
-    // [UAA] - START - native Metal backend
+    vhFinish();
     if ( g_vhInit.useMetal )
     {
-        vhFinish();
         vhSwapchainCreateMetal_Internal( sc, width, height );
         return;
     }
-    // [UAA] - END
 
-    vhFinish();
     vhSwapchainCreate_Internal( sc, width, height );
     if ( sc.swapchain == VK_NULL_HANDLE || sc.acquireSemaphores.empty() )
     {
@@ -2784,6 +2769,21 @@ uint64_t vhHashFrameBuffer( const nvrhi::FramebufferDesc& desc )
 }
 
 static std::unordered_map< uint64_t, nvrhi::FramebufferHandle > s_FBOCache;
+
+void vhFBOCacheInvalidateTexture( nvrhi::ITexture* texture )
+{
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+    std::erase_if( s_FBOCache, [texture]( const auto& entry )
+    {
+        const auto& desc = entry.second->getDesc();
+        if ( desc.depthAttachment.texture == texture || desc.shadingRateAttachment.texture == texture ) return true;
+        for ( const auto& attachment : desc.colorAttachments )
+        {
+            if ( attachment.texture == texture ) return true;
+        }
+        return false;
+    } );
+}
 
 void vhFBOCacheReset()
 {

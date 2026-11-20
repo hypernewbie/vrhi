@@ -124,6 +124,7 @@ struct vhBackendDescriptorTable
     nvrhi::DescriptorTableHandle handle;
     nvrhi::BindlessLayoutDesc desc;
     uint32_t capacity = 0;
+    std::map< std::pair< nvrhi::ResourceType, uint32_t >, nvrhi::ResourceHandle > metalSlotResources;
 };
 
 // --------------------------------------------------------------------------
@@ -173,6 +174,7 @@ class vhCmdBackendState : public VIDLHandler
 
     bool BE_FlushTransientBuffers_DeviceStateLocked();
     void BE_InvalidateGfxCache();
+    void BE_InvalidateInternalTexture( nvrhi::ITexture* texture );
     void BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist );
 
     // --------------------------------------------------------------------------
