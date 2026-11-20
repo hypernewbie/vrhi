@@ -484,6 +484,7 @@ endif()
          test/test_psocache.cpp
          test/test_bench.cpp
          test/test_bench_frame.cpp
+         test/test_bench_bindingset.cpp
          test/test_precompile.cpp
      )
  
