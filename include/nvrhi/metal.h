@@ -48,18 +48,16 @@ namespace nvrhi::metal
         virtual Object getNativeDevice() = 0;
         virtual Object getNativeCommandQueue() = 0;
 
-        // [UAA] Returns the device's recommended working set size, the closest Metal
+        // Returns the device's recommended working set size, the closest Metal
         // equivalent of the adapter memory the Vulkan backend reports.
         virtual uint64_t getNativeDeviceMemorySize() = 0;
         virtual uint64_t getNativeAllocatedSize() = 0;
 
-        // [UAA] - START - mapped buffer write flush
         // Publishes host writes in a mapped buffer range to the device.
         // The buffer must be NVRHI-owned, non-virtual, and mapped for CPU write access.
         // The offset and the size must be multiples of getMappedBufferFlushAlignment().
         virtual uint64_t getMappedBufferFlushAlignment() = 0;
         virtual bool flushMappedBuffer(IBuffer* buffer, uint64_t offset, uint64_t size) = 0;
-        // [UAA] - END
     };
 
     typedef RefCountPtr<IDevice> DeviceHandle;
