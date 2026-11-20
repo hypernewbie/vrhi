@@ -72,6 +72,16 @@ void TestEnsureShutdown()
 
     if ( g_testInit )
     {
+        // A test that rebuilt g_vhInit must not have changed the backend for the
+        // rest of the suite. Catch that here instead of letting it pass silently.
+        if ( g_vhInit.useMetal != g_testInitDefaults.useMetal )
+        {
+            printf( "TestEnsureShutdown(): the backend changed from %s to %s\n",
+                g_testInitDefaults.useMetal ? "Metal" : "Vulkan",
+                g_vhInit.useMetal ? "Metal" : "Vulkan" );
+            g_vhErrorCounter++;
+        }
+
         vhShutdown( g_testInitQuiet );
         g_testInit = false;
     }

@@ -1912,8 +1912,8 @@ UTEST( Backend, HeapAliasing )
         g_testInit = true;
     }
 
-#ifdef __APPLE__
-    UTEST_SKIP( "Requires a Mac configuration with placement heaps enabled" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Requires a Mac configuration with placement heaps enabled" ); }
 #endif
 
     vhHeap heap = vhAllocHeap();
@@ -2036,8 +2036,8 @@ UTEST( Backend, TexturePlacementValidation )
         g_testInit = true;
     }
 
-#ifdef __APPLE__
-    UTEST_SKIP( "Requires a Mac configuration with placement heaps enabled" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Requires a Mac configuration with placement heaps enabled" ); }
 #endif
 
     TestLogCapture logs;
@@ -2670,8 +2670,11 @@ UTEST( Backend, OrderedAliasActivation )
         g_testInit = true;
     }
 
-#ifdef __APPLE__
-    UTEST_SKIP( "Depth placement requires native Vulkan; Mac color placement needs separate qualification" );
+#if defined(__APPLE__)
+    // The three colour textures alias one heap offset with different extents. MoltenVK
+    // refuses to bind the larger one, and the native Metal backend binds it but the
+    // alias activation does not produce the expected content.
+    UTEST_SKIP( "Aliased textures with different extents are not qualified on macOS" );
 #endif
 
     const int32_t startErrors = g_vhErrorCounter.load();
@@ -4152,6 +4155,8 @@ UTEST( Backend, BlockingBackendMode_Equivalence )
 
     TestEnsureShutdown();
     g_vhInit = vhInitData{};
+    // The backend choice belongs to the suite, not to this test.
+    g_vhInit.useMetal = g_testInitDefaults.useMetal;
     g_vhInit.debugBlockWaitForBackend = true;
     vhInit( g_testInitQuiet );
     g_testInit = true;
@@ -4166,8 +4171,7 @@ UTEST( Backend, BlockingBackendMode_Equivalence )
     // No errors expected
     EXPECT_EQ( g_vhErrorCounter.load(), 0 );
 
-    vhShutdown( g_testInitQuiet );
-    g_testInit = false;
+    TestEnsureShutdown();
 }
 
 UTEST( Backend, VertexBindingSnapshotFlushEmpty )
@@ -4886,9 +4890,10 @@ UTEST( Backend, Transient_PartialFlushKeepsPendingAtomSeparate )
             Shutdown_DeviceStateLocked();
         }
     } buffer;
-    VkPhysicalDeviceProperties props = {};
-    vkGetPhysicalDeviceProperties( vhGetVkPhysicalDevice(), &props );
-    const uint64_t alignment = std::max( uint64_t( 2 * VRHI_CBUF_ALIGN ), props.limits.nonCoherentAtomSize );
+    const uint64_t deviceAlignment = g_vhMetalDevice
+        ? g_vhMetalDevice->getMappedBufferFlushAlignment()
+        : g_vhVulkanDevice->getMappedBufferFlushAlignment();
+    const uint64_t alignment = std::max( uint64_t( 2 * VRHI_CBUF_ALIGN ), deviceAlignment );
     nvrhi::BufferDesc desc;
     desc.setByteSize( 4 * alignment ).setIsConstantBuffer( true ).setCpuAccess( nvrhi::CpuAccessMode::Write );
     {
@@ -4990,8 +4995,8 @@ UTEST( Backend, AliasHandoffsResetEveryMip )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU aliasing requires Vulkan" );
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
-#ifdef __APPLE__
-    UTEST_SKIP( "Shared placement is not supported on macOS" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Shared placement is not supported on macOS" ); }
 #endif
     TestLogCapture logs;
     constexpr int mips = 4;
@@ -5064,8 +5069,8 @@ UTEST( Backend, AliasHandoffsRetainDestroyedResourcesWhileGpuIsBlocked )
 {
     if ( g_vhInit.nullMode ) UTEST_SKIP( "GPU aliasing requires Vulkan" );
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
-#ifdef __APPLE__
-    UTEST_SKIP( "Shared placement is not supported on macOS" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Shared placement is not supported on macOS" ); }
 #endif
     vhFinish();
     TestLogCapture logs;

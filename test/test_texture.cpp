@@ -126,23 +126,29 @@ UTEST_F( Texture, PlacementOverlapBoundaries )
     }
 
     logs.Clear();
-#ifdef __APPLE__
-    EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, desc, { 0, 256 } ) );
-    EXPECT_TRUE( logs.Contains( "not supported on macOS" ) );
-#else
-    EXPECT_TRUE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, desc, { 0, 256 } ) );
-    EXPECT_EQ( logs.ErrorCount(), 0 );
-
-    nvrhi::TextureDesc other = desc;
-    other.format = nvrhi::Format::R32_FLOAT;
-    EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, other, { 0, 256 } ) );
-    EXPECT_TRUE( logs.Contains( "format does not match" ) );
-    logs.Clear();
-    other = desc;
-    other.isUAV = true;
-    EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, other, { 0, 256 } ) );
-    EXPECT_TRUE( logs.Contains( "usage does not match" ) );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal )
+    {
+        // MoltenVK does not qualify for aliased placement.
+        EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, desc, { 0, 256 } ) );
+        EXPECT_TRUE( logs.Contains( "not supported on the MoltenVK path" ) );
+    }
+    else
 #endif
+    {
+        EXPECT_TRUE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, desc, { 0, 256 } ) );
+        EXPECT_EQ( logs.ErrorCount(), 0 );
+
+        nvrhi::TextureDesc other = desc;
+        other.format = nvrhi::Format::R32_FLOAT;
+        EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, other, { 0, 256 } ) );
+        EXPECT_TRUE( logs.Contains( "format does not match" ) );
+        logs.Clear();
+        other = desc;
+        other.isUAV = true;
+        EXPECT_FALSE( vhVerifyTextureMemoryOverlap( desc, { 0, 512 }, other, { 0, 256 } ) );
+        EXPECT_TRUE( logs.Contains( "usage does not match" ) );
+    }
 }
 
 UTEST_F( Texture, AliasActivationStateAndClassMatrix )

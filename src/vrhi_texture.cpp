@@ -196,10 +196,13 @@ bool vhVerifyTextureMemoryOverlap( const nvrhi::TextureDesc& desc, glm::u64vec2 
         VRHI_ERR( "vhBindTextureMemory(): Textures '%s' and '%s' cannot overlap: unsupported texture class\n", desc.debugName.c_str(), otherDesc.debugName.c_str() );
         return false;
     }
-#ifdef __APPLE__
-    // Shared placement has not been qualified with MoltenVK's Metal heap configurations.
-    VRHI_ERR( "vhBindTextureMemory(): Shared texture placement is not supported on macOS\n" );
-    return false;
+#if defined(__APPLE__)
+    // MoltenVK's Metal heap configurations do not qualify for aliased placement.
+    if ( !g_vhInit.useMetal )
+    {
+        VRHI_ERR( "vhBindTextureMemory(): Aliased texture placement is not supported on the MoltenVK path\n" );
+        return false;
+    }
 #endif
     if ( desc.format != otherDesc.format )
     {

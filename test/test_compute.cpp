@@ -1936,8 +1936,8 @@ UTEST_F( Compute, TypedStorageBuffer )
 UTEST_F( Compute, BufferBindingByteRange )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "Buffer subbuffer range binding unreliable on MoltenVK" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Buffer subbuffer range binding unreliable on MoltenVK" ); }
 #endif
     vhFlush();
 
@@ -2001,8 +2001,8 @@ UTEST_F( Compute, BufferBindingByteRange )
 UTEST_F( Compute, PushConstants_Compute )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "Push constants in compute shaders unreliable on MoltenVK" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Push constants in compute shaders unreliable on MoltenVK" ); }
 #endif
     vhFlush();
 

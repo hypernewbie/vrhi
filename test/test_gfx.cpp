@@ -2904,19 +2904,13 @@ UTEST_F( Graphics, ViewDepthRange )
 UTEST_F( Graphics, DepthBiasEffect )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "Depth bias on flat surfaces unreliable on MoltenVK" );
-#endif
-    // Vulkan spec leaves the depth-bias unit `r` implementation-defined for
-    // floating-point depth formats. Software ICDs (lavapipe / SwiftShader)
-    // pick a value that makes the constant bias factor used here insufficient
-    // to fail the LEQUAL test, while real HW drivers (RADV / NV / MoltenVK)
-    // produce the expected ordering. Skip on software backends rather than
-    // bake an implementation-specific magic constant into the test.
-    if ( TestIsSoftwareVulkan() ) { UTEST_SKIP( "Depth bias unit `r` is implementation-defined on float depth; result varies on software Vulkan" ); }
-
+    // The depth buffer is a fixed-point format on purpose. The Vulkan spec leaves the
+    // depth bias unit `r` implementation-defined for floating-point depth formats, and
+    // both MoltenVK and Metal derive it from the float ULP, which is zero at the biased
+    // depth. A 16-bit unorm depth buffer has a normative `r` of 2^-16, so the constant
+    // bias below is the same on every backend.
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
-    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D32, VRHI_TEXTURE_RT );
+    vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D16, VRHI_TEXTURE_RT );
 
     struct Vertex { glm::vec3 pos; glm::vec4 col; };
     // Coplanar triangles at NDC Z=0.0
@@ -3080,8 +3074,8 @@ UTEST_F( Graphics, MultiDrawSameState )
 UTEST_F( Graphics, RenderToArrayLayer )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "Texture2DArray readback per-layer crashes MoltenVK staging texture" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Texture2DArray readback per-layer crashes MoltenVK staging texture" ); }
 #endif
 
     vhTexture arr = vhAllocTexture();
@@ -3480,8 +3474,8 @@ UTEST_F( Graphics, StencilTwoSidedResolve )
 UTEST_F( Graphics, IndependentBlend )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "Independent blend PSO creation unreliable on MoltenVK" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Independent blend PSO creation unreliable on MoltenVK" ); }
 #endif
 
     vhTexture rt0 = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
@@ -3880,9 +3874,6 @@ float4 main( float2 uv : TEXCOORD ) : SV_Target
 UTEST_F( Graphics, ComparisonSampler_Shadow )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "Depth texture comparison sampling unreliable on MoltenVK" );
-#endif
 
     // Create a 4x4 D32 texture with depth values: left half = 0.2, right half = 0.8
     vhTexture depthTex = vhAllocTexture();
@@ -6165,8 +6156,8 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
 UTEST_F( Graphics, BL01_IndependentBlendUnequalTargets )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-#ifdef __APPLE__
-    UTEST_SKIP( "Independent blend PSO creation unreliable on MoltenVK" );
+#if defined(__APPLE__)
+    if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Independent blend PSO creation unreliable on MoltenVK" ); }
 #endif
     // TODO( TESTPLAN §22 ): reproduced regression — VRHI_STATE_BLEND_FUNC_RT_3E's
     // equation bits land inside VRHI_STATE_BLEND_EQUATION_MASK (bits 28-33), so
