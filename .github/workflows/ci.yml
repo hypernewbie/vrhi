@@ -108,7 +108,7 @@ jobs:
         if: matrix.install_llvm
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "21"
+          version: "22"
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -323,7 +323,7 @@ jobs:
         if: matrix.install_llvm
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "21"
+          version: "22"
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -546,7 +546,7 @@ jobs:
         if: matrix.install_llvm
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "21"
+          version: "22"
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
