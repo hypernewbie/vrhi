@@ -155,8 +155,10 @@ namespace nvrhi
     {
         D3D11,
         D3D12,
+        // [UAA] - START - Metal backend
         VULKAN,
-        METAL // [UAA] native Metal backend
+        METAL // native Metal backend
+        // [UAA] - END
     };
 
     enum class Format : uint8_t
