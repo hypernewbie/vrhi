@@ -2468,10 +2468,12 @@ uint64_t vhHashBindingSet( const nvrhi::BindingSetDesc& desc, nvrhi::IBindingLay
 
 static std::unordered_map< uint64_t, nvrhi::BindingSetHandle > s_bindingSetCache;
 static constexpr size_t kMaxCachedBindingSets = 4096;
+static size_t s_bindingSetCacheEvictBucket = 0;
 
 void vhBindingSetCacheClear_DeviceStateLocked()
 {
     s_bindingSetCache.clear();
+    s_bindingSetCacheEvictBucket = 0;
 }
 
 void vhBindingSetCacheClear()
@@ -2491,7 +2493,16 @@ nvrhi::BindingSetHandle vhGetBindingSet( const nvrhi::BindingSetDesc& desc, nvrh
     nvrhi::BindingSetHandle bset = nullptr;
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-        if ( s_bindingSetCache.size() >= kMaxCachedBindingSets ) s_bindingSetCache.clear();
+        if ( s_bindingSetCache.size() >= kMaxCachedBindingSets )
+        {
+            const size_t bucketCount = s_bindingSetCache.bucket_count();
+            size_t bucket = s_bindingSetCacheEvictBucket;
+            while ( s_bindingSetCache.begin( bucket ) == s_bindingSetCache.end( bucket ) )
+                bucket = ( bucket + 1 ) % bucketCount;
+            const uint64_t evictHash = s_bindingSetCache.begin( bucket )->first;
+            s_bindingSetCache.erase( evictHash );
+            s_bindingSetCacheEvictBucket = ( bucket + 1 ) % bucketCount;
+        }
         bset = g_vhDevice->createBindingSet( desc, layout );
         s_bindingSetCache[hash] = bset;
     }

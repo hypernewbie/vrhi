@@ -3870,6 +3870,7 @@ UTEST( Backend, BindingSetCacheBounded )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Requires GPU" ); }
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    vhFinish();
 
     nvrhi::BufferDesc bufDesc;
     bufDesc.byteSize = 4097 * 256;
@@ -3889,18 +3890,25 @@ UTEST( Backend, BindingSetCacheBounded )
 
     nvrhi::BindingSetDesc desc;
     desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( 0, buffer.Get(), nvrhi::BufferRange( 0, 256 ) ) );
-    nvrhi::BindingSetHandle first = vhGetBindingSet( desc, layout.Get() );
-    for ( uint32_t i = 1; i < 4096; i++ )
+    std::vector< nvrhi::BindingSetHandle > sets( 4096 );
+    for ( uint32_t i = 0; i < 4096; i++ )
     {
         desc.bindings[0].range = nvrhi::BufferRange( i * 256, 256 );
-        ASSERT_NE( vhGetBindingSet( desc, layout.Get() ), nullptr );
+        sets[i] = vhGetBindingSet( desc, layout.Get() );
+        ASSERT_NE( sets[i], nullptr );
     }
-    desc.bindings[0].range = nvrhi::BufferRange( 0, 256 );
-    EXPECT_EQ( vhGetBindingSet( desc, layout.Get() ).Get(), first.Get() );
     desc.bindings[0].range = nvrhi::BufferRange( 4096 * 256, 256 );
-    ASSERT_NE( vhGetBindingSet( desc, layout.Get() ), nullptr );
-    desc.bindings[0].range = nvrhi::BufferRange( 0, 256 );
-    EXPECT_NE( vhGetBindingSet( desc, layout.Get() ).Get(), first.Get() );
+    nvrhi::BindingSetHandle inserted = vhGetBindingSet( desc, layout.Get() );
+    ASSERT_NE( inserted, nullptr );
+    EXPECT_EQ( vhGetBindingSet( desc, layout.Get() ).Get(), inserted.Get() );
+
+    // Only the evicted set has no cache reference.
+    uint32_t evicted = 0;
+    for ( const auto& set : sets )
+    {
+        if ( set->GetRefCount() == 1 ) evicted++;
+    }
+    EXPECT_EQ( evicted, 1u );
     vhFinish();
 }
 
@@ -4006,8 +4014,6 @@ UTEST( Backend, BindingSetCacheEvictionBeforeSubmit )
     nvrhi::BindingSetDesc desc;
     desc.addItem( nvrhi::BindingSetItem::ConstantBuffer( cbSlot, cb, nvrhi::BufferRange( 0, 256 ) ) );
     desc.addItem( nvrhi::BindingSetItem::StructuredBuffer_UAV( uavSlot, output ) );
-    nvrhi::BindingSetHandle first = vhGetBindingSet( desc, layout );
-    ASSERT_NE( first, nullptr );
     for ( uint32_t i = 0; i < count; i++ )
     {
         desc.bindings[0].range = nvrhi::BufferRange( i * 256, 256 );
@@ -4020,15 +4026,12 @@ UTEST( Backend, BindingSetCacheEvictionBeforeSubmit )
         cmdList->setComputeState( state );
         cmdList->dispatch( 1, 1, 1 );
     }
-    desc.bindings[0].range = nvrhi::BufferRange( 0, 256 );
-    EXPECT_NE( vhGetBindingSet( desc, layout ).Get(), first.Get() );
 
-    // Record -> evict twice -> release caller refs -> submit -> read every result.
+    // Drop the remaining cache references before submission.
     vhBindingSetCacheClear();
     {
         std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
         cmdList->copyBuffer( staging, 0, output, 0, outDesc.byteSize );
-        first = nullptr;
         cb = nullptr;
         output = nullptr;
         layout = nullptr;
