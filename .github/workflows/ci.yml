@@ -66,7 +66,7 @@ jobs:
             os: windows-latest
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe -DVDEPS_USE_LLVM=ON"
-            lib_tag: win_llvm
+            lib_tag: win_llvm22
             vdeps_args: "--llvm"
             install_swiftshader: true
             install_llvm: true
@@ -106,9 +106,16 @@ jobs:
 
       - name: Install LLVM (Windows)
         if: matrix.install_llvm
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "22"
+        shell: pwsh
+        run: |
+          # install-llvm-action ships no win32 assets past LLVM 21, and MSVC
+          # 14.52+ (VS18) requires Clang 22+, so install upstream directly.
+          $ProgressPreference = 'SilentlyContinue'
+          $ver = "22.1.8"
+          $exe = "$env:TEMP/LLVM-$ver-win64.exe"
+          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-$ver/LLVM-$ver-win64.exe" -OutFile $exe
+          Start-Process -FilePath $exe -ArgumentList "/S" -Wait
+          "C:/Program Files/LLVM/bin" >> $env:GITHUB_PATH
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -300,7 +307,7 @@ jobs:
             os: windows-latest
             cmake_gen: "-G Ninja"
             cmake_extra_args: "-DCMAKE_C_COMPILER=clang-cl.exe -DCMAKE_CXX_COMPILER=clang-cl.exe -DVDEPS_USE_LLVM=ON -DVDEPS_SANITIZE=address"
-            lib_tag: win_llvm_address
+            lib_tag: win_llvm_address22
             vdeps_args: "--llvm --sanitize address"
             install_llvm: true
             install_swiftshader: true
@@ -321,9 +328,16 @@ jobs:
 
       - name: Install LLVM (Windows)
         if: matrix.install_llvm
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "22"
+        shell: pwsh
+        run: |
+          # install-llvm-action ships no win32 assets past LLVM 21, and MSVC
+          # 14.52+ (VS18) requires Clang 22+, so install upstream directly.
+          $ProgressPreference = 'SilentlyContinue'
+          $ver = "22.1.8"
+          $exe = "$env:TEMP/LLVM-$ver-win64.exe"
+          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-$ver/LLVM-$ver-win64.exe" -OutFile $exe
+          Start-Process -FilePath $exe -ArgumentList "/S" -Wait
+          "C:/Program Files/LLVM/bin" >> $env:GITHUB_PATH
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -544,9 +558,16 @@ jobs:
 
       - name: Install LLVM (Windows)
         if: matrix.install_llvm
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "22"
+        shell: pwsh
+        run: |
+          # install-llvm-action ships no win32 assets past LLVM 21, and MSVC
+          # 14.52+ (VS18) requires Clang 22+, so install upstream directly.
+          $ProgressPreference = 'SilentlyContinue'
+          $ver = "22.1.8"
+          $exe = "$env:TEMP/LLVM-$ver-win64.exe"
+          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-$ver/LLVM-$ver-win64.exe" -OutFile $exe
+          Start-Process -FilePath $exe -ArgumentList "/S" -Wait
+          "C:/Program Files/LLVM/bin" >> $env:GITHUB_PATH
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
