@@ -57,11 +57,11 @@
  
  ## Packages
 
-  VRHI provides self-contained release packages for integration into your projects.
+  VRHI packages contain the library, headers and tools. The Vulkan SDK supplies Vulkan and Slang.
 
   ### Package Contents
 
-  Each release package contains both runtime variants and debug/release builds:
+  Windows release packages contain both MSVC runtime variants and Debug and Release builds. macOS and Linux packages contain Debug and Release static libraries:
 
   ```
   vrhi-VERSION/
@@ -79,9 +79,9 @@
   │   ├── vrhid.pdb
   │   ├── vrhi_md.lib           # MSVC: Dynamic runtime (/MD), Release
   │   ├── vrhi_md.pdb
-  │   ├── vrhi_md_d.lib        # MSVC: Dynamic runtime (/MDd), Debug
-  │   ├── vrhi_md_d.pdb
-  │   └── *.lib, *.pdb          # Dependencies with same naming pattern
+  │   ├── vrhi_mdd.lib          # MSVC: Dynamic runtime (/MDd), Debug
+  │   ├── vrhi_mdd.pdb
+  │   └── *.lib, *.pdb          # Dependency libraries and symbols
   ├── tools/                    # slangc.exe and utilities
   ├── README.md
   └── LICENSE
@@ -89,12 +89,14 @@
 
   ### Library Naming Convention
 
-  | Suffix | Meaning |
-  |--------|---------|
-  | (none) | Static runtime, Release (RelWithDebInfo) |
-  | `_d` | Static runtime, Debug |
-  | `_md` | Dynamic runtime, Release (RelWithDebInfo) |
-  | `_md_d` | Dynamic runtime, Debug |
+  | Configuration | VRHI library | Dependency suffix |
+  |---------------|--------------|-------------------|
+  | Static runtime, Release | `vrhi` | none |
+  | Static runtime, Debug | `vrhid` | `_d` |
+  | Dynamic runtime, Release (Windows) | `vrhi_md` | `_md` |
+  | Dynamic runtime, Debug (Windows) | `vrhi_mdd` | `_md_d` |
+
+  These dependency suffixes apply to the combined release archive. The `package_vrhi` staging directory uses unsuffixed dependency names for each configuration.
 
   ### CMake Integration
 
@@ -102,26 +104,42 @@
   # Add package to your project
   target_include_directories(your_app PRIVATE path/to/vrhi/include)
   target_link_directories(your_app PRIVATE path/to/vrhi/lib)
+  find_package(Vulkan REQUIRED)
+  find_library(VRHI_SLANG_LIBRARY NAMES slang
+      HINTS "$ENV{VULKAN_SDK}/lib" "$ENV{VULKAN_SDK}/Lib" REQUIRED)
   
   # Choose your configuration:
   # Static runtime, Release:
-  target_link_libraries(your_app PRIVATE vrhi nvrhi_vk nvrhi vk-bootstrap rtxmu Vulkan::Vulkan)
+  target_link_libraries(your_app PRIVATE vrhi nvrhi_vk nvrhi vk-bootstrap rtxmu
+      ${VRHI_SLANG_LIBRARY} Vulkan::Vulkan SPIRV-Tools-opt SPIRV-Tools)
   
   # Static runtime, Debug:
-  target_link_libraries(your_app PRIVATE vrhid nvrhid_vk nvrhid vk-bootstrapd rtxmud Vulkan::Vulkan)
+  target_link_libraries(your_app PRIVATE vrhid nvrhi_vk_d nvrhi_d vk-bootstrap_d rtxmu_d
+      ${VRHI_SLANG_LIBRARY} Vulkan::Vulkan SPIRV-Tools-opt_d SPIRV-Tools_d)
   
   # Dynamic runtime, Release:
-  target_link_libraries(your_app PRIVATE vrhi_md nvrhi_md_vk nvrhi_md vk-bootstrap_md rtxmu_md Vulkan::Vulkan)
+  target_link_libraries(your_app PRIVATE vrhi_md nvrhi_vk_md nvrhi_md vk-bootstrap_md rtxmu_md
+      ${VRHI_SLANG_LIBRARY} Vulkan::Vulkan SPIRV-Tools-opt_md SPIRV-Tools_md)
   
   # Dynamic runtime, Debug:
-  target_link_libraries(your_app PRIVATE vrhi_md_d nvrhi_md_d_vk nvrhi_md_d vk-bootstrap_md_d rtxmu_md_d Vulkan::Vulkan)
+  target_link_libraries(your_app PRIVATE vrhi_mdd nvrhi_vk_md_d nvrhi_md_d vk-bootstrap_md_d rtxmu_md_d
+      ${VRHI_SLANG_LIBRARY} Vulkan::Vulkan SPIRV-Tools-opt_md_d SPIRV-Tools_md_d)
   ```
 
-  On macOS, use `vrhid` for Debug or `vrhi` for Release. Also link the Metal backend and its dependencies:
+  Windows clients also link `dxgi` and `shlwapi`. Linux clients also link `X11`, `Xi` and `Xext`.
+
+  On macOS, also link the Metal backend and its dependencies from the combined release archive:
 
   ```cmake
   target_link_libraries(your_app PRIVATE
-      nvrhi_metal spirv-cross-msl spirv-cross-glsl spirv-cross-core
+      $<$<CONFIG:Debug>:nvrhi_metal_d>
+      $<$<CONFIG:Debug>:spirv-cross-msl_d>
+      $<$<CONFIG:Debug>:spirv-cross-glsl_d>
+      $<$<CONFIG:Debug>:spirv-cross-core_d>
+      $<$<NOT:$<CONFIG:Debug>>:nvrhi_metal>
+      $<$<NOT:$<CONFIG:Debug>>:spirv-cross-msl>
+      $<$<NOT:$<CONFIG:Debug>>:spirv-cross-glsl>
+      $<$<NOT:$<CONFIG:Debug>>:spirv-cross-core>
       "-framework Metal" "-framework QuartzCore" "-framework AppKit"
       "-framework CoreFoundation" "-framework CoreGraphics" "-framework Foundation"
   )
