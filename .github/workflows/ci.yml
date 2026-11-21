@@ -261,6 +261,39 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Debug --verbose
 
+      - name: Test Metal Release
+        if: runner.os == 'macOS'
+        run: |
+          cmake -S . -B build-metal-release ${{ matrix.cmake_gen }} ${{ matrix.cmake_extra_args }} -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-metal-release --config Release
+          ctest --test-dir build-metal-release -C Release --no-tests=error --verbose -R '^vrhi_test_metal$'
+
+      - name: Test Metal packages
+        if: runner.os == 'macOS'
+        run: |
+          cmake --build build --config Debug --target test_package_vrhi
+          cmake --build build-metal-release --config Release --target test_package_vrhi
+
+      - name: Test standalone Metal
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          for config in Debug Release; do
+            tree="build/nvrhi-metal-$config"
+            cmake -S vdeps/nvrhi -B "$tree" -G Ninja -DCMAKE_BUILD_TYPE="$config" \
+              -DNVRHI_BUILD_TESTS=ON -DNVRHI_WITH_METAL=ON -DNVRHI_WITH_VALIDATION=ON \
+              -DNVRHI_METAL_TEST_HOOKS=ON -DNVRHI_WITH_VULKAN=OFF -DNVRHI_WITH_RTXMU=OFF -DNVRHI_FETCH_SPIRV_CROSS=ON
+            cmake --build "$tree" --parallel 4
+            lanes='^(metal_framebuffer|uaa_metal_(raw|validation|shader_rejection|stress|teardown_raw|teardown_validation|submission_raw|submission_validation))$'
+            ctest --test-dir "$tree" -N -R "$lanes" | grep -q 'Total Tests: 9'
+            MTL_DEBUG_LAYER=1 ctest --test-dir "$tree" --no-tests=error --verbose -R "$lanes"
+            for test in SUB.CompletionOrder SUB.MetalMissingCommandBuffer SUB.MetalHookSerialOrder SUB.MetalHookWaitAllocation SUB.MetalHookCompletionError TBL.TwoTextureKinds TBL.CubeSparse TBL.UintSparse TBL.GraphicsStages TBL.MetalUabRejected HEAP.DifferentExtentDraw DEV.MetalFormatClaims; do
+              result=$(MTL_DEBUG_LAYER=1 "$tree/tests/uaa/nvrhi_uaa_tests" --backend metal --validation on --native-validation on --filter "$test")
+              printf '%s\n' "$result"
+              printf '%s\n' "$result" | grep -F "[PASS] $test "
+            done
+          done
+
   # ==========================================================================
   # Sanitizers - runs ASan/TSan/UBSan variants alongside the main build.
   # Split into its own job so a sanitizer regression doesn't fail the main
@@ -996,6 +1029,18 @@ jobs:
         run: |
           cd package && zip -r ../${{ matrix.zip_name }}.zip . && cd ..
           ls -la ${{ matrix.zip_name }}.zip
+
+      - name: Test Unpacked macOS Package
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          work=$(mktemp -d)
+          unzip -q "${{ matrix.zip_name }}.zip" -d "$work/package"
+          for config in Debug Release; do
+            cmake -DCONFIG="$config" -DBINARY_DIR="$work" -DSOURCE_DIR="$GITHUB_WORKSPACE" \
+              -DPACKAGE_PATH="$work/package" -DTEST_ROOT="$work/client-$config" \
+              -P test/run_test_package.cmake
+          done
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2

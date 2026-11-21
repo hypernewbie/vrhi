@@ -63,6 +63,16 @@ bool g_captureActive = false;
 vhInitData g_testInitDefaults;
 static bool g_testBackendChanged = false;
 
+bool TestVerifyBackend()
+{
+    if ( g_vhInit.nullMode ) return true;
+    const nvrhi::GraphicsAPI expected = g_testInitDefaults.useMetal ? nvrhi::GraphicsAPI::METAL : nvrhi::GraphicsAPI::VULKAN;
+    if ( g_vhDevice && g_vhDevice->getGraphicsAPI() == expected ) return true;
+    printf( "TestVerifyBackend(): active device is not %s\n", g_testInitDefaults.useMetal ? "Metal" : "Vulkan" );
+    g_testBackendChanged = true;
+    return false;
+}
+
 void TestEnsureShutdown()
 {
     if ( g_captureActive )
@@ -83,6 +93,7 @@ void TestEnsureShutdown()
             g_testBackendChanged = true;
             g_vhErrorCounter++;
         }
+        TestVerifyBackend();
 
         vhShutdown( g_testInitQuiet );
         g_testInit = false;
@@ -207,6 +218,22 @@ int main( int argc, const char* const argv[] )
 #endif
 
     g_testInitDefaults = g_vhInit;
+
+    const char* filter = nullptr;
+    bool informational = false;
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strncmp( argv[i], "--filter=", 9 ) == 0 ) filter = argv[i] + 9;
+        if ( strncmp( argv[i], "--list-tests", 12 ) == 0 || strncmp( argv[i], "--help", 6 ) == 0 ) informational = true;
+    }
+    bool hasTests = false;
+    for ( size_t i = 0; i < utest_state.tests_length; ++i )
+        if ( !utest_should_filter_test( filter, utest_state.tests[i].name ) ) { hasTests = true; break; }
+    if ( !informational && !hasTests )
+    {
+        printf( "No tests matched the filter.\n" );
+        return 1;
+    }
 
     int result = utest_main( argc, argv );
     TestEnsureShutdown();

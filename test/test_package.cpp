@@ -20,31 +20,100 @@
 */
 
 #include <vrhi.h>
+#include <atomic>
 #include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <vector>
 
-extern nvrhi::DeviceHandle g_vhDevice;
-
-// Test compute shader
-static const char* kComputeShaderSource
-    = "#version 450\n"
-      "layout(local_size_x = 64) in;\n"
-      "layout(binding = 0) buffer InputBuffer { float data[]; } input_buffer;\n"
-      "layout(binding = 1) buffer OutputBuffer { float data[]; } output_buffer;\n"
-      "void main()\n"
-      "{\n"
-      "    uint idx = gl_GlobalInvocationID.x;\n"
-      "    output_buffer.data[idx] = input_buffer.data[idx] * 2.0;\n"
-      "}\n";
-
-int main( )
+static bool TestMetalDispatch( const char* shaderPath )
 {
-    // Initialise VRHI in quiet mode
+    std::ifstream file( shaderPath, std::ios::binary | std::ios::ate );
+    if ( !file )
+    {
+        fprintf( stderr, "FATAL: Cannot open frozen shader: %s\n", shaderPath );
+        return false;
+    }
+    const std::streamsize size = file.tellg();
+    if ( size <= 0 || size % sizeof( uint32_t ) != 0 ) return false;
+    std::vector< uint32_t > spirv( size_t( size ) / sizeof( uint32_t ) );
+    file.seekg( 0 );
+    if ( !file.read( reinterpret_cast< char* >( spirv.data() ), size ) ) return false;
+
+    constexpr uint32_t count = 4;
+    vhBuffer output = vhAllocBuffer();
+    vhShader shader = vhAllocShader();
+    if ( output == VRHI_INVALID_HANDLE || shader == VRHI_INVALID_HANDLE ) return false;
+    vhCreateStorageBuffer( output, "PackageOutput", nullptr, count * sizeof( uint32_t ),
+        VRHI_BUFFER_COMPUTE_READ_WRITE, sizeof( uint32_t ) );
+    vhCreateShader( shader, "PackageSmoke", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhState state;
+    state.SetProgram( vhCreateComputeProgram( shader ) );
+    state.SetBuffer( 0, output, -1, "g_Output", 0, count * sizeof( uint32_t ), true );
+    constexpr vhStateId stateId = 1;
+    vhSetState( stateId, state );
+    vhDispatch( stateId, { count, 1, 1 } );
+    vhMem readback;
+    vhReadBufferSlow( output, 0, count * sizeof( uint32_t ), &readback );
+
+    bool valid = readback.size() == count * sizeof( uint32_t );
+    for ( uint32_t i = 0; valid && i < count; ++i )
+    {
+        uint32_t value = 0;
+        memcpy( &value, readback.data() + i * sizeof( value ), sizeof( value ) );
+        valid = value == 0xA11CE000u + i;
+        if ( !valid ) fprintf( stderr, "FATAL: Metal readback at %u is 0x%08x\n", i, value );
+    }
+    vhState empty;
+    vhSetState( stateId, empty, VRHI_DIRTY_ALL );
+    vhDestroyShader( shader );
+    vhDestroyBuffer( output );
+    vhFinish();
+    return valid;
+}
+
+int main( int argc, char** argv )
+{
+    const bool metal = argc == 3 && strcmp( argv[1], "--backend=metal" ) == 0;
+    if ( argc != 1 && !metal )
+    {
+        fprintf( stderr, "Usage: %s [--backend=metal frozen_shader.spv]\n", argv[0] );
+        return 5;
+    }
+    std::atomic< uint32_t > errors{ 0 };
+    g_vhInit.useMetal = metal;
+    if ( metal )
+    {
+        g_vhInit.fnLogCallback = [ &errors ]( bool error, const std::string& text )
+        {
+            if ( error )
+            {
+                ++errors;
+                fprintf( stderr, "%s", text.c_str() );
+            }
+        };
+    }
     vhInit( true );
 
     if ( !g_vhDevice )
     {
         fprintf( stderr, "FATAL: vhInit failed\n" );
         return 1;
+    }
+
+    const nvrhi::GraphicsAPI expectedApi = metal ? nvrhi::GraphicsAPI::METAL : nvrhi::GraphicsAPI::VULKAN;
+    if ( g_vhDevice->getGraphicsAPI() != expectedApi )
+    {
+        fprintf( stderr, "FATAL: The selected backend was not initialised\n" );
+        vhShutdown();
+        return 5;
+    }
+    printf( "Package backend: %s\n", metal ? "Metal" : "Vulkan" );
+    if ( metal && !TestMetalDispatch( argv[2] ) )
+    {
+        fprintf( stderr, "FATAL: Metal package dispatch failed\n" );
+        vhShutdown();
+        return 5;
     }
 
     // Test 1: Buffer allocation and creation
@@ -73,24 +142,33 @@ int main( )
     vhCreateTexture2D( texture, "PackageTestTex", glm::ivec2( 128, 128 ), 1, nvrhi::Format::RGBA8_UNORM );
     vhFlush( );
 
-    // Test 3: Shader allocation (without compilation - Vulkan SDK required for runtime compile)
-    vhShader shader = vhAllocShader( );
-    if ( shader == VRHI_INVALID_HANDLE )
+    // The Metal dispatch already creates and destroys a shader.
+    vhShader shader = VRHI_INVALID_HANDLE;
+    if ( !metal )
     {
-        fprintf( stderr, "FATAL: Shader allocation failed\n" );
-        vhDestroyTexture( texture );
-        vhDestroyBuffer( buffer );
-        vhShutdown( );
-        return 4;
+        shader = vhAllocShader();
+        if ( shader == VRHI_INVALID_HANDLE )
+        {
+            fprintf( stderr, "FATAL: Shader allocation failed\n" );
+            vhDestroyTexture( texture );
+            vhDestroyBuffer( buffer );
+            vhShutdown();
+            return 4;
+        }
     }
 
     // Cleanup
-    vhDestroyShader( shader );
+    if ( shader != VRHI_INVALID_HANDLE ) vhDestroyShader( shader );
     vhDestroyTexture( texture );
     vhDestroyBuffer( buffer );
     vhFlush( );
 
     vhShutdown( );
+    if ( errors.load() != 0 )
+    {
+        fprintf( stderr, "FATAL: Metal reported %u errors\n", errors.load() );
+        return 5;
+    }
 
     // Success
     return 0;

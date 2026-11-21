@@ -299,6 +299,7 @@ struct Bench{};
 UTEST_F_SETUP( Bench )
 {
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    ASSERT_TRUE( TestVerifyBackend() );
     vhBeginMarker( utest_test_name );
     vhFinish();
 }

@@ -931,6 +931,7 @@ UTEST_F_SETUP( RT )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
     // Lavapipe advertises RT but its implementation hangs on TLAS/BLAS work under
     // CI's reduced-CPU runner. Force RT off on software Vulkan so RT tests skip
     // cleanly through the explicit capability skip in each RT fixture, so an
@@ -941,6 +942,7 @@ UTEST_F_SETUP( RT )
         g_vhInit.raytracing = true;
         vhInit( g_testInitQuiet );
         g_testInit = true;
+        ASSERT_TRUE( TestVerifyBackend() );
     }
     if ( !g_captureActive )
     {

@@ -42,6 +42,7 @@ UTEST_F_SETUP( Buffer )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
     if ( !g_captureActive )
     {
         vhCaptureStart();

@@ -33,6 +33,7 @@ UTEST_F_SETUP( Bindless )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
     if ( !g_captureActive )
     {
         vhCaptureStart();
@@ -156,8 +157,33 @@ UTEST_F( Bindless, Supported )
     EXPECT_GT( g_vhDeviceInfo.maxBindlessSamplers,       0u );
     EXPECT_GT( g_vhDeviceInfo.maxBoundDescriptorSets,    0u );
     EXPECT_GT( g_vhDeviceInfo.maxPerStageResources,      0u );
-    EXPECT_TRUE( g_vhDeviceInfo.bindlessUpdateAfterBind & VRHI_UAB_SAMPLED_IMAGE );
-    EXPECT_GT( g_vhDeviceInfo.maxBindlessSampledImagesUAB, 0u );
+    if ( g_vhInit.useMetal )
+    {
+        EXPECT_EQ( g_vhDeviceInfo.bindlessUpdateAfterBind, 0u );
+        EXPECT_EQ( g_vhDeviceInfo.maxBindlessSampledImagesUAB, 0u );
+        EXPECT_EQ( g_vhDeviceInfo.maxBindlessStorageImagesUAB, 0u );
+        EXPECT_EQ( g_vhDeviceInfo.maxBindlessStorageBuffersUAB, 0u );
+        EXPECT_EQ( g_vhDeviceInfo.maxBindlessUniformBuffersUAB, 0u );
+        EXPECT_EQ( g_vhDeviceInfo.maxBindlessSamplersUAB, 0u );
+    }
+    else
+    {
+        EXPECT_TRUE( g_vhDeviceInfo.bindlessUpdateAfterBind & VRHI_UAB_SAMPLED_IMAGE );
+        EXPECT_GT( g_vhDeviceInfo.maxBindlessSampledImagesUAB, 0u );
+    }
+}
+
+UTEST_F( Bindless, MetalRejectsUpdateAfterBind )
+{
+    if ( g_vhInit.nullMode || !g_vhInit.useMetal ) UTEST_SKIP( "Requires native Metal" );
+    TestLogCapture logs;
+    vhDescriptorTable table = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 4, 0, true );
+    vhFlush( true );
+    EXPECT_TRUE( vhGetDescriptorTableNvrhiHandle( table ) == nullptr );
+    EXPECT_EQ( logs.ErrorCount(), 1 );
+    EXPECT_TRUE( logs.Contains( "update-after-bind requested but unsupported" ) );
+    vhDestroyDescriptorTable( table );
+    vhFinish();
 }
 
 
@@ -179,6 +205,7 @@ UTEST_F( Bindless, Create_BasicTable )
 {
     vhDescriptorTable t = vhAllocDescriptorTable();
     nvrhi::BindlessLayoutDesc desc;
+    desc.updateAfterBind = false;
     desc.visibility = nvrhi::ShaderType::All;
     desc.maxCapacity = 16;
     desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -200,6 +227,7 @@ UTEST_F( Bindless, NvrhiHandles_Returned )
 {
     vhDescriptorTable t = vhAllocDescriptorTable();
     nvrhi::BindlessLayoutDesc desc;
+    desc.updateAfterBind = false;
     desc.visibility = nvrhi::ShaderType::All;
     desc.maxCapacity = 4;
     desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -307,6 +335,7 @@ UTEST_F( Bindless, Texture_SRV_Index0 )
 
     vhDescriptorTable t = vhAllocDescriptorTable();
     nvrhi::BindlessLayoutDesc desc;
+    desc.updateAfterBind = false;
     desc.visibility = nvrhi::ShaderType::All;
     desc.maxCapacity = 4;
     desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -333,6 +362,7 @@ UTEST_F( Bindless, Clear_SetsNullDescriptor )
 
     vhDescriptorTable t = vhAllocDescriptorTable();
     nvrhi::BindlessLayoutDesc desc;
+    desc.updateAfterBind = false;
     desc.visibility = nvrhi::ShaderType::All;
     desc.maxCapacity = 4;
     desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -1032,6 +1062,7 @@ UTEST_F( Bindless, MultipleResourceTypes )
     vhDescriptorTable texTable = vhAllocDescriptorTable();
     {
         nvrhi::BindlessLayoutDesc desc;
+        desc.updateAfterBind = false;
         desc.visibility = nvrhi::ShaderType::All;
         desc.maxCapacity = 8;
         desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -1041,6 +1072,7 @@ UTEST_F( Bindless, MultipleResourceTypes )
     vhDescriptorTable bufTable = vhAllocDescriptorTable();
     {
         nvrhi::BindlessLayoutDesc desc;
+        desc.updateAfterBind = false;
         desc.visibility = nvrhi::ShaderType::All;
         desc.maxCapacity = 8;
         desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::StructuredBuffer_SRV( 0 ) );
@@ -1494,6 +1526,7 @@ UTEST_F( Bindless, PipelinedOrdering_NoFinish )
     // Enqueue all allocations and creation without intermediate vhFinish
     vhDescriptorTable t = vhAllocDescriptorTable();
     nvrhi::BindlessLayoutDesc desc;
+    desc.updateAfterBind = false;
     desc.visibility = nvrhi::ShaderType::All;
     desc.maxCapacity = 4;
     desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -2222,6 +2255,7 @@ UTEST_F( Bindless, MixedSpaces_OneTable_OrdinalBinding )
 
     vhDescriptorTable t = vhAllocDescriptorTable();
     nvrhi::BindlessLayoutDesc desc;
+    desc.updateAfterBind = false;
     desc.visibility = nvrhi::ShaderType::All;
     desc.maxCapacity = 4;
     desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -3107,6 +3141,7 @@ UTEST_F( Bindless, RecreateTable_SameHandle_NewCapacity )
     vhDescriptorTable t = vhAllocDescriptorTable();
 
     nvrhi::BindlessLayoutDesc desc1;
+    desc1.updateAfterBind = false;
     desc1.visibility = nvrhi::ShaderType::All;
     desc1.maxCapacity = 8;
     desc1.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
@@ -3116,6 +3151,7 @@ UTEST_F( Bindless, RecreateTable_SameHandle_NewCapacity )
 
     // Recreate table on same handle with capacity 16
     nvrhi::BindlessLayoutDesc desc2;
+    desc2.updateAfterBind = false;
     desc2.visibility = nvrhi::ShaderType::All;
     desc2.maxCapacity = 16;
     desc2.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );

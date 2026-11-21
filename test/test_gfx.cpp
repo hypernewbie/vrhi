@@ -328,6 +328,7 @@ UTEST_F_SETUP( Graphics )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
     if ( !g_captureActive )
     {
         vhCaptureStart();
@@ -4590,6 +4591,7 @@ UTEST_F( Graphics, P04_DescriptorTableRecreateSameID_InvalidatesCachedPipeline )
         auto oldLayout = vhGetDescriptorTableLayoutNvrhiHandle( table );
         nvrhi::BindlessLayoutDesc desc;
         desc.visibility = nvrhi::ShaderType::All;
+        desc.updateAfterBind = false;
         desc.maxCapacity = 8;
         desc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
         vhCreateDescriptorTable( table, desc );

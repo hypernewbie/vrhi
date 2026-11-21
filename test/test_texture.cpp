@@ -44,6 +44,7 @@ UTEST_F_SETUP( Texture )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
 
     if ( !g_captureActive )
     {

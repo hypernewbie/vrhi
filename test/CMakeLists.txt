@@ -20,6 +20,18 @@ else()
     # GCC or other: no special options needed
 endif()
 
+# VRHI Package path (passed from driver script)
+if(NOT VRHI_PACKAGE_PATH)
+    message(FATAL_ERROR "VRHI_PACKAGE_PATH not specified")
+endif()
+
+# Combined release archives use _d on the Debug dependency libraries.
+set(VRHI_DEP_SUFFIX "")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND
+    (EXISTS "${VRHI_PACKAGE_PATH}/lib/libnvrhi_d.a" OR EXISTS "${VRHI_PACKAGE_PATH}/lib/nvrhi_d.lib"))
+    set(VRHI_DEP_SUFFIX "_d")
+endif()
+
 # Find Vulkan
 if(DEFINED ENV{VULKAN_SDK})
     set(Vulkan_ROOT $ENV{VULKAN_SDK})
@@ -28,12 +40,12 @@ find_package(Vulkan REQUIRED)
 
 # Find SPIRV-Tools for the package test
 get_filename_component( VULKAN_LIB_DIR_PKG "${Vulkan_LIBRARY}" DIRECTORY )
-find_library( SPIRV_TOOLS_OPT_PKG NAMES SPIRV-Tools-opt 
+find_library( SPIRV_TOOLS_OPT_PKG NAMES SPIRV-Tools-opt${VRHI_DEP_SUFFIX}
     HINTS 
         "${VRHI_PACKAGE_PATH}/lib"
         "${VULKAN_LIB_DIR_PKG}" 
 )
-find_library( SPIRV_TOOLS_PKG NAMES SPIRV-Tools 
+find_library( SPIRV_TOOLS_PKG NAMES SPIRV-Tools${VRHI_DEP_SUFFIX}
     HINTS 
         "${VRHI_PACKAGE_PATH}/lib"
         "${VULKAN_LIB_DIR_PKG}" 
@@ -60,11 +72,6 @@ if(NOT SLANG_INCLUDE_DIR OR NOT SLANG_LIBRARY)
     message(FATAL_ERROR "Slang not found. Package validation requires Slang from Vulkan SDK or package.")
 endif()
 
-# VRHI Package path (passed from driver script)
-if(NOT VRHI_PACKAGE_PATH)
-    message(FATAL_ERROR "VRHI_PACKAGE_PATH not specified")
-endif()
-
 # Main executable
 add_executable(test_package_exe test_package.cpp)
 
@@ -81,16 +88,16 @@ target_link_directories(test_package_exe PRIVATE
 
 # Link libraries
 set(VRHI_LIBRARY_NAME vrhi)
-if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(VRHI_LIBRARY_NAME vrhid)
 endif()
 
 target_link_libraries(test_package_exe PRIVATE
     ${VRHI_LIBRARY_NAME}
-    nvrhi_vk
-    nvrhi
-    vk-bootstrap
-    rtxmu
+    nvrhi_vk${VRHI_DEP_SUFFIX}
+    nvrhi${VRHI_DEP_SUFFIX}
+    vk-bootstrap${VRHI_DEP_SUFFIX}
+    rtxmu${VRHI_DEP_SUFFIX}
     ${SLANG_LIBRARY}
     Vulkan::Vulkan
     ${SPIRV_TOOLS_OPT_PKG}
@@ -111,10 +118,10 @@ elseif(APPLE)
         "-framework AppKit"
         "-framework QuartzCore"
         "-framework Metal"
-        nvrhi_metal
-        spirv-cross-msl
-        spirv-cross-glsl
-        spirv-cross-core
+        nvrhi_metal${VRHI_DEP_SUFFIX}
+        spirv-cross-msl${VRHI_DEP_SUFFIX}
+        spirv-cross-glsl${VRHI_DEP_SUFFIX}
+        spirv-cross-core${VRHI_DEP_SUFFIX}
     )
 else()
     # Linux

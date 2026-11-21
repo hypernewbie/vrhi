@@ -786,6 +786,7 @@ UTEST_F_SETUP( FrameBench )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Frame benchmarks require a real device" ); } // per-test bodies skip on null device
     if ( !g_testInit ) { vhInit( g_testInitQuiet ); g_testInit = true; }
+    ASSERT_TRUE( TestVerifyBackend() );
     const char* gc = getenv( "VRHI_BENCH_GC_INTERVAL" );
     if ( gc && atoi( gc ) > 0 ) g_vhInit.gcFlushInterval = ( uint32_t ) atoi( gc );
     vhBeginMarker( utest_test_name );

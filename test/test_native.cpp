@@ -33,6 +33,7 @@ UTEST_F_SETUP( Native )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
     if ( !g_captureActive )
     {
         vhCaptureStart();
@@ -147,6 +148,60 @@ UTEST_F( Native, BracketAndRebaseline )
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+}
+
+UTEST_F( Native, MetalRejectsVulkanCallback )
+{
+    if ( g_vhInit.nullMode || !g_vhInit.useMetal ) UTEST_SKIP( "Requires native Metal" );
+
+    const char* source = R"(
+        [[vk::image_format("rgba8")]] RWTexture2D<float4> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [numthreads(8, 8, 1)]
+        void main(uint3 id : SV_DispatchThreadID) { g_Out[id.xy] = float4(0.25, 0.5, 0.75, 1.0); }
+    )";
+    std::vector< uint32_t > spirv;
+    std::string error;
+    ASSERT_TRUE( vhCompileShader( "CS_NativeMetalReject", source,
+        VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ) );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_NativeMetalReject", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhTexture output = vhAllocTexture();
+    vhCreateTexture2D( output, "NativeMetalReject", { 8, 8 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    state.SetTexture( 0, { .name = "g_Out", .texture = output, .formatOverride = nvrhi::Format::RGBA8_UNORM, .computeUAV = true } );
+    const vhStateId sid = 80001;
+    vhSetState( sid, state );
+    vhFlush( true );
+
+    TestLogCapture logs;
+    int calls = 0;
+    vhExecuteNative( []( const vhNativeContext&, vhNativeResource*, uint32_t, void* user )
+    {
+        ++*( int* ) user;
+    }, &calls, 0, { { .texture = output, .stateBefore = nvrhi::ResourceStates::UnorderedAccess, .stateAfter = nvrhi::ResourceStates::UnorderedAccess } } );
+    vhDispatch( sid, { 1, 1, 1 } );
+    vhMem pixels;
+    vhReadTextureSlow( output, 0, 0, &pixels );
+    vhFinish();
+
+    EXPECT_EQ( calls, 0 );
+    EXPECT_EQ( logs.ErrorCount(), 1 );
+    EXPECT_TRUE( logs.Contains( "vhExecuteNative() requires the Vulkan backend" ) );
+    ASSERT_EQ( pixels.size(), size_t( 8 * 8 * 4 ) );
+    for ( size_t i = 0; i < pixels.size(); i += 4 )
+    {
+        EXPECT_NEAR( int( pixels[i] ), 64, 1 );
+        EXPECT_NEAR( int( pixels[i + 1] ), 128, 1 );
+        EXPECT_NEAR( int( pixels[i + 2] ), 191, 1 );
+        EXPECT_EQ( pixels[i + 3], 255 );
+    }
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyTexture( output );
+    vhDestroyShader( cs );
+    vhFinish();
 }
 
 UTEST_F( Native, DeviceLock )

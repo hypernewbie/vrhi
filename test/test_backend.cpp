@@ -2671,10 +2671,7 @@ UTEST( Backend, OrderedAliasActivation )
     }
 
 #if defined(__APPLE__)
-    // The three colour textures alias one heap offset with different extents. MoltenVK
-    // refuses to bind the larger one, and the native Metal backend binds it but the
-    // alias activation does not produce the expected content.
-    UTEST_SKIP( "Aliased textures with different extents are not qualified on macOS" );
+    if ( !g_vhInit.useMetal ) UTEST_SKIP( "MoltenVK cannot bind these aliased textures with different extents" );
 #endif
 
     const int32_t startErrors = g_vhErrorCounter.load();
@@ -2709,6 +2706,12 @@ UTEST( Backend, OrderedAliasActivation )
     ASSERT_GT( depthAlignment, 0ull );
     const uint64_t depthOffset = VRHI_ROUND_UP( colorMax, depthAlignment );
     const uint64_t heapSize = depthOffset + std::max( reqDepth.x, reqDepthB.x );
+    if ( g_vhInit.useMetal )
+        printf( "OrderedAliasActivation: heap=%llu, colour offset=0, depth offset=%llu; requirements small=%llu/%llu large=%llu/%llu buddy=%llu/%llu depth=%llu/%llu depthSmall=%llu/%llu\n",
+            ( unsigned long long ) heapSize, ( unsigned long long ) depthOffset,
+            ( unsigned long long ) reqSmall.x, ( unsigned long long ) reqSmall.y, ( unsigned long long ) reqLarge.x, ( unsigned long long ) reqLarge.y,
+            ( unsigned long long ) reqBuddy.x, ( unsigned long long ) reqBuddy.y, ( unsigned long long ) reqDepth.x, ( unsigned long long ) reqDepth.y,
+            ( unsigned long long ) reqDepthB.x, ( unsigned long long ) reqDepthB.y );
 
     vhHeap heap = vhAllocHeap();
     ASSERT_TRUE( vhCreateHeap( heap, heapSize, "OrderedAliasHeap" ) );
@@ -2867,10 +2870,13 @@ UTEST( Backend, OrderedAliasActivation )
 
     bool nativeSawImage = false;
     vhActivateTextureAliases( { { texLarge, nvrhi::ResourceStates::UnorderedAccess } } );
-    vhExecuteNative( []( const vhNativeContext& ctx, vhNativeResource* resources, uint32_t count, void* user )
+    if ( !g_vhInit.useMetal )
     {
-        *( bool* ) user = ctx.cmdbuf != VK_NULL_HANDLE && count == 1 && resources[0].image != VK_NULL_HANDLE && resources[0].width == 128;
-    }, &nativeSawImage, 0, { { .texture = texLarge, .stateBefore = nvrhi::ResourceStates::UnorderedAccess, .stateAfter = nvrhi::ResourceStates::UnorderedAccess } } );
+        vhExecuteNative( []( const vhNativeContext& ctx, vhNativeResource* resources, uint32_t count, void* user )
+        {
+            *( bool* ) user = ctx.cmdbuf != VK_NULL_HANDLE && count == 1 && resources[0].image != VK_NULL_HANDLE && resources[0].width == 128;
+        }, &nativeSawImage, 0, { { .texture = texLarge, .stateBefore = nvrhi::ResourceStates::UnorderedAccess, .stateAfter = nvrhi::ResourceStates::UnorderedAccess } } );
+    }
     DispatchFill( texLarge, 128, { 0.0f, 0.0f, 1.0f, 1.0f }, sidComp );
     vhBlitTexture( snap2, texLarge );
 
@@ -2962,11 +2968,15 @@ UTEST( Backend, OrderedAliasActivation )
     vhReadTextureSlow( snap5, 0, 0, &d5 );
     vhFinish();
 
-    auto CheckPixel = [&]( const vhMem& m, uint8_t er, uint8_t eg, uint8_t eb )
+    auto CheckPixel = [&]( const char* name, size_t width, const vhMem& m, uint8_t er, uint8_t eg, uint8_t eb )
     {
         ASSERT_GE( m.size(), size_t( 4 ) );
         for ( size_t i = 0; i < m.size(); i += 4 )
         {
+            if ( std::abs( int( m[i] ) - int( er ) ) > 10 || std::abs( int( m[i + 1] ) - int( eg ) ) > 10 ||
+                 std::abs( int( m[i + 2] ) - int( eb ) ) > 10 || m[i + 3] <= 240 )
+                printf( "%s pixel (%zu,%zu): expected (%u,%u,%u,255), got (%u,%u,%u,%u)\n", name,
+                    ( i / 4 ) % width, ( i / 4 ) / width, er, eg, eb, m[i], m[i + 1], m[i + 2], m[i + 3] );
             ASSERT_NEAR( int( m[i] ), int( er ), 10 );
             ASSERT_NEAR( int( m[i + 1] ), int( eg ), 10 );
             ASSERT_NEAR( int( m[i + 2] ), int( eb ), 10 );
@@ -2974,14 +2984,14 @@ UTEST( Backend, OrderedAliasActivation )
         }
     };
 
-    CheckPixel( d1, 0, 255, 0 );
-    CheckPixel( d2, 0, 0, 255 );
-    CheckPixel( d3, 255, 0, 0 );
-    CheckPixel( d3b, 255, 0, 0 );
-    CheckPixel( d4, 255, 0, 0 );
-    CheckPixel( d5, 0, 255, 255 );
-    for ( const auto& result : depthResults ) CheckPixel( result, 255, 0, 0 );
-    EXPECT_TRUE( nativeSawImage );
+    CheckPixel( "snap1", 32, d1, 0, 255, 0 );
+    CheckPixel( "snap2", 128, d2, 0, 0, 255 );
+    CheckPixel( "snap3", 32, d3, 255, 0, 0 );
+    CheckPixel( "snap3b", 32, d3b, 255, 0, 0 );
+    CheckPixel( "snap4", 64, d4, 255, 0, 0 );
+    CheckPixel( "snap5", 128, d5, 0, 255, 255 );
+    for ( int i = 0; i < 3; ++i ) CheckPixel( "depthSnapshot", depthDimensions[i], depthResults[i], 255, 0, 0 );
+    if ( !g_vhInit.useMetal ) EXPECT_TRUE( nativeSawImage );
 
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
@@ -4763,6 +4773,7 @@ UTEST( Backend, PipelineHashesIncludeBindlessLayoutIdentity )
     vhFinish();
     nvrhi::BindlessLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.updateAfterBind = false;
     layoutDesc.maxCapacity = 4;
     layoutDesc.registerSpaces.push_back( nvrhi::BindingLayoutItem::Texture_SRV( 0 ) );
     nvrhi::BindingLayoutHandle a, b;

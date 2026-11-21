@@ -14,11 +14,22 @@ if(NOT SOURCE_DIR)
     message(FATAL_ERROR "SOURCE_DIR not specified")
 endif()
 
-# File paths
-set(PACKAGE_PATH "${BINARY_DIR}/vrhi_${CONFIG}")
-set(TEST_BUILD_DIR "${BINARY_DIR}/test_pkg_build_${CONFIG}")
-
-file(MAKE_DIRECTORY "${TEST_BUILD_DIR}")
+# Use an explicit package when provided, otherwise test the staging directory.
+if(NOT PACKAGE_PATH AND DEFINED ENV{VRHI_PACKAGE_PATH} AND NOT "$ENV{VRHI_PACKAGE_PATH}" STREQUAL "")
+    set(PACKAGE_PATH "$ENV{VRHI_PACKAGE_PATH}")
+endif()
+if(NOT PACKAGE_PATH)
+    set(PACKAGE_PATH "${BINARY_DIR}/vrhi_${CONFIG}")
+endif()
+get_filename_component(PACKAGE_PATH "${PACKAGE_PATH}" ABSOLUTE)
+if(NOT TEST_ROOT)
+    set(TEST_ROOT "${BINARY_DIR}/test_pkg_external_${CONFIG}")
+endif()
+set(TEST_SOURCE_DIR "${TEST_ROOT}/source")
+set(TEST_BUILD_DIR "${TEST_ROOT}/build")
+file(MAKE_DIRECTORY "${TEST_SOURCE_DIR}")
+file(COPY "${SOURCE_DIR}/test/CMakeLists.txt" "${SOURCE_DIR}/test/test_package.cpp"
+    "${SOURCE_DIR}/test/package_smoke.spv" DESTINATION "${TEST_SOURCE_DIR}")
 
 # Check package exists
 if(NOT EXISTS "${PACKAGE_PATH}/include/vrhi.h")
@@ -37,7 +48,7 @@ endif()
 
 # Build cmake configure command with optional generator/compiler passthrough
 set(CONFIGURE_ARGS
-    -S "${SOURCE_DIR}/test"
+    -S "${TEST_SOURCE_DIR}"
     -B "${TEST_BUILD_DIR}"
     -DVRHI_PACKAGE_PATH:PATH=${PACKAGE_PATH}
     -DCMAKE_BUILD_TYPE:STRING=${CONFIG}
@@ -111,35 +122,34 @@ if(NOT EXISTS "${TEST_EXE}")
     message(FATAL_ERROR "[test_package] Test executable not found: ${TEST_EXE}")
 endif()
 
-# Set library path for shared libs (slang, slang-rt) on Unix
+# Do not use build-tree library paths when testing the package.
 if(APPLE)
-    set(ENV{DYLD_LIBRARY_PATH} "${PACKAGE_PATH}/lib:$ENV{DYLD_LIBRARY_PATH}")
+    set(ENV{DYLD_LIBRARY_PATH} "${PACKAGE_PATH}/lib")
 elseif(UNIX)
-    set(ENV{LD_LIBRARY_PATH} "${PACKAGE_PATH}/lib:$ENV{LD_LIBRARY_PATH}")
+    set(ENV{LD_LIBRARY_PATH} "${PACKAGE_PATH}/lib")
 endif()
 
 execute_process(
-    COMMAND "${TEST_EXE}"
+    COMMAND "${CMAKE_COMMAND}" -E env --unset=MTL_DEBUG_LAYER "${TEST_EXE}"
     RESULT_VARIABLE test_result
-    OUTPUT_QUIET
-    ERROR_QUIET
+    OUTPUT_VARIABLE test_output
+    ERROR_VARIABLE test_error
 )
+if(NOT "${test_result}" STREQUAL "0")
+    message(FATAL_ERROR "[test_package] Vulkan test failed (${test_result}):\n${test_output}\n${test_error}")
+endif()
+message(STATUS "[test_package] Vulkan PASSED for ${CONFIG}")
 
-# ========= Step 4: Report results =========
-if(test_result EQUAL 0)
-    message(STATUS "[test_package] PASSED for ${CONFIG}")
-else()
-    if(test_result EQUAL 1)
-        set(ERROR_DESC "vhInit failed")
-    elseif(test_result EQUAL 2)
-        set(ERROR_DESC "Buffer test failed")
-    elseif(test_result EQUAL 3)
-        set(ERROR_DESC "Texture test failed")
-    elseif(test_result EQUAL 4)
-        set(ERROR_DESC "Shader compilation failed")
-    else()
-        set(ERROR_DESC "Unknown error (exit ${test_result})")
+if(APPLE)
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_DEBUG_LAYER=1 "${TEST_EXE}"
+            --backend=metal "${TEST_SOURCE_DIR}/package_smoke.spv"
+        RESULT_VARIABLE metal_result
+        OUTPUT_VARIABLE metal_output
+        ERROR_VARIABLE metal_error
+    )
+    if(NOT "${metal_result}" STREQUAL "0")
+        message(FATAL_ERROR "[test_package] Metal test failed (${metal_result}):\n${metal_output}\n${metal_error}")
     endif()
-    
-    message(FATAL_ERROR "[test_package] FAILED for ${CONFIG}: ${ERROR_DESC}")
+    message(STATUS "[test_package] Metal dispatch PASSED for ${CONFIG}")
 endif()

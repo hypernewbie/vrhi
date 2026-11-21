@@ -514,6 +514,11 @@ endif()
          target_compile_definitions(${target} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
          target_link_libraries(${target} PRIVATE ${NVRHI_LIBS})
      elseif(APPLE)
+         # The libraries are found with -l flags, so Ninja otherwise misses archive updates.
+         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
+             "${VRHI_LIB_DIR}/libnvrhi.a"
+             "${VRHI_LIB_DIR}/libnvrhi_vk.a"
+             "${VRHI_LIB_DIR}/libnvrhi_metal.a")
          target_link_libraries(${target} PRIVATE
              "-framework CoreFoundation"
              "-framework CoreGraphics"
@@ -536,6 +541,13 @@ endif()
      # -----------------------------------------------------------------------------
      enable_testing()
      add_test(NAME vrhi_test COMMAND vrhi_test)
+     if(APPLE AND Python3_Interpreter_FOUND)
+         add_test(NAME vrhi_test_metal
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/run_metal_ci.py" $<TARGET_FILE:vrhi_test>)
+         set_tests_properties(vrhi_test_metal PROPERTIES
+             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+             ENVIRONMENT "MTL_DEBUG_LAYER=1" LABELS "metal;headless" TIMEOUT 1800)
+     endif()
      if( VDEPS_SANITIZE_ACTIVE )
          set( _vh_test_env
              "ASAN_OPTIONS=halt_on_error=0"

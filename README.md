@@ -345,7 +345,6 @@
  ### What's missing?
  
  Lots:
- * Bindless support
  * VR support
  * VRS
  * Async Compute

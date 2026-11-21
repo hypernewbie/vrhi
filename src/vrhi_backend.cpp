@@ -3825,6 +3825,12 @@ void vhCmdBackendState::Handle_vhExecuteNative( VIDL_vhExecuteNative* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
 
+    if ( g_vhMetalDevice )
+    {
+        VRHI_ERR( "vhExecuteNative() requires the Vulkan backend\n" );
+        return;
+    }
+
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
     auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
 

@@ -39,6 +39,7 @@
 extern bool g_captureActive;
 extern bool g_testInit;
 extern struct vhInitData g_testInitDefaults;
+bool TestVerifyBackend();
 void TestEnsureShutdown();
 void TestShutdownWindowSystem();
 

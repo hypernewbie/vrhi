@@ -354,16 +354,10 @@ void vhInit( bool quiet )
         g_vhDeviceInfo.maxBindlessStorageBuffers    = 31;
         g_vhDeviceInfo.maxBindlessUniformBuffers    = 31;
         g_vhDeviceInfo.maxBindlessSamplers          = 16;
-        g_vhDeviceInfo.maxBoundDescriptorSets       = 8;
+        g_vhDeviceInfo.maxBoundDescriptorSets       = 1;
         g_vhDeviceInfo.maxPerStageResources         = 128;
-        g_vhDeviceInfo.bindlessUpdateAfterBind      = VRHI_UAB_SAMPLED_IMAGE | VRHI_UAB_STORAGE_IMAGE |
-            VRHI_UAB_STORAGE_BUFFER | VRHI_UAB_UNIFORM_BUFFER | VRHI_UAB_UNIFORM_TEXEL_BUFFER |
-            VRHI_UAB_STORAGE_TEXEL_BUFFER | VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
-        g_vhDeviceInfo.maxBindlessSampledImagesUAB  = g_vhDeviceInfo.maxBindlessSampledImages;
-        g_vhDeviceInfo.maxBindlessStorageImagesUAB  = g_vhDeviceInfo.maxBindlessStorageImages;
-        g_vhDeviceInfo.maxBindlessStorageBuffersUAB = g_vhDeviceInfo.maxBindlessStorageBuffers;
-        g_vhDeviceInfo.maxBindlessUniformBuffersUAB = g_vhDeviceInfo.maxBindlessUniformBuffers;
-        g_vhDeviceInfo.maxBindlessSamplersUAB       = g_vhDeviceInfo.maxBindlessSamplers;
+        // Classic Metal bindings snapshot descriptors during recording.
+        // Update-after-bind is not supported; its mask and limits remain zero.
 
         g_vhDeviceInfo.maxTextureSize      = 16384;
         g_vhDeviceInfo.maxColorAttachments = 8;

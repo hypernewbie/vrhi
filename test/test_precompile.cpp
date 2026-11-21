@@ -178,6 +178,7 @@ UTEST_F_SETUP( Precompile_Compute )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
     if ( !g_captureActive )
     {
         vhCaptureStart();
@@ -198,6 +199,7 @@ UTEST_F_SETUP( Precompile_Graphics )
         vhInit( g_testInitQuiet );
         g_testInit = true;
     }
+    ASSERT_TRUE( TestVerifyBackend() );
     if ( !g_captureActive )
     {
         vhCaptureStart();
