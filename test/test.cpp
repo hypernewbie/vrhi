@@ -61,6 +61,7 @@ bool g_testInitQuiet = true;
 bool g_captureActive = false;
 
 vhInitData g_testInitDefaults;
+static bool g_testBackendChanged = false;
 
 void TestEnsureShutdown()
 {
@@ -79,6 +80,7 @@ void TestEnsureShutdown()
             printf( "TestEnsureShutdown(): the backend changed from %s to %s\n",
                 g_testInitDefaults.useMetal ? "Metal" : "Vulkan",
                 g_vhInit.useMetal ? "Metal" : "Vulkan" );
+            g_testBackendChanged = true;
             g_vhErrorCounter++;
         }
 
@@ -209,5 +211,5 @@ int main( int argc, const char* const argv[] )
     int result = utest_main( argc, argv );
     TestEnsureShutdown();
     TestShutdownWindowSystem();
-    return result;
+    return result != 0 || g_testBackendChanged ? 1 : 0;
 }
