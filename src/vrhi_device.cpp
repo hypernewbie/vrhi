@@ -347,7 +347,7 @@ void vhInit( bool quiet )
         g_vhDeviceInfo.queues = "Graphics";
         g_vhDeviceInfo.summary = "Native Metal backend";
 
-        // Descriptor arrays share the stage's argument slots with regular bindings.
+        // Conservative limits also cover devices using classic Metal bindings.
         g_vhDeviceInfo.bindless                     = true;
         g_vhDeviceInfo.maxBindlessSampledImages     = 96;
         g_vhDeviceInfo.maxBindlessStorageImages     = 96;
@@ -356,7 +356,7 @@ void vhInit( bool quiet )
         g_vhDeviceInfo.maxBindlessSamplers          = 16;
         g_vhDeviceInfo.maxBoundDescriptorSets       = 1;
         g_vhDeviceInfo.maxPerStageResources         = 128;
-        // Classic Metal bindings snapshot descriptors during recording.
+        // Metal bindings snapshot descriptors during recording.
         // Update-after-bind is not supported; its mask and limits remain zero.
 
         g_vhDeviceInfo.maxTextureSize      = 16384;
