@@ -19,8 +19,18 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+#if defined(__APPLE__)
+#include <vrhi_internal.h>
+#endif
 #include "test.h"
 #include "vrhi.h"
+
+#if defined(__APPLE__)
+namespace vrhi_test
+{
+    bool vhMetalHasArgumentBufferTier2( void* device );
+}
+#endif
 
 extern bool g_testInitQuiet;
 
@@ -2881,12 +2891,8 @@ UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
     vhFinish();
 }
 
-UTEST_F( Bindless, MaxCapacityTable_SparseSlots )
+static void TestBindlessSparseSlots( uint32_t maxCap, int* utest_result )
 {
-    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
-    if ( !vhBindlessRuntimeArraysSupported() ) UTEST_SKIP( "MoltenVK without Metal argument-buffer tier 2 cannot compile unsized descriptor arrays" );
-
-    uint32_t maxCap = std::min< uint32_t >( g_vhDeviceInfo.maxBindlessSampledImages, 256 );
     vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, maxCap );
 
     vhTexture tex0 = vhAllocTexture();
@@ -2971,6 +2977,25 @@ UTEST_F( Bindless, MaxCapacityTable_SparseSlots )
     vhDestroyShader( cs );
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
+}
+
+UTEST_F( Bindless, MaxCapacityTable_SparseSlots )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    if ( !vhBindlessRuntimeArraysSupported() ) UTEST_SKIP( "MoltenVK without Metal argument-buffer tier 2 cannot compile unsized descriptor arrays" );
+    TestBindlessSparseSlots( std::min< uint32_t >( g_vhDeviceInfo.maxBindlessSampledImages, 256 ), utest_result );
+}
+
+UTEST_F( Bindless, MetalLargeTableSparseSlots )
+{
+    if ( g_vhInit.nullMode || !g_vhInit.useMetal ) UTEST_SKIP( "Requires Metal" );
+#if defined(__APPLE__)
+    if ( !g_vhMetalDevice || !vrhi_test::vhMetalHasArgumentBufferTier2( g_vhMetalDevice->getNativeDevice().pointer ) )
+        UTEST_SKIP( "Requires Metal Tier 2 argument buffers" );
+    TestBindlessSparseSlots( 256, utest_result );
+#else
+    UTEST_SKIP( "Requires Metal" );
+#endif
 }
 
 UTEST_F( Bindless, Dispatch_MissingTableBinding )

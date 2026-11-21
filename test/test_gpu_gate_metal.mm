@@ -24,6 +24,13 @@
 namespace vrhi_test
 {
 
+bool vhMetalHasArgumentBufferTier2( void* device )
+{
+    if ( !device ) return false;
+    id< MTLDevice > metalDevice = ( __bridge id< MTLDevice > )device;
+    return metalDevice.argumentBuffersSupport == MTLArgumentBuffersTier2;
+}
+
 struct vhMetalGpuGate
 {
     id< MTLCommandQueue > queue = nil;

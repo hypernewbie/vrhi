@@ -36,6 +36,7 @@ ALLOWED_SKIPS_BY_REASON = {
         "Backend.TimerQueryBasic", "Backend.TimerQueryMultiple",
     },
     "VRS not supported on this device": {"Graphics.VRS_Smoke"},
+    "Requires Metal Tier 2 argument buffers": {"Bindless.MetalLargeTableSparseSlots"},
     "No sampled-image update-after-bind support": {"Bindless.UpdateAfterBind_WriteAcrossFrames"},
     "UAB sampled image unsupported": {
         "Bindless.UAB_IntraFrame_WriteBetweenDispatches", "Bindless.UAB_CrossFrame_NoFence",
