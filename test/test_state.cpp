@@ -942,6 +942,37 @@ UTEST_F( State, MissingFieldsCheck )
     vhSetState( id, s.DirtyAll() );
 }
 
+UTEST_F( State, BlendTargetsRoundTrip )
+{
+    const vhStateId id = 889;
+    vhState state;
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_BLEND_ALPHA )
+         .SetBlendTarget( 2, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ZERO, VRHI_STATE_BLEND_EQUATION_MAX );
+    vhSetState( id, state );
+    vhFlush();
+
+    vhState result;
+    ASSERT_TRUE( vhGetState( id, result ) );
+    EXPECT_EQ( result.stateFlags, state.stateFlags );
+    EXPECT_EQ( result.blendTargets, state.blendTargets );
+
+    state.DisableBlendTarget( 2 );
+    vhSetState( id, state );
+    vhFlush();
+    ASSERT_TRUE( vhGetState( id, result ) );
+    EXPECT_EQ( result.blendTargets, state.blendTargets );
+
+    state.ClearBlendTargets();
+    vhSetState( id, state );
+    vhFlush();
+    ASSERT_TRUE( vhGetState( id, result ) );
+    EXPECT_EQ( result.blendTargets, UINT64_MAX );
+    EXPECT_EQ( result.stateFlags, state.stateFlags );
+
+    vhState reset;
+    vhSetState( id, reset.DirtyAll() );
+}
+
 UTEST_F( State, HelperExpansion )
 {
     vhState state;

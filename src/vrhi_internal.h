@@ -735,7 +735,7 @@ bool vhBindingsEqual( const std::vector< vhState::AccelStructBinding >& current,
 void vhWriteStateToGlobalUniform( const vhState& state, vhGlobalUniform& out );
 void vhWriteStateToWorldUniform( const vhState& state, vhWorldUniform& out );
 nvrhi::PrimitiveType vhTranslatePrimitiveType( uint64_t stateFlags );
-nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags );
+nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags, uint64_t blendTargets = UINT64_MAX );
 nvrhi::DepthStencilState vhTranslateDepthStencilState( uint64_t stateFlags, uint64_t stencilState );
 nvrhi::RasterState vhTranslateRasterState( uint64_t stateFlags );
 nvrhi::VariableShadingRate vhTranslateShadingRate( uint32_t rate );

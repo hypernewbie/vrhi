@@ -2000,19 +2000,15 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
 // requires bytes for every mip: BE_UpdateTexture clamps its default range over
 // the whole chain).
 //
-// Deferred: GPU readback of the final tail is the broken part, and the upload
-// itself is believed correct. A later staging fix needs allocation bounds and
-// nonoverlapping aligned footprints, which this one test does not establish.
+// Deferred on Vulkan: GPU readback of the final tail is the broken part, and
+// the upload itself is believed correct. A staging fix needs allocation bounds
+// and nonoverlapping aligned footprints, which this test does not establish.
 UTEST_F( Texture, Upload_MipTailRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
-    // Reading the chain's tail triggers an NVRHI staging
-    // bug: computeCopyableFootprints sizes the staging buffer from the raw
-    // accumulated mip bytes (43) while the last mip's footprint sits at its
-    // 4-byte-aligned offset (44), so vkMapMemory(44,1) and the image-to-buffer
-    // copy overrun the 44-byte allocation. Upload itself is correct; the
-    // readback path cannot observe the tail until the vendored fix lands.
-    UTEST_SKIP( "mip-tail readback overruns NVRHI staging allocation" );
+    // Vulkan's aligned last mip starts at byte 44, but
+    // computeCopyableFootprints allocates 44 bytes, so readback overruns it.
+    if ( !g_vhInit.useMetal ) UTEST_SKIP( "Vulkan mip-tail readback overruns staging allocation" );
     const int32_t startErrors = g_vhErrorCounter.load();
     vhTexture miptex = vhAllocTexture();
     constexpr int W = 8, H = 4, MIP = 4;

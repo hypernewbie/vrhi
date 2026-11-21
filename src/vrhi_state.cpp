@@ -65,6 +65,11 @@ void vhCmdSetStateFlags( vhStateId id, uint64_t flags )
     vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateFlags >( id, flags ) );
 }
 
+void vhCmdSetStateBlendTargets( vhStateId id, uint64_t targets )
+{
+    vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateBlendTargets >( id, targets ) );
+}
+
 void vhCmdSetStateDebugFlags( vhStateId id, uint64_t flags )
 {
     vhCmdEnqueue( vhCmdAlloc< VIDL_vhCmdSetStateDebugFlags >( id, flags ) );
@@ -195,6 +200,7 @@ bool vhSetState( vhStateId id, vhState& state, uint64_t dirtyForceMask )
     if ( dirty & VRHI_DIRTY_PIPELINE )
     {
         vhCmdSetStateFlags( id, state.stateFlags );
+        vhCmdSetStateBlendTargets( id, state.blendTargets );
         vhCmdSetStateDebugFlags( id, state.debugFlags );
         vhCmdSetStateStencil( id, state.stencilState );
     }
@@ -407,7 +413,7 @@ size_t vhPushConstantSize( const std::vector< vhPushConstantRange >& ranges )
     return s;
 }
 
-nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
+nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags, uint64_t blendTargets )
 {
     nvrhi::BlendState blendState;
 
@@ -478,13 +484,20 @@ nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
         blendState.targets[i] = blendState.targets[0];
     }
 
-    // Independent per-RT blend: 11 bits per slot in stateFlags (4 src factor, 4 dst factor, 3 equation).
-    if ( stateFlags & VRHI_STATE_BLEND_INDEPENDENT )
+    // Explicit targets use 11 bits each, with presence bits starting at bit 33.
+    const bool separate = blendTargets != UINT64_MAX;
+    if ( separate || ( stateFlags & VRHI_STATE_BLEND_INDEPENDENT ) )
     {
+        uint64_t targetFlags = separate ? blendTargets : stateFlags;
         for ( int i = 0; i < 3; i++ )
         {
-            uint32_t bits = ( uint32_t ) ( ( stateFlags >> ( i * 11 ) ) & 0x7FFu );
-            if ( bits == 0 ) continue;
+            uint32_t bits = ( uint32_t )( ( targetFlags >> ( i * 11 ) ) & 0x7FFu );
+            if ( separate && !( targetFlags & ( UINT64_C( 1 ) << ( 33 + i ) ) ) ) continue;
+            if ( !bits )
+            {
+                if ( separate ) blendState.targets[i].blendEnable = false;
+                continue;
+            }
             uint32_t srcF = ( bits >> 0 ) & 0xF;
             uint32_t dstF = ( bits >> 4 ) & 0xF;
             uint32_t equ  = ( bits >> 8 ) & 0x7;
@@ -494,7 +507,7 @@ nvrhi::BlendState vhTranslateBlendState( uint64_t stateFlags )
             t.destBlend      = fnConvertBlendFactor( dstF );
             t.srcBlendAlpha  = fnConvertBlendFactor( srcF );
             t.destBlendAlpha = fnConvertBlendFactor( dstF );
-            if ( equ != 0 )
+            if ( separate || equ != 0 )
             {
                 t.blendOp      = fnConvertBlendOp( equ );
                 t.blendOpAlpha = fnConvertBlendOp( equ );

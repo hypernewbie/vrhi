@@ -1810,8 +1810,8 @@ UTEST_F( Buffer, Transient_ShutdownPartialMapping )
 UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
-    // Non-four-byte writes can overwrite adjacent bytes.
-    UTEST_SKIP( "non-4-byte writes overwrite trailing bytes" );
+    // Vulkan rounds the update size to four bytes and can overwrite adjacent bytes.
+    if ( !g_vhInit.useMetal ) UTEST_SKIP( "Vulkan non-4-byte writes overwrite trailing bytes" );
     const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int SIZE = 64;

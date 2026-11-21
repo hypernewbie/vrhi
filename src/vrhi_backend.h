@@ -412,6 +412,7 @@ public:
     void Handle_vhCmdSetStateViewTransform( VIDL_vhCmdSetStateViewTransform* cmd ) override;
     void Handle_vhCmdSetStateWorldTransform( VIDL_vhCmdSetStateWorldTransform* cmd ) override;
     void Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd ) override;
+    void Handle_vhCmdSetStateBlendTargets( VIDL_vhCmdSetStateBlendTargets* cmd ) override;
     void Handle_vhCmdSetStateDebugFlags( VIDL_vhCmdSetStateDebugFlags* cmd ) override;
     void Handle_vhCmdSetStateStencil( VIDL_vhCmdSetStateStencil* cmd ) override;
     void Handle_vhCmdSetStateDepthBias( VIDL_vhCmdSetStateDepthBias* cmd ) override;

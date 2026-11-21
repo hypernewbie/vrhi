@@ -3506,15 +3506,13 @@ PSOut main( float4 col : COLOUR ) { PSOut o; o.t0 = col; o.t1 = col; return o; }
     }
 
     // RT0: additive (src+dst). RT1: multiply (src*dst). Source: (0.5,0,0,1).
-    uint64_t blendBits = VRHI_STATE_BLEND_INDEPENDENT
-        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_1( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE )
-        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_2( VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO );
-
     vhState state;
     state.SetColourAttachment( 0, rt0 ).SetColourAttachment( 1, rt1 )
          .SetViewRect( glm::vec4( 0,0,64,64 ) )
          .SetViewClear( 0, glm::vec4( 0 ) )
-         .SetStateFlags( VRHI_STATE_WRITE_MASK | blendBits )
+         .SetBlendTarget( 0, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE )
+         .SetBlendTarget( 1, VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_BLEND_FUNC( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ZERO ) )
          .SetVertexBuffer( vb, 0 ).SetProgram( vhCreateGfxProgram( vs, ps ) );
 
     vhStateId sid = 1720;
@@ -3533,6 +3531,19 @@ PSOut main( float4 col : COLOUR ) { PSOut o; o.t0 = col; o.t1 = col; return o; }
     // RT0: black + additive(0.5,0,0,1) → R≈127
     EXPECT_TRUE( VerifyPixel( rt0, 32, 32, 0xFF00007F, 5 ) );
     // RT1: red * (0.5,0,0,1) → R≈127
+    EXPECT_TRUE( VerifyPixel( rt1, 32, 32, 0xFF00007F, 5 ) );
+
+    // Change only the target blend and draw again with the same state ID.
+    state.SetBlendTarget( 1, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE );
+    vhSetState( sid, state ); vhDraw( sid, 3 ); vhFinish();
+    EXPECT_TRUE( VerifyPixel( rt1, 32, 32, 0xFF0000FF, 5 ) );
+
+    state.DisableBlendTarget( 1 );
+    vhSetState( sid, state ); vhDraw( sid, 3 ); vhFinish();
+    EXPECT_TRUE( VerifyPixel( rt1, 32, 32, 0xFF00007F, 5 ) );
+
+    state.ClearBlendTargets();
+    vhSetState( sid, state ); vhDraw( sid, 3 ); vhFinish();
     EXPECT_TRUE( VerifyPixel( rt1, 32, 32, 0xFF00007F, 5 ) );
 
     vhDestroyTexture( rt0 ); vhDestroyTexture( rt1 );
@@ -6149,7 +6160,7 @@ UTEST_F( Graphics, IndirectCountNonzeroExecutes )
 
 // Check independent blend with different results for each target.
 // Three targets seeded with different RGBA patterns are blended with add,
-// multiply, and reverse-subtract respectively. Each MRT slot writes a distinct
+// multiply, and reverse-subtract or maximum respectively. Each MRT slot writes a distinct
 // source colour, so slot routing and per-slot blend descriptors are checked
 // per channel. Every channel (alpha included — per-RT factors mirror into
 // alpha) is compared against an independent CPU blend model over the whole
@@ -6161,8 +6172,6 @@ UTEST_F( Graphics, IndependentBlendUnequalTargets )
 #if defined(__APPLE__)
     if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Independent blend PSO creation unreliable on MoltenVK" ); }
 #endif
-    // Per-target blend fields overlap global blend fields and corrupt alpha.
-    UTEST_SKIP( "independent blend flags corrupt slot-0 alpha" );
     const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int DIM = 32;
@@ -6223,21 +6232,16 @@ PSOut main( float4 col : COLOUR )
         return;
     }
 
-    // Per-RT blend: slot 0 add (ONE,ONE), slot 1 multiply (DST_COLOUR,ZERO),
-    // slot 2 reverse-subtract (ONE,ONE). Equations default to ADD for slots
-    // 0/1; per-RT factors apply to alpha as well (see vhTranslateBlendState).
-    const uint64_t blendBits = VRHI_STATE_BLEND_INDEPENDENT
-        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_1( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE )
-        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_2( VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO )
-        | (uint64_t)VRHI_STATE_BLEND_FUNC_RT_3E( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_EQUATION_REVSUB );
-
-    // Expected byte for slot op: 0=add, 1=multiply, 2=reverse-subtract.
+    // Slot 0 adds, slot 1 multiplies, and slot 2 uses reverse-subtract or MAX.
+    // Per-target factors also apply to alpha.
+    // Expected byte for slot op: 0=add, 1=multiply, 2=reverse-subtract, 3=maximum.
     auto expectedByte = [&]( int op, int s, int d ) -> int
     {
         float sf = s / 255.f, df = d / 255.f, v = 0.f;
         if ( op == 0 ) v = sf + df;
         if ( op == 1 ) v = sf * df;
         if ( op == 2 ) v = df - sf;
+        if ( op == 3 ) v = sf > df ? sf : df;
         if ( v < 0.f ) v = 0.f;
         if ( v > 1.f ) v = 1.f;
         return (int)( v * 255.f + 0.5f );
@@ -6278,7 +6282,11 @@ PSOut main( float4 col : COLOUR )
         state.SetColourAttachment( 0, *att[0] ).SetColourAttachment( 1, *att[1] ).SetColourAttachment( 2, *att[2] )
              .SetViewRect( glm::vec4( 0, 0, DIM, DIM ) )
              .SetViewClear( 0, glm::vec4( 0 ) )
-             .SetStateFlags( VRHI_STATE_WRITE_MASK | blendBits )
+             .SetStateFlags( VRHI_STATE_WRITE_MASK )
+             .SetBlendTarget( 0, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE )
+             .SetBlendTarget( 1, VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO )
+             .SetBlendTarget( 2, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE,
+                 pass == 0 ? VRHI_STATE_BLEND_EQUATION_REVSUB : VRHI_STATE_BLEND_EQUATION_MAX )
              .SetVertexBuffer( vb, 0 )
              .SetProgram( vhCreateGfxProgram( vs, ps ) );
         vhStateId sid = 1933;
@@ -6297,7 +6305,8 @@ PSOut main( float4 col : COLOUR )
                     for ( int c = 0; c < 4 && mismatches < 4; ++c )
                     {
                         int got = rd[( (size_t)py * DIM + px ) * 4 + c];
-                        int expect = expectedByte( slotOp[slot], slotSource( slot, c ), ( *slotSeeds[slot] )[c] );
+                        int op = slot == 2 && pass == 1 ? 3 : slotOp[slot];
+                        int expect = expectedByte( op, slotSource( slot, c ), ( *slotSeeds[slot] )[c] );
                         if ( abs( got - expect ) > 1 )
                         {
                             UTEST_PRINTF( "independent blend: pass %d slot %d (%d,%d) ch %d = %d, expected %d\n", pass, slot, px, py, c, got, expect );

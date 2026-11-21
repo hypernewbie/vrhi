@@ -698,7 +698,7 @@ bool vhCmdBackendState::BE_PresubmitCommon_PipelineDesc(
         vhProfile( "BE_PresubmitCommon_PipelineDesc_RenderState", true );
         graphicsPipelineDesc->setPrimType( vhTranslatePrimitiveType( state.stateFlags ) );
         graphicsPipelineDesc->shadingRateState = vhTranslateShadingRateState( state );
-        graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags );
+        graphicsPipelineDesc->renderState.blendState = vhTranslateBlendState( state.stateFlags, state.blendTargets );
         graphicsPipelineDesc->renderState.depthStencilState = vhTranslateDepthStencilState( state.stateFlags, state.stencilState );
         if ( state.depthAttachment.texture == VRHI_INVALID_HANDLE )
         {
@@ -4495,6 +4495,15 @@ void vhCmdBackendState::Handle_vhCmdSetStateFlags( VIDL_vhCmdSetStateFlags* cmd 
     auto& flags = backendStates[cmd->id].stateFlags;
     if ( flags == cmd->flags ) return;
     flags = cmd->flags;
+    s_globalPipelineVersion++;
+}
+
+void vhCmdBackendState::Handle_vhCmdSetStateBlendTargets( VIDL_vhCmdSetStateBlendTargets* cmd )
+{
+    BE_CmdRAII cmdRAII( cmd );
+    auto& targets = backendStates[cmd->id].blendTargets;
+    if ( targets == cmd->targets ) return;
+    targets = cmd->targets;
     s_globalPipelineVersion++;
 }
 

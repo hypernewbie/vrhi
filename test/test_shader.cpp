@@ -58,6 +58,147 @@ UTEST_F_TEARDOWN( Shader )
     vhEndMarker();
 }
 
+UTEST( ShaderInternal, IndependentBlendPreservesState )
+{
+    const uint64_t base = VRHI_STATE_WRITE_MASK | VRHI_STATE_DEPTH_TEST_GREATER |
+        VRHI_STATE_CULL_FRONT | VRHI_STATE_FRONT_CW | VRHI_STATE_PT_LINES | VRHI_STATE_DEPTH_CLIP;
+    vhState state;
+    state.SetBlendTarget( 0, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_EQUATION_SUB )
+         .SetBlendTarget( 1, VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO, VRHI_STATE_BLEND_EQUATION_MIN )
+         .SetBlendTarget( 2, VRHI_STATE_BLEND_SRC_ALPHA, VRHI_STATE_BLEND_INV_SRC_ALPHA, VRHI_STATE_BLEND_EQUATION_MAX )
+         .SetStateFlags( base );
+    const uint64_t flags = state.stateFlags;
+
+    const uint64_t otherStateMask = VRHI_STATE_WRITE_MASK | VRHI_STATE_DEPTH_TEST_MASK | VRHI_STATE_CULL_MASK |
+        VRHI_STATE_FRONT_CW | VRHI_STATE_PT_MASK | VRHI_STATE_MSAA | VRHI_STATE_LINEAA |
+        VRHI_STATE_CONSERVATIVE_RASTER | VRHI_STATE_BLEND_ALPHA_TO_COVERAGE | VRHI_STATE_DEPTH_CLIP |
+        VRHI_STATE_DEPTH_TEST_ENABLE;
+    EXPECT_EQ( flags & otherStateMask, base & otherStateMask );
+    EXPECT_EQ( flags, base );
+    nvrhi::BlendState blend = vhTranslateBlendState( flags, state.blendTargets );
+    EXPECT_TRUE( blend.targets[0].blendEnable );
+    EXPECT_EQ( blend.targets[0].srcBlend, nvrhi::BlendFactor::One );
+    EXPECT_EQ( blend.targets[0].destBlend, nvrhi::BlendFactor::One );
+    EXPECT_EQ( blend.targets[0].blendOp, nvrhi::BlendOp::Subtract );
+    EXPECT_EQ( blend.targets[0].blendOpAlpha, nvrhi::BlendOp::Subtract );
+    EXPECT_EQ( blend.targets[1].srcBlend, nvrhi::BlendFactor::DstColor );
+    EXPECT_EQ( blend.targets[1].destBlend, nvrhi::BlendFactor::Zero );
+    EXPECT_EQ( blend.targets[1].blendOp, nvrhi::BlendOp::Min );
+    EXPECT_EQ( blend.targets[1].blendOpAlpha, nvrhi::BlendOp::Min );
+    EXPECT_EQ( blend.targets[2].srcBlend, nvrhi::BlendFactor::SrcAlpha );
+    EXPECT_EQ( blend.targets[2].destBlend, nvrhi::BlendFactor::InvSrcAlpha );
+    EXPECT_EQ( blend.targets[2].blendOp, nvrhi::BlendOp::Max );
+    EXPECT_EQ( blend.targets[2].blendOpAlpha, nvrhi::BlendOp::Max );
+    EXPECT_EQ( vhTranslateDepthStencilState( flags, VRHI_STENCIL_NONE ).depthFunc, nvrhi::ComparisonFunc::Greater );
+    EXPECT_EQ( vhTranslateRasterState( flags ).cullMode, nvrhi::RasterCullMode::Front );
+    EXPECT_EQ( vhTranslatePrimitiveType( flags ), nvrhi::PrimitiveType::LineList );
+}
+
+UTEST( ShaderInternal, IndependentBlendFactorsAndEquations )
+{
+    struct FactorCase { uint64_t flag; nvrhi::BlendFactor value; };
+    const FactorCase factors[] = {
+        { VRHI_STATE_BLEND_ZERO, nvrhi::BlendFactor::Zero },
+        { VRHI_STATE_BLEND_ONE, nvrhi::BlendFactor::One },
+        { VRHI_STATE_BLEND_SRC_COLOUR, nvrhi::BlendFactor::SrcColor },
+        { VRHI_STATE_BLEND_INV_SRC_COLOUR, nvrhi::BlendFactor::InvSrcColor },
+        { VRHI_STATE_BLEND_SRC_ALPHA, nvrhi::BlendFactor::SrcAlpha },
+        { VRHI_STATE_BLEND_INV_SRC_ALPHA, nvrhi::BlendFactor::InvSrcAlpha },
+        { VRHI_STATE_BLEND_DST_ALPHA, nvrhi::BlendFactor::DstAlpha },
+        { VRHI_STATE_BLEND_INV_DST_ALPHA, nvrhi::BlendFactor::InvDstAlpha },
+        { VRHI_STATE_BLEND_DST_COLOUR, nvrhi::BlendFactor::DstColor },
+        { VRHI_STATE_BLEND_INV_DST_COLOUR, nvrhi::BlendFactor::InvDstColor },
+        { VRHI_STATE_BLEND_SRC_ALPHA_SAT, nvrhi::BlendFactor::SrcAlphaSaturate },
+        { VRHI_STATE_BLEND_FACTOR, nvrhi::BlendFactor::ConstantColor },
+        { VRHI_STATE_BLEND_INV_FACTOR, nvrhi::BlendFactor::InvConstantColor },
+    };
+    struct OpCase { uint64_t flag; nvrhi::BlendOp value; };
+    const OpCase operations[] = {
+        { VRHI_STATE_BLEND_EQUATION_ADD, nvrhi::BlendOp::Add },
+        { VRHI_STATE_BLEND_EQUATION_SUB, nvrhi::BlendOp::Subtract },
+        { VRHI_STATE_BLEND_EQUATION_REVSUB, nvrhi::BlendOp::ReverseSubtract },
+        { VRHI_STATE_BLEND_EQUATION_MIN, nvrhi::BlendOp::Min },
+        { VRHI_STATE_BLEND_EQUATION_MAX, nvrhi::BlendOp::Max },
+    };
+    for ( const auto& factor : factors )
+    {
+        for ( const auto& op : operations )
+        {
+            vhState state;
+            state.SetStateFlags( VRHI_STATE_WRITE_RGB )
+                 .SetBlendTarget( 0, factor.flag, VRHI_STATE_BLEND_ONE, op.flag )
+                 .SetBlendTarget( 1, VRHI_STATE_BLEND_ONE, factor.flag, op.flag )
+                 .SetBlendTarget( 2, factor.flag, factor.flag, op.flag );
+            const nvrhi::BlendState blend = vhTranslateBlendState( state.stateFlags, state.blendTargets );
+            for ( int i = 0; i < 3; ++i )
+            {
+                const nvrhi::BlendFactor src = i == 1 ? nvrhi::BlendFactor::One : factor.value;
+                const nvrhi::BlendFactor dst = i == 0 ? nvrhi::BlendFactor::One : factor.value;
+                EXPECT_TRUE( blend.targets[i].blendEnable );
+                EXPECT_EQ( blend.targets[i].srcBlend, src );
+                EXPECT_EQ( blend.targets[i].destBlend, dst );
+                EXPECT_EQ( blend.targets[i].srcBlendAlpha, src );
+                EXPECT_EQ( blend.targets[i].destBlendAlpha, dst );
+                EXPECT_EQ( blend.targets[i].blendOp, op.value );
+                EXPECT_EQ( blend.targets[i].blendOpAlpha, op.value );
+                EXPECT_EQ( blend.targets[i].colorWriteMask, nvrhi::ColorMask::Red | nvrhi::ColorMask::Green | nvrhi::ColorMask::Blue );
+            }
+        }
+    }
+    vhState state;
+    state.SetBlendTarget( 1, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ZERO );
+    const nvrhi::BlendState blend = vhTranslateBlendState( state.stateFlags, state.blendTargets );
+    EXPECT_FALSE( blend.targets[0].blendEnable );
+    EXPECT_TRUE( blend.targets[1].blendEnable );
+    EXPECT_FALSE( blend.targets[2].blendEnable );
+    EXPECT_FALSE( blend.targets[3].blendEnable );
+}
+
+UTEST( ShaderInternal, IndependentBlendLegacyFlags )
+{
+    // Old callers can still pass flags constructed with the original packing.
+    const uint64_t flags = VRHI_STATE_BLEND_INDEPENDENT | uint64_t( 0x22u ) | ( uint64_t( 0x19u ) << 11 );
+    EXPECT_EQ( VRHI_STATE_BLEND_FUNC_RT_1( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE ), 0x22u );
+    EXPECT_EQ( VRHI_STATE_BLEND_FUNC_RT_3( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE ), 0x08800000u );
+    const nvrhi::BlendState blend = vhTranslateBlendState( flags );
+    EXPECT_EQ( blend.targets[0].srcBlend, nvrhi::BlendFactor::One );
+    EXPECT_EQ( blend.targets[0].destBlend, nvrhi::BlendFactor::One );
+    EXPECT_EQ( blend.targets[1].srcBlend, nvrhi::BlendFactor::DstColor );
+    EXPECT_EQ( blend.targets[1].destBlend, nvrhi::BlendFactor::Zero );
+    EXPECT_EQ( blend.targets[2].srcBlend, nvrhi::BlendFactor::ConstantColor );
+    EXPECT_EQ( blend.targets[2].destBlend, nvrhi::BlendFactor::One );
+}
+
+UTEST( ShaderInternal, IndependentBlendGlobalAndReset )
+{
+    vhState state;
+    state.SetStateFlags( VRHI_STATE_WRITE_MASK |
+        VRHI_STATE_BLEND_FUNC_SEPARATE( VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ZERO, VRHI_STATE_BLEND_SRC_ALPHA, VRHI_STATE_BLEND_INV_SRC_ALPHA ) |
+        VRHI_STATE_BLEND_EQUATION( VRHI_STATE_BLEND_EQUATION_SUB ) );
+    const uint64_t globalFlags = state.stateFlags;
+    state.SetBlendTarget( 1, VRHI_STATE_BLEND_DST_COLOUR, VRHI_STATE_BLEND_ZERO );
+    EXPECT_EQ( state.stateFlags & ~VRHI_STATE_BLEND_INDEPENDENT, globalFlags );
+    nvrhi::BlendState blend = vhTranslateBlendState( state.stateFlags, state.blendTargets );
+    EXPECT_EQ( blend.targets[0].srcBlendAlpha, nvrhi::BlendFactor::SrcAlpha );
+    EXPECT_EQ( blend.targets[0].destBlendAlpha, nvrhi::BlendFactor::InvSrcAlpha );
+    EXPECT_EQ( blend.targets[0].blendOp, nvrhi::BlendOp::Subtract );
+    EXPECT_EQ( blend.targets[1].srcBlend, nvrhi::BlendFactor::DstColor );
+    EXPECT_EQ( blend.targets[1].destBlend, nvrhi::BlendFactor::Zero );
+    EXPECT_EQ( blend.targets[1].blendOp, nvrhi::BlendOp::Add );
+    EXPECT_EQ( blend.targets[2].blendOp, nvrhi::BlendOp::Subtract );
+    state.DisableBlendTarget( 2 );
+    blend = vhTranslateBlendState( state.stateFlags, state.blendTargets );
+    EXPECT_TRUE( blend.targets[0].blendEnable );
+    EXPECT_FALSE( blend.targets[2].blendEnable );
+    uint64_t targets = state.blendTargets;
+    state.SetBlendTarget( 3, VRHI_STATE_BLEND_ONE, VRHI_STATE_BLEND_ONE );
+    EXPECT_EQ( state.blendTargets, targets );
+    state.ClearBlendTargets();
+    EXPECT_EQ( state.stateFlags, globalFlags );
+    EXPECT_EQ( state.blendTargets, UINT64_MAX );
+    EXPECT_NE( state.dirty & VRHI_DIRTY_PIPELINE, 0u );
+}
+
 UTEST( ShaderInternal, StateToDesc )
 {
     // Test Primitive Topology

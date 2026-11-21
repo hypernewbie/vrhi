@@ -734,7 +734,7 @@ constexpr uint32_t VRHI_DRAW_INDEXED  = ( 1u << 0 );
 constexpr uint32_t VRHI_DRAW_INDIRECT = ( 1u << 1 );
 constexpr uint32_t VRHI_DRAW_INDIRECT_COUNT = ( 1u << 2 );
 
-// Render target blend helper macros (cannot be constexpr)
+// Legacy blend macros overlap other state flags. Use vhState::SetBlendTarget instead.
 #define VRHI_STATE_BLEND_FUNC_RT_x(_src, _dst) (0         \
     | ( (uint32_t)( (_src)>>VRHI_STATE_BLEND_SHIFT)       \
     | ( (uint32_t)( (_dst)>>VRHI_STATE_BLEND_SHIFT)<<4) ) \
@@ -2284,6 +2284,7 @@ struct vhState
 
     std::vector< RenderTarget > colourAttachment;
     RenderTarget depthAttachment;
+    uint64_t blendTargets = UINT64_MAX; // UINT64_MAX selects legacy stateFlags decoding.
 
     vhState& SetViewRect( const glm::vec4& rect ) { viewRect = rect; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
     vhState& SetViewScissor( const glm::vec4& scissor ) { viewScissor = scissor; dirty |= VRHI_DIRTY_VIEWPORT; return *this; }
@@ -2336,6 +2337,36 @@ struct vhState
         return *this;
     }
     vhState& SetStateFlags( uint64_t flags ) { stateFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
+    // Configure independent blend for targets 0 to 2. Other targets inherit
+    // the global blend state. Indices outside this range are ignored.
+    vhState& SetBlendTarget( uint32_t target, uint64_t src, uint64_t dst, uint64_t equation = VRHI_STATE_BLEND_EQUATION_ADD )
+    {
+        if ( target >= 3 ) return *this;
+        if ( blendTargets == UINT64_MAX ) blendTargets = 0;
+        uint32_t shift = target * 11;
+        uint64_t bits = ( uint64_t )VRHI_STATE_BLEND_FUNC_RT_xE( src, dst, equation ) & 0x7FFu;
+        blendTargets = ( blendTargets & ~( UINT64_C( 0x7FF ) << shift ) ) | ( bits << shift );
+        blendTargets |= UINT64_C( 1 ) << ( 33 + target );
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    vhState& DisableBlendTarget( uint32_t target )
+    {
+        if ( target >= 3 ) return *this;
+        if ( blendTargets == UINT64_MAX ) blendTargets = 0;
+        blendTargets &= ~( UINT64_C( 0x7FF ) << ( target * 11 ) );
+        blendTargets |= UINT64_C( 1 ) << ( 33 + target );
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
+    // Remove target overrides and disable legacy independent blend.
+    vhState& ClearBlendTargets()
+    {
+        blendTargets = UINT64_MAX;
+        stateFlags &= ~VRHI_STATE_BLEND_INDEPENDENT;
+        dirty |= VRHI_DIRTY_PIPELINE;
+        return *this;
+    }
     vhState& SetDebugFlags( uint64_t flags ) { debugFlags = flags; dirty |= VRHI_DIRTY_PIPELINE; return *this; }
     vhState& SetStencil( uint64_t state )
     {
@@ -2950,6 +2981,8 @@ void vhCmdSetStateViewTransform( vhStateId id, glm::mat4 view, glm::mat4 proj );
 void vhCmdSetStateWorldTransform( vhStateId id, const std::vector< glm::mat4 >& matrices );
 // VIDL_GENERATE
 void vhCmdSetStateFlags( vhStateId id, uint64_t flags );
+// VIDL_GENERATE
+void vhCmdSetStateBlendTargets( vhStateId id, uint64_t targets );
 // VIDL_GENERATE
 void vhCmdSetStateDebugFlags( vhStateId id, uint64_t flags );
 // VIDL_GENERATE
