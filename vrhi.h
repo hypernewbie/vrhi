@@ -1733,6 +1733,42 @@ inline vhDescriptorTable vhCreateDescriptorTableSimple( nvrhi::ResourceType type
     return vhCreateDescriptorTable( table, desc );
 }
 
+// Batch sampled-texture writes to a fixed-capacity, non-UAB table.
+// Use one submission thread. Keep the table and its textures alive while in use.
+struct vhDescriptorTableBatch
+{
+    explicit vhDescriptorTableBatch( vhDescriptorTable table ) : m_table( table ) {}
+
+    void SetTexture( uint32_t index, vhTexture texture, nvrhi::Format format = nvrhi::Format::UNKNOWN,
+        nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources )
+    {
+        assert( texture != VRHI_INVALID_HANDLE );
+        m_writes.push_back( { index, texture, format, subresources } );
+    }
+
+    // Wait for prior GPU work before queuing the writes. An empty batch does not wait.
+    void Apply()
+    {
+        if ( m_writes.empty() ) return;
+        vhFinish();
+        for ( const auto& write : m_writes )
+            vhDescriptorTableSetTexture( m_table, write.index, write.texture, write.format, write.subresources );
+        m_writes.clear();
+    }
+
+private:
+    struct Write
+    {
+        uint32_t index;
+        vhTexture texture;
+        nvrhi::Format format;
+        nvrhi::TextureSubresourceSet subresources;
+    };
+
+    vhDescriptorTable m_table;
+    std::vector< Write > m_writes;
+};
+
 // Optional slot index allocator over a table's free list. When growable, Alloc() doubles the table
 // (up to maxCapacity) on overflow; otherwise it returns VRHI_INVALID_HANDLE when full.
 // Free() defers reuse until Step() has run kDeferredDepth times; call Step() once per frame.

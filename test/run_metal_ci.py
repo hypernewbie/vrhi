@@ -16,6 +16,7 @@ REQUIRED_TESTS = {
     "Bindless.MetalDescriptorTableReleasesDiscardedSlots",
     "Bindless.MetalDescriptorTableClearKeepsSlotAlive",
     "Bindless.MetalRejectsUpdateAfterBind",
+    "Bindless.NonUAB_Fenced_WriteBetweenDispatches",
     "Buffer.PartialByteWrites_PreserveNeighbours",
     "Graphics.IndependentBlendUnequalTargets",
     "Graphics.IndependentBlend",

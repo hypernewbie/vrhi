@@ -1742,35 +1742,32 @@ UTEST_F( Bindless, NonUAB_Fenced_WriteBetweenDispatches )
 
     vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 4 );
 
-    vhTexture texA = vhAllocTexture();
+    auto makeTexture = []( const char* name, uint8_t value )
     {
-        vhMem* dataA = vhAllocMem( 16 );
-        memset( dataA->data(), 45, 16 );
-        vhCreateTexture2D( texA, "TexA_Fenced", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, dataA );
-    }
-
-    vhTexture texB = vhAllocTexture();
-    {
-        vhMem* dataB = vhAllocMem( 16 );
-        memset( dataB->data(), 95, 16 );
-        vhCreateTexture2D( texB, "TexB_Fenced", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, dataB );
-    }
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( 16 );
+        memset( data->data(), value, 16 );
+        vhCreateTexture2D( tex, name, { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        return tex;
+    };
+    vhTexture texA = makeTexture( "TexA_Fenced", 45 );
+    vhTexture texB = makeTexture( "TexB_Fenced", 95 );
+    vhTexture fallback = makeTexture( "Fallback_Fenced", 175 );
 
     vhTexture out1 = vhAllocTexture();
     vhCreateTexture2D( out1, "Out1_Fenced", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
     vhTexture out2 = vhAllocTexture();
     vhCreateTexture2D( out2, "Out2_Fenced", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
-    vhFinish();
 
     const char* csSource = R"(
         Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
-        RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
 
         [numthreads(4, 4, 1)]
         void main(uint3 id : SV_DispatchThreadID)
         {
-            g_Out[id.xy] = g_Tex[0][id.xy];
+            g_Out[id.xy] = ( id.x & 1 ) ? g_Tex[1][id.xy] : g_Tex[0][id.xy];
         }
     )";
 
@@ -1780,61 +1777,79 @@ UTEST_F( Bindless, NonUAB_Fenced_WriteBetweenDispatches )
 
     vhShader cs = vhAllocShader();
     vhCreateShader( cs, "CS_NonUABFenced", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
-
-    vhDescriptorTableSetTexture( t, 0, texA );
-
-    vhState state1 = g_state0;
-    state1.SetProgram( vhCreateComputeProgram( cs ) );
-    vhState::TextureBinding tbOut1;
-    tbOut1.name = "g_Out";
-    tbOut1.texture = out1;
-    tbOut1.computeUAV = true;
-    tbOut1.formatOverride = nvrhi::Format::R8_UNORM;
-    state1.SetTexture( 0, tbOut1 );
-    state1.SetDescriptorTable( 0, t );
-
-    vhStateId sid1 = 936;
-    vhSetState( sid1, state1 );
-    vhDispatch( sid1, { 1, 1, 1 } );
-
-    // Explicit vhFinish before non-UAB update
     vhFinish();
 
-    vhDescriptorTableSetTexture( t, 0, texB );
+    TestLogCapture logs;
+    uint32_t waits = 0;
+    auto savedCallback = g_vhInit.fnProfileCallback;
+    g_vhInit.fnProfileCallback = [&]( const char* name, bool begin )
+    {
+        if ( begin && std::strcmp( name, "vhFinish_Wait" ) == 0 ) ++waits;
+    };
 
-    vhState state2 = g_state0;
-    state2.SetProgram( vhCreateComputeProgram( cs ) );
-    vhState::TextureBinding tbOut2;
-    tbOut2.name = "g_Out";
-    tbOut2.texture = out2;
-    tbOut2.computeUAV = true;
-    tbOut2.formatOverride = nvrhi::Format::R8_UNORM;
-    state2.SetTexture( 0, tbOut2 );
-    state2.SetDescriptorTable( 0, t );
+    vhDescriptorTableBatch updates( t );
+    updates.Apply();
+    EXPECT_EQ( waits, 0u );
+    updates.SetTexture( 0, texA );
+    updates.SetTexture( 1, texB );
+    EXPECT_EQ( waits, 0u );
+    updates.Apply();
+    EXPECT_EQ( waits, 1u );
 
-    vhStateId sid2 = 937;
-    vhSetState( sid2, state2 );
-    vhDispatch( sid2, { 1, 1, 1 } );
+    // The first dispatch must still read the old entries.
+    updates.SetTexture( 0, fallback );
+    updates.SetTexture( 0, texB );
+    updates.SetTexture( 1, fallback );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = out1;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+    state.SetDescriptorTable( 0, t );
+
+    vhStateId sid = 936;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+    EXPECT_EQ( waits, 1u );
+
+    updates.Apply();
+    EXPECT_EQ( waits, 2u );
+    updates.Apply();
+    EXPECT_EQ( waits, 2u );
+    vhDestroyTexture( texA );
+
+    tbOut.texture = out2;
+    state.SetTexture( 0, tbOut );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
 
     vhMem readData1, readData2;
     vhReadTextureSlow( out1, 0, 0, &readData1 );
     vhReadTextureSlow( out2, 0, 0, &readData2 );
     vhFinish();
+    g_vhInit.fnProfileCallback = std::move( savedCallback );
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyDescriptorTable( t );
+    vhDestroyTexture( texB );
+    vhDestroyTexture( fallback );
+    vhDestroyTexture( out1 );
+    vhDestroyTexture( out2 );
+    vhDestroyShader( cs );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
 
     ASSERT_EQ( readData1.size(), 16u );
     ASSERT_EQ( readData2.size(), 16u );
-    for ( size_t i = 0; i < 16; i++ ) EXPECT_NEAR( readData1[i], ( uint8_t ) 45, 2 );
-    for ( size_t i = 0; i < 16; i++ ) EXPECT_NEAR( readData2[i], ( uint8_t ) 95, 2 );
-
-    vhDestroyTexture( texA );
-    vhDestroyTexture( texB );
-    vhDestroyTexture( out1 );
-    vhDestroyTexture( out2 );
-    vhDestroyDescriptorTable( t );
-    vhDestroyShader( cs );
-    vhSetState( sid1, g_state0, VRHI_DIRTY_ALL );
-    vhSetState( sid2, g_state0, VRHI_DIRTY_ALL );
-    vhFinish();
+    for ( size_t i = 0; i < 16; i++ )
+    {
+        EXPECT_NEAR( readData1[i], ( i & 1 ) ? 95 : 45, 2 );
+        EXPECT_NEAR( readData2[i], ( i & 1 ) ? 175 : 95, 2 );
+    }
 }
 
 UTEST_F( Bindless, UAB_CrossFrame_NoFence )
