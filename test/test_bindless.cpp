@@ -1197,7 +1197,7 @@ UTEST_F( Bindless, EndToEnd_AllocatorDeferredReuse )
 }
 
 // --------------------------------------------------------------------------
-// P0 Semantics Pinning Tests
+// Descriptor pinning
 // --------------------------------------------------------------------------
 
 UTEST_F( Bindless, Clear_ThenOverwrite_ShowsNewResource )
@@ -1599,7 +1599,7 @@ UTEST_F( Bindless, WriteBeforeCreate_GracefulError )
 }
 
 // --------------------------------------------------------------------------
-// P1 Pending Command Buffer Suite
+// Pending command buffers
 // --------------------------------------------------------------------------
 
 UTEST_F( Bindless, UAB_IntraFrame_WriteBetweenDispatches )
@@ -1903,7 +1903,7 @@ UTEST_F( Bindless, UAB_CrossFrame_NoFence )
 }
 
 // --------------------------------------------------------------------------
-// P2 Coverage Breadth Suite
+// Descriptor coverage
 // --------------------------------------------------------------------------
 
 UTEST_F( Bindless, CB_Bindless_EndToEnd )
@@ -2652,7 +2652,7 @@ UTEST_F( Bindless, ConflictingPin_SRVthenUAV )
 }
 
 // --------------------------------------------------------------------------
-// P3 MoltenVK Canaries
+// MoltenVK canaries
 // --------------------------------------------------------------------------
 
 UTEST_F( Bindless, DestroyResource_WhileInTable_OtherSlotsSurvive )
@@ -3051,7 +3051,7 @@ UTEST_F( Bindless, Dispatch_MissingTableBinding )
 }
 
 // --------------------------------------------------------------------------
-// P4 Stress & Lifecycle Churn
+// Stress and lifecycle churn
 // --------------------------------------------------------------------------
 
 UTEST_F( Bindless, Churn_AllocWriteDispatch_64Frames )
