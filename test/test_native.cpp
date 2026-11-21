@@ -214,15 +214,8 @@ UTEST_F( Native, DeviceLock )
     ASSERT_TRUE( vhGetVkInstance() != VK_NULL_HANDLE );
 }
 
-// The native callback writes its declared texture.
-// The callback writes the declared texture with a real vkCmdCopyBufferToImage
-// and records its own final layout transition, since stateAfter is only a
-// tracker rebaseline. The consuming compute pass and its initialized output are
-// created and recorded before the native interval, and the consumer command is
-// recorded immediately after vhExecuteNative with no drain, flush, or readback
-// in between, so tracker faults surface in the same submission. The callback's
-// own view of its resources (count, image identity, dimensions, format) is
-// captured into a test-owned record and read only after backend completion.
+// Copy into the declared texture and sample it without a drain. The callback
+// performs the final layout transition; stateAfter only rebaselines the tracker.
 UTEST_F( Native, NativeCallbackWritesTexture )
 {
     if ( g_vhInit.nullMode || g_vhInit.useMetal ) UTEST_SKIP( "Requires native Vulkan objects" );

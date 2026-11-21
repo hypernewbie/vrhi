@@ -19,6 +19,7 @@ REQUIRED_TESTS = {
     "Buffer.PartialByteWrites_PreserveNeighbours",
     "Graphics.IndependentBlendUnequalTargets",
     "Graphics.IndependentBlend",
+    "RHI.Shader16BitControl",
     "Native.MetalRejectsVulkanCallback",
     "ShaderInternal.IndependentBlendFactorsAndEquations",
     "ShaderInternal.IndependentBlendGlobalAndReset",
@@ -39,7 +40,6 @@ ALLOWED_SKIPS_BY_REASON = {
     "UAB sampled image unsupported": {
         "Bindless.UAB_IntraFrame_WriteBetweenDispatches", "Bindless.UAB_CrossFrame_NoFence",
     },
-    "Requires Vulkan shader feature queries": {"RHI.Shader16BitControl"},
     "Requires Vulkan device extensions": {"RHI.ExtraDeviceExtensions"},
     "Requires Vulkan drawIndirectCount feature queries": {"RHI.IndirectCountCapability"},
     "Requires Vulkan mapped buffer flushes": {

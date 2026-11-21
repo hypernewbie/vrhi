@@ -2905,11 +2905,7 @@ UTEST_F( Graphics, ViewDepthRange )
 UTEST_F( Graphics, DepthBiasEffect )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
-    // The depth buffer is a fixed-point format on purpose. The Vulkan spec leaves the
-    // depth bias unit `r` implementation-defined for floating-point depth formats, and
-    // both MoltenVK and Metal derive it from the float ULP, which is zero at the biased
-    // depth. A 16-bit unorm depth buffer has a normative `r` of 2^-16, so the constant
-    // bias below is the same on every backend.
+    // D16 has a fixed depth bias unit; floating-point depth bias is implementation-defined.
     vhTexture rt = CreateTestTexture( 64, 64, nvrhi::Format::RGBA8_UNORM );
     vhTexture ds = CreateTestTexture( 64, 64, nvrhi::Format::D16, VRHI_TEXTURE_RT );
 
@@ -5753,13 +5749,7 @@ UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
-// Mips and array layers have independent framebuffer keys.
-// One 2D array with two mips and three layers. Every subresource is initialized
-// with its own sentinel first, then five draws run through a single state ID
-// with no drain, creation, destruction, or readback between them: layer change
-// only, mip change only, nonzero mip and layer, and a return to the first pair
-// in a disjoint region. Layer 2 remains untouched. After the final drain every texel of every subresource is
-// checked, so an interior wrong pixel cannot hide behind a correct (0,0).
+// Change mip and layer on one state without draining, then check all subresources.
 UTEST_F( Graphics, ArrayMipLayerIndependentKeys )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
@@ -5899,12 +5889,7 @@ UTEST_F( Graphics, ArrayMipLayerIndependentKeys )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// Upload, sample, overwrite and sample without a drain.
-// Upload pattern A, sample it into output A, upload pattern B into the same
-// texture, then sample into output B. One final drain. Both outputs must hold
-// their own sampled pattern afterwards.
-// Targets missing write-after-read (upload B vs. draw A) and read-after-write
-// (draw B vs. upload B) dependencies on the ordinary descriptor path.
+// Check write-after-read and read-after-write dependencies without a drain.
 UTEST_F( Graphics, UploadSampleOverwriteSample_NoDrain )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
@@ -6039,12 +6024,7 @@ UTEST_F( Graphics, UploadSampleOverwriteSample_NoDrain )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// Execute a nonzero indirect draw count.
-// Four argument records draw quads into four distinct tiles of the target,
-// selected per record through baseVertex. The GPU-driven count runs 0, 1, 2,
-// and 3 into separate sentinel-initialized targets: exactly the first N tiles
-// may appear, and every other pixel must keep the sentinel. An implementation
-// that always emits zero draws passes the old count=0 test but fails here.
+// Check that indirect counts from 0 to 3 draw exactly that many tiles.
 UTEST_F( Graphics, IndirectCountNonzeroExecutes )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
@@ -6158,14 +6138,7 @@ UTEST_F( Graphics, IndirectCountNonzeroExecutes )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// Check independent blend with different results for each target.
-// Three targets seeded with different RGBA patterns are blended with add,
-// multiply, and reverse-subtract or maximum respectively. Each MRT slot writes a distinct
-// source colour, so slot routing and per-slot blend descriptors are checked
-// per channel. Every channel (alpha included — per-RT factors mirror into
-// alpha) is compared against an independent CPU blend model over the whole
-// image. The attachment order is then swapped and the sequence repeated, so an
-// ordinal mistake or a per-target broadcast cannot match both passes.
+// Compare per-target blend results against a CPU model, then swap attachment order.
 UTEST_F( Graphics, IndependentBlendUnequalTargets )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
@@ -6197,10 +6170,7 @@ UTEST_F( Graphics, IndependentBlendUnequalTargets )
     vhTexture rtB = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
     vhTexture rtC = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
 
-    // Each MRT slot writes a distinct RGBA value, derived by swizzle from the
-    // single input colour. A shader-output routing mistake, or a blend
-    // descriptor broadcast to the wrong slot, then changes a specific channel
-    // rather than matching on all four.
+    // Give each target a distinct source colour.
     static const char* mrtPS3 = R"(
 struct PSOut { float4 t0 : SV_Target0; float4 t1 : SV_Target1; float4 t2 : SV_Target2; };
 [shader("pixel")]
@@ -6326,21 +6296,8 @@ PSOut main( float4 col : COLOUR )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// Depth contents survive a read-only pass, and a legal
-// writable return really stores a new value.
-//
-// Two claims are kept apart. Depth-content preservation: a read-only attachment
-// pass at 0.2 must leave the seeded 0.6 intact, which a 0.4 probe (must pass)
-// and a 0.8 probe (must reject) distinguish; an always-pass comparison or a
-// missing seed write breaks one of them. Writable return: after the read-only
-// pass a legal writable draw at 0.5 stores 0.5, so a 0.45 probe passes and a
-// 0.55 probe rejects. Read-only descriptor propagation is a separate mechanism
-// claim, checked in the backend framebuffer fixture rather than inferred here.
-//
-// Every phase renders into its own target and every pixel of every target is
-// compared. Variant A drains between phases; variant B records the same phases
-// with no drain inside the sequence, so attachment transitions are exercised
-// on a single command list.
+// Check that a read-only depth pass preserves contents and a later writable pass
+// updates them. Run with and without drains between passes.
 UTEST_F( Graphics, ReadOnlyDepthRejectsObservableWrites )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }

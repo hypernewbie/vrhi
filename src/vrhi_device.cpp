@@ -34,6 +34,7 @@
 #ifdef __APPLE__
 #include <vulkan/vulkan_metal.h>
 extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr );
+extern "C" bool vhMetalSupportsShader16( void* devicePtr );
 #endif
 
 std::unique_ptr< vkb::Device > g_vulkanBDevice;
@@ -346,6 +347,11 @@ void vhInit( bool quiet )
         g_vhDeviceInfo.apiVersion = "Metal";
         g_vhDeviceInfo.queues = "Graphics";
         g_vhDeviceInfo.summary = "Native Metal backend";
+
+        // The backend targets MSL 3.0 and Metal 3 supports its 16-bit arithmetic types.
+        const bool shader16 = vhMetalSupportsShader16( g_vhMetalDevice->getNativeDevice().pointer );
+        g_vhDeviceInfo.shaderFloat16 = g_vhInit.shaderFloat16 && shader16;
+        g_vhDeviceInfo.shaderInt16 = g_vhInit.shaderInt16 && shader16;
 
         // Conservative limits also cover devices using classic Metal bindings.
         g_vhDeviceInfo.bindless                     = true;

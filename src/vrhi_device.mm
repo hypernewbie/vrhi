@@ -20,7 +20,16 @@
 */
 
 #import <Cocoa/Cocoa.h>
+#import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+
+extern "C" bool vhMetalSupportsShader16( void* devicePtr )
+{
+    if ( !devicePtr ) return false;
+    id< MTLDevice > device = ( __bridge id< MTLDevice > )devicePtr;
+    if ( @available( macOS 13.0, * ) ) return [device supportsFamily:MTLGPUFamilyMetal3];
+    return false;
+}
 
 extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr )
 {
@@ -29,11 +38,7 @@ extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr )
     [view setWantsLayer:YES];
     CAMetalLayer* layer = [CAMetalLayer layer];
 
-    // Match the backing-store scale of the view's window (or screen as fallback) so the
-    // Metal drawable matches the framebuffer pixels GLFW reports via glfwGetFramebufferSize().
-    // Without this the layer defaults to contentsScale 1.0, producing a non-retina swapchain
-    // that the renderer then mismatches against (everything draws at 1/2 resolution and macOS
-    // upscales 2x, making content + text appear "zoomed in" on retina displays).
+    // Match the drawable scale to the framebuffer on Retina displays.
     CGFloat scale = 1.0;
     if ( view.window )
         scale = view.window.backingScaleFactor;

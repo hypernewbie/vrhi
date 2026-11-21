@@ -29,6 +29,10 @@
 #include <vrhi_internal.h>
 #include <vrhi.h>
 
+#ifdef __APPLE__
+extern "C" bool vhMetalSupportsShader16( void* devicePtr );
+#endif
+
 extern bool g_testInit;
 extern bool g_testInitQuiet;
 extern std::atomic<int32_t> g_vhErrorCounter;
@@ -101,8 +105,6 @@ UTEST( RHI, RayTracingControl )
 
 UTEST( RHI, Shader16BitControl )
 {
-    if ( g_vhInit.useMetal ) UTEST_SKIP( "Requires Vulkan shader feature queries" );
-
     TestEnsureShutdown();
 
     // Case 1: Both false (default) — device must come up, flags must stay false.
@@ -120,7 +122,7 @@ UTEST( RHI, Shader16BitControl )
     vhInit( g_testInitQuiet );
     EXPECT_NE( g_vhDevice.Get(), nullptr );
 
-    if ( !g_vhInit.nullMode )
+    if ( !g_vhInit.nullMode && !g_vhInit.useMetal )
     {
         // Query ground-truth HW support to verify "enabled iff supported".
         VkPhysicalDeviceFeatures2 feat2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
@@ -136,6 +138,15 @@ UTEST( RHI, Shader16BitControl )
         VRHI_LOG( "shaderInt16:   requested=YES supported=%s enabled=%s\n",
             feat2.features.shaderInt16 ? "YES" : "NO", g_vhDeviceInfo.shaderInt16 ? "YES" : "NO" );
     }
+    else if ( g_vhInit.useMetal && !g_vhInit.nullMode )
+    {
+#ifdef __APPLE__
+        const bool supported = vhMetalSupportsShader16( g_vhMetalDevice->getNativeDevice().pointer );
+        EXPECT_EQ( g_vhDeviceInfo.shaderFloat16, supported );
+        EXPECT_EQ( g_vhDeviceInfo.shaderInt16, supported );
+        VRHI_LOG( "16-bit shader types: supported=%s\n", supported ? "YES" : "NO" );
+#endif
+    }
     else
     {
         // Null mode has no physical device - features stay disabled.
@@ -143,6 +154,22 @@ UTEST( RHI, Shader16BitControl )
         EXPECT_FALSE( g_vhDeviceInfo.shaderInt16 );
     }
 
+    const bool floatSupported = g_vhDeviceInfo.shaderFloat16;
+    const bool intSupported = g_vhDeviceInfo.shaderInt16;
+    vhShutdown( g_testInitQuiet );
+
+    g_vhInit.shaderFloat16 = true;
+    g_vhInit.shaderInt16 = false;
+    vhInit( g_testInitQuiet );
+    EXPECT_EQ( g_vhDeviceInfo.shaderFloat16, floatSupported );
+    EXPECT_FALSE( g_vhDeviceInfo.shaderInt16 );
+    vhShutdown( g_testInitQuiet );
+
+    g_vhInit.shaderFloat16 = false;
+    g_vhInit.shaderInt16 = true;
+    vhInit( g_testInitQuiet );
+    EXPECT_FALSE( g_vhDeviceInfo.shaderFloat16 );
+    EXPECT_EQ( g_vhDeviceInfo.shaderInt16, intSupported );
     vhShutdown( g_testInitQuiet );
 
     g_vhInit.shaderFloat16 = false;

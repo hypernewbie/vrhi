@@ -499,10 +499,7 @@ vhArenaSpan< T > vhArenaCopySpan( const std::vector< T >& src )
     return vhArenaSpan< T >( ( T* ) mem, n );
 }
 
-// Copies a C string into the command arena so the backend can read it after the
-// caller's storage has gone out of scope. Returns nullptr for a null input.
-// The copy shares the command's arena lifetime: it stays valid until the arena
-// is recycled, which is strictly after the backend has processed the command.
+// Copies a string into the command arena, or returns nullptr for a null input.
 inline const char* vhArenaCopyString( const char* src )
 {
     if ( !src ) return nullptr;

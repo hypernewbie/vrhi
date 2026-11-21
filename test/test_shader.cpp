@@ -1827,11 +1827,7 @@ UTEST_F( Shader, CompileWithO3Optimisation )
 
 UTEST_F( Shader, UnrollAccumulator_OptimiserPreservesUseBeforeDef )
 {
-    // Layout:
-    //   2x2 [unroll] loop with three parallel FAdd accumulators (scalar, vec3, scalar),
-    //   inner body depends on (dx,dy) and has a conditional that produces re-orderable
-    //   branches (the trigger shape for the BlockMergePass / DeadBranchElim interaction
-    //   that produced an ID-N-not-defined OpFAdd on a previous SPIRV-Tools pin).
+    // This loop triggered an undefined OpFAdd ID in SPIRV-Tools optimisation.
 
     static const char* src = R"HLSL(
         [numthreads(8, 8, 1)]

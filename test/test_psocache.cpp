@@ -19,19 +19,7 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-// Tests + benchmark for vhGetPSOCache / vhInitData::psoCacheInitialData (Vulkan driver pipeline cache).
-//
-// Six tests:
-//   1. RHI.PSOCache_RoundTrip              — extract blob, re-init with it, ensure device/PSOs work.
-//   2. RHI.PSOCache_StaleBlobIgnored       — feed garbage blob, init must still succeed.
-//   3. RHI.PSOCache_NoFlushSizeMatchesBlob — flush-free snapshot and size query agree with the blob.
-//   4. RHI.PSOCache_KeyStable              — device cache key is populated and deterministic.
-//   5. RHI.PSOCache_ConcurrentQueryDuringPipelineCreation — query off-thread while the backend compiles.
-//   6. RHI.PSOCache_ValidateKeyMismatchDiscardsSeed — psoCacheValidateKey rejects a foreign blob.
-//
-// One benchmark:
-//   7. Bench.PSOCache_ColdVsWarm    — compile N compute PSOs cold, again warm with seeded cache,
-//                                     print timings.
+// Vulkan pipeline cache tests and benchmark.
 
 #include <atomic>
 #include <chrono>

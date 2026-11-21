@@ -3699,11 +3699,7 @@ void vhCmdBackendState::Handle_vhBuildIndexedTriangleBLAS( VIDL_vhBuildIndexedTr
         return;
     }
 
-    // Resolve index buffer handle (optional — VRHI_INVALID_HANDLE means non-indexed).
-    // The NVRHI/Vulkan backend decides indexed-vs-non-indexed solely from indexFormat == UNKNOWN
-    // (it never inspects whether indexBuffer is null), so for the non-indexed path we must force
-    // indexFormat = UNKNOWN and indexCount = 0 regardless of what the caller passed. Otherwise the
-    // driver would try to read indices from a null device address and crash the GPU.
+    // The Vulkan backend selects the non-indexed path by indexFormat, not the buffer handle.
     nvrhi::IBuffer* indexBuffer = nullptr;
     nvrhi::Format   indexFormat = nvrhi::Format::UNKNOWN;
     uint32_t        indexCount  = 0;

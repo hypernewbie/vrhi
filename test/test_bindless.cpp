@@ -47,18 +47,8 @@ UTEST_F_TEARDOWN( Bindless )
 }
 
 // ---------------------------------------------------------------------------
-// MoltenVK runtime-bindless probe.
-//
-// Vulkan feature bits report descriptor indexing as available on MoltenVK even
-// when the Metal device cannot actually compile unsized descriptor arrays. The
-// GitHub Actions macOS runner (paravirt GPU, argument-buffer tier 1) hits two
-// hard Metal limits that only surface when the pipeline is created:
-//   - a dynamic index into an unsized array fails SPIR-V -> MSL conversion
-//     ("Unsized array of descriptors requires argument buffer tier 2");
-//   - a constant index >= 128 fails Metal compilation ("'texture' attribute
-//     parameter is out of bounds: must be between 0 and 127").
-// The canary below exercises both failure modes in one dispatch. When it cannot
-// run, the sparse-slot and unbound-table tests are skipped as unsupported.
+// MoltenVK can advertise descriptor indexing when the Metal device cannot compile
+// unsized arrays or high texture indices. Probe both before running bindless tests.
 // ---------------------------------------------------------------------------
 static int g_bindlessCanaryState = -1; // -1 = unprobed, 0 = unsupported, 1 = ok
 

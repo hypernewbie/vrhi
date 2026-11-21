@@ -905,10 +905,7 @@ UTEST_F( State, MissingFieldsCheck )
     // Note: We use flags because testing images requires valid texture handles
     state.SetShadingRate( VRHI_VRS_2X2 | ( VRHI_VRS_COMBINER_MIN << 4 ) );
 
-    // Indirect Params
-    // Just set a dummy buffer ID, doesn't need to be valid for backend state storage check
-    // (Wait, backend validity checks might fail if we actually tried to use it, 
-    // but here we are just checking if it persists in the backend map)
+    // Only the buffer ID is stored; the buffer need not exist.
     vhBuffer dummyBuf = 9999; 
     state.SetIndirectParams( dummyBuf, 128 );
 

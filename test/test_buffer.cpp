@@ -1797,16 +1797,7 @@ UTEST_F( Buffer, Transient_ShutdownPartialMapping )
     }
 }
 
-// Partial non-four-byte writes preserve neighbouring bytes.
-// A 64-byte buffer is initialized to a sentinel, then partial writes are applied
-// and the ENTIRE buffer is compared against an independent CPU model, so every
-// written byte and every neighbour is checked, including the byte immediately
-// after each write.
-//
-// Two labelled variants. Aligned offsets isolate padded write-size behaviour:
-// each write starts 4-byte aligned and only its length is short. Unaligned
-// offsets are the advertised byte-update contract exercised separately, so a
-// padding result at an unaligned offset is not confused with the aligned case.
+// Check neighbouring bytes after short writes at aligned and unaligned offsets.
 UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
@@ -1869,12 +1860,7 @@ UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// Owned-memory update contract.
-// vhUpdateStorageBuffer takes ownership of `data` and documents that `size`
-// is ignored when `data` is non-null, so a call carrying `size == 0` (or any
-// smaller size) must still write every source byte. The span API's zero-size
-// no-op is a different, separately documented rule and stays covered by
-// Buffer.UpdateStorageBufferSpan_ZeroSize.
+// Owned-memory updates use the source size even when the supplied size is smaller.
 
 UTEST_F( Buffer, UpdateOwnedMemoryWritesEntireSource )
 {

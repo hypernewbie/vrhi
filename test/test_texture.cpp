@@ -1911,13 +1911,7 @@ UTEST_F( Texture, UpdateMipPartial_OthersIntact )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// Odd row pitch upload and readback.
-// Two layers of coverage. Single-row cases at widths 1, 3, 7, 13, 33, 65, 129,
-// 257 keep the original odd-length check. Multi-row cases use asymmetric
-// dimensions (odd width by seven rows) in 1-, 2-, and 4-byte formats, with tags
-// that depend on row, column, and channel, so repeating the first row, using
-// the wrong row stride, or truncating the last row all fail. Every byte,
-// including the last row, is compared. Mip-tail readback is tested separately.
+// Check odd row pitches with single- and multi-row uploads.
 UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
@@ -1994,15 +1988,7 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// Mip-tail upload and readback.
-// 4-mip chain (8x4 -> 4x2 -> 2x1 -> 1x1), each mip carrying a per-texel
-// coordinate pattern, created with the full packed chain (creation-with-data
-// requires bytes for every mip: BE_UpdateTexture clamps its default range over
-// the whole chain).
-//
-// Deferred on Vulkan: GPU readback of the final tail is the broken part, and
-// the upload itself is believed correct. A staging fix needs allocation bounds
-// and nonoverlapping aligned footprints, which this test does not establish.
+// Upload and read back a full mip chain, including the 1x1 tail.
 UTEST_F( Texture, Upload_MipTailRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }

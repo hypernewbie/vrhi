@@ -843,10 +843,7 @@ static vhAccelStruct BuildTriIndexedBLAS( vhBuffer vb, vhBuffer ib, uint32_t ver
     return blas;
 }
 
-// Builds a triangle BLAS via the handle-carrying vhBuildIndexedTriangleBLAS path. Unlike the helpers
-// above, this deliberately performs NO vhFlush() between AS/buffer creation and the build: the new
-// API carries raw vhBuffer IDs through the command queue and resolves them on the backend thread
-// after FIFO has already processed the create commands. Pass ib = VRHI_INVALID_HANDLE for non-indexed.
+// Build from handles without a flush between resource creation and the build.
 static vhAccelStruct BuildTriBLASViaHandles( vhBuffer vb, vhBuffer ib, uint32_t vertexCount, uint32_t indexCount,
     nvrhi::Format indexFormat = nvrhi::Format::R16_UINT, nvrhi::rt::GeometryFlags flags = nvrhi::rt::GeometryFlags::Opaque )
 {
@@ -932,10 +929,7 @@ UTEST_F_SETUP( RT )
         g_testInit = true;
     }
     ASSERT_TRUE( TestVerifyBackend() );
-    // Lavapipe advertises RT but its implementation hangs on TLAS/BLAS work under
-    // CI's reduced-CPU runner. Force RT off on software Vulkan so RT tests skip
-    // cleanly through the explicit capability skip in each RT fixture, so an
-    // unsupported device is reported as skipped rather than silently passed.
+    // Lavapipe can hang on RT builds under CI; leave RT disabled on software Vulkan.
     if ( !g_vhInit.raytracing && !TestIsSoftwareVulkan() )
     {
         TestEnsureShutdown();
@@ -1400,11 +1394,8 @@ UTEST_F( RT, IndexedTriangleBLASViaHandles )
     DestroyRTPipeline( p );
 }
 
-// Exercises the non-indexed branch of vhBuildIndexedTriangleBLAS (indexBuffer = VRHI_INVALID_HANDLE).
-// Deliberately passes a bogus indexFormat (R32_UINT) and indexCount (999) to prove the backend
-// normalises them to UNKNOWN / 0. Without that normalisation the Vulkan backend would select the
-// indexed path (it keys off indexFormat != UNKNOWN) and read indices from a null device address,
-// hanging the GPU. A correct build traces the triangle just like the indexed case.
+// A non-indexed build must ignore indexFormat and indexCount; Vulkan selects
+// the indexed path based on indexFormat, even when the index buffer is null.
 UTEST_F( RT, NonIndexedTriangleBLASViaHandles )
 {
     if ( !g_vhDeviceInfo.raytracing ) { UTEST_SKIP( "Raytracing not supported on this device" ); }

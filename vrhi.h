@@ -138,12 +138,8 @@ struct vhInitData
     // Seeds the Vulkan driver pipeline cache. Obtained from a previous vhGetPSOCache().
     std::vector< uint8_t > psoCacheInitialData;
 
-    // Optional integrity guard for psoCacheInitialData. Stamp this with the vhGetPSOCacheKey() taken
-    // when the blob was saved; vhInit() compares it against the GPU/driver it actually selects and
-    // skips seeding on mismatch, so a cache from a different device is never fed to the driver. Leave
-    // zero-initialised (the default) to seed unconditionally. Even when skipped the driver rejects a
-    // foreign blob safely, so this only saves the wasted parse. Ignored when psoCacheInitialData is
-    // empty. vhInit() never clears psoCacheInitialData; the caller still owns and frees it as usual.
+    // Optional key from vhGetPSOCacheKey(). A mismatch skips psoCacheInitialData;
+    // a zero key seeds unconditionally. The caller retains the cache data.
     vhPSOCacheKey psoCacheValidateKey;
 
     // Use Metal instead of Vulkan on macOS.

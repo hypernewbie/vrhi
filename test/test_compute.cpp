@@ -2362,21 +2362,9 @@ UTEST_F( Compute, BlitBuffer_PartialRange )
 }
 
 // --------------------------------------------------------------------------
-// UAV write followed by shader reads without a CPU wait.
-// A compute pass writes a per-texel pattern into a UAV texture; a consumer then
-// reads that texture directly as an SRV with no vhFinish() or readback in
-// between — one drain after the interval.
-//
-// The two consumers are separate scenarios, not two consumers of one texture:
-// sharing the intermediate would let the compute pass establish the shared SRV
-// transition before the graphics pass reached it, which is not a direct
-// UAV-to-graphics case. Each scenario owns its intermediate and its output, and
-// is run twice: everything recorded on one backend list, and with an explicit
-// vhFlush(true) after the producer (backend processing only, never GPU
-// completion).
-//
-// Note: the public dispatch route submits on the graphics queue here, so these
-// are consumer-stage scenarios, not independent compute/graphics queue results.
+// Test UAV-to-SRV transitions without a GPU wait. Each consumer uses a separate
+// texture so the compute consumer cannot transition the graphics consumer's input.
+// Dispatches use the graphics queue; this does not test cross-queue dependencies.
 UTEST_F( Compute, UAVToSRV_NoCpuWait )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
@@ -2595,19 +2583,8 @@ UTEST_F( Compute, UAVToSRV_NoCpuWait )
 }
 
 // --------------------------------------------------------------------------
-// Multiple UAV dependencies in the same resource state.
-// One structured buffer stays in unordered-access state across a write, two
-// read-modify-write stages with different noncommutative recurrences, and a
-// final UAV read into a separate output buffer. Nothing idles the GPU between
-// the dispatches. Swapping or dropping an RMW stage changes every element of
-// the CPU model, so the oracle is exact and order-sensitive.
-//
-// The workload spans four workgroups of 64 threads; every thread touches only
-// its own element, so there is no intra-dispatch race to confound the result.
-// The final stage writes its output at a reversed index, so a wrong output
-// offset or traversal shows up as a permutation rather than a uniform shift.
-// Both the intermediate buffer and the output are initialized to a sentinel
-// first, so an element nothing wrote is visible.
+// Test UAV dependencies without changing resource state or waiting for the GPU.
+// The read-modify-write stages are order-sensitive; the final write reverses the indices.
 UTEST_F( Compute, ChainedUAVDependencies_SameState )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
@@ -2924,17 +2901,7 @@ UTEST_F( Compute, TypedUAVObservedDirectly )
 }
 
 // --------------------------------------------------------------------------
-// Read 3D texture data through a shader.
-// Read every texel of a 7x5x3 RGBA8 volume and its 3x2x1 mip through a
-// compute shader. Reconstruct the original bytes to check slice pitch, depth
-// reduction and upload data.
-//
-// The oracle reconstructs bytes rather than requiring bit-identical floats:
-// UNORM fractions need not have an exact float representation. Raw float bits
-// can depend on the conversion path. Reconstruction
-// is stated explicitly (round half away from zero on value * 255) and is exact
-// for every tag used, so a one-code-step error, a slice swap, or the wrong mip
-// still fails.
+// Check volume uploads and mip dimensions by reconstructing bytes from UNORM samples.
 UTEST_F( Compute, Volume3DThroughShader )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
@@ -3036,9 +3003,7 @@ UTEST_F( Compute, Volume3DThroughShader )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
     ASSERT_EQ( rd.size(), (size_t)( OUT0 + OUT1 ) * 16 );
 
-    // Stated reconstruction rule: the decoded unorm value must be finite and
-    // inside [0,1], and value * 255 must round (half away from zero) back to the
-    // exact original byte.
+    // Reject invalid samples before converting back to bytes.
     auto reconstructByte = []( float f, int& outByte ) -> bool
     {
         if ( !( f == f ) || f < 0.f || f > 1.f ) return false;   // NaN or out of range
