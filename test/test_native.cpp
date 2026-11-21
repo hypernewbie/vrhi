@@ -214,7 +214,7 @@ UTEST_F( Native, DeviceLock )
     ASSERT_TRUE( vhGetVkInstance() != VK_NULL_HANDLE );
 }
 
-// TESTPLAN NV01 — Native callback actually writes its declared texture.
+// The native callback writes its declared texture.
 // The callback writes the declared texture with a real vkCmdCopyBufferToImage
 // and records its own final layout transition, since stateAfter is only a
 // tracker rebaseline. The consuming compute pass and its initialized output are
@@ -223,7 +223,7 @@ UTEST_F( Native, DeviceLock )
 // in between, so tracker faults surface in the same submission. The callback's
 // own view of its resources (count, image identity, dimensions, format) is
 // captured into a test-owned record and read only after backend completion.
-UTEST_F( Native, NV01_NativeCallbackWritesTexture )
+UTEST_F( Native, NativeCallbackWritesTexture )
 {
     if ( g_vhInit.nullMode || g_vhInit.useMetal ) UTEST_SKIP( "Requires native Vulkan objects" );
 
@@ -234,7 +234,7 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
     vhTexture outTex = vhAllocTexture();
     vhMem* initData = vhAllocMem( DIM * DIM );
     memset( initData->data(), 0x42, DIM * DIM );
-    vhCreateTexture2D( outTex, "NV01_tex", { DIM, DIM }, 1, nvrhi::Format::R8_UNORM,
+    vhCreateTexture2D( outTex, "native_callback_texture", { DIM, DIM }, 1, nvrhi::Format::R8_UNORM,
                        VRHI_TEXTURE_COMPUTE_WRITE, initData );
 
     // Staging buffer carrying the native pattern: unique per texel.
@@ -245,7 +245,7 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
     vhBuffer stageBuf = vhAllocBuffer();
     vhMem* stageMem = vhAllocMem( pattern.size() );
     memcpy( stageMem->data(), pattern.data(), pattern.size() );
-    vhCreateStorageBuffer( stageBuf, "NV01_stage", stageMem, pattern.size(), VRHI_BUFFER_COMPUTE_READ );
+    vhCreateStorageBuffer( stageBuf, "native_callback_staging", stageMem, pattern.size(), VRHI_BUFFER_COMPUTE_READ );
     vhFinish();
 
     nvrhi::BufferHandle nvStage = vhGetBufferNvrhiHandle( stageBuf );
@@ -272,21 +272,21 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
     )";
     std::vector< uint32_t > spirv;
     std::string error;
-    bool compiled = vhCompileShader( "CS_NV01", csSource,
+    bool compiled = vhCompileShader( "native_callback_consumer", csSource,
         VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error );
     if ( !compiled || spirv.empty() )
     {
-        UTEST_PRINTF( "CS_NV01 compile error: %s\n", error.c_str() );
+        UTEST_PRINTF( "native callback shader compile error: %s\n", error.c_str() );
         vhDestroyTexture( outTex ); vhDestroyBuffer( stageBuf );
         vhFinish();
         EXPECT_TRUE( compiled && !spirv.empty() );
         return;
     }
     vhShader cs = vhAllocShader();
-    vhCreateShader( cs, "CS_NV01", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhCreateShader( cs, "native_callback_consumer", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
 
     vhTexture verifyTex = vhAllocTexture();
-    vhCreateTexture2D( verifyTex, "NV01_verify", { DIM, DIM }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( verifyTex, "native_callback_output", { DIM, DIM }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
     // Sentinel the consumer output with 0xFF, outside the pattern's range for
     // every texel, so a missing native write cannot pass.
@@ -407,7 +407,7 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
     int mismatches = 0;
     if ( (int)texRead.size() != DIM * DIM )
     {
-        { UTEST_PRINTF( "NV01: readback size %d, expected %d\n", (int)texRead.size(), DIM * DIM ); }
+        { UTEST_PRINTF( "native callback: readback size %d, expected %d\n", (int)texRead.size(), DIM * DIM ); }
         ++mismatches;
     }
     for ( int y = 0; y < DIM && mismatches < 4 && (int)texRead.size() == DIM * DIM; ++y )
@@ -419,7 +419,7 @@ UTEST_F( Native, NV01_NativeCallbackWritesTexture )
             int rounded = (int)( ( expect / 255.0f ) * 255.0f + 0.5f );
             if ( abs( (int)got - rounded ) > 1 )
             {
-                { UTEST_PRINTF( "NV01: (%d,%d) = %d, expected %d\n", x, y, got, expect ); }
+                { UTEST_PRINTF( "native callback: (%d,%d) = %d, expected %d\n", x, y, got, expect ); }
                 ++mismatches;
             }
         }

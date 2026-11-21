@@ -2456,7 +2456,7 @@ UTEST_F( Graphics, ClearFlagsRespected )
 
     vhStateId sid = 1300;
 
-    // Phase 1: Clear to RED using VRHI_CLEAR_COLOR
+    // Clear to red using VRHI_CLEAR_COLOR.
     state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 1.0f, 0.0f, 0.0f, 1.0f ) );
     vhSetState( sid, state );
     vhClear( sid, VRHI_CLEAR_COLOR );
@@ -2465,7 +2465,7 @@ UTEST_F( Graphics, ClearFlagsRespected )
     // Verify texture is RED
     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF0000FF ) );
 
-    // Phase 2: Set clear colour to GREEN but use VRHI_CLEAR_NONE (flags = 0)
+    // Set the clear colour to green but use VRHI_CLEAR_NONE (flags = 0).
     // The texture should NOT be cleared and should remain RED
     state.SetViewClear( VRHI_CLEAR_NONE, glm::vec4( 0.0f, 1.0f, 0.0f, 1.0f ) );
     vhSetState( sid, state.DirtyAll() );
@@ -2475,7 +2475,7 @@ UTEST_F( Graphics, ClearFlagsRespected )
     // Verify texture is still RED (GREEN colour was ignored)
     EXPECT_TRUE( VerifyPixel( rt, 32, 32, 0xFF0000FF ) );
 
-    // Phase 3: Now actually clear to BLUE using VRHI_CLEAR_COLOR
+    // Clear to blue using VRHI_CLEAR_COLOR.
     state.SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) );
     vhSetState( sid, state.DirtyAll() );
     vhClear( sid, VRHI_CLEAR_COLOR );
@@ -5079,7 +5079,7 @@ UTEST_F( Graphics, Sweep8_TextureChange_StillRebuildsResolve )
 
         // The mip-only rebind must change the descriptor despite an equal texture handle.
         vhTexture mipped = vhAllocTexture();
-        vhCreateTexture2D( mipped, "TX02b_mips", glm::ivec2( 8, 24 ), 2, nvrhi::Format::R32_FLOAT,
+        vhCreateTexture2D( mipped, "mipmapped_texture", glm::ivec2( 8, 24 ), 2, nvrhi::Format::R32_FLOAT,
                            VRHI_TEXTURE_COMPUTE_WRITE );
         vhMem* zeroBase = vhAllocMem( 8 * 24 * sizeof( float ) );
         std::memset( zeroBase->data(), 0, zeroBase->size() );
@@ -5742,21 +5742,21 @@ UTEST_F( Graphics, WorldResolve_W05_RingWrapsHoldOldReader )
     EXPECT_EQ( g_vhErrorCounter.load(), errors );
 }
 
-// TESTPLAN FB02 — Mip and array layer as independent framebuffer keys.
+// Mips and array layers have independent framebuffer keys.
 // One 2D array with two mips and three layers. Every subresource is initialized
 // with its own sentinel first, then five draws run through a single state ID
 // with no drain, creation, destruction, or readback between them: layer change
 // only, mip change only, nonzero mip and layer, and a return to the first pair
 // in a disjoint region. Layer 2 remains untouched. After the final drain every texel of every subresource is
 // checked, so an interior wrong pixel cannot hide behind a correct (0,0).
-UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
+UTEST_F( Graphics, ArrayMipLayerIndependentKeys )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
     const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int LAYERS = 3;
     vhTexture arr = vhAllocTexture();
-    vhCreateTexture2DArray( arr, "FB02_arr", glm::ivec2( 4, 4 ), LAYERS, 2,
+    vhCreateTexture2DArray( arr, "framebuffer_mip_array", glm::ivec2( 4, 4 ), LAYERS, 2,
                             nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
     vhFinish();
 
@@ -5846,7 +5846,7 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
             vhMem rd; vhReadTextureSlow( arr, (int)mip, (int)layer, &rd ); vhFinish();
             if ( (int)rd.size() != dim * dim * 4 )
             {
-                { UTEST_PRINTF( "FB02: mip %u layer %u readback size %d, expected %d\n",
+                { UTEST_PRINTF( "framebuffer: mip %u layer %u readback size %d, expected %d\n",
                                 mip, layer, (int)rd.size(), dim * dim * 4 ); }
                 ++mismatches;
                 continue;
@@ -5868,7 +5868,7 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
                         uint8_t got = rd[( (size_t)y * dim + x ) * 4 + k];
                         if ( got != wb[k] && mismatches < 8 )
                         {
-                            { UTEST_PRINTF( "FB02: mip %u layer %u (%d,%d) ch %d = %u, expected %u\n",
+                            { UTEST_PRINTF( "framebuffer: mip %u layer %u (%d,%d) ch %d = %u, expected %u\n",
                                             mip, layer, x, y, k, (unsigned)got, (unsigned)wb[k] ); }
                             ++mismatches;
                         }
@@ -5888,13 +5888,13 @@ UTEST_F( Graphics, FB02_ArrayMipLayerIndependentKeys )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN TX08 — Upload, sample, overwrite, sample without a drain.
+// Upload, sample, overwrite and sample without a drain.
 // Upload pattern A, sample it into output A, upload pattern B into the same
 // texture, then sample into output B. One final drain. Both outputs must hold
 // their own sampled pattern afterwards.
 // Targets missing write-after-read (upload B vs. draw A) and read-after-write
 // (draw B vs. upload B) dependencies on the ordinary descriptor path.
-UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
+UTEST_F( Graphics, UploadSampleOverwriteSample_NoDrain )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
     const int32_t startErrors = g_vhErrorCounter.load();
@@ -5925,7 +5925,7 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     // Upload A happens at creation; both outputs and all shaders exist before
     // the sampled sequence starts.
     vhTexture src = vhAllocTexture();
-    vhCreateTexture2D( src, "TX08_src", glm::ivec2( DIM, DIM ), 1,
+    vhCreateTexture2D( src, "upload_sample_source", glm::ivec2( DIM, DIM ), 1,
                        nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_NONE, memA );
     vhTexture outA = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
     vhTexture outB = CreateTestTexture( DIM, DIM, nvrhi::Format::RGBA8_UNORM );
@@ -5998,7 +5998,7 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     {
         if ( rdA[i] != patternA[i] )
         {
-            if ( !mismatches ) { UTEST_PRINTF( "TX08: outA first mismatch at byte %zu\n", i ); }
+            if ( !mismatches ) { UTEST_PRINTF( "upload sample: outA first mismatch at byte %zu\n", i ); }
             ++mismatches;
         }
     }
@@ -6008,7 +6008,7 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     {
         if ( rdB[i] != patternB[i] )
         {
-            if ( !mismatches ) { UTEST_PRINTF( "TX08: outB first mismatch at byte %zu\n", i ); }
+            if ( !mismatches ) { UTEST_PRINTF( "upload sample: outB first mismatch at byte %zu\n", i ); }
             ++mismatches;
         }
     }
@@ -6028,13 +6028,13 @@ UTEST_F( Graphics, TX08_UploadSampleOverwriteSample_NoDrain )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN IN01 — Nonzero indirect-count execution.
+// Execute a nonzero indirect draw count.
 // Four argument records draw quads into four distinct tiles of the target,
 // selected per record through baseVertex. The GPU-driven count runs 0, 1, 2,
 // and 3 into separate sentinel-initialized targets: exactly the first N tiles
 // may appear, and every other pixel must keep the sentinel. An implementation
 // that always emits zero draws passes the old count=0 test but fails here.
-UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
+UTEST_F( Graphics, IndirectCountNonzeroExecutes )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
     if ( !g_vhDeviceInfo.drawIndirectCount ) { UTEST_SKIP( "Device does not support indirect draw counts" ); }
@@ -6075,7 +6075,7 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
     vhBuffer argBuf = vhAllocBuffer();
     vhMem* argMem = vhAllocMem( sizeof( argRec ) );
     memcpy( argMem->data(), argRec, sizeof( argRec ) );
-    vhCreateStorageBuffer( argBuf, "IN01_args", argMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
+    vhCreateStorageBuffer( argBuf, "indirect_args", argMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
     vhFinish();
 
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
@@ -6097,7 +6097,7 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
         vhBuffer countBuf = vhAllocBuffer();
         vhMem* countMem = vhAllocMem( sizeof( uint32_t ) );
         memcpy( countMem->data(), &countValue, sizeof( uint32_t ) );
-        vhCreateStorageBuffer( countBuf, "IN01_count", countMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
+        vhCreateStorageBuffer( countBuf, "indirect_count", countMem, 0, VRHI_BUFFER_DRAW_INDIRECT );
         vhFinish();
 
         vhState state;
@@ -6128,7 +6128,7 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
                 memcpy( &got, &rd[( (size_t)py * 64 + px ) * 4], 4 );
                 if ( got != expect )
                 {
-                    UTEST_PRINTF( "IN01: count=%d pixel (%d,%d) tile %d = 0x%08X, expected 0x%08X\n", c, px, py, t, got, expect );
+                    UTEST_PRINTF( "indirect count: count=%d pixel (%d,%d) tile %d = 0x%08X, expected 0x%08X\n", c, px, py, t, got, expect );
                     ++mismatches;
                 }
             }
@@ -6147,7 +6147,7 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN BL01 — Independent blend needs unequal expected targets.
+// Check independent blend with different results for each target.
 // Three targets seeded with different RGBA patterns are blended with add,
 // multiply, and reverse-subtract respectively. Each MRT slot writes a distinct
 // source colour, so slot routing and per-slot blend descriptors are checked
@@ -6155,20 +6155,14 @@ UTEST_F( Graphics, IN01_IndirectCountNonzeroExecutes )
 // alpha) is compared against an independent CPU blend model over the whole
 // image. The attachment order is then swapped and the sequence repeated, so an
 // ordinal mistake or a per-target broadcast cannot match both passes.
-UTEST_F( Graphics, BL01_IndependentBlendUnequalTargets )
+UTEST_F( Graphics, IndependentBlendUnequalTargets )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
 #if defined(__APPLE__)
     if ( !g_vhInit.useMetal ) { UTEST_SKIP( "Independent blend PSO creation unreliable on MoltenVK" ); }
 #endif
-    // TODO( TESTPLAN §22 ): reproduced regression — VRHI_STATE_BLEND_FUNC_RT_3E's
-    // equation bits land inside VRHI_STATE_BLEND_EQUATION_MASK (bits 28-33), so
-    // the global decode sees blendEq=8 and sets targets[0].blendOpAlpha=Subtract.
-    // Slot 0 then blends alpha as src-dst (observed 100-77=23, 100-10=90) while
-    // its RGB adds. The 11-bit-per-RT fields at shifts 0/11/22 overlap the global
-    // blend-factor and equation fields; the API cannot express slot-0 ADD alpha
-    // together with slot-2 REVSUB.
-    UTEST_SKIP( "RT_3 equation bits corrupt slot-0 alpha blend — see TESTPLAN §22" );
+    // Per-target blend fields overlap global blend fields and corrupt alpha.
+    UTEST_SKIP( "independent blend flags corrupt slot-0 alpha" );
     const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int DIM = 32;
@@ -6306,7 +6300,7 @@ PSOut main( float4 col : COLOUR )
                         int expect = expectedByte( slotOp[slot], slotSource( slot, c ), ( *slotSeeds[slot] )[c] );
                         if ( abs( got - expect ) > 1 )
                         {
-                            UTEST_PRINTF( "BL01: pass %d slot %d (%d,%d) ch %d = %d, expected %d\n", pass, slot, px, py, c, got, expect );
+                            UTEST_PRINTF( "independent blend: pass %d slot %d (%d,%d) ch %d = %d, expected %d\n", pass, slot, px, py, c, got, expect );
                             ++mismatches;
                         }
                     }
@@ -6323,7 +6317,7 @@ PSOut main( float4 col : COLOUR )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN DS01 — Depth contents survive a read-only pass, and a legal
+// Depth contents survive a read-only pass, and a legal
 // writable return really stores a new value.
 //
 // Two claims are kept apart. Depth-content preservation: a read-only attachment
@@ -6338,7 +6332,7 @@ PSOut main( float4 col : COLOUR )
 // compared. Variant A drains between phases; variant B records the same phases
 // with no drain inside the sequence, so attachment transitions are exercised
 // on a single command list.
-UTEST_F( Graphics, DS01_ReadOnlyDepthRejectsObservableWrites )
+UTEST_F( Graphics, ReadOnlyDepthRejectsObservableWrites )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Rendering requires GPU in Null RHI mode" ); }
     const int32_t startErrors = g_vhErrorCounter.load();
@@ -6451,7 +6445,7 @@ UTEST_F( Graphics, DS01_ReadOnlyDepthRejectsObservableWrites )
         vhMem rd; vhReadTextureSlow( rt, 0, 0, &rd ); vhFinish();
         if ( (int)rd.size() != 32 * 32 * 4 )
         {
-            { UTEST_PRINTF( "DS01: %s readback size %d, expected %d\n", label, (int)rd.size(), 32 * 32 * 4 ); }
+            { UTEST_PRINTF( "read-only depth: %s readback size %d, expected %d\n", label, (int)rd.size(), 32 * 32 * 4 ); }
             return 1;
         }
         int bad = 0;
@@ -6460,7 +6454,7 @@ UTEST_F( Graphics, DS01_ReadOnlyDepthRejectsObservableWrites )
             uint32_t got; memcpy( &got, &rd[(size_t)i * 4], 4 );
             if ( got != want )
             {
-                { UTEST_PRINTF( "DS01: %s pixel %d = 0x%08X, expected 0x%08X\n", label, i, got, want ); }
+                { UTEST_PRINTF( "read-only depth: %s pixel %d = 0x%08X, expected 0x%08X\n", label, i, got, want ); }
                 ++bad;
             }
         }

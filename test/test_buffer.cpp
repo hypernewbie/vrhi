@@ -1797,7 +1797,7 @@ UTEST_F( Buffer, Transient_ShutdownPartialMapping )
     }
 }
 
-// TESTPLAN BU03 — Partial non-four-byte writes preserve neighbours.
+// Partial non-four-byte writes preserve neighbouring bytes.
 // A 64-byte buffer is initialized to a sentinel, then partial writes are applied
 // and the ENTIRE buffer is compared against an independent CPU model, so every
 // written byte and every neighbour is checked, including the byte immediately
@@ -1810,10 +1810,8 @@ UTEST_F( Buffer, Transient_ShutdownPartialMapping )
 UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
-    // TODO( TESTPLAN §22 ): bytes immediately after non-4-byte writes are zeroed
-    // (padding bug in the vhUpdateStorageBuffer write path). Reproducer for the
-    // regression; the full-buffer check below is the intended final oracle.
-    UTEST_SKIP( "non-4-byte writes zero the trailing padding byte — see TESTPLAN §22" );
+    // Non-four-byte writes can overwrite adjacent bytes.
+    UTEST_SKIP( "non-4-byte writes overwrite trailing bytes" );
     const int32_t startErrors = g_vhErrorCounter.load();
 
     constexpr int SIZE = 64;
@@ -1840,7 +1838,7 @@ UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
         vhBuffer buf = vhAllocBuffer();
         vhMem* initData = vhAllocMem( SIZE );
         memset( initData->data(), SENTINEL, SIZE );
-        vhCreateStorageBuffer( buf, "BU03", initData, SIZE, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
+        vhCreateStorageBuffer( buf, "partial_writes", initData, SIZE, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
         for ( const Write& w : writes )
         {
             vhMem* data = vhAllocMem( (uint64_t)w.length );
@@ -1861,7 +1859,7 @@ UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
         {
             if ( rd[i] != expect[i] )
             {
-                UTEST_PRINTF( "BU03 %s: byte %d = 0x%02X, expected 0x%02X\n",
+                UTEST_PRINTF( "partial writes %s: byte %d = 0x%02X, expected 0x%02X\n",
                     variant == 0 ? "aligned" : "unaligned", i, rd[i], expect[i] );
                 ++mismatches;
             }
@@ -1877,10 +1875,7 @@ UTEST_F( Buffer, PartialByteWrites_PreserveNeighbours )
 // smaller size) must still write every source byte. The span API's zero-size
 // no-op is a different, separately documented rule and stays covered by
 // Buffer.UpdateStorageBufferSpan_ZeroSize.
-//
-// This covers the update path only. TESTPLAN BU04 is about BufferBinding
-// byteOffset/byteSize for adjacent SRV/UAV views of one buffer and is still
-// unimplemented; nothing here claims that coverage.
+
 UTEST_F( Buffer, UpdateOwnedMemoryWritesEntireSource )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
@@ -1892,7 +1887,7 @@ UTEST_F( Buffer, UpdateOwnedMemoryWritesEntireSource )
     vhBuffer buf = vhAllocBuffer();
     vhMem* initData = vhAllocMem( SIZE );
     memset( initData->data(), 0xAA, SIZE );
-    vhCreateStorageBuffer( buf, "R01_owned", initData, SIZE, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
+    vhCreateStorageBuffer( buf, "owned_update", initData, SIZE, VRHI_BUFFER_COMPUTE_READ_WRITE | VRHI_BUFFER_ALLOW_RESIZE );
     vhFinish();
 
     // Aligned ranges through the owned-memory API.

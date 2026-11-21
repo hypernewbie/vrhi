@@ -1911,15 +1911,13 @@ UTEST_F( Texture, UpdateMipPartial_OthersIntact )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN TX02 — odd row pitch upload/readback round-trip.
+// Odd row pitch upload and readback.
 // Two layers of coverage. Single-row cases at widths 1, 3, 7, 13, 33, 65, 129,
 // 257 keep the original odd-length check. Multi-row cases use asymmetric
 // dimensions (odd width by seven rows) in 1-, 2-, and 4-byte formats, with tags
 // that depend on row, column, and channel, so repeating the first row, using
 // the wrong row stride, or truncating the last row all fail. Every byte,
-// including the last row, is compared. The mip-tail phase lives in TX02b
-// behind a separate marker; a green result here does not imply mip-tail
-// readback works.
+// including the last row, is compared. Mip-tail readback is tested separately.
 UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
@@ -1935,7 +1933,7 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
         vhTexture tex = vhAllocTexture();
         vhMem* data = vhAllocMem( (uint64_t)w );
         memcpy( data->data(), expected.data(), (size_t)w );
-        vhCreateTexture2D( tex, "TX02_odd", glm::ivec2( w, 1 ), 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        vhCreateTexture2D( tex, "odd_row", glm::ivec2( w, 1 ), 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
         vhFinish();
 
         vhMem rd; vhReadTextureSlow( tex, 0, 0, &rd ); vhFinish();
@@ -1950,9 +1948,9 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
     // a repeated row or a shifted stride cannot match.
     struct MultiRow { int w; int h; nvrhi::Format format; int bytesPerTexel; const char* name; };
     const MultiRow cases[] = {
-        { 7,  7, nvrhi::Format::R8_UNORM,    1, "TX02_r8"  },
-        { 13, 7, nvrhi::Format::RG8_UNORM,  2, "TX02_rg8" },
-        { 17, 7, nvrhi::Format::RGBA8_UNORM, 4, "TX02_rgba8" },
+        { 7,  7, nvrhi::Format::R8_UNORM,    1, "odd_r8"  },
+        { 13, 7, nvrhi::Format::RG8_UNORM,  2, "odd_rg8" },
+        { 17, 7, nvrhi::Format::RGBA8_UNORM, 4, "odd_rgba8" },
     };
     for ( const MultiRow& c : cases )
     {
@@ -1982,7 +1980,7 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
             int got = (int)rd[i];
             if ( got != (int)expected[i] )
             {
-                { UTEST_PRINTF( "TX02 %s: byte %zu = 0x%02X, expected 0x%02X\n",
+                { UTEST_PRINTF( "odd row %s: byte %zu = 0x%02X, expected 0x%02X\n",
                                 c.name, i, got, expected[i] ); }
                 ++mismatches;
             }
@@ -1996,7 +1994,7 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN TX02b — mip tail round-trip.
+// Mip-tail upload and readback.
 // 4-mip chain (8x4 -> 4x2 -> 2x1 -> 1x1), each mip carrying a per-texel
 // coordinate pattern, created with the full packed chain (creation-with-data
 // requires bytes for every mip: BE_UpdateTexture clamps its default range over
@@ -2008,13 +2006,13 @@ UTEST_F( Texture, Upload_OddRowPitchRoundTrip )
 UTEST_F( Texture, Upload_MipTailRoundTrip )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "Readback requires GPU" ); }
-    // TODO( TESTPLAN §22 ): reading the chain's tail triggers an NVRHI staging
+    // Reading the chain's tail triggers an NVRHI staging
     // bug: computeCopyableFootprints sizes the staging buffer from the raw
     // accumulated mip bytes (43) while the last mip's footprint sits at its
     // 4-byte-aligned offset (44), so vkMapMemory(44,1) and the image-to-buffer
     // copy overrun the 44-byte allocation. Upload itself is correct; the
     // readback path cannot observe the tail until the vendored fix lands.
-    UTEST_SKIP( "mip-tail readback overruns NVRHI staging allocation — see TESTPLAN §22" );
+    UTEST_SKIP( "mip-tail readback overruns NVRHI staging allocation" );
     const int32_t startErrors = g_vhErrorCounter.load();
     vhTexture miptex = vhAllocTexture();
     constexpr int W = 8, H = 4, MIP = 4;
@@ -2041,7 +2039,7 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
             off += expectedMip[m].size();
         }
     }
-    vhCreateTexture2D( miptex, "TX02_mip", glm::ivec2( W, H ), MIP, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, fullChain );
+    vhCreateTexture2D( miptex, "mip_tail", glm::ivec2( W, H ), MIP, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, fullChain );
     vhFinish();
 
     int mismatches = 0;
@@ -2053,7 +2051,7 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
         vhMem rd; vhReadTextureSlow( miptex, m, 0, &rd ); vhFinish();
         if ( (int)rd.size() != sz )
         {
-            { UTEST_PRINTF( "TX02b: mip %d readback size %d, expected %d\n", m, (int)rd.size(), sz ); }
+            { UTEST_PRINTF( "mip tail: mip %d readback size %d, expected %d\n", m, (int)rd.size(), sz ); }
             ++mismatches;
             continue;
         }
@@ -2061,7 +2059,7 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
         {
             if ( (int)rd[i] != (int)expectedMip[m][i] )
             {
-                { UTEST_PRINTF( "TX02b: mip %d byte %d = 0x%02X, expected 0x%02X\n",
+                { UTEST_PRINTF( "mip tail: mip %d byte %d = 0x%02X, expected 0x%02X\n",
                                 m, i, (unsigned)(uint8_t)rd[i], (unsigned)expectedMip[m][i] ); }
                 ++mismatches;
             }
@@ -2074,7 +2072,7 @@ UTEST_F( Texture, Upload_MipTailRoundTrip )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 }
 
-// TESTPLAN TX01 — Nonzero mip and layer upload together.
+// Upload nonzero mips and layers together.
 // Initialize a 13x7 R8 texture array with 4 mips and 3 layers, then update a
 // range starting at nonzero mip AND nonzero layer in one call. Verify every
 // byte in the selected range and that untouched subresources stay intact.
@@ -2108,7 +2106,7 @@ UTEST_F( Texture, Upload_NonzeroMipAndLayerTogether )
     auto selected = [&]( int m, int l ) { return m >= 2 && m < 4 && l >= 1 && l < 3; };
 
     vhTexture tex = vhAllocTexture();
-    vhCreateTexture2DArray( tex, "TX01", glm::ivec2( W, H ), LAYERS, MIPS, nvrhi::Format::R8_UNORM );
+    vhCreateTexture2DArray( tex, "mip_layer_upload", glm::ivec2( W, H ), LAYERS, MIPS, nvrhi::Format::R8_UNORM );
 
     // Initialize every one of the twelve subresources.
     for ( int m = 0; m < MIPS; ++m )
@@ -2142,7 +2140,7 @@ UTEST_F( Texture, Upload_NonzeroMipAndLayerTogether )
             vhMem rd; vhReadTextureSlow( tex, m, l, &rd ); vhFinish();
             if ( (int)rd.size() != (int)mipBytes( m ) )
             {
-                { UTEST_PRINTF( "TX01: mip %d layer %d size %d, expected %d\n",
+                { UTEST_PRINTF( "mip layer upload: mip %d layer %d size %d, expected %d\n",
                                 m, l, (int)rd.size(), (int)mipBytes( m ) ); }
                 ++mismatches;
                 continue;
@@ -2154,7 +2152,7 @@ UTEST_F( Texture, Upload_NonzeroMipAndLayerTogether )
                     uint8_t got = rd[(size_t)y * mipDims[m][0] + x];
                     if ( got != want && mismatches < 8 )
                     {
-                        { UTEST_PRINTF( "TX01: mip %d layer %d (%d,%d) = 0x%02X, expected 0x%02X\n",
+                        { UTEST_PRINTF( "mip layer upload: mip %d layer %d (%d,%d) = 0x%02X, expected 0x%02X\n",
                                         m, l, x, y, (unsigned)got, (unsigned)want ); }
                         ++mismatches;
                     }

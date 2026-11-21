@@ -310,7 +310,7 @@ void main(uint3 id : SV_DispatchThreadID)
 )";
 
 // --------------------------------------------------------------------------
-// Phase 6 shaders
+// Ray tracing shaders
 // --------------------------------------------------------------------------
 
 static const char* g_rayGenTwoMiss = R"(
@@ -958,7 +958,7 @@ UTEST_F_TEARDOWN( RT )
 }
 
 // ==========================================================================
-// Phase 1 — Foundational
+// Basic ray tracing
 // ==========================================================================
 
 UTEST_F( RT, Basic )
@@ -1638,7 +1638,7 @@ UTEST_F( RT, TwoScene )
 }
 
 // ==========================================================================
-// Phase 2 — Intermediate
+// Ray tracing pipeline and geometry
 // ==========================================================================
 
 UTEST_F( RT, BuildFlagsPreferFastTrace )
@@ -2030,7 +2030,7 @@ UTEST_F( RT, GlobalBindingLayouts )
 }
 
 // ==========================================================================
-// Phase 3 — Advanced / Edge Cases
+// Ray tracing edge cases
 // ==========================================================================
 
 UTEST_F( RT, EmptyTLAS )
@@ -2230,7 +2230,7 @@ UTEST_F( RT, ExtensionsUAV )
 }
 
 // ==========================================================================
-// Phase 4 — Destructive / Negative
+// Ray tracing lifecycle and invalid inputs
 // ==========================================================================
 
 UTEST_F( RT, ShaderCompileFail )
@@ -2487,7 +2487,7 @@ UTEST_F( RT, NewPipelineNewTable )
 }
 
 // ==========================================================================
-// Phase 5 — Inline RT Deep Dive
+// Inline ray tracing
 // ==========================================================================
 
 UTEST_F( RT, InlineCommittedStatus )
@@ -2916,7 +2916,7 @@ UTEST_F( RT, TLASFromBuffer )
 }
 
 // ==========================================================================
-// Phase 6 - Group 1: Shader binding table layout
+// Shader binding table layout
 // ==========================================================================
 
 UTEST_F( RT, MultipleMissShaders )
@@ -3182,7 +3182,7 @@ UTEST_F( RT, CallableShaders )
 }
 
 // ==========================================================================
-// Phase 6 - Group 2: Resource bindings beyond Texture_UAV + AS
+// Resource bindings
 // ==========================================================================
 
 UTEST_F( RT, StructuredBufferSRV_InRayGen )
@@ -3329,7 +3329,7 @@ UTEST_F( RT, SamplerInClosestHit )
 }
 
 // ==========================================================================
-// Phase 6 - Group 3: Geometry and scene complexity
+// Geometry and scene complexity
 // ==========================================================================
 
 UTEST_F( RT, MultiGeomBLAS )
@@ -3683,7 +3683,7 @@ UTEST_F( RT, LargeTLAS )
 }
 
 // ==========================================================================
-// Phase 6 - Group 4: Shader semantics: HLSL intrinsics
+// Shader semantics: HLSL intrinsics
 // ==========================================================================
 
 UTEST_F( RT, HitKind_FrontBack )
@@ -3938,7 +3938,7 @@ UTEST_F( RT, RayTCurrent_TMin_TMax )
 }
 
 // ==========================================================================
-// Phase 6 - Group 5: Ray flags
+// Ray flags
 // ==========================================================================
 
 UTEST_F( RT, RayFlag_ForceOpaque )
@@ -4125,7 +4125,7 @@ UTEST_F( RT, RayFlag_AcceptFirstHit )
 }
 
 // ==========================================================================
-// Phase 6 - Group 6: Pipeline depth and payload
+// Pipeline depth and payload
 // ==========================================================================
 
 UTEST_F( RT, MaxRecursionDepth )
@@ -4222,7 +4222,7 @@ UTEST_F( RT, LargePayload )
 }
 
 // ==========================================================================
-// Phase 6 - Group 8: Lifecycle and stress
+// Lifecycle and stress
 // ==========================================================================
 
 UTEST_F( RT, AnimatedTLAS_RepeatedRefit )

@@ -1300,7 +1300,7 @@ UTEST_F( Compute, StaleUniformReproduction_MultiShader )
 }
 
 // ==========================================================================
-// Phase 7 - Group 1: Compute expansion
+// Compute dispatch tests
 // ==========================================================================
 
 UTEST_F( Compute, Atomics_BufferUAV )
@@ -2362,7 +2362,7 @@ UTEST_F( Compute, BlitBuffer_PartialRange )
 }
 
 // --------------------------------------------------------------------------
-// TESTPLAN SY01 — UAV write to shader read without a CPU wait.
+// UAV write followed by shader reads without a CPU wait.
 // A compute pass writes a per-texel pattern into a UAV texture; a consumer then
 // reads that texture directly as an SRV with no vhFinish() or readback in
 // between — one drain after the interval.
@@ -2377,7 +2377,7 @@ UTEST_F( Compute, BlitBuffer_PartialRange )
 //
 // Note: the public dispatch route submits on the graphics queue here, so these
 // are consumer-stage scenarios, not independent compute/graphics queue results.
-UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
+UTEST_F( Compute, UAVToSRV_NoCpuWait )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
     vhFlush();
@@ -2455,11 +2455,11 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
     };
 
     bool compileOk = true;
-    compileOk &= compileShader( "SY01_producer", producerSrc, VRHI_SHADER_STAGE_COMPUTE, producer );
-    compileOk &= compileShader( "SY01_sentinel", sentinelSrc, VRHI_SHADER_STAGE_COMPUTE, sentinel );
-    compileOk &= compileShader( "SY01_consumerCs", consumerCsSrc, VRHI_SHADER_STAGE_COMPUTE, consumerCs );
-    compileOk &= compileShader( "SY01_consumerVs", consumerVsSrc, VRHI_SHADER_STAGE_VERTEX, consumerVs );
-    compileOk &= compileShader( "SY01_consumerPs", consumerPsSrc, VRHI_SHADER_STAGE_PIXEL, consumerPs );
+    compileOk &= compileShader( "uav_producer", producerSrc, VRHI_SHADER_STAGE_COMPUTE, producer );
+    compileOk &= compileShader( "uav_sentinel", sentinelSrc, VRHI_SHADER_STAGE_COMPUTE, sentinel );
+    compileOk &= compileShader( "uav_consumer_cs", consumerCsSrc, VRHI_SHADER_STAGE_COMPUTE, consumerCs );
+    compileOk &= compileShader( "uav_consumer_vs", consumerVsSrc, VRHI_SHADER_STAGE_VERTEX, consumerVs );
+    compileOk &= compileShader( "uav_consumer_ps", consumerPsSrc, VRHI_SHADER_STAGE_PIXEL, consumerPs );
     if ( !compileOk )
     {
         vhDestroyShader( producer ); vhDestroyShader( sentinel ); vhDestroyShader( consumerCs );
@@ -2491,11 +2491,11 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
         vhTexture intermediate = vhAllocTexture();
         vhMem* initial = vhAllocMem( DIM * DIM * 4 );
         memset( initial->data(), 0xE0, initial->size() );
-        vhCreateTexture2D( intermediate, "SY01_mid", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM,
+        vhCreateTexture2D( intermediate, "uav_intermediate", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM,
                            VRHI_TEXTURE_COMPUTE_WRITE, initial );
         vhTexture out = vhAllocTexture();
-        if ( sc.graphics ) vhCreateTexture2D( out, "SY01_outGfx", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
-        else vhCreateTexture2D( out, "SY01_outCs", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+        if ( sc.graphics ) vhCreateTexture2D( out, "uav_output_graphics", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT );
+        else vhCreateTexture2D( out, "uav_output_compute", { DIM, DIM }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
 
         // Seed the consumer output with a sentinel before the interval, with a
         // drain so the interval starts from a known state.
@@ -2556,7 +2556,7 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
         vhMem rd; vhReadTextureSlow( out, 0, 0, &rd ); vhFinish();
         if ( (int)rd.size() != DIM * DIM * 4 )
         {
-            { UTEST_PRINTF( "SY01 %s: readback size %d, expected %d\n", sc.label, (int)rd.size(), DIM * DIM * 4 ); }
+            { UTEST_PRINTF( "UAV to SRV %s: readback size %d, expected %d\n", sc.label, (int)rd.size(), DIM * DIM * 4 ); }
             ++failures;
         }
         else
@@ -2570,7 +2570,7 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
                         int want = expectedByte( x, y, c );
                         if ( abs( got - want ) > 1 )
                         {
-                            { UTEST_PRINTF( "SY01 %s: (%d,%d) ch %d = %d, expected %d\n", sc.label, x, y, c, got, want ); }
+                            { UTEST_PRINTF( "UAV to SRV %s: (%d,%d) ch %d = %d, expected %d\n", sc.label, x, y, c, got, want ); }
                             ++miss;
                         }
                     }
@@ -2595,7 +2595,7 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
 }
 
 // --------------------------------------------------------------------------
-// TESTPLAN SY02 — Multiple UAV dependencies, same resource state.
+// Multiple UAV dependencies in the same resource state.
 // One structured buffer stays in unordered-access state across a write, two
 // read-modify-write stages with different noncommutative recurrences, and a
 // final UAV read into a separate output buffer. Nothing idles the GPU between
@@ -2608,7 +2608,7 @@ UTEST_F( Compute, SY01_UAVToSRV_NoCpuWait )
 // offset or traversal shows up as a permutation rather than a uniform shift.
 // Both the intermediate buffer and the output are initialized to a sentinel
 // first, so an element nothing wrote is visible.
-UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
+UTEST_F( Compute, ChainedUAVDependencies_SameState )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
     vhFlush();
@@ -2626,9 +2626,9 @@ UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
         memcpy( initOut->data() + i * sizeof( uint32_t ), &SENTINEL, sizeof( uint32_t ) );
     }
     vhBuffer buf = vhAllocBuffer();
-    vhCreateStorageStructuredBuffer( buf, "SY02_buf", initSrc, N * sizeof( uint32_t ), sizeof( uint32_t ) );
+    vhCreateStorageStructuredBuffer( buf, "uav_chain_buffer", initSrc, N * sizeof( uint32_t ), sizeof( uint32_t ) );
     vhBuffer out = vhAllocBuffer();
-    vhCreateStorageStructuredBuffer( out, "SY02_out", initOut, N * sizeof( uint32_t ), sizeof( uint32_t ) );
+    vhCreateStorageStructuredBuffer( out, "uav_chain_output", initOut, N * sizeof( uint32_t ), sizeof( uint32_t ) );
     vhFinish();
 
     const char* writeSrc = R"(
@@ -2667,10 +2667,10 @@ UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
     };
 
     bool compileOk = true;
-    compileOk &= compile( "SY02_write", writeSrc, csWrite );
-    compileOk &= compile( "SY02_rmw1", rmw1Src, csRmw1 );
-    compileOk &= compile( "SY02_rmw2", rmw2Src, csRmw2 );
-    compileOk &= compile( "SY02_consume", consumeSrc, csConsume );
+    compileOk &= compile( "uav_chain_write", writeSrc, csWrite );
+    compileOk &= compile( "uav_chain_rmw1", rmw1Src, csRmw1 );
+    compileOk &= compile( "uav_chain_rmw2", rmw2Src, csRmw2 );
+    compileOk &= compile( "uav_chain_consume", consumeSrc, csConsume );
     if ( !compileOk )
     {
         vhDestroyBuffer( buf ); vhDestroyBuffer( out );
@@ -2720,7 +2720,7 @@ UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
     int mismatches = 0;
     if ( (int)rdBuf.size() != (int)( N * sizeof( uint32_t ) ) || (int)rdOut.size() != (int)( N * sizeof( uint32_t ) ) )
     {
-        { UTEST_PRINTF( "SY02: readback sizes %d / %d, expected %d\n", (int)rdBuf.size(), (int)rdOut.size(), (int)( N * sizeof( uint32_t ) ) ); }
+        { UTEST_PRINTF( "UAV chain: readback sizes %d / %d, expected %d\n", (int)rdBuf.size(), (int)rdOut.size(), (int)( N * sizeof( uint32_t ) ) ); }
         ++mismatches;
     }
     else
@@ -2733,12 +2733,12 @@ UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
             uint32_t want = model( i );
             if ( gotBuf != want )
             {
-                { UTEST_PRINTF( "SY02: source element %u = %u, expected %u\n", i, gotBuf, want ); }
+                { UTEST_PRINTF( "UAV chain: source element %u = %u, expected %u\n", i, gotBuf, want ); }
                 ++mismatches;
             }
             if ( gotOut != want )
             {
-                { UTEST_PRINTF( "SY02: output element %u = %u, expected %u\n", N - 1 - i, gotOut, want ); }
+                { UTEST_PRINTF( "UAV chain: output element %u = %u, expected %u\n", N - 1 - i, gotOut, want ); }
                 ++mismatches;
             }
         }
@@ -2755,16 +2755,12 @@ UTEST_F( Compute, SY02_ChainedUAVDependencies_SameState )
 }
 
 // --------------------------------------------------------------------------
-// TESTPLAN BU01 — Observe the typed UAV itself.
+// Read the typed UAV and its shader-resource view.
 // --------------------------------------------------------------------------
 
-// The anchor fixture (CounterBufferTypedView) writes a typed RWBuffer<float4>
-// but only verifies its parallel texture output, so missing typed-UAV writes
-// or a wrong format/stride are invisible. This case observes the buffer
-// directly: bit-exact readback of every element including an unwritten guard
-// range, plus a second shader consuming the same buffer as an SRV and copying
-// the raw bits out for CPU comparison. The texture output stays as a control.
-UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
+// Read back the typed buffer and its unwritten guard range. A second shader
+// reads the buffer as an SRV and copies its bits for comparison.
+UTEST_F( Compute, TypedUAVObservedDirectly )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
     vhFlush();
@@ -2776,14 +2772,14 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
     vhBuffer typedBuf = vhAllocBuffer();
     vhMem* initMem = vhAllocMem( initBits.size() * sizeof( uint32_t ) );
     memcpy( initMem->data(), initBits.data(), initBits.size() * sizeof( uint32_t ) );
-    vhCreateStorageTypedBuffer( typedBuf, "BU01_typed", initMem, initBits.size() * sizeof( uint32_t ),
+    vhCreateStorageTypedBuffer( typedBuf, "typed_uav", initMem, initBits.size() * sizeof( uint32_t ),
                                 nvrhi::Format::RGBA32_FLOAT, VRHI_BUFFER_COMPUTE_READ_WRITE );
 
     vhBuffer verifyBuf = vhAllocBuffer();
-    vhCreateStorageStructuredBuffer( verifyBuf, "BU01_verify", nullptr, N * sizeof( uint32_t ) * 4, sizeof( uint32_t ) * 4 );
+    vhCreateStorageStructuredBuffer( verifyBuf, "typed_uav_verify", nullptr, N * sizeof( uint32_t ) * 4, sizeof( uint32_t ) * 4 );
 
     vhTexture controlTex = vhAllocTexture();
-    vhCreateTexture2D( controlTex, "BU01_ctl", { N, 1 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+    vhCreateTexture2D( controlTex, "typed_uav_control", { N, 1 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
     vhFinish();
 
     // Sentinel the secondary output and the control texture before the interval,
@@ -2801,8 +2797,7 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
     }
     vhFinish();
 
-    // Writer: per-element float4 with distinct exact values per channel and
-    // per element; also fills the control texture like the anchor fixture.
+    // Write distinct float4 values and fill the control texture.
     const char* writeSrc = R"(
         RWBuffer<float4> g_Out : register(u0, VRHI_STAGE_SPACE);
         [[vk::image_format("r8")]] RWTexture2D<float> g_Tex : register(u1, VRHI_STAGE_SPACE);
@@ -2838,8 +2833,8 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
     vhShader csWrite = vhAllocShader();
     vhShader csConsume = vhAllocShader();
     bool compileOk = true;
-    compileOk &= compile( "BU01_write", writeSrc, csWrite );
-    compileOk &= compile( "BU01_consume", consumeSrc, csConsume );
+    compileOk &= compile( "typed_uav_write", writeSrc, csWrite );
+    compileOk &= compile( "typed_uav_consume", consumeSrc, csConsume );
     if ( !compileOk )
     {
         vhDestroyBuffer( typedBuf ); vhDestroyBuffer( verifyBuf ); vhDestroyTexture( controlTex );
@@ -2883,7 +2878,7 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
         for ( int c = 0; c < 4 && mismatches < 4; ++c )
             if ( got[c] != expect[c] )
             {
-                UTEST_PRINTF( "BU01: readback element %u ch %d = 0x%08X, expected 0x%08X\n", i, c, got[c], expect[c] );
+                UTEST_PRINTF( "typed UAV: readback element %u ch %d = 0x%08X, expected 0x%08X\n", i, c, got[c], expect[c] );
                 ++mismatches;
             }
     }
@@ -2903,13 +2898,13 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
         for ( int c = 0; c < 4 && mismatches < 4; ++c )
             if ( got[c] != expect[c] )
             {
-                UTEST_PRINTF( "BU01: SRV element %u ch %d = 0x%08X, expected 0x%08X\n", i, c, got[c], expect[c] );
+                UTEST_PRINTF( "typed UAV: SRV element %u ch %d = 0x%08X, expected 0x%08X\n", i, c, got[c], expect[c] );
                 ++mismatches;
             }
     }
     EXPECT_EQ( mismatches, 0 );
 
-    // Control texture: the anchor fixture's original oracle still holds.
+    // Check the control texture.
     vhMem ctl; vhReadTextureSlow( controlTex, 0, 0, &ctl ); vhFinish();
     EXPECT_EQ( ctl.size(), N );
     for ( uint32_t i = 0; i < N && ctl.size() == N; ++i )
@@ -2929,13 +2924,10 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
 }
 
 // --------------------------------------------------------------------------
-// TESTPLAN TX04 — 3D data through a shader oracle.
-// The anchor (Texture.Type_3D) uploads a volume but comments out its readback,
-// because 3D slow-readback is unsupported. This case instead reads every texel
-// of a 7x5x3 RGBA8 volume and its 3x2x1 second mip through a compute shader
-// into a buffer, and reconstructs the original normalized bytes from the
-// decoded values. Targets slice pitch, depth reduction, and missing upload
-// bytes.
+// Read 3D texture data through a shader.
+// Read every texel of a 7x5x3 RGBA8 volume and its 3x2x1 mip through a
+// compute shader. Reconstruct the original bytes to check slice pitch, depth
+// reduction and upload data.
 //
 // The oracle reconstructs bytes rather than requiring bit-identical floats:
 // UNORM fractions need not have an exact float representation. Raw float bits
@@ -2943,7 +2935,7 @@ UTEST_F( Compute, BU01_TypedUAVObservedDirectly )
 // is stated explicitly (round half away from zero on value * 255) and is exact
 // for every tag used, so a one-code-step error, a slice swap, or the wrong mip
 // still fails.
-UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
+UTEST_F( Compute, Volume3DThroughShader )
 {
     if ( g_vhInit.nullMode ) { UTEST_SKIP( "GPU required" ); }
     vhFlush();
@@ -2977,7 +2969,7 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
     // Creation-with-data requires bytes for the FULL mip chain (BE_UpdateTexture
     // clamps its default range over every mip), so create empty and upload each
     // mip through the documented update path, mirroring the Type_3D anchor.
-    vhCreateTexture3D( vol, "TX04_vol", glm::ivec3( W, H, D ), 2, nvrhi::Format::RGBA8_UNORM,
+    vhCreateTexture3D( vol, "volume_texture", glm::ivec3( W, H, D ), 2, nvrhi::Format::RGBA8_UNORM,
                        VRHI_TEXTURE_NONE, nullptr );
     vhMem* mem0 = vhAllocMem( mip0.size() );
     memcpy( mem0->data(), mip0.data(), mip0.size() );
@@ -2990,7 +2982,7 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
     constexpr int OUT0 = W * H * D;             // 105 voxels in mip 0
     constexpr int OUT1 = W1 * H1 * D1;          // 6 voxels in mip 1
     vhBuffer out = vhAllocBuffer();
-    vhCreateStorageStructuredBuffer( out, "TX04_out", nullptr, ( OUT0 + OUT1 ) * 16, 16 );
+    vhCreateStorageStructuredBuffer( out, "volume_output", nullptr, ( OUT0 + OUT1 ) * 16, 16 );
     vhFinish();
 
     // Sentinel the output: a dispatch that never ran leaves these values, which
@@ -3013,11 +3005,11 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
         }
     )";
     std::vector< uint32_t > spirv; std::string er;
-    bool compiled = vhCompileShader( "TX04_read", csSource,
+    bool compiled = vhCompileShader( "volume_read", csSource,
         VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &er );
     if ( !compiled || spirv.empty() )
     {
-        { UTEST_PRINTF( "TX04 compile error: %s\n", er.c_str() ); }
+        { UTEST_PRINTF( "volume shader compile error: %s\n", er.c_str() ); }
     }
     if ( !compiled || spirv.empty() )
     {
@@ -3027,7 +3019,7 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
         return;
     }
     vhShader cs = vhAllocShader();
-    vhCreateShader( cs, "TX04_read", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhCreateShader( cs, "volume_read", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
 
     vhState state = g_state0;
     state.SetProgram( vhCreateComputeProgram( cs ) );
@@ -3069,14 +3061,14 @@ UTEST_F( Compute, TX04_Volume3DThroughShaderOracle )
                         int got = -1;
                         if ( !reconstructByte( f, got ) )
                         {
-                            { UTEST_PRINTF( "TX04 mip%d: (%d,%d,%d) ch %d decoded %f is not a unorm value\n",
+                            { UTEST_PRINTF( "volume mip %d: (%d,%d,%d) ch %d decoded %f is not a unorm value\n",
                                             mipIndex, x, y, z, c, (double)f ); }
                             ++mismatches;
                             break;
                         }
                         if ( got != (int)src[srcIdx + c] )
                         {
-                            { UTEST_PRINTF( "TX04 mip%d: (%d,%d,%d) ch %d = %d, expected %d\n",
+                            { UTEST_PRINTF( "volume mip %d: (%d,%d,%d) ch %d = %d, expected %d\n",
                                             mipIndex, x, y, z, c, got, src[srcIdx + c] ); }
                             ++mismatches;
                         }
