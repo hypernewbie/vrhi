@@ -159,6 +159,10 @@ UTEST_F( Bindless, Supported )
     EXPECT_GT( g_vhDeviceInfo.maxPerStageResources,      0u );
     if ( g_vhInit.useMetal )
     {
+#if defined(__APPLE__)
+        const bool tier2 = vrhi_test::vhMetalHasArgumentBufferTier2( g_vhMetalDevice->getNativeDevice().pointer );
+        EXPECT_EQ( g_vhDeviceInfo.maxBindlessSampledImages, tier2 ? 1000000u : 96u );
+#endif
         EXPECT_EQ( g_vhDeviceInfo.bindlessUpdateAfterBind, 0u );
         EXPECT_EQ( g_vhDeviceInfo.maxBindlessSampledImagesUAB, 0u );
         EXPECT_EQ( g_vhDeviceInfo.maxBindlessStorageImagesUAB, 0u );
@@ -2347,11 +2351,9 @@ UTEST_F( Bindless, MixedSpaces_OneTable_OrdinalBinding )
     vhFinish();
 }
 
-UTEST_F( Bindless, Graphics_PS_BindlessTexture_Draw )
+static void TestBindlessTextureDraw( uint32_t maxCap, int* utest_result )
 {
-    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
-
-    vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 4 );
+    vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, maxCap );
 
     vhTexture tex = vhAllocTexture();
     {
@@ -2364,7 +2366,8 @@ UTEST_F( Bindless, Graphics_PS_BindlessTexture_Draw )
     vhCreateTexture2D( rt, "GfxRT", { 16, 16 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_RT );
     vhFinish();
 
-    vhDescriptorTableSetTexture( t, 0, tex );
+    const uint32_t slot = maxCap - 1;
+    vhDescriptorTableSetTexture( t, slot, tex );
 
     const char* vsSource = R"(
         struct VSOut
@@ -2386,9 +2389,14 @@ UTEST_F( Bindless, Graphics_PS_BindlessTexture_Draw )
     const char* psSource = R"(
         Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
 
-        float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
+        struct PushConstants
         {
-            float val = g_Tex[0].Load(int3(0, 0, 0));
+            float4 slot;
+        };
+
+        float4 main(float4 pos : SV_Position, float2 uv : TEXCOORD0, uniform PushConstants pc : push_constant) : SV_Target
+        {
+            float val = g_Tex[uint(pc.slot.x)].Load(int3(0, 0, 0));
             return float4(val, val, val, 1.0);
         }
     )";
@@ -2410,6 +2418,7 @@ UTEST_F( Bindless, Graphics_PS_BindlessTexture_Draw )
          .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
          .SetStateFlags( VRHI_STATE_WRITE_MASK )
          .SetProgram( vhCreateGfxProgram( vs, ps ) )
+         .SetPushConstants( glm::vec4( slot, 0, 0, 0 ) )
          .SetDescriptorTable( 0, t );
 
     vhStateId sid = 946;
@@ -2430,6 +2439,12 @@ UTEST_F( Bindless, Graphics_PS_BindlessTexture_Draw )
     vhDestroyShader( ps );
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
+}
+
+UTEST_F( Bindless, Graphics_PS_BindlessTexture_Draw )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    TestBindlessTextureDraw( 4, utest_result );
 }
 
 UTEST_F( Bindless, Graphics_VS_BindlessFetch )
@@ -2811,11 +2826,9 @@ UTEST_F( Bindless, MetalDescriptorTableClearKeepsSlotAlive )
     EXPECT_EQ( handle->GetRefCount(), 1ul );
 }
 
-UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
+static void TestBindlessNonUniform( uint32_t maxCap, int* utest_result )
 {
-    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
-
-    vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, 4 );
+    vhDescriptorTable t = vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, maxCap );
 
     vhTexture tex0 = vhAllocTexture();
     {
@@ -2831,8 +2844,9 @@ UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
         vhCreateTexture2D( tex1, "DivergeTex1", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data1 );
     }
 
+    const uint32_t slot = maxCap - 1;
     uint32_t indices[16];
-    for ( int i = 0; i < 16; i++ ) indices[i] = ( i % 2 );
+    for ( int i = 0; i < 16; i++ ) indices[i] = ( i % 2 ) ? slot : 0;
     vhMem* idxData = vhAllocMem( sizeof( indices ) );
     memcpy( idxData->data(), indices, sizeof( indices ) );
 
@@ -2844,7 +2858,7 @@ UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
     vhFinish();
 
     vhDescriptorTableSetTexture( t, 0, tex0 );
-    vhDescriptorTableSetTexture( t, 1, tex1 );
+    vhDescriptorTableSetTexture( t, slot, tex1 );
 
     const char* csSource = R"(
         Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
@@ -2904,6 +2918,12 @@ UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
     vhDestroyShader( cs );
     vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
     vhFinish();
+}
+
+UTEST_F( Bindless, TrueNonUniform_DivergentIndexFromBuffer )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    TestBindlessNonUniform( 4, utest_result );
 }
 
 static void TestBindlessSparseSlots( uint32_t maxCap, int* utest_result )
@@ -3007,7 +3027,9 @@ UTEST_F( Bindless, MetalLargeTableSparseSlots )
 #if defined(__APPLE__)
     if ( !g_vhMetalDevice || !vrhi_test::vhMetalHasArgumentBufferTier2( g_vhMetalDevice->getNativeDevice().pointer ) )
         UTEST_SKIP( "Requires Metal Tier 2 argument buffers" );
-    TestBindlessSparseSlots( 256, utest_result );
+    const uint32_t maxCap = g_vhDeviceInfo.maxBindlessSampledImages;
+    TestBindlessNonUniform( maxCap, utest_result );
+    TestBindlessTextureDraw( maxCap, utest_result );
 #else
     UTEST_SKIP( "Requires Metal" );
 #endif

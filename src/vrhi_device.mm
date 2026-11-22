@@ -31,6 +31,13 @@ extern "C" bool vhMetalSupportsShader16( void* devicePtr )
     return false;
 }
 
+extern "C" bool vhMetalHasArgumentBufferTier2( void* devicePtr )
+{
+    if ( !devicePtr ) return false;
+    id< MTLDevice > device = ( __bridge id< MTLDevice > )devicePtr;
+    return device.argumentBuffersSupport == MTLArgumentBuffersTier2;
+}
+
 extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr )
 {
     if ( !viewPtr ) return nullptr;

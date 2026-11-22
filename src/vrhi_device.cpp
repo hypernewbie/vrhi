@@ -35,6 +35,7 @@
 #include <vulkan/vulkan_metal.h>
 extern "C" void* vhGetMetalLayerFromNSView( void* viewPtr );
 extern "C" bool vhMetalSupportsShader16( void* devicePtr );
+extern "C" bool vhMetalHasArgumentBufferTier2( void* devicePtr );
 #endif
 
 std::unique_ptr< vkb::Device > g_vulkanBDevice;
@@ -355,7 +356,7 @@ void vhInit( bool quiet )
 
         // Conservative limits also cover devices using classic Metal bindings.
         g_vhDeviceInfo.bindless                     = true;
-        g_vhDeviceInfo.maxBindlessSampledImages     = 96;
+        g_vhDeviceInfo.maxBindlessSampledImages     = vhMetalHasArgumentBufferTier2( g_vhMetalDevice->getNativeDevice().pointer ) ? 1000000 : 96;
         g_vhDeviceInfo.maxBindlessStorageImages     = 96;
         g_vhDeviceInfo.maxBindlessStorageBuffers    = 31;
         g_vhDeviceInfo.maxBindlessUniformBuffers    = 31;
