@@ -4890,9 +4890,14 @@ void vhCmdBackendState::Handle_vhDrawCommonInternal( VIDL_vhDrawCommonInternal* 
 
     for ( vhShader shaderHandle : state.program )
     {
+        if ( shaderHandle == VRHI_INVALID_HANDLE ) continue;
         auto it = backendShaders.find( shaderHandle );
-        if ( it != backendShaders.end() )
-            s_shaders.push_back( it->second.get() );
+        if ( it == backendShaders.end() )
+        {
+            if ( g_vhInit.errorOnSkippedDraw ) VRHI_ERR( "vhDraw(): Shader %u not found!\n", shaderHandle );
+            return;
+        }
+        s_shaders.push_back( it->second.get() );
     }
 
     if ( s_shaders.empty() )
