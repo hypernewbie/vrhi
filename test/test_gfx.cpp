@@ -3803,18 +3803,16 @@ UTEST_F( Graphics, BorderColorSampler )
     vhDraw( sid, 6 );
     vhFinish();
 
-    // UV = (2.0, 0.5) → U border hit → border colour (transparent or opaque black depending on platform)
-    // Accept both transparent black (0x00000000) and opaque black (0xFF000000).
     vhMem rd; vhReadTextureSlow( rt, 0, 0, &rd ); vhFinish();
     if ( !rd.empty() )
     {
         int off = ( 32 * 64 + 32 ) * 4;
-        if ( (int)rd.size() > off + 2 )
+        if ( (int)rd.size() > off + 3 )
         {
-            EXPECT_EQ( rd[off+0], 0 );  // R = 0
-            EXPECT_EQ( rd[off+1], 0 );  // G = 0
-            EXPECT_EQ( rd[off+2], 0 );  // B = 0
-            // Alpha may be 0 (transparent) or 255 (opaque) depending on sampler border colour type
+            EXPECT_EQ( rd[off+0], 0 );
+            EXPECT_EQ( rd[off+1], 0 );
+            EXPECT_EQ( rd[off+2], 0 );
+            EXPECT_EQ( rd[off+3], 0 );
         }
     }
 
