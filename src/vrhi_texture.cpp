@@ -397,6 +397,15 @@ void vhBlitTexture(
     vhCmdEnqueue( cmd );
 }
 
+void vhResolveTexture( vhTexture dst, vhTexture src, int dstMip, int dstLayer, int srcLayer )
+{
+    if ( dst == VRHI_INVALID_HANDLE || src == VRHI_INVALID_HANDLE ) return;
+
+    auto cmd = vhCmdAlloc<VIDL_vhResolveTexture>( dst, src, dstMip, dstLayer, srcLayer );
+    assert( cmd );
+    vhCmdEnqueue( cmd );
+}
+
 vhTexInfo vhGetTextureInfo( vhTexture texture, std::vector< vhTextureMipInfo >* outMipInfo )
 {
     return vhBackendQueryTextureInfo( texture, outMipInfo );

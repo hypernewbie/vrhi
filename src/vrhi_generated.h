@@ -178,6 +178,22 @@ struct VIDL_vhBlitTexture
         : dst(_dst), src(_src), dstMip(_dstMip), srcMip(_srcMip), dstLayer(_dstLayer), srcLayer(_srcLayer), dstOffset(_dstOffset), srcOffset(_srcOffset), extent(_extent) {}
 };
 
+struct VIDL_vhResolveTexture
+{
+    static constexpr uint64_t kMagic = 0x2635A564;
+    uint64_t MAGIC = kMagic;
+    vhTexture dst;
+    vhTexture src;
+    int dstMip = 0;
+    int dstLayer = 0;
+    int srcLayer = 0;
+
+    VIDL_vhResolveTexture() = default;
+
+    VIDL_vhResolveTexture(vhTexture _dst, vhTexture _src, int _dstMip, int _dstLayer, int _srcLayer)
+        : dst(_dst), src(_src), dstMip(_dstMip), dstLayer(_dstLayer), srcLayer(_srcLayer) {}
+};
+
 struct VIDL_vhCreateVertexBuffer
 {
     static constexpr uint64_t kMagic = 0xBBF8D184;
@@ -1264,6 +1280,7 @@ struct VIDLHandler
     virtual void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) { (void) cmd; };
     virtual void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) { (void) cmd; };
+    virtual void Handle_vhResolveTexture( VIDL_vhResolveTexture* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) { (void) cmd; };
     virtual void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) { (void) cmd; };
@@ -1403,6 +1420,10 @@ struct VIDLHandler
         case 0xD7782E0F:
             HandleLogFunction("Handle_vhBlitTexture");
             Handle_vhBlitTexture( (VIDL_vhBlitTexture*) cmd );
+            break;
+        case 0x2635A564:
+            HandleLogFunction("Handle_vhResolveTexture");
+            Handle_vhResolveTexture( (VIDL_vhResolveTexture*) cmd );
             break;
         case 0xBBF8D184:
             HandleLogFunction("Handle_vhCreateVertexBuffer");

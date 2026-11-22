@@ -2900,6 +2900,69 @@ void vhCmdBackendState::Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd )
     BE_BlitTexture( bdst, bsrc, cmd->dstMip, cmd->srcMip, cmd->dstLayer, cmd->srcLayer, cmd->dstOffset, cmd->srcOffset, extent );
 }
 
+void vhCmdBackendState::Handle_vhResolveTexture( VIDL_vhResolveTexture* cmd )
+{
+    VRHI_PROFILE_FUNCTION();
+    BE_CmdRAII cmdRAII( cmd );
+
+    if ( cmd->dst == VRHI_INVALID_HANDLE || cmd->src == VRHI_INVALID_HANDLE ) return;
+
+    auto itDst = backendTextures.find( cmd->dst );
+    auto itSrc = backendTextures.find( cmd->src );
+    const bool hasDst = itDst != backendTextures.end() && itDst->second->handle;
+    const bool hasSrc = itSrc != backendTextures.end() && itSrc->second->handle;
+    if ( !hasDst || !hasSrc )
+    {
+        VRHI_ERR( "vhResolveTexture() : Texture handle(s) %u or %u not found!\n", cmd->dst, cmd->src );
+        return;
+    }
+    const auto& bdst = *itDst->second;
+    const auto& bsrc = *itSrc->second;
+    const auto& dstDesc = bdst.handle->getDesc();
+    const auto& srcDesc = bsrc.handle->getDesc();
+
+    const bool dstIs2D = dstDesc.dimension == nvrhi::TextureDimension::Texture2D || dstDesc.dimension == nvrhi::TextureDimension::Texture2DArray;
+    const bool validSamples = srcDesc.sampleCount > 1 && dstDesc.sampleCount == 1;
+    const bool validFormat = srcDesc.format == dstDesc.format && nvrhi::getFormatInfo( srcDesc.format ).kind != nvrhi::FormatKind::DepthStencil;
+    if ( !dstIs2D || !validSamples || !validFormat || !srcDesc.isRenderTarget || !dstDesc.isRenderTarget )
+    {
+        VRHI_ERR( "vhResolveTexture() : Incompatible colour render targets!\n" );
+        return;
+    }
+
+    const bool dstBound = !dstDesc.isVirtual || bdst.heap;
+    const bool srcBound = !srcDesc.isVirtual || bsrc.heap;
+    if ( !dstBound || !srcBound || bdst.permanentStateAssigned || bsrc.permanentStateAssigned )
+    {
+        VRHI_ERR( "vhResolveTexture() : Cannot resolve textures with unbound memory or permanent state!\n" );
+        return;
+    }
+
+    const bool validMip = cmd->dstMip >= 0 && cmd->dstMip < ( int ) bdst.mipInfo.size();
+    const bool validDstLayer = cmd->dstLayer >= 0 && cmd->dstLayer < bdst.info.arrayLayers;
+    const bool validSrcLayer = cmd->srcLayer >= 0 && cmd->srcLayer < bsrc.info.arrayLayers;
+    if ( !validMip || !validDstLayer || !validSrcLayer )
+    {
+        VRHI_ERR( "vhResolveTexture() : Mip level or layer out of range!\n" );
+        return;
+    }
+    if ( bdst.mipInfo[cmd->dstMip].dimensions != bsrc.info.dimensions )
+    {
+        VRHI_ERR( "vhResolveTexture() : Mip dimensions do not match!\n" );
+        return;
+    }
+
+    const nvrhi::TextureSubresourceSet dstSubresources( cmd->dstMip, 1, cmd->dstLayer, 1 );
+    const nvrhi::TextureSubresourceSet srcSubresources( 0, 1, cmd->srcLayer, 1 );
+    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+
+    // Retain both textures until the resolve completes.
+    auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+    cmdlist->setTextureState( bdst.handle, dstSubresources, nvrhi::ResourceStates::ResolveDest );
+    cmdlist->setTextureState( bsrc.handle, srcSubresources, nvrhi::ResourceStates::ResolveSource );
+    cmdlist->resolveTexture( bdst.handle, dstSubresources, bsrc.handle, srcSubresources );
+}
+
 vhBackendBuffer* vhCmdBackendState::Handle_vhCreateBufferCommon_Internal( const char* fn, vhBuffer buffer, nvrhi::BufferDesc& desc, const char* name, const char* autoname,
     const vhMem* data, uint64_t count, uint64_t stride, uint64_t flags )
 {

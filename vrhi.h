@@ -1241,6 +1241,9 @@ void vhBlitTexture(
     glm::ivec3 extent = glm::ivec3( 0 )
 );
 
+// VIDL_GENERATE
+void vhResolveTexture( vhTexture dst, vhTexture src, int dstMip = 0, int dstLayer = 0, int srcLayer = 0 );
+
 struct vhFormatInfo
 {
     nvrhi::Format format = nvrhi::Format::UNKNOWN;

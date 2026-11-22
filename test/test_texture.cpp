@@ -729,6 +729,70 @@ UTEST_F( Texture, BlitPartialRegion )
     vhFlush();
 }
 
+UTEST_F( Texture, ResolveMultisampledSubresource )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Texture resolve requires GPU in Null RHI mode" );
+
+    vhTexture src = vhAllocTexture();
+    vhTexture dst = vhAllocTexture();
+    vhCreateTexture2DArray( src, "ResolveSource", { 4, 4 }, 2, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, nullptr, 4 );
+    vhCreateTexture2DArray( dst, "ResolveDest", { 8, 8 }, 3, 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, vhAllocMem( 3 * ( 8 * 8 + 4 * 4 ) * 4 ) );
+
+    vhState state;
+    const vhStateId sid = 531;
+    state.SetColourAttachment( 0, src, 0, 0 )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 1, 0, 1 ) );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    state.SetColourAttachment( 0, src, 0, 1 )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 1, 0, 0, 1 ) );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+
+    vhResolveTexture( dst, src, 1, 2, 1 );
+    vhMem resolved;
+    vhReadTextureSlow( dst, 1, 2, &resolved );
+    vhMem untouched;
+    vhReadTextureSlow( dst, 1, 1, &untouched );
+
+    {
+        TestLogCapture logs;
+        vhResolveTexture( dst, dst );
+        vhResolveTexture( dst, src, 0, 1, 1 );
+        vhResolveTexture( dst, src, 1, 3, 1 );
+        vhResolveTexture( dst, src, 1, 1, 2 );
+        vhFinish();
+        EXPECT_TRUE( logs.Contains( "Incompatible colour render targets" ) );
+        EXPECT_TRUE( logs.Contains( "Mip dimensions do not match" ) );
+        EXPECT_TRUE( logs.Contains( "Mip level or layer out of range" ) );
+        EXPECT_EQ( logs.ErrorCount(), 4 );
+    }
+
+    const int32_t errors = g_vhErrorCounter.load();
+    vhResolveTexture( dst, src, 1, 2, 1 );
+    vhState reset;
+    vhSetState( sid, reset, VRHI_DIRTY_ALL );
+    vhDestroyTexture( dst );
+    vhDestroyTexture( src );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), errors );
+
+    ASSERT_EQ( resolved.size(), 4u * 4 * 4 );
+    ASSERT_EQ( untouched.size(), resolved.size() );
+    for ( size_t i = 0; i < resolved.size(); i += 4 )
+    {
+        EXPECT_EQ( resolved[i + 0], 255 );
+        EXPECT_EQ( resolved[i + 1], 0 );
+        EXPECT_EQ( resolved[i + 2], 0 );
+        EXPECT_EQ( resolved[i + 3], 255 );
+    }
+    for ( uint8_t value : untouched )
+    {
+        EXPECT_EQ( value, 0 );
+        if ( value != 0 ) break;
+    }
+}
+
 UTEST( Sampler, MaskNonOverlap )
 {
     // Each mask should be non-overlapping with all others

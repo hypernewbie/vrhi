@@ -398,11 +398,12 @@ UTEST_F( Graphics, DrawMultisampledTexture )
     vhTexture rt = CreateTestTexture( 32, 32, nvrhi::Format::RGBA8_UNORM );
 
     struct Vertex { glm::vec3 pos; glm::vec4 colour; };
+    const float edge = 1.0f / 32.0f;
     const Vertex verts[] =
     {
         { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { {  3.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { { -1.0f,  3.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+        { {  edge, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  edge,  3.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
     };
     vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
     vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
@@ -436,9 +437,13 @@ float4 main( float4 pos : SV_Position ) : SV_Target
          .SetProgram( vhCreateGfxProgram( vs, psLoad ) );
     vhSetState( sid, state );
     vhClear( sid, VRHI_CLEAR_COLOR );
+    vhResolveTexture( rt, msaa );
+    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF000080 ) );
+
+    vhClear( sid, VRHI_CLEAR_COLOR );
     vhDraw( sid, 3 );
 
-    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF0000FF ) );
+    EXPECT_TRUE( VerifyPixel( rt, 8, 16, 0xFF0000FF ) );
     EXPECT_EQ( vhGetTextureInfo( msaa ).samples, 4 );
     EXPECT_EQ( vhGetTextureInfo( rt ).samples, 1 );
 

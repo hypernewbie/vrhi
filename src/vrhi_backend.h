@@ -358,6 +358,7 @@ public:
     void Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd ) override;
     void Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd ) override;
     void Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd ) override;
+    void Handle_vhResolveTexture( VIDL_vhResolveTexture* cmd ) override;
     void Handle_vhCreateVertexBuffer( VIDL_vhCreateVertexBuffer* cmd ) override;
     void Handle_vhUpdateVertexBuffer( VIDL_vhUpdateVertexBuffer* cmd ) override;
     void Handle_vhCreateIndexBuffer( VIDL_vhCreateIndexBuffer* cmd ) override;
