@@ -100,6 +100,10 @@ void vhSwapchainCreateMetal_Internal( vhSwapchain& sc, int width, int height )
         layer.device = ( __bridge id< MTLDevice > )g_vhMetalDevice->getNativeDevice().pointer;
         layer.displaySyncEnabled = g_vhInit.vsync ? YES : NO;
         layer.pixelFormat = g_vhInit.scrgb ? MTLPixelFormatRGBA16Float : MTLPixelFormatBGRA8Unorm;
+        if ( g_vhInit.scrgb )
+        {
+            layer.wantsExtendedDynamicRangeContent = YES;
+        }
     }
 
     // Allow copies from the backbuffer.
