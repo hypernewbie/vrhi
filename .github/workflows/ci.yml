@@ -278,6 +278,27 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -e
+          probe_dir=$(mktemp -d)
+          trap 'rm -rf "$probe_dir"' EXIT
+          clang++ -fobjc-arc -framework Foundation -framework Metal test/metal_sampler_probe.mm -o "$probe_dir/metal_sampler_probe"
+          for mode in White Black MirrorOnce; do
+            case "$mode" in
+              White) expected='MTLSamplerBorderColorOpaqueWhite'; skip=UAA_METAL_SKIP_OPAQUE_WHITE ;;
+              Black) expected='MTLSamplerBorderColorOpaqueBlack'; skip=UAA_METAL_SKIP_OPAQUE_BLACK ;;
+              MirrorOnce) expected='MTLSamplerAddressModeMirrorClampToEdge'; skip=UAA_METAL_SKIP_MIRROR_ONCE ;;
+            esac
+            if output=$(MTL_DEBUG_LAYER=1 "$probe_dir/metal_sampler_probe" "$mode" 2>&1); then
+              echo "$mode: supported"
+            else
+              status=$?
+              echo "$output"
+              if [ "$status" -ne 134 ] || ! grep -Fq "$expected is not supported on this device" <<< "$output"; then
+                exit 1
+              fi
+              export "$skip=1"
+              echo "$mode: unsupported"
+            fi
+          done
           for config in Debug Release; do
             tree="build/nvrhi-metal-$config"
             cmake -S vdeps/nvrhi -B "$tree" -G Ninja -DCMAKE_BUILD_TYPE="$config" \
