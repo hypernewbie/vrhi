@@ -60,6 +60,7 @@ ALLOWED_SKIPS_BY_REASON = {
         "RHI.PSOCache_ValidateKeyMismatchDiscardsSeed", "Bench.PSOCache_ColdVsWarm",
     },
     "set VRHI_BENCH_GC_INTERVAL to compare": {"FrameBench.Bench_Frame_GCInterval"},
+    "set VRHI_BENCH_BINDINGSET=1 to run the binding-set benchmark": {"BindingSetBench.CapacityMiss"},
     "set VRHI_BENCH_HEAVY=1 to run the 500/1000-draw benchmarks": {
         "FrameBench.Bench_Frame_Heavy_500", "FrameBench.Bench_Frame_Heavy_1000",
     },
