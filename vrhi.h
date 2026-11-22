@@ -1115,7 +1115,8 @@ vhTexture vhCreateTexture(
     int numMips, int numLayers,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const vhMem* data = nullptr
+    const vhMem* data = nullptr,
+    uint32_t sampleCount = 1
 );
 
 // Helper to create a 2D texture.
@@ -1126,10 +1127,12 @@ inline vhTexture vhCreateTexture2D(
     int numMips,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const vhMem* data = nullptr
+    const vhMem* data = nullptr,
+    uint32_t sampleCount = 1
 )
 {
-    return vhCreateTexture( texture, name, nvrhi::TextureDimension::Texture2D, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data );
+    auto target = sampleCount > 1 ? nvrhi::TextureDimension::Texture2DMS : nvrhi::TextureDimension::Texture2D;
+    return vhCreateTexture( texture, name, target, glm::ivec3( dimensions, 1 ), numMips, 1, format, flag, data, sampleCount );
 }
 
 // Helper to create a 3D texture.
@@ -1169,10 +1172,12 @@ inline vhTexture vhCreateTexture2DArray(
     int numMips,
     nvrhi::Format format,
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE,
-    const vhMem* data = nullptr
+    const vhMem* data = nullptr,
+    uint32_t sampleCount = 1
 )
 {
-    return vhCreateTexture( texture, name, nvrhi::TextureDimension::Texture2DArray, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data );
+    auto target = sampleCount > 1 ? nvrhi::TextureDimension::Texture2DMSArray : nvrhi::TextureDimension::Texture2DArray;
+    return vhCreateTexture( texture, name, target, glm::ivec3( dimensions, 1 ), numMips, numLayers, format, flag, data, sampleCount );
 }
 
 // Helper to create a Cube texture array.
@@ -1190,7 +1195,7 @@ inline vhTexture vhCreateTextureCubeArray(
     return vhCreateTexture( texture, name, nvrhi::TextureDimension::TextureCubeArray, glm::ivec3( dimension, dimension, 1 ), numMips, numLayers, format, flag, data );
 }
 
-// Enqueues a command to update a subresource range of a texture.
+// Enqueues a command to update a subresource range of a single-sample texture.
 //
 // `texture` is the handle to the texture to update.
 // `startMips` and `startLayers` define the beginning of the range.
@@ -1205,7 +1210,7 @@ void vhUpdateTexture(
     const vhMem* data = nullptr
 );
 
-// Enqueues a command to read a subresource range of a texture.
+// Enqueues a command to read a subresource range of a single-sample texture.
 // WARNING: This is a slow path operation, generally for debugging or screenshot purposes.
 //
 // `texture` is the handle to the texture to read.
@@ -1218,7 +1223,7 @@ void vhReadTextureSlow(
     vhMem* outData = nullptr
 );
 
-// Enqueues a command to blit (copy/resize/convert) a region from one texture to another.
+// Enqueues a command to blit (copy/resize/convert) a region between single-sample textures.
 //
 // `dst` and `src` are the destination and source texture handles.
 // `dstMip` and `srcMip` specify the mip levels to use.

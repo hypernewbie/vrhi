@@ -726,9 +726,11 @@ void vhInit( bool quiet )
 
 #if defined(VK_ENABLE_BETA_EXTENSIONS)
         VkPhysicalDevicePortabilitySubsetFeaturesKHR portabilityFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR };
-        if ( portabilitySubset && supportedPortability.samplerMipLodBias )
+        const bool enablePortabilityFeatures = supportedPortability.samplerMipLodBias || supportedPortability.multisampleArrayImage;
+        if ( portabilitySubset && enablePortabilityFeatures )
         {
-            portabilityFeatures.samplerMipLodBias = VK_TRUE;
+            portabilityFeatures.samplerMipLodBias = supportedPortability.samplerMipLodBias;
+            portabilityFeatures.multisampleArrayImage = supportedPortability.multisampleArrayImage;
             devBuilder.add_pNext( &portabilityFeatures );
         }
 #endif

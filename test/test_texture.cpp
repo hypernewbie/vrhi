@@ -271,6 +271,31 @@ UTEST_F( Texture, CreateDestroyError )
     vhDestroyTexture( tex );
 }
 
+UTEST_F( Texture, CreateMultisampledRejectsInvalidParameters )
+{
+    vhFinish();
+    TestLogCapture logs;
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( tex, "InvalidSampleCount", { 8, 8 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, nullptr, 3 );
+    vhCreateTexture2D( tex, "InvalidMipCount", { 8, 8 }, 2, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, nullptr, 4 );
+    vhCreateTexture2D( tex, "InvalidInitialData", { 8, 8 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, vhAllocMem( 256 ), 4 );
+    vhCreateTexture2D( tex, "InvalidUsage", { 8, 8 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE, nullptr, 4 );
+    vhFinish();
+
+    EXPECT_EQ( logs.ErrorCount(), 4 );
+    EXPECT_EQ( vhGetTextureNvrhiHandle( tex ), nullptr );
+
+    vhCreateTexture2DArray( tex, "MultisampledArray", { 8, 8 }, 2, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, nullptr, 4 );
+    vhFinish();
+    vhTexInfo info = vhGetTextureInfo( tex );
+    EXPECT_EQ( info.samples, 4 );
+    EXPECT_EQ( info.target, nvrhi::TextureDimension::Texture2DMSArray );
+    EXPECT_EQ( logs.ErrorCount(), 4 );
+
+    vhDestroyTexture( tex );
+    vhFinish();
+}
+
 UTEST_F( Texture, CreateHelpers )
 {
 
@@ -427,6 +452,34 @@ UTEST_F( Texture, Update )
     EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
 
     vhDestroyTexture( tex );
+    vhFinish();
+}
+
+UTEST_F( Texture, MultisampledTransferRejected )
+{
+    vhTexture msaa = vhAllocTexture();
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( msaa, "Multisampled", { 8, 8 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, nullptr, 4 );
+    vhCreateTexture2D( tex, "SingleSample", { 8, 8 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_BLIT_DST );
+    vhFinish();
+    EXPECT_EQ( vhGetTextureInfo( msaa ).samples, 4 );
+
+    TestLogCapture logs;
+    vhMem readData;
+    vhUpdateTexture( msaa, 0, 0, 1, 1, vhAllocMem( 256 ) );
+    vhReadTextureSlow( msaa, 0, 0, &readData );
+    vhBlitTexture( tex, msaa );
+    vhBlitTexture( msaa, tex );
+    vhFinish();
+
+    EXPECT_TRUE( readData.empty() );
+    EXPECT_TRUE( logs.Contains( "Cannot upload to a multisampled texture" ) );
+    EXPECT_TRUE( logs.Contains( "Cannot read a multisampled texture" ) );
+    EXPECT_TRUE( logs.Contains( "Cannot blit a multisampled texture" ) );
+    EXPECT_EQ( logs.ErrorCount(), 4 );
+
+    vhDestroyTexture( tex );
+    vhDestroyTexture( msaa );
     vhFinish();
 }
 

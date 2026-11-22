@@ -63,6 +63,8 @@ void vhTextureMiplevelInfo( std::vector< vhTextureMipInfo >& mipInfo, int64_t& p
         case nvrhi::TextureDimension::Texture1D: dim = 1; break;
         case nvrhi::TextureDimension::Texture2D: dim = 2; break;
         case nvrhi::TextureDimension::Texture2DArray: dim = 2; break;
+        case nvrhi::TextureDimension::Texture2DMS: dim = 2; break;
+        case nvrhi::TextureDimension::Texture2DMSArray: dim = 2; break;
         case nvrhi::TextureDimension::Texture3D: dim = 3; break;
         case nvrhi::TextureDimension::TextureCube: dim = 2; break;
         case nvrhi::TextureDimension::TextureCubeArray: dim = 2; break;
@@ -121,6 +123,31 @@ bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions,
     {
         VRHI_ERR( "%s: Region [%d, %d, %d] + [%d, %d, %d] exceeds mip dimensions [%d, %d, %d]\n",
             debugName, offset.x, offset.y, offset.z, extent.x, extent.y, extent.z, mipDimensions.x, mipDimensions.y, mipDimensions.z );
+        return false;
+    }
+    return true;
+}
+
+bool vhVerifyTextureSamples( const nvrhi::TextureDesc& desc, const vhMem* data )
+{
+    const bool multisampled = ( desc.dimension == nvrhi::TextureDimension::Texture2DMS || desc.dimension == nvrhi::TextureDimension::Texture2DMSArray );
+
+    if ( multisampled )
+    {
+        const bool validSampleCount = ( desc.sampleCount == 2 || desc.sampleCount == 4 || desc.sampleCount == 8 );
+        const bool validLayers = ( desc.arraySize == 1 || desc.dimension == nvrhi::TextureDimension::Texture2DMSArray );
+        const bool validDimensions = desc.depth == 1 && desc.mipLevels == 1 && validLayers;
+        const bool validUsage = !data && !desc.isUAV;
+
+        if ( !validSampleCount || !validDimensions || !validUsage )
+        {
+            VRHI_ERR( "vhCreateTexture() : Invalid multisampled texture parameters!\n" );
+            return false;
+        }
+    }
+    else if ( desc.sampleCount != 1 )
+    {
+        VRHI_ERR( "vhCreateTexture() : Sample count must be 1 for a non-multisampled texture!\n" );
         return false;
     }
     return true;
@@ -281,7 +308,8 @@ vhTexture vhCreateTexture(
     int numMips, int numLayers,
     nvrhi::Format format,
     uint64_t flag,
-    const vhMem* data
+    const vhMem* data,
+    uint32_t sampleCount
 )
 {
     if ( texture == VRHI_INVALID_HANDLE ) return texture;
@@ -313,7 +341,7 @@ vhTexture vhCreateTexture(
     }
 
     // Queue up command to create texture
-    auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, vhArenaCopyString( name ), target, dimensions, numMips, numLayers, format, flag, data );
+    auto cmd = vhCmdAlloc<VIDL_vhCreateTexture>( texture, vhArenaCopyString( name ), target, dimensions, numMips, numLayers, format, flag, data, sampleCount );
     assert( cmd );
     vhCmdEnqueue( cmd );
 

@@ -615,6 +615,7 @@ int vhVertexLayoutDefSize( const vhVertexLayoutDef& def );
 int vhVertexLayoutDefSize( const std::vector< vhVertexLayoutDef >& def );
 int64_t vhGetRegionDataSize( const vhFormatInfo& info, glm::ivec3 extent, int mipLevel = 0 );
 bool vhVerifyRegionInTexture( const vhFormatInfo& fmt, glm::ivec3 mipDimensions, glm::ivec3 offset, glm::ivec3 extent, const char* debugName );
+bool vhVerifyTextureSamples( const nvrhi::TextureDesc& desc, const vhMem* data );
 bool vhVerifyTextureMemoryBinding( const nvrhi::TextureDesc& desc, glm::u64vec2 requirements, uint64_t offset, uint64_t capacity );
 bool vhVerifyTextureMemoryOverlap( const nvrhi::TextureDesc& desc, glm::u64vec2 range, const nvrhi::TextureDesc& otherDesc, glm::u64vec2 otherRange );
 bool vhVerifyTextureAliasState( const nvrhi::TextureDesc& desc, nvrhi::ResourceStates state );

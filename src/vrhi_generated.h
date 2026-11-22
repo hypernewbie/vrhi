@@ -118,11 +118,12 @@ struct VIDL_vhCreateTexture
     nvrhi::Format format;
     uint64_t flag = VRHI_TEXTURE_NONE | VRHI_SAMPLER_NONE;
     const vhMem* data = nullptr;
+    uint32_t sampleCount = 1;
 
     VIDL_vhCreateTexture() = default;
 
-    VIDL_vhCreateTexture(vhTexture _texture, const char* _name, nvrhi::TextureDimension _target, glm::ivec3 _dimensions, int _numMips, int _numLayers, nvrhi::Format _format, uint64_t _flag, const vhMem* _data)
-        : texture(_texture), name(_name), target(_target), dimensions(_dimensions), numMips(_numMips), numLayers(_numLayers), format(_format), flag(_flag), data(_data) {}
+    VIDL_vhCreateTexture(vhTexture _texture, const char* _name, nvrhi::TextureDimension _target, glm::ivec3 _dimensions, int _numMips, int _numLayers, nvrhi::Format _format, uint64_t _flag, const vhMem* _data, uint32_t _sampleCount)
+        : texture(_texture), name(_name), target(_target), dimensions(_dimensions), numMips(_numMips), numLayers(_numLayers), format(_format), flag(_flag), data(_data), sampleCount(_sampleCount) {}
 };
 
 struct VIDL_vhUpdateTexture

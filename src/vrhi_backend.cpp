@@ -2469,6 +2469,7 @@ void vhCmdBackendState::RegisterInternalTexture( vhTexture id, const nvrhi::Text
     btex->info.format = desc.format;
     btex->info.mipLevels = ( int32_t ) desc.mipLevels;
     btex->info.arrayLayers = ( int32_t ) desc.arraySize;
+    btex->info.samples = ( int32_t ) desc.sampleCount;
     btex->flags = VRHI_TEXTURE_NONE;
     vhTextureMiplevelInfo( btex->mipInfo, btex->pitchSize, btex->arraySize, btex->info );
     backendTextures[id] = std::move( btex );
@@ -2687,11 +2688,6 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     {
         snprintf( temps, sizeof( temps ), "Texture %d", cmd->texture );
     }
-    if ( ( cmd->flag & VRHI_TEXTURE_VIRTUAL ) && cmd->data )
-    {
-        VRHI_ERR( "vhCreateTexture() : Virtual texture cannot have initial upload data\n" );
-        return;
-    }
 
     const char* debugName = cmd->name ? cmd->name : temps;
     auto textureDesc = nvrhi::TextureDesc()
@@ -2702,11 +2698,19 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
         .setFormat( cmd->format )
         .setMipLevels( cmd->numMips )
         .setArraySize( cmd->numLayers )
+        .setSampleCount( cmd->sampleCount )
         .setIsRenderTarget( ( cmd->flag & VRHI_TEXTURE_RT ) != 0 )
         .setIsUAV( ( cmd->flag & VRHI_TEXTURE_COMPUTE_WRITE ) != 0 )
         .setIsVirtual( ( cmd->flag & VRHI_TEXTURE_VIRTUAL ) != 0 )
         .enableAutomaticStateTracking( nvrhi::ResourceStates::ShaderResource )
         .setDebugName( debugName );
+
+    if ( !vhVerifyTextureSamples( textureDesc, cmd->data ) ) return;
+    if ( ( cmd->flag & VRHI_TEXTURE_VIRTUAL ) && cmd->data )
+    {
+        VRHI_ERR( "vhCreateTexture() : Virtual texture cannot have initial upload data\n" );
+        return;
+    }
 
     nvrhi::TextureHandle texture = nullptr;
     nvrhi::MemoryRequirements memReq = {};
@@ -2733,6 +2737,7 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     btex->info.format = cmd->format;
     btex->info.mipLevels = cmd->numMips;
     btex->info.arrayLayers = cmd->numLayers;
+    btex->info.samples = ( int32_t ) textureDesc.sampleCount;
     btex->flags = cmd->flag;
     btex->memoryRequirements = glm::u64vec2( memReq.size, memReq.alignment );
     vhTextureMiplevelInfo( btex->mipInfo, btex->pitchSize, btex->arraySize, btex->info );
@@ -2765,6 +2770,11 @@ void vhCmdBackendState::Handle_vhUpdateTexture( VIDL_vhUpdateTexture* cmd )
         return;
     }
     auto& btex = *it->second;
+    if ( btex.info.samples > 1 )
+    {
+        VRHI_ERR( "vhUpdateTexture() : Cannot upload to a multisampled texture!\n" );
+        return;
+    }
 
     // Resolve VRHI_MIPMAP_COMPLETE to remaining mips count.
     int32_t resolvedNumMips = cmd->numMips;
@@ -2821,6 +2831,11 @@ void vhCmdBackendState::Handle_vhReadTextureSlow( VIDL_vhReadTextureSlow* cmd )
     }
 
     auto& btex = *backendTextures[cmd->texture];
+    if ( btex.info.samples > 1 )
+    {
+        VRHI_ERR( "vhReadTextureSlow() : Cannot read a multisampled texture!\n" );
+        return;
+    }
     if ( btex.info.target == nvrhi::TextureDimension::Texture3D )
     {
         VRHI_ERR( "vhReadTextureSlow() : 3D textures are not supported for readback yet!\n" );
@@ -2849,6 +2864,11 @@ void vhCmdBackendState::Handle_vhBlitTexture( VIDL_vhBlitTexture* cmd )
     }
     auto& bdst = *itDst->second;
     auto& bsrc = *itSrc->second;
+    if ( bdst.info.samples > 1 || bsrc.info.samples > 1 )
+    {
+        VRHI_ERR( "vhBlitTexture() : Cannot blit a multisampled texture!\n" );
+        return;
+    }
 
     glm::ivec3 extent = cmd->extent;
     if ( extent.x <= 0 || extent.y <= 0 )
@@ -5340,7 +5360,7 @@ vhResourceBreakdown vhCmdBackendState::QueryStatsBreakdown()
     out.heapCount            = ( uint32_t ) backendHeaps.size();
 
     for ( const auto& texPair : backendTextures )
-        out.textureMemory += ( uint64_t ) texPair.second->pitchSize;
+        out.textureMemory += ( uint64_t ) texPair.second->pitchSize * texPair.second->info.samples;
 
     for ( const auto& bufPair : backendBuffers )
         out.bufferMemory += bufPair.second->desc.byteSize;

@@ -389,6 +389,70 @@ UTEST_F( Graphics, DrawTriangle )
     vhFinish();
 }
 
+UTEST_F( Graphics, DrawMultisampledTexture )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Rendering requires GPU in Null RHI mode" );
+
+    vhTexture msaa = vhAllocTexture();
+    vhCreateTexture2D( msaa, "Multisampled", { 32, 32 }, 1, nvrhi::Format::RGBA8_UNORM, VRHI_TEXTURE_RT, nullptr, 4 );
+    vhTexture rt = CreateTestTexture( 32, 32, nvrhi::Format::RGBA8_UNORM );
+
+    struct Vertex { glm::vec3 pos; glm::vec4 colour; };
+    const Vertex verts[] =
+    {
+        { { -1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { {  3.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -1.0f,  3.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+    };
+    vhBuffer vb = CreateTestVB( "float3 float4", verts, sizeof( verts ) );
+    vhShader vs = CreateTestShader( g_simpleVS, VRHI_SHADER_STAGE_VERTEX );
+    vhShader ps = CreateTestShader( g_solidPS, VRHI_SHADER_STAGE_PIXEL );
+    vhShader psLoad = CreateTestShader( R"(
+Texture2DMS<float4> image : register( t0, VRHI_STAGE_SPACE );
+
+[shader("pixel")]
+float4 main( float4 pos : SV_Position ) : SV_Target
+{
+    return image.Load( int2( pos.xy ), 3 );
+}
+)", VRHI_SHADER_STAGE_PIXEL );
+
+    vhState state;
+    state.SetColourAttachment( 0, msaa )
+         .SetViewRect( glm::vec4( 0, 0, 32, 32 ) )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0, 0, 0, 1 ) )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK | VRHI_STATE_MSAA )
+         .SetVertexBuffer( vb, 0 )
+         .SetProgram( vhCreateGfxProgram( vs, ps ) );
+
+    const vhStateId sid = 201;
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+
+    state.SetColourAttachment( 0, rt )
+         .SetStateFlags( VRHI_STATE_WRITE_MASK )
+         .SetTexture( 0, msaa, -1, "image" )
+         .SetProgram( vhCreateGfxProgram( vs, psLoad ) );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhDraw( sid, 3 );
+
+    EXPECT_TRUE( VerifyPixel( rt, 16, 16, 0xFF0000FF ) );
+    EXPECT_EQ( vhGetTextureInfo( msaa ).samples, 4 );
+    EXPECT_EQ( vhGetTextureInfo( rt ).samples, 1 );
+
+    vhState reset;
+    vhSetState( sid, reset, VRHI_DIRTY_ALL );
+    vhDestroyTexture( msaa );
+    vhDestroyTexture( rt );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhDestroyShader( psLoad );
+    vhFinish();
+}
+
 UTEST_F( Graphics, MetalDrawAfterBackbufferResize )
 {
     if ( !g_vhInit.useMetal || !g_vhInit.headless || g_vhInit.nullMode )
