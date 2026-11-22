@@ -36,6 +36,9 @@ ALLOWED_SKIPS_BY_REASON = {
     "Timestamp queries not producing results on this device/backend": {
         "Backend.TimerQueryBasic", "Backend.TimerQueryMultiple",
     },
+    "Timestamp queries not supported on this device/backend": {
+        "Backend.TimerQueryBasic", "Backend.TimerQueryMultiple",
+    },
     "VRS not supported on this device": {"Graphics.VRS_Smoke"},
     "Requires Metal Tier 2 argument buffers": {"Bindless.MetalLargeTableSparseSlots"},
     "No sampled-image update-after-bind support": {"Bindless.UpdateAfterBind_WriteAcrossFrames"},
@@ -92,15 +95,16 @@ def check_output(output: str, returncode: int) -> list[str]:
     if failed:
         errors.append("Failed Metal tests: " + ", ".join(sorted(failed)))
 
-    allowed = {name: reason for reason, names in ALLOWED_SKIPS_BY_REASON.items() for name in names}
+    allowed = {name: {reason for reason, names in ALLOWED_SKIPS_BY_REASON.items() if name in names}
+               for names in ALLOWED_SKIPS_BY_REASON.values() for name in names}
     for block in re.split(r"(?=^\[\s*RUN\s*\] \S+$)", output, flags=re.MULTILINE):
         match = re.match(r"\[\s*RUN\s*\] (\S+)$", block, re.MULTILINE)
         if not match or match.group(1) not in skipped:
             continue
         name = match.group(1)
         reasons = re.findall(r"^\s*Skipped : '(.*)'$", block, re.MULTILINE)
-        expected = "Raytracing not supported on this device" if name.startswith("RT.") else allowed.get(name)
-        if expected is None or reasons != [expected]:
+        expected = {"Raytracing not supported on this device"} if name.startswith("RT.") else allowed.get(name, set())
+        if len(reasons) != 1 or reasons[0] not in expected:
             errors.append(f"Unexpected Metal skip: {name}: {reasons}")
 
     missing = sorted(REQUIRED_TESTS - passed)
