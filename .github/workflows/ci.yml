@@ -302,8 +302,8 @@ jobs:
           for config in Debug Release; do
             tree="build/nvrhi-metal-$config"
             cmake -S vdeps/nvrhi -B "$tree" -G Ninja -DCMAKE_BUILD_TYPE="$config" \
-              -DNVRHI_BUILD_TESTS=ON -DNVRHI_WITH_METAL=ON -DNVRHI_WITH_VALIDATION=ON \
-              -DNVRHI_METAL_TEST_HOOKS=ON -DNVRHI_WITH_VULKAN=OFF -DNVRHI_WITH_RTXMU=OFF -DNVRHI_FETCH_SPIRV_CROSS=ON
+              -DNVRHI_BUILD_TESTS=ON -DNVRHI_WITH_VALIDATION=ON \
+              -DNVRHI_WITH_VULKAN=OFF -DNVRHI_WITH_RTXMU=OFF
             cmake --build "$tree" --parallel 4
             lanes='^(metal_framebuffer|uaa_metal_(raw|validation|shader_rejection|stress|teardown_raw|teardown_validation|submission_raw|submission_validation))$'
             ctest --test-dir "$tree" -N -R "$lanes" | grep -q 'Total Tests: 9'
@@ -898,35 +898,13 @@ jobs:
           LIB_DIR="lib/${{ matrix.platform_lib_subdir }}_release"
           DEBUG_DIR="lib/${{ matrix.platform_lib_subdir }}_debug"
           
-          # Release libs: copy as-is with lib prefix
-          for lib in "$LIB_DIR"/*.a; do
-            if [ -f "$lib" ]; then
-              base=$(basename "$lib")
-              if [ ! -f "package/lib/$base" ]; then
-                cp "$lib" "package/lib/$base"
-              fi
-            fi
+          for lib in nvrhi_vk nvrhi vk-bootstrap rtxmu SPIRV-Tools-opt SPIRV-Tools; do
+            cp "$LIB_DIR/lib$lib.a" package/lib/
+            cp "$DEBUG_DIR/lib$lib.a" "package/lib/lib${lib}_d.a"
           done
-          
-          # Debug libs: add _d suffix
-          for lib in "$DEBUG_DIR"/*.a; do
-            if [ -f "$lib" ]; then
-              base=$(basename "$lib")
-              name="${base%.a}"
-              ext=".a"
-              # Skip if already has _d suffix
-              if [[ "$name" != *"_d" ]]; then
-                dest="${name}_d${ext}"
-                if [ ! -f "package/lib/$dest" ]; then
-                  cp "$lib" "package/lib/$dest"
-                fi
-              else
-                if [ ! -f "package/lib/$base" ]; then
-                  cp "$lib" "package/lib/$base"
-                fi
-              fi
-            fi
-          done
+          if [ "${{ runner.os }}" = macOS ]; then
+            cp "$LIB_DIR/SPIRV-Cross-LICENSE.txt" package/lib/
+          fi
 
       - name: Copy Headers (Windows)
         if: matrix.is_windows

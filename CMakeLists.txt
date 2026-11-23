@@ -504,10 +504,6 @@ endif()
  # NVRHI and related libraries (shared by tests and examples)
  set(NVRHI_LIBS nvrhi_vk nvrhi vk-bootstrap rtxmu)
 
- if(APPLE)
-     list(APPEND NVRHI_LIBS nvrhi_metal spirv-cross-msl spirv-cross-glsl spirv-cross-core)
- endif()
- 
  # Helper function to link NVRHI and platform dependencies
  function(vrhi_link_dependencies target)
      if(WIN32)
@@ -517,8 +513,7 @@ endif()
          # The libraries are found with -l flags, so Ninja otherwise misses archive updates.
          set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
              "${VRHI_LIB_DIR}/libnvrhi.a"
-             "${VRHI_LIB_DIR}/libnvrhi_vk.a"
-             "${VRHI_LIB_DIR}/libnvrhi_metal.a")
+             "${VRHI_LIB_DIR}/libnvrhi_vk.a")
          target_link_libraries(${target} PRIVATE
              "-framework CoreFoundation"
              "-framework CoreGraphics"
@@ -578,8 +573,18 @@ endif()
  # -----------------------------------------------------------------------------
  # Packaging
  # -----------------------------------------------------------------------------
+ if(APPLE)
+     set(VRHI_PACKAGE_LIB_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VRHI_LIB_DIR}/SPIRV-Cross-LICENSE.txt")
+     foreach(lib IN ITEMS ${NVRHI_LIBS} SPIRV-Tools-opt SPIRV-Tools)
+         list(APPEND VRHI_PACKAGE_LIB_COMMAND "${VRHI_LIB_DIR}/lib${lib}.a")
+     endforeach()
+ else()
+     set(VRHI_PACKAGE_LIB_COMMAND ${CMAKE_COMMAND} -E copy_directory "${VRHI_LIB_DIR}/")
+ endif()
+
  add_custom_target(package_vrhi
      # Create output directories
+     COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib"
      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include"
      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib"
      
@@ -608,8 +613,7 @@ endif()
          "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/include/"
      
      # Copy compiled libraries
-     COMMAND ${CMAKE_COMMAND} -E copy_directory 
-         "${VRHI_LIB_DIR}/" 
+     COMMAND ${VRHI_PACKAGE_LIB_COMMAND}
          "${CMAKE_BINARY_DIR}/vrhi_$<CONFIG>/lib/"
      
      # Copy VRHI library from build output

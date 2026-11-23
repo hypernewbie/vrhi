@@ -118,10 +118,6 @@ elseif(APPLE)
         "-framework AppKit"
         "-framework QuartzCore"
         "-framework Metal"
-        nvrhi_metal${VRHI_DEP_SUFFIX}
-        spirv-cross-msl${VRHI_DEP_SUFFIX}
-        spirv-cross-glsl${VRHI_DEP_SUFFIX}
-        spirv-cross-core${VRHI_DEP_SUFFIX}
     )
 else()
     # Linux

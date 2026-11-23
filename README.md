@@ -128,18 +128,10 @@
 
   Windows clients also link `dxgi` and `shlwapi`. Linux clients also link `X11`, `Xi` and `Xext`.
 
-  On macOS, also link the Metal backend and its dependencies from the combined release archive:
+  On macOS, also link the system frameworks:
 
   ```cmake
   target_link_libraries(your_app PRIVATE
-      $<$<CONFIG:Debug>:nvrhi_metal_d>
-      $<$<CONFIG:Debug>:spirv-cross-msl_d>
-      $<$<CONFIG:Debug>:spirv-cross-glsl_d>
-      $<$<CONFIG:Debug>:spirv-cross-core_d>
-      $<$<NOT:$<CONFIG:Debug>>:nvrhi_metal>
-      $<$<NOT:$<CONFIG:Debug>>:spirv-cross-msl>
-      $<$<NOT:$<CONFIG:Debug>>:spirv-cross-glsl>
-      $<$<NOT:$<CONFIG:Debug>>:spirv-cross-core>
       "-framework Metal" "-framework QuartzCore" "-framework AppKit"
       "-framework CoreFoundation" "-framework CoreGraphics" "-framework Foundation"
   )
