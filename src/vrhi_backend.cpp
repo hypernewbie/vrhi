@@ -2724,7 +2724,9 @@ void vhCmdBackendState::Handle_vhCreateTexture( VIDL_vhCreateTexture* cmd )
     }
     if ( !texture )
     {
-        VRHI_ERR( "vhCreateTexture() : Failed to create texture!\n" );
+        VRHI_ERR( "vhCreateTexture() : Failed to create texture '%s'!\n", temps );
+        // Keep a placeholder entry so destroy and updates stay safe after a failed create.
+        backendTextures[cmd->texture] = std::make_unique< vhBackendTexture >();
         return;
     }
 
