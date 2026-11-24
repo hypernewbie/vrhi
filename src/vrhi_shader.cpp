@@ -1131,6 +1131,371 @@ void vhCmdWriteDescriptorTable( vhDescriptorTable table, uint32_t resource, bool
     vhCmdEnqueue( cmd );
 }
 
+void vhCmdApplyDescriptorTableBatchInternal( vhDescriptorTable table, const std::vector< vhDescriptorBatchOp >& ops, bool drain, std::vector< uint32_t >* outReusableSlots, uint32_t* outPending, std::atomic< bool >* fence )
+{
+    auto cmd = vhCmdAlloc< VIDL_vhCmdApplyDescriptorTableBatchInternal >( table, vhArenaCopySpan( ops ), drain, outReusableSlots, outPending, fence );
+    assert( cmd );
+    vhCmdEnqueue( cmd, false );
+}
+
+static void vhDescriptorTableBatchSubmit( vhDescriptorTable table, std::vector< vhDescriptorBatchOp >& ops, uint32_t& pending, bool drain, std::vector< uint32_t >* outReusableSlots )
+{
+    if ( outReusableSlots ) outReusableSlots->clear();
+    if ( ops.empty() && pending == 0 ) return;
+
+    if ( table == VRHI_INVALID_HANDLE )
+    {
+        ops.clear();
+        pending = 0;
+        return;
+    }
+
+    std::atomic< bool > fence = false;
+    uint32_t remaining = 0;
+    vhCmdApplyDescriptorTableBatchInternal( table, ops, drain, outReusableSlots, &remaining, &fence );
+    fence.wait( false, std::memory_order_acquire );
+
+    ops.clear();
+    pending = remaining;
+}
+
+void vhDescriptorTableBatch::Resize( uint32_t newSize, bool keepContents )
+{
+    vhDescriptorBatchOp op;
+    op.kind = vhDescriptorBatchOp::Resize;
+    op.keepContents = keepContents;
+    op.index = newSize;
+    m_ops.push_back( op );
+}
+
+void vhDescriptorTableBatch::SetTexture( uint32_t index, vhTexture texture, nvrhi::Format format, nvrhi::TextureSubresourceSet subresources )
+{
+    assert( texture != VRHI_INVALID_HANDLE );
+
+    vhDescriptorBatchOp op;
+    op.kind = vhDescriptorBatchOp::Write;
+    op.index = index;
+    op.texture = texture;
+    op.format = format;
+    op.subresources = subresources;
+    m_ops.push_back( op );
+}
+
+void vhDescriptorTableBatch::RetireTexture( uint32_t index, vhTexture fallback, vhTexture ownedTexture, nvrhi::Format format, nvrhi::TextureSubresourceSet subresources )
+{
+    assert( fallback != VRHI_INVALID_HANDLE );
+    assert( ownedTexture != fallback );
+
+    vhDescriptorBatchOp op;
+    op.kind = vhDescriptorBatchOp::Retire;
+    op.index = index;
+    op.texture = fallback;
+    op.ownedTexture = ownedTexture;
+    op.format = format;
+    op.subresources = subresources;
+    m_ops.push_back( op );
+}
+
+void vhDescriptorTableBatch::Apply()
+{
+    vhDescriptorTableBatchSubmit( table, m_ops, pending, false, nullptr );
+}
+
+void vhDescriptorTableBatch::Apply( std::vector< uint32_t >& reusableSlots )
+{
+    vhDescriptorTableBatchSubmit( table, m_ops, pending, false, &reusableSlots );
+}
+
+void vhDescriptorTableBatch::Drain()
+{
+    vhDescriptorTableBatchSubmit( table, m_ops, pending, true, nullptr );
+}
+
+void vhDescriptorTableBatch::Drain( std::vector< uint32_t >& reusableSlots )
+{
+    vhDescriptorTableBatchSubmit( table, m_ops, pending, true, &reusableSlots );
+}
+
+uint32_t vhBindlessAllocator::AllocTexture( vhTexture texture, nvrhi::Format format, nvrhi::TextureSubresourceSet subresources )
+{
+    assert( texture != VRHI_INVALID_HANDLE );
+    batch.table = table;
+
+    uint32_t index = VRHI_INVALID_HANDLE;
+    if ( !freeList.empty() )
+    {
+        index = freeList.back();
+        freeList.pop_back();
+    }
+    else
+    {
+        if ( highWater >= capacity )
+        {
+            if ( !growable || capacity >= maxCapacity ) return VRHI_INVALID_HANDLE;
+            uint32_t newCap = capacity ? capacity * 2 : 16;
+            if ( newCap > maxCapacity ) newCap = maxCapacity;
+            batch.Resize( newCap, true );
+            capacity = newCap;
+        }
+        index = highWater++;
+    }
+
+    batch.SetTexture( index, texture, format, subresources );
+    return index;
+}
+
+void vhBindlessAllocator::SetTexture( uint32_t index, vhTexture texture, nvrhi::Format format, nvrhi::TextureSubresourceSet subresources )
+{
+    batch.table = table;
+    batch.SetTexture( index, texture, format, subresources );
+}
+
+void vhBindlessAllocator::RetireTexture( uint32_t index, vhTexture ownedTexture, nvrhi::Format format, nvrhi::TextureSubresourceSet subresources )
+{
+    assert( fallback != VRHI_INVALID_HANDLE );
+    batch.table = table;
+    batch.RetireTexture( index, fallback, ownedTexture, format, subresources );
+    pendingRetirements++;
+}
+
+static void vhBindlessAllocatorFinish( vhBindlessAllocator& alloc, bool drain )
+{
+    alloc.batch.table = alloc.table;
+    std::vector< uint32_t > reclaimed;
+    if ( drain )
+        alloc.batch.Drain( reclaimed );
+    else
+        alloc.batch.Apply( reclaimed );
+
+    if ( !reclaimed.empty() )
+    {
+        alloc.freeList.insert( alloc.freeList.end(), reclaimed.begin(), reclaimed.end() );
+        const uint32_t count = ( uint32_t ) reclaimed.size();
+        alloc.pendingRetirements = alloc.pendingRetirements > count ? alloc.pendingRetirements - count : 0;
+    }
+    if ( alloc.table == VRHI_INVALID_HANDLE ) alloc.pendingRetirements = 0;
+}
+
+void vhBindlessAllocator::Apply()
+{
+    vhBindlessAllocatorFinish( *this, false );
+}
+
+void vhBindlessAllocator::Drain()
+{
+    vhBindlessAllocatorFinish( *this, true );
+}
+
+const char* vhResourceTypeToString( nvrhi::ResourceType type )
+{
+    switch ( type )
+    {
+        case nvrhi::ResourceType::None: return "None";
+        case nvrhi::ResourceType::Texture_SRV: return "Texture_SRV";
+        case nvrhi::ResourceType::Texture_UAV: return "Texture_UAV";
+        case nvrhi::ResourceType::TypedBuffer_SRV: return "TypedBuffer_SRV";
+        case nvrhi::ResourceType::TypedBuffer_UAV: return "TypedBuffer_UAV";
+        case nvrhi::ResourceType::StructuredBuffer_SRV: return "StructuredBuffer_SRV";
+        case nvrhi::ResourceType::StructuredBuffer_UAV: return "StructuredBuffer_UAV";
+        case nvrhi::ResourceType::RawBuffer_SRV: return "RawBuffer_SRV";
+        case nvrhi::ResourceType::RawBuffer_UAV: return "RawBuffer_UAV";
+        case nvrhi::ResourceType::ConstantBuffer: return "ConstantBuffer";
+        case nvrhi::ResourceType::VolatileConstantBuffer: return "VolatileConstantBuffer";
+        case nvrhi::ResourceType::Sampler: return "Sampler";
+        case nvrhi::ResourceType::RayTracingAccelStruct: return "RayTracingAccelStruct";
+        case nvrhi::ResourceType::PushConstants: return "PushConstants";
+        case nvrhi::ResourceType::SamplerFeedbackTexture_UAV: return "SamplerFeedbackTexture_UAV";
+        default: return "Invalid";
+    }
+}
+
+void vhDescriptorTableResize_DeviceStateLocked(
+    nvrhi::IDescriptorTable* handle,
+    const nvrhi::BindlessLayoutDesc& desc,
+    uint32_t& capacity,
+    std::map< std::pair< nvrhi::ResourceType, uint32_t >, nvrhi::ResourceHandle >& metalSlotResources,
+    uint32_t newSize,
+    bool keepContents )
+{
+    if ( !handle ) return;
+
+    uint32_t targetSize = newSize;
+    if ( targetSize > desc.maxCapacity )
+    {
+        VRHI_ERR( "vhResizeDescriptorTable() : Target size %u exceeds maxCapacity %u! Clamping.\n", targetSize, desc.maxCapacity );
+        targetSize = desc.maxCapacity;
+    }
+
+    g_vhDevice->resizeDescriptorTable( handle, targetSize, keepContents );
+    capacity = targetSize;
+
+    if ( !keepContents )
+    {
+        metalSlotResources.clear();
+        return;
+    }
+
+    std::erase_if( metalSlotResources, [targetSize]( const auto& entry )
+    {
+        return entry.first.second >= targetSize;
+    } );
+}
+
+bool vhDescriptorTableWrite_DeviceStateLocked(
+    vhDescriptorTable table,
+    nvrhi::IDescriptorTable* handle,
+    const nvrhi::BindlessLayoutDesc& desc,
+    std::map< std::pair< nvrhi::ResourceType, uint32_t >, nvrhi::ResourceHandle >& metalSlotResources,
+    bool isBuffer,
+    const nvrhi::BindingSetItem& item )
+{
+    if ( !handle ) return false;
+
+    // nvrhi matches bindless writes by exact resource type and drops undeclared ones silently.
+    if ( item.type != nvrhi::ResourceType::None )
+    {
+        bool typeDeclared = false;
+
+        for ( const auto& space : desc.registerSpaces )
+        {
+            if ( space.type != item.type ) continue;
+            typeDeclared = true;
+            break;
+        }
+        if ( !typeDeclared )
+        {
+            VRHI_ERR( "vhCmdWriteDescriptorTable() : Table %d does not declare resource type %s, write to slot %d ignored!\n", table, vhResourceTypeToString( item.type ), item.slot );
+            return false;
+        }
+    }
+
+    auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
+    if ( !g_vhDevice->writeDescriptorTable( handle, item ) )
+    {
+        VRHI_ERR( "vhCmdWriteDescriptorTable() : Failed to write descriptor table %d at slot %d!\n", table, item.slot );
+        return false;
+    }
+
+    if ( g_vhMetalDevice && item.resourceHandle )
+    {
+        // Metal reads slot pointers when binding and pins pointers at submit.
+        metalSlotResources[{ item.type, item.slot }] = item.resourceHandle;
+        g_vhMetalPendingPins.emplace_back( item.resourceHandle );
+    }
+
+    // Bindless resources skip binding-set state tracking, so pin them to a permanent shader-visible state once.
+    if ( item.resourceHandle )
+    {
+        const bool isUAV = ( item.type == nvrhi::ResourceType::Texture_UAV
+            || item.type == nvrhi::ResourceType::TypedBuffer_UAV
+            || item.type == nvrhi::ResourceType::StructuredBuffer_UAV
+            || item.type == nvrhi::ResourceType::RawBuffer_UAV );
+        const nvrhi::ResourceStates st = isUAV ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource;
+        if ( isBuffer )
+            cmdlist->setPermanentBufferState( ( nvrhi::IBuffer* ) item.resourceHandle, st );
+        else
+            cmdlist->setPermanentTextureState( ( nvrhi::ITexture* ) item.resourceHandle, st );
+        cmdlist->commitBarriers();
+    }
+
+    return true;
+}
+
+static nvrhi::EventQueryHandle vhAcquireDescriptorEventQuery_DeviceStateLocked( std::vector< nvrhi::EventQueryHandle >& pool )
+{
+    if ( !pool.empty() )
+    {
+        nvrhi::EventQueryHandle query = std::move( pool.back() );
+        pool.pop_back();
+        return query;
+    }
+    return g_vhDevice->createEventQuery();
+}
+
+static void vhReleaseDescriptorEventQuery_DeviceStateLocked( std::vector< nvrhi::EventQueryHandle >& pool, nvrhi::EventQueryHandle& query )
+{
+    if ( !query ) return;
+    g_vhDevice->resetEventQuery( query );
+    pool.push_back( std::move( query ) );
+    query = nullptr;
+}
+
+void vhDescriptorRetireQueue::Push_DeviceStateLocked( std::vector< vhDescriptorRetireEntry >&& entries )
+{
+    if ( entries.empty() ) return;
+
+    // NVRHI Vulkan pollEventQuery returns false when commandListID == 0 on an unused queue,
+    // so only stamp queues that have at least one submission.
+    vhDescriptorRetireCohort cohort;
+    if ( g_vhCmdQueueSubmitted[( uint64_t ) nvrhi::CommandQueue::Graphics] )
+    {
+        cohort.graphicsQuery = vhAcquireDescriptorEventQuery_DeviceStateLocked( queryPool );
+        g_vhDevice->setEventQuery( cohort.graphicsQuery, nvrhi::CommandQueue::Graphics );
+    }
+    if ( g_vhCmdQueueSubmitted[( uint64_t ) nvrhi::CommandQueue::Compute] )
+    {
+        cohort.computeQuery = vhAcquireDescriptorEventQuery_DeviceStateLocked( queryPool );
+        g_vhDevice->setEventQuery( cohort.computeQuery, nvrhi::CommandQueue::Compute );
+    }
+    cohort.entries = std::move( entries );
+    pending.push_back( std::move( cohort ) );
+}
+
+uint32_t vhDescriptorRetireQueue::Poll_DeviceStateLocked( std::vector< vhDescriptorRetireEntry >& outCompleted )
+{
+    if ( pending.empty() ) return 0;
+
+    uint32_t remaining = 0;
+    std::vector< vhDescriptorRetireCohort > stillPending;
+
+    for ( auto& cohort : pending )
+    {
+        const bool gfxReady = !cohort.graphicsQuery || g_vhDevice->pollEventQuery( cohort.graphicsQuery );
+        const bool computeReady = !cohort.computeQuery || g_vhDevice->pollEventQuery( cohort.computeQuery );
+        if ( gfxReady && computeReady )
+        {
+            outCompleted.insert( outCompleted.end(), cohort.entries.begin(), cohort.entries.end() );
+            vhReleaseDescriptorEventQuery_DeviceStateLocked( queryPool, cohort.graphicsQuery );
+            vhReleaseDescriptorEventQuery_DeviceStateLocked( queryPool, cohort.computeQuery );
+        }
+        else
+        {
+            remaining += ( uint32_t ) cohort.entries.size();
+            stillPending.push_back( std::move( cohort ) );
+        }
+    }
+
+    pending = std::move( stillPending );
+    return remaining;
+}
+
+void vhDescriptorRetireQueue::Drain_DeviceStateLocked( std::vector< vhDescriptorRetireEntry >& outCompleted )
+{
+    for ( auto& cohort : pending )
+    {
+        outCompleted.insert( outCompleted.end(), cohort.entries.begin(), cohort.entries.end() );
+        vhReleaseDescriptorEventQuery_DeviceStateLocked( queryPool, cohort.graphicsQuery );
+        vhReleaseDescriptorEventQuery_DeviceStateLocked( queryPool, cohort.computeQuery );
+    }
+    pending.clear();
+}
+
+void vhDescriptorRetireQueue::Discard_DeviceStateLocked( std::vector< vhTexture >& outOwnedTextures )
+{
+    for ( auto& cohort : pending )
+    {
+        for ( const auto& entry : cohort.entries )
+        {
+            if ( entry.ownedTexture != VRHI_INVALID_HANDLE )
+                outOwnedTextures.push_back( entry.ownedTexture );
+        }
+        vhReleaseDescriptorEventQuery_DeviceStateLocked( queryPool, cohort.graphicsQuery );
+        vhReleaseDescriptorEventQuery_DeviceStateLocked( queryPool, cohort.computeQuery );
+    }
+    pending.clear();
+    queryPool.clear();
+}
+
 uint32_t vhDescriptorTableCapacity( vhDescriptorTable table )
 {
     return vhBackendQueryDescriptorTableCapacity( table );

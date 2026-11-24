@@ -860,6 +860,23 @@ struct VIDL_vhGetPSOCacheInternal
         : fence(_fence), outData(_outData), outSize(_outSize) {}
 };
 
+struct VIDL_vhCmdApplyDescriptorTableBatchInternal
+{
+    static constexpr uint64_t kMagic = 0x10829463;
+    uint64_t MAGIC = kMagic;
+    vhDescriptorTable table;
+    vhArenaSpan< vhDescriptorBatchOp > ops;
+    bool drain;
+    std::vector< uint32_t >* outReusableSlots;
+    uint32_t* outPending;
+    std::atomic< bool >* fence;
+
+    VIDL_vhCmdApplyDescriptorTableBatchInternal() = default;
+
+    VIDL_vhCmdApplyDescriptorTableBatchInternal(vhDescriptorTable _table, vhArenaSpan< vhDescriptorBatchOp > _ops, bool _drain, std::vector< uint32_t >* _outReusableSlots, uint32_t* _outPending, std::atomic< bool >* _fence)
+        : table(_table), ops(_ops), drain(_drain), outReusableSlots(_outReusableSlots), outPending(_outPending), fence(_fence) {}
+};
+
 struct VIDL_vhCmdSetStateViewRect
 {
     static constexpr uint64_t kMagic = 0x25DC7E64;
@@ -1328,6 +1345,7 @@ struct VIDLHandler
     virtual void Handle_vhClear( VIDL_vhClear* cmd ) { (void) cmd; };
     virtual void Handle_vhFlushInternal( VIDL_vhFlushInternal* cmd ) { (void) cmd; };
     virtual void Handle_vhGetPSOCacheInternal( VIDL_vhGetPSOCacheInternal* cmd ) { (void) cmd; };
+    virtual void Handle_vhCmdApplyDescriptorTableBatchInternal( VIDL_vhCmdApplyDescriptorTableBatchInternal* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewRect( VIDL_vhCmdSetStateViewRect* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewScissor( VIDL_vhCmdSetStateViewScissor* cmd ) { (void) cmd; };
     virtual void Handle_vhCmdSetStateViewClear( VIDL_vhCmdSetStateViewClear* cmd ) { (void) cmd; };
@@ -1612,6 +1630,10 @@ struct VIDLHandler
         case 0xA435BC09:
             HandleLogFunction("Handle_vhGetPSOCacheInternal");
             Handle_vhGetPSOCacheInternal( (VIDL_vhGetPSOCacheInternal*) cmd );
+            break;
+        case 0x10829463:
+            HandleLogFunction("Handle_vhCmdApplyDescriptorTableBatchInternal");
+            Handle_vhCmdApplyDescriptorTableBatchInternal( (VIDL_vhCmdApplyDescriptorTableBatchInternal*) cmd );
             break;
         case 0x25DC7E64:
             HandleLogFunction("Handle_vhCmdSetStateViewRect");

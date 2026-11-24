@@ -593,9 +593,11 @@ glm::u64vec2 vhAllocBindTextureMemory( vhTexture texture, vhHeap heap );
 // Command Lists
 extern nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count];
 extern bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count];
+extern bool g_vhCmdQueueSubmitted[( uint64_t ) nvrhi::CommandQueue::Count];
 extern std::vector< nvrhi::ResourceHandle > g_vhMetalPendingPins; // Protected by g_nvRHIStateMutex.
 nvrhi::CommandListHandle vhCmdListGet( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 nvrhi::CommandListHandle vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
+bool vhCmdListAnyOpen_DeviceStateLocked();
 uint64_t vhCmdListFlush( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics ); // This will automatically flush the dependent queues.
 uint64_t vhCmdListFlush_DeviceStateLocked( nvrhi::CommandQueue type = nvrhi::CommandQueue::Graphics );
 // Shutdown only. Lock g_nvRHIStateMutex; backend thread must be joined first.
@@ -621,6 +623,7 @@ bool vhVerifyTextureMemoryOverlap( const nvrhi::TextureDesc& desc, glm::u64vec2 
 bool vhVerifyTextureAliasState( const nvrhi::TextureDesc& desc, nvrhi::ResourceStates state );
 bool vhBindTextureMemory_DeviceStateLocked( nvrhi::ITexture* texture, nvrhi::IHeap* heap, uint64_t offset );
 void vhActivateTextureAlias_DeviceStateLocked( nvrhi::ICommandList* cmdList, nvrhi::ITexture* texture, nvrhi::ResourceStates state );
+void vhReleaseTextureIDs( const std::vector< vhTexture >& textures );
 
 nvrhi::SamplerDesc vhGetSamplerDesc( uint64_t samplerFlags );
 nvrhi::SamplerHandle vhGetSamplerHandle( uint64_t samplerFlags );
@@ -710,6 +713,55 @@ struct vhUniformPackingSchema
 using vhUniformPackingSchemas = std::unordered_map< const vhState::UniformBufferValue*, vhUniformPackingSchema >;
 void vhAssignUniformPacking( std::vector< vhState::UniformBufferValue >& dst, const vhArenaSpan< vhArenaUniformValue >& src, vhUniformPackingSchemas& schemas );
 void vhPackUserGlobalsPlanned( const std::vector< vhState::UniformBufferValue >& uniforms, const std::vector< vhReflectionMember >& members, uint8_t* outData, uint64_t dataSize, vhUniformPackingSchemas& schemas );
+
+const char* vhResourceTypeToString( nvrhi::ResourceType type );
+
+struct vhDescriptorRetireEntry
+{
+    uint32_t index = 0;
+    vhTexture fallback = VRHI_INVALID_HANDLE;
+    vhTexture ownedTexture = VRHI_INVALID_HANDLE;
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources;
+};
+
+struct vhDescriptorRetireCohort
+{
+    nvrhi::EventQueryHandle graphicsQuery;
+    nvrhi::EventQueryHandle computeQuery;
+    std::vector< vhDescriptorRetireEntry > entries;
+};
+
+struct vhDescriptorRetireQueue
+{
+    std::vector< vhDescriptorRetireCohort > pending;
+    std::vector< nvrhi::EventQueryHandle > queryPool;
+
+    bool Empty() const { return pending.empty(); }
+    size_t CohortCount() const { return pending.size(); }
+
+    void Push_DeviceStateLocked( std::vector< vhDescriptorRetireEntry >&& entries );
+    uint32_t Poll_DeviceStateLocked( std::vector< vhDescriptorRetireEntry >& outCompleted );
+    void Drain_DeviceStateLocked( std::vector< vhDescriptorRetireEntry >& outCompleted );
+    void Discard_DeviceStateLocked( std::vector< vhTexture >& outOwnedTextures );
+};
+
+void vhDescriptorTableResize_DeviceStateLocked(
+    nvrhi::IDescriptorTable* handle,
+    const nvrhi::BindlessLayoutDesc& desc,
+    uint32_t& capacity,
+    std::map< std::pair< nvrhi::ResourceType, uint32_t >, nvrhi::ResourceHandle >& metalSlotResources,
+    uint32_t newSize,
+    bool keepContents
+);
+bool vhDescriptorTableWrite_DeviceStateLocked(
+    vhDescriptorTable table,
+    nvrhi::IDescriptorTable* handle,
+    const nvrhi::BindlessLayoutDesc& desc,
+    std::map< std::pair< nvrhi::ResourceType, uint32_t >, nvrhi::ResourceHandle >& metalSlotResources,
+    bool isBuffer,
+    const nvrhi::BindingSetItem& item
+);
 
 bool vhShaderValidateBinding( const vhShaderReflectionResource& reflection, const nvrhi::BindingLayoutItem& binding, bool logError );
 bool vhDebugLayoutDiffCheck( const nvrhi::BindingLayoutVector& layouts, const nvrhi::BindingSetVector& bindings );

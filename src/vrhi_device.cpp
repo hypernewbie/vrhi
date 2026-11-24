@@ -2288,7 +2288,8 @@ void vhInitDummyResources()
     s_vhDummySampler = g_vhDevice->createSampler( sDesc );
 
     cl->close();
-    g_vhDevice->executeCommandList( cl );
+    if ( g_vhDevice->executeCommandList( cl ) != 0 )
+        g_vhCmdQueueSubmitted[( uint64_t ) nvrhi::CommandQueue::Graphics] = true;
 }
 
 void vhShutdownDummyResources()

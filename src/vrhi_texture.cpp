@@ -300,6 +300,18 @@ void vhDestroyTexture( vhTexture texture )
     vhCmdEnqueue( cmd );
 }
 
+void vhReleaseTextureIDs( const std::vector< vhTexture >& textures )
+{
+    if ( textures.empty() ) return;
+    std::lock_guard< std::mutex > lock( g_vhTextureIDListMutex );
+
+    for ( vhTexture tex : textures )
+    {
+        if ( g_vhTextureIDValid.erase( tex ) != 0 )
+            g_vhTextureIDList.release( tex );
+    }
+}
+
 vhTexture vhCreateTexture(
     vhTexture texture,
     const char* name,

@@ -1741,57 +1741,84 @@ inline vhDescriptorTable vhCreateDescriptorTableSimple( nvrhi::ResourceType type
     return vhCreateDescriptorTable( table, desc );
 }
 
-// Batch sampled-texture writes to a fixed-capacity, non-UAB table.
-// Use one submission thread. Keep the table and its textures alive while in use.
-struct vhDescriptorTableBatch
+// Creates a Texture_SRV bindless table at `slot`, enabling update-after-bind automatically when supported
+// and clamping maxCapacity to the active mode's hardware limit.
+inline vhDescriptorTable vhCreateBindlessTextureTable( uint32_t maxCapacity, uint32_t slot = 0, bool allowUAB = true )
 {
-    explicit vhDescriptorTableBatch( vhDescriptorTable table ) : m_table( table ) {}
+    constexpr uint32_t req = VRHI_UAB_SAMPLED_IMAGE | VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+    const bool uab = allowUAB && ( ( g_vhDeviceInfo.bindlessUpdateAfterBind & req ) == req );
+    const uint32_t limit = uab ? g_vhDeviceInfo.maxBindlessSampledImagesUAB : g_vhDeviceInfo.maxBindlessSampledImages;
+    if ( limit > 0 && maxCapacity > limit ) maxCapacity = limit;
+    return vhCreateDescriptorTableSimple( nvrhi::ResourceType::Texture_SRV, maxCapacity, slot, uab );
+}
 
-    void SetTexture( uint32_t index, vhTexture texture, nvrhi::Format format = nvrhi::Format::UNKNOWN,
-        nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources )
+// Trivially-copyable staged operation for vhDescriptorTableBatch.
+struct vhDescriptorBatchOp
+{
+    enum Kind : uint8_t
     {
-        assert( texture != VRHI_INVALID_HANDLE );
-        m_writes.push_back( { index, texture, format, subresources } );
-    }
-
-    // Wait for prior GPU work before queuing the writes. An empty batch does not wait.
-    void Apply()
-    {
-        if ( m_writes.empty() ) return;
-        vhFinish();
-        for ( const auto& write : m_writes )
-            vhDescriptorTableSetTexture( m_table, write.index, write.texture, write.format, write.subresources );
-        m_writes.clear();
-    }
-
-private:
-    struct Write
-    {
-        uint32_t index;
-        vhTexture texture;
-        nvrhi::Format format;
-        nvrhi::TextureSubresourceSet subresources;
+        Write,
+        Retire,
+        Resize
     };
 
-    vhDescriptorTable m_table;
-    std::vector< Write > m_writes;
+    Kind kind = Write;
+    bool keepContents = true;
+    uint32_t index = 0;
+    vhTexture texture = VRHI_INVALID_HANDLE;
+    vhTexture ownedTexture = VRHI_INVALID_HANDLE;
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources;
+};
+
+// Batch sampled-texture writes, resizes, and safe slot retirements to a descriptor table.
+// Use one submission thread. Keep the table and fallback textures alive while in use.
+struct vhDescriptorTableBatch
+{
+    vhDescriptorTable table = VRHI_INVALID_HANDLE;
+    uint32_t pending = 0;
+
+    vhDescriptorTableBatch() = default;
+    explicit vhDescriptorTableBatch( vhDescriptorTable t ) : table( t ) {}
+
+    void Resize( uint32_t newSize, bool keepContents = true );
+
+    void SetTexture( uint32_t index, vhTexture texture, nvrhi::Format format = nvrhi::Format::UNKNOWN,
+        nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources );
+
+    void RetireTexture( uint32_t index, vhTexture fallback, vhTexture ownedTexture = VRHI_INVALID_HANDLE,
+        nvrhi::Format format = nvrhi::Format::UNKNOWN,
+        nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources );
+
+    void Apply();
+    void Apply( std::vector< uint32_t >& reusableSlots );
+
+    void Drain();
+    void Drain( std::vector< uint32_t >& reusableSlots );
+
+private:
+    std::vector< vhDescriptorBatchOp > m_ops;
 };
 
 // Optional slot index allocator over a table's free list. When growable, Alloc() doubles the table
 // (up to maxCapacity) on overflow; otherwise it returns VRHI_INVALID_HANDLE when full.
 // Free() defers reuse until Step() has run kDeferredDepth times; call Step() once per frame.
+// For GPU-safe sampled-texture lifetime tracking, use AllocTexture() / RetireTexture() / Apply() / Drain().
 struct vhBindlessAllocator
 {
     static constexpr uint32_t kDeferredDepth = 3; // frames-in-flight; a freed slot is held this many Step()s
 
     vhDescriptorTable table = VRHI_INVALID_HANDLE;
+    vhTexture fallback = VRHI_INVALID_HANDLE;
     uint32_t capacity = 0;
     uint32_t maxCapacity = 0;
     uint32_t highWater = 0;
+    uint32_t pendingRetirements = 0;
     std::vector< uint32_t > freeList;
     std::vector< uint32_t > deferredFrees[kDeferredDepth];
     uint32_t frameIndex = 0;
     bool growable = false;
+    vhDescriptorTableBatch batch;
 
     uint32_t Alloc()
     {
@@ -1825,6 +1852,7 @@ struct vhBindlessAllocator
     void Reset()
     {
         highWater = 0;
+        pendingRetirements = 0;
         freeList.clear();
         for ( uint32_t i = 0; i < kDeferredDepth; i++ ) deferredFrees[i].clear();
         frameIndex = 0;
@@ -1834,8 +1862,18 @@ struct vhBindlessAllocator
     {
         uint32_t deferred = 0;
         for ( uint32_t i = 0; i < kDeferredDepth; i++ ) deferred += ( uint32_t ) deferredFrees[i].size();
-        return highWater - ( uint32_t ) freeList.size() - deferred;
+        return highWater - ( uint32_t ) freeList.size() - deferred - pendingRetirements;
     }
+
+    uint32_t AllocTexture( vhTexture texture, nvrhi::Format format = nvrhi::Format::UNKNOWN,
+        nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources );
+    void SetTexture( uint32_t index, vhTexture texture, nvrhi::Format format = nvrhi::Format::UNKNOWN,
+        nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources );
+    void RetireTexture( uint32_t index, vhTexture ownedTexture = VRHI_INVALID_HANDLE,
+        nvrhi::Format format = nvrhi::Format::UNKNOWN,
+        nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources );
+    void Apply();
+    void Drain();
 };
 
 // --------------------------------------------------------------------------
@@ -3006,6 +3044,9 @@ public:
 void vhFlushInternal( std::atomic<bool>* fence, bool waitForGPU = false );
 // VIDL_GENERATE
 void vhGetPSOCacheInternal( std::atomic<bool>* fence, std::vector<uint8_t>* outData, size_t* outSize );
+// VIDL_GENERATE
+// VIDL_STORAGE: ops = vhArenaSpan< vhDescriptorBatchOp >
+void vhCmdApplyDescriptorTableBatchInternal( vhDescriptorTable table, const std::vector< vhDescriptorBatchOp >& ops, bool drain, std::vector< uint32_t >* outReusableSlots, uint32_t* outPending, std::atomic< bool >* fence );
 // VIDL_GENERATE
 void vhCmdSetStateViewRect( vhStateId id, glm::vec4 rect );
 // VIDL_GENERATE

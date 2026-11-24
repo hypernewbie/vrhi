@@ -179,6 +179,7 @@ void vhCmdEnqueue( void* cmd, bool wait )
 
 nvrhi::CommandListHandle g_vhCmdLists[( uint64_t ) nvrhi::CommandQueue::Count] = { nullptr, nullptr, nullptr };
 bool g_vhCmdListOpen[( uint64_t ) nvrhi::CommandQueue::Count] = { false, false, false };
+bool g_vhCmdQueueSubmitted[( uint64_t ) nvrhi::CommandQueue::Count] = { false, false, false };
 std::vector< nvrhi::ResourceHandle > g_vhMetalPendingPins;
 uint64_t g_vhCmdListTransferSizeHeuristic = 0;
 
@@ -231,6 +232,7 @@ uint64_t vhCmdListFlush_SingleQueueInternal_DeviceStateLocked( nvrhi::CommandQue
         // Automatic Synchronisation
         if ( instance )
         {
+            g_vhCmdQueueSubmitted[typeIdx] = true;
             if ( type == nvrhi::CommandQueue::Copy )
             {
                 // Copy feeds Compute and Graphics
@@ -255,8 +257,18 @@ void vhCmdListReleaseAll_DeviceStateLocked()
     {
         g_vhCmdLists[i] = nullptr;
         g_vhCmdListOpen[i] = false;
+        g_vhCmdQueueSubmitted[i] = false;
     }
     g_vhMetalPendingPins.clear();
+}
+
+bool vhCmdListAnyOpen_DeviceStateLocked()
+{
+    for ( uint64_t i = 0; i < ( uint64_t ) nvrhi::CommandQueue::Count; i++ )
+    {
+        if ( g_vhCmdListOpen[i] ) return true;
+    }
+    return false;
 }
 
 // Semaphores for frame synchronisation

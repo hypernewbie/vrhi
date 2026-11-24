@@ -125,6 +125,7 @@ struct vhBackendDescriptorTable
     nvrhi::BindlessLayoutDesc desc;
     uint32_t capacity = 0;
     std::map< std::pair< nvrhi::ResourceType, uint32_t >, nvrhi::ResourceHandle > metalSlotResources;
+    vhDescriptorRetireQueue retireQueue;
 };
 
 // --------------------------------------------------------------------------
@@ -176,6 +177,8 @@ class vhCmdBackendState : public VIDLHandler
     void BE_InvalidateGfxCache();
     void BE_InvalidateInternalTexture( nvrhi::ITexture* texture );
     void BE_EndRenderPassBeforeAS( nvrhi::ICommandList* cmdlist );
+    void BE_WriteDescriptorTable_DeviceStateLocked( vhDescriptorTable table, vhBackendDescriptorTable* backend, uint32_t resource, bool isBuffer, nvrhi::BindingSetItem item );
+    void BE_DestroyRetiredTextures_DeviceStateLocked( const std::vector< vhTexture >& textures );
 
     // --------------------------------------------------------------------------
     // Backend :: Utils & Helpers
@@ -388,6 +391,7 @@ public:
     void Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescriptorTable* cmd ) override;
     void Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorTable* cmd ) override;
     void Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd ) override;
+    void Handle_vhCmdApplyDescriptorTableBatchInternal( VIDL_vhCmdApplyDescriptorTableBatchInternal* cmd ) override;
     void Handle_vhCreateRTPipeline( VIDL_vhCreateRTPipeline* cmd ) override;
     void Handle_vhCreateRTPipelineSimple( VIDL_vhCreateRTPipelineSimple* cmd ) override;
     void Handle_vhDestroyRTPipeline( VIDL_vhDestroyRTPipeline* cmd ) override;

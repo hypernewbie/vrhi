@@ -113,29 +113,6 @@ static nvrhi::VariableRateShadingState vhTranslateShadingRateState( const vhStat
     return vrs;
 }
 
-static const char* vhResourceTypeToString( nvrhi::ResourceType type )
-{
-    switch ( type )
-    {
-        case nvrhi::ResourceType::None: return "None";
-        case nvrhi::ResourceType::Texture_SRV: return "Texture_SRV";
-        case nvrhi::ResourceType::Texture_UAV: return "Texture_UAV";
-        case nvrhi::ResourceType::TypedBuffer_SRV: return "TypedBuffer_SRV";
-        case nvrhi::ResourceType::TypedBuffer_UAV: return "TypedBuffer_UAV";
-        case nvrhi::ResourceType::StructuredBuffer_SRV: return "StructuredBuffer_SRV";
-        case nvrhi::ResourceType::StructuredBuffer_UAV: return "StructuredBuffer_UAV";
-        case nvrhi::ResourceType::RawBuffer_SRV: return "RawBuffer_SRV";
-        case nvrhi::ResourceType::RawBuffer_UAV: return "RawBuffer_UAV";
-        case nvrhi::ResourceType::ConstantBuffer: return "ConstantBuffer";
-        case nvrhi::ResourceType::VolatileConstantBuffer: return "VolatileConstantBuffer";
-        case nvrhi::ResourceType::Sampler: return "Sampler";
-        case nvrhi::ResourceType::RayTracingAccelStruct: return "RayTracingAccelStruct";
-        case nvrhi::ResourceType::PushConstants: return "PushConstants";
-        case nvrhi::ResourceType::SamplerFeedbackTexture_UAV: return "SamplerFeedbackTexture_UAV";
-        default: return "Invalid";
-    }
-}
-
 // Check if buffer format is compatible with shader format for vertex attributes
 static bool vhAreVertexFormatsCompatible( nvrhi::Format bufferFmt, nvrhi::Format shaderFmt )
 {
@@ -386,7 +363,8 @@ void vhCmdBackendState::BE_ReadTextureSlow( vhBackendTexture& btex, vhMem* outDa
             cmdList->open();
             cmdList->copyTexture( stagingTex, dstSlice, btex.handle, srcSlice );
             cmdList->close();
-            g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
+            if ( g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics ) != 0 )
+                g_vhCmdQueueSubmitted[( uint64_t ) nvrhi::CommandQueue::Graphics] = true;
             g_vhDevice->setEventQuery( fence, nvrhi::CommandQueue::Graphics );
         }
         bool done = false;
@@ -538,7 +516,8 @@ void vhCmdBackendState::BE_ReadBufferSlow( vhBackendBuffer& bbuf, vhMem* outData
             cmdList->open();
             cmdList->copyBuffer( staging, 0, bbuf.handle, offset, size );
             cmdList->close();
-            g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics );
+            if ( g_vhDevice->executeCommandList( cmdList, nvrhi::CommandQueue::Graphics ) != 0 )
+                g_vhCmdQueueSubmitted[( uint64_t ) nvrhi::CommandQueue::Graphics] = true;
             g_vhDevice->setEventQuery( fence, nvrhi::CommandQueue::Graphics );
         }
         bool done = false;
@@ -3985,14 +3964,88 @@ static uint32_t vhUABFlagForResourceType( nvrhi::ResourceType type )
     }
 }
 
+void vhCmdBackendState::BE_WriteDescriptorTable_DeviceStateLocked( vhDescriptorTable table, vhBackendDescriptorTable* backend, uint32_t resource, bool isBuffer, nvrhi::BindingSetItem item )
+{
+    // Resolve the vrhi handle here so writes compose with queued resource creation.
+    vhBackendTexture* texture = nullptr;
+    if ( resource == VRHI_INVALID_HANDLE )
+    {
+        item.type = nvrhi::ResourceType::None;
+    }
+    else if ( isBuffer )
+    {
+        auto bit = backendBuffers.find( resource );
+        if ( bit == backendBuffers.end() || !bit->second->handle )
+        {
+            VRHI_ERR( "vhDescriptorTableSetBuffer() : Buffer %d not found!\n", resource );
+            return;
+        }
+        item.resourceHandle = bit->second->handle.Get();
+    }
+    else
+    {
+        auto tit = backendTextures.find( resource );
+        if ( tit == backendTextures.end() || !tit->second->handle )
+        {
+            VRHI_ERR( "vhDescriptorTableSetTexture() : Texture %d not found!\n", resource );
+            return;
+        }
+        texture = tit->second.get();
+        if ( texture->aliasActivated )
+        {
+            VRHI_ERR( "vhDescriptorTableSetTexture() : Cannot assign permanent state to alias-activated texture %d\n", resource );
+            return;
+        }
+        item.resourceHandle = texture->handle.Get();
+    }
+
+    if ( !vhDescriptorTableWrite_DeviceStateLocked( table, backend->handle, backend->desc, backend->metalSlotResources, isBuffer, item ) ) return;
+    if ( texture && item.resourceHandle ) texture->permanentStateAssigned = true;
+}
+
+void vhCmdBackendState::BE_DestroyRetiredTextures_DeviceStateLocked( const std::vector< vhTexture >& textures )
+{
+    if ( textures.empty() ) return;
+
+    bool erasedAny = false;
+
+    for ( vhTexture tex : textures )
+    {
+        if ( tex == VRHI_INVALID_HANDLE ) continue;
+        if ( backendTextures.erase( tex ) != 0 ) erasedAny = true;
+    }
+    if ( erasedAny )
+    {
+        s_globalResourceVersion++;
+        s_globalPipelineVersion++;
+        vhBindingSetCacheClear_DeviceStateLocked();
+    }
+}
+
 void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorTable* cmd )
 {
     BE_CmdRAII cmdRAII( cmd );
 
     if ( cmd->table == VRHI_INVALID_HANDLE ) return;
 
-    if ( backendDescriptorTables.find( cmd->table ) == backendDescriptorTables.end() )
+    auto existingIt = backendDescriptorTables.find( cmd->table );
+    if ( existingIt == backendDescriptorTables.end() )
+    {
         backendDescriptorTables[ cmd->table ] = std::make_unique< vhBackendDescriptorTable >();
+    }
+    else if ( !existingIt->second->retireQueue.Empty() )
+    {
+        std::vector< vhTexture > texturesToDestroy;
+        {
+            std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+            auto* existing = existingIt->second.get();
+            VRHI_LOG( "Warning: vhCreateDescriptorTable() : Table %u recreated with %zu pending retirement cohort(s); call Drain() before recreating.\n",
+                cmd->table, existing->retireQueue.CohortCount() );
+            existing->retireQueue.Discard_DeviceStateLocked( texturesToDestroy );
+            BE_DestroyRetiredTextures_DeviceStateLocked( texturesToDestroy );
+        }
+        vhReleaseTextureIDs( texturesToDestroy );
+    }
 
     auto backend = backendDescriptorTables[ cmd->table ].get();
     backend->desc = cmd->desc;
@@ -4002,6 +4055,7 @@ void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorT
     if ( backend->desc.updateAfterBind )
     {
         uint32_t required = VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+
         for ( const auto& space : backend->desc.registerSpaces )
             required |= vhUABFlagForResourceType( space.type );
         if ( ( g_vhDeviceInfo.bindlessUpdateAfterBind & required ) != required )
@@ -4020,6 +4074,7 @@ void vhCmdBackendState::Handle_vhCreateDescriptorTable( VIDL_vhCreateDescriptorT
     }
     backend->handle = g_vhDevice->createDescriptorTable( backend->layout );
     backend->metalSlotResources.clear();
+    backend->retireQueue.queryPool.clear();
     if ( !backend->handle )
     {
         VRHI_ERR( "vhCreateDescriptorTable() : Failed to create descriptor table!\n" );
@@ -4034,13 +4089,26 @@ void vhCmdBackendState::Handle_vhDestroyDescriptorTable( VIDL_vhDestroyDescripto
 {
     BE_CmdRAII cmdRAII( cmd );
 
-    if ( backendDescriptorTables.find( cmd->table ) == backendDescriptorTables.end() ) return;
+    auto it = backendDescriptorTables.find( cmd->table );
+    if ( it == backendDescriptorTables.end() ) return;
 
     s_globalResourceVersion++;
     s_globalPipelineVersion++;
 
-    std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    backendDescriptorTables.erase( cmd->table );
+    std::vector< vhTexture > texturesToDestroy;
+    {
+        std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+        auto* backend = it->second.get();
+        if ( !backend->retireQueue.Empty() )
+        {
+            VRHI_LOG( "Warning: vhDestroyDescriptorTable() : Table %u destroyed with %zu pending retirement cohort(s); call Drain() before destroying.\n",
+                cmd->table, backend->retireQueue.CohortCount() );
+            backend->retireQueue.Discard_DeviceStateLocked( texturesToDestroy );
+            BE_DestroyRetiredTextures_DeviceStateLocked( texturesToDestroy );
+        }
+        backendDescriptorTables.erase( it );
+    }
+    vhReleaseTextureIDs( texturesToDestroy );
 }
 
 void vhCmdBackendState::Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorTable* cmd )
@@ -4054,29 +4122,8 @@ void vhCmdBackendState::Handle_vhResizeDescriptorTable( VIDL_vhResizeDescriptorT
         return;
     }
 
-    uint32_t targetSize = cmd->newSize;
-    if ( targetSize > it->second->desc.maxCapacity )
-    {
-        VRHI_ERR( "vhResizeDescriptorTable() : Target size %u exceeds maxCapacity %u! Clamping.\n", targetSize, it->second->desc.maxCapacity );
-        targetSize = it->second->desc.maxCapacity;
-    }
-
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    g_vhDevice->resizeDescriptorTable( it->second->handle, targetSize, cmd->keepContents );
-    it->second->capacity = targetSize;
-
-    auto& resources = it->second->metalSlotResources;
-    if ( cmd->keepContents )
-    {
-        std::erase_if( resources, [targetSize]( const auto& entry )
-        {
-            return entry.first.second >= targetSize;
-        } );
-    }
-    else
-    {
-        resources.clear();
-    }
+    vhDescriptorTableResize_DeviceStateLocked( it->second->handle, it->second->desc, it->second->capacity, it->second->metalSlotResources, cmd->newSize, cmd->keepContents );
 }
 
 void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescriptorTable* cmd )
@@ -4089,90 +4136,125 @@ void vhCmdBackendState::Handle_vhCmdWriteDescriptorTable( VIDL_vhCmdWriteDescrip
         VRHI_ERR( "vhDescriptorTableSet() : Table %d not found!\n", cmd->table );
         return;
     }
-    auto backend = it->second.get();
-
-    // Resolve the vrhi handle here so writes compose with queued resource creation.
-    nvrhi::BindingSetItem item = cmd->item;
-    vhBackendTexture* texture = nullptr;
-    if ( cmd->resource == VRHI_INVALID_HANDLE )
-    {
-        item.type = nvrhi::ResourceType::None;
-    }
-    else if ( cmd->isBuffer )
-    {
-        auto bit = backendBuffers.find( cmd->resource );
-        if ( bit == backendBuffers.end() || !bit->second->handle )
-        {
-            VRHI_ERR( "vhDescriptorTableSetBuffer() : Buffer %d not found!\n", cmd->resource );
-            return;
-        }
-        item.resourceHandle = bit->second->handle.Get();
-    }
-    else
-    {
-        auto tit = backendTextures.find( cmd->resource );
-        if ( tit == backendTextures.end() || !tit->second->handle )
-        {
-            VRHI_ERR( "vhDescriptorTableSetTexture() : Texture %d not found!\n", cmd->resource );
-            return;
-        }
-        texture = tit->second.get();
-        if ( texture->aliasActivated )
-        {
-            VRHI_ERR( "vhDescriptorTableSetTexture() : Cannot assign permanent state to alias-activated texture %d\n", cmd->resource );
-            return;
-        }
-        item.resourceHandle = texture->handle.Get();
-    }
-
-    // nvrhi matches bindless writes by exact resource type and drops undeclared ones silently.
-    if ( item.type != nvrhi::ResourceType::None )
-    {
-        bool typeDeclared = false;
-        for ( const auto& space : backend->desc.registerSpaces )
-        {
-            if ( space.type != item.type ) continue;
-            typeDeclared = true;
-            break;
-        }
-        if ( !typeDeclared )
-        {
-            VRHI_ERR( "vhCmdWriteDescriptorTable() : Table %d does not declare resource type %s, write to slot %d ignored!\n", cmd->table, vhResourceTypeToString( item.type ), item.slot );
-            return;
-        }
-    }
 
     std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
-    auto cmdlist = vhCmdListGet_DeviceStateLocked( nvrhi::CommandQueue::Graphics );
-    bool writeOk = g_vhDevice->writeDescriptorTable( backend->handle, item );
-    if ( !writeOk )
-    {
-        VRHI_ERR( "vhCmdWriteDescriptorTable() : Failed to write descriptor table %d at slot %d!\n", cmd->table, item.slot );
-        return;
-    }
+    BE_WriteDescriptorTable_DeviceStateLocked( cmd->table, it->second.get(), cmd->resource, cmd->isBuffer, cmd->item );
+}
 
-    if ( g_vhMetalDevice && item.resourceHandle )
+void vhCmdBackendState::Handle_vhCmdApplyDescriptorTableBatchInternal( VIDL_vhCmdApplyDescriptorTableBatchInternal* cmd )
+{
+    std::atomic< bool >* fence = cmd->fence;
     {
-        // Metal reads slot pointers when binding and pin pointers at submit.
-        const nvrhi::ResourceType type = item.type;
-        backend->metalSlotResources[{ type, item.slot }] = item.resourceHandle;
-        g_vhMetalPendingPins.emplace_back( item.resourceHandle );
-    }
+        BE_CmdRAII cmdRAII( cmd );
 
-    // Bindless resources skip binding-set state tracking, so pin them to a permanent shader-visible state once.
-    if ( item.resourceHandle )
-    {
-        if ( texture ) texture->permanentStateAssigned = true;
-        const bool isUAV = ( item.type == nvrhi::ResourceType::Texture_UAV
-            || item.type == nvrhi::ResourceType::TypedBuffer_UAV
-            || item.type == nvrhi::ResourceType::StructuredBuffer_UAV
-            || item.type == nvrhi::ResourceType::RawBuffer_UAV );
-        const nvrhi::ResourceStates st = isUAV ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource;
-        if ( cmd->isBuffer )
-            cmdlist->setPermanentBufferState( ( nvrhi::IBuffer* ) item.resourceHandle, st );
+        auto it = backendDescriptorTables.find( cmd->table );
+        if ( it == backendDescriptorTables.end() || ( !g_vhNullMode && !it->second->handle ) )
+        {
+            VRHI_ERR( "vhDescriptorTableBatch::Apply() : Table %u not found!\n", cmd->table );
+            if ( cmd->outPending ) *cmd->outPending = 0;
+        }
         else
-            cmdlist->setPermanentTextureState( ( nvrhi::ITexture* ) item.resourceHandle, st );
-        cmdlist->commitBarriers();
+        {
+            auto* backend = it->second.get();
+            std::vector< vhTexture > texturesToDestroy;
+            uint32_t remaining = 0;
+
+            auto fnWriteTex = [&]( uint32_t slot, vhTexture tex, nvrhi::Format format, nvrhi::TextureSubresourceSet subresources )
+            {
+                nvrhi::BindingSetItem item = nvrhi::BindingSetItem::Texture_SRV( slot, nullptr, format, subresources );
+                item.slot = slot;
+                BE_WriteDescriptorTable_DeviceStateLocked( cmd->table, backend, tex, false, item );
+            };
+            auto fnCollectRetire = [&]( uint32_t index, vhTexture fallback, vhTexture ownedTexture, nvrhi::Format format, nvrhi::TextureSubresourceSet subresources, bool writeFallback )
+            {
+                if ( writeFallback ) fnWriteTex( index, fallback, format, subresources );
+                if ( ownedTexture != VRHI_INVALID_HANDLE ) texturesToDestroy.push_back( ownedTexture );
+                if ( cmd->outReusableSlots ) cmd->outReusableSlots->push_back( index );
+            };
+            auto fnFinishCompleted = [&]( const std::vector< vhDescriptorRetireEntry >& entries, bool writeFallback )
+            {
+                for ( const auto& entry : entries )
+                    fnCollectRetire( entry.index, entry.fallback, entry.ownedTexture, entry.format, entry.subresources, writeFallback );
+            };
+
+            if ( g_vhNullMode && !backend->handle )
+            {
+                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+
+                for ( const auto& op : cmd->ops )
+                {
+                    if ( op.kind == vhDescriptorBatchOp::Retire )
+                        fnCollectRetire( op.index, op.texture, op.ownedTexture, op.format, op.subresources, false );
+                }
+                BE_DestroyRetiredTextures_DeviceStateLocked( texturesToDestroy );
+            }
+            else if ( !backend->desc.updateAfterBind || cmd->drain )
+            {
+                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                ( void ) BE_FlushTransientBuffers_DeviceStateLocked();
+                vhCmdListFlushAll_DeviceStateLocked();
+                BE_InvalidateGfxCache();
+
+                vhProfile( "vhFinish_Wait", true );
+                g_vhDevice->waitForIdle();
+                vhProfile( "vhFinish_Wait", false );
+
+                std::vector< vhDescriptorRetireEntry > drained;
+                backend->retireQueue.Drain_DeviceStateLocked( drained );
+                fnFinishCompleted( drained, true );
+
+                for ( const auto& op : cmd->ops )
+                {
+                    if ( op.kind == vhDescriptorBatchOp::Resize )
+                        vhDescriptorTableResize_DeviceStateLocked( backend->handle, backend->desc, backend->capacity, backend->metalSlotResources, op.index, op.keepContents );
+                    else if ( op.kind == vhDescriptorBatchOp::Write )
+                        fnWriteTex( op.index, op.texture, op.format, op.subresources );
+                    else if ( op.kind == vhDescriptorBatchOp::Retire )
+                        fnCollectRetire( op.index, op.texture, op.ownedTexture, op.format, op.subresources, true );
+                }
+                BE_DestroyRetiredTextures_DeviceStateLocked( texturesToDestroy );
+            }
+            else
+            {
+                std::lock_guard< std::mutex > lock( g_nvRHIStateMutex );
+                std::vector< vhDescriptorRetireEntry > newEntries;
+
+                for ( const auto& op : cmd->ops )
+                {
+                    if ( op.kind == vhDescriptorBatchOp::Resize )
+                        vhDescriptorTableResize_DeviceStateLocked( backend->handle, backend->desc, backend->capacity, backend->metalSlotResources, op.index, op.keepContents );
+                    else if ( op.kind == vhDescriptorBatchOp::Write )
+                        fnWriteTex( op.index, op.texture, op.format, op.subresources );
+                    else if ( op.kind == vhDescriptorBatchOp::Retire )
+                        newEntries.push_back( { op.index, op.texture, op.ownedTexture, op.format, op.subresources } );
+                }
+
+                if ( !newEntries.empty() )
+                {
+                    if ( vhCmdListAnyOpen_DeviceStateLocked() )
+                    {
+                        ( void ) BE_FlushTransientBuffers_DeviceStateLocked();
+                        vhCmdListFlushAll_DeviceStateLocked();
+                        BE_InvalidateGfxCache();
+                    }
+                    backend->retireQueue.Push_DeviceStateLocked( std::move( newEntries ) );
+                }
+
+                std::vector< vhDescriptorRetireEntry > completed;
+                remaining = backend->retireQueue.Poll_DeviceStateLocked( completed );
+                fnFinishCompleted( completed, true );
+                BE_DestroyRetiredTextures_DeviceStateLocked( texturesToDestroy );
+            }
+
+            vhReleaseTextureIDs( texturesToDestroy );
+            if ( cmd->outPending ) *cmd->outPending = remaining;
+        }
+    }
+
+    if ( fence )
+    {
+        fence->store( true, std::memory_order_release );
+        fence->notify_one();
     }
 }
 

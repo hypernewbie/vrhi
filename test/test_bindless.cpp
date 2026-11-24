@@ -23,6 +23,7 @@
 #include <vrhi_internal.h>
 #endif
 #include "test.h"
+#include "test_gpu_gate.h"
 #include "vrhi.h"
 
 #if defined(__APPLE__)
@@ -3291,4 +3292,653 @@ UTEST_F( Bindless, CapacityQuery_FreshnessContract )
 
     vhDestroyDescriptorTable( t );
     vhFinish();
+}
+
+UTEST_F( Bindless, UAB_Retire_GatedInFlightReader )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    constexpr uint32_t reqUAB = VRHI_UAB_SAMPLED_IMAGE | VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+    if ( ( g_vhDeviceInfo.bindlessUpdateAfterBind & reqUAB ) != reqUAB ) UTEST_SKIP( "UAB sampled image unsupported" );
+    if ( !vrhi_test::VhGpuGate( utest_result ).Supported() ) UTEST_SKIP( "Timeline semaphore unsupported" );
+
+    TestLogCapture logs;
+    vhDescriptorTable t = vhCreateBindlessTextureTable( 4, 0, true );
+
+    auto makeTexture = []( const char* name, uint8_t value )
+    {
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( 16 );
+        memset( data->data(), value, 16 );
+        vhCreateTexture2D( tex, name, { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        return tex;
+    };
+    vhTexture texA = makeTexture( "TexA_UABGate", 55 );
+    vhTexture fallback = makeTexture( "Fallback_UABGate", 210 );
+
+    vhTexture out1 = vhAllocTexture();
+    vhCreateTexture2D( out1, "Out1_UABGate", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhTexture out2 = vhAllocTexture();
+    vhCreateTexture2D( out2, "Out2_UABGate", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = g_Tex[0][id.xy];
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    ASSERT_TRUE( vhCompileShader( "CS_UABRetireGate", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ) );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_UABRetireGate", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhFinish();
+
+    vhDescriptorTableBatch batch( t );
+    batch.SetTexture( 0, texA );
+    batch.Apply();
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = out1;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+    state.SetDescriptorTable( 0, t );
+
+    const vhStateId sid = 960;
+    vhSetState( sid, state );
+
+    std::vector< uint32_t > reusable;
+    {
+        vrhi_test::VhGpuGate gate( utest_result );
+        ASSERT_TRUE( gate.Supported() );
+        gate.WaitBefore();
+        vhDispatch( sid, { 1, 1, 1 } );
+        vhFlush( true );
+        gate.CaptureReader();
+        ASSERT_TRUE( gate.Pending() );
+
+        batch.RetireTexture( 0, fallback, texA );
+        batch.Apply( reusable );
+        EXPECT_TRUE( gate.Pending() );
+        EXPECT_TRUE( reusable.empty() );
+        EXPECT_EQ( batch.pending, 1u );
+        EXPECT_NE( vhGetTextureNvrhiHandle( texA ), nullptr );
+
+        gate.Release();
+        ASSERT_TRUE( vrhi_test::WaitUntil( [&] { return !gate.Pending(); } ) );
+        EXPECT_FALSE( gate.TimedOut() );
+    }
+
+    batch.Apply( reusable );
+    ASSERT_EQ( reusable.size(), 1u );
+    EXPECT_EQ( reusable[0], 0u );
+    EXPECT_EQ( batch.pending, 0u );
+    EXPECT_EQ( vhGetTextureNvrhiHandle( texA ), nullptr );
+
+    tbOut.texture = out2;
+    state.SetTexture( 0, tbOut );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    vhMem readData1, readData2;
+    vhReadTextureSlow( out1, 0, 0, &readData1 );
+    vhReadTextureSlow( out2, 0, 0, &readData2 );
+    vhFinish();
+
+    ASSERT_EQ( readData1.size(), 16u );
+    ASSERT_EQ( readData2.size(), 16u );
+    for ( size_t i = 0; i < 16; i++ )
+    {
+        EXPECT_NEAR( readData1[i], ( uint8_t ) 55, 2 );
+        EXPECT_NEAR( readData2[i], ( uint8_t ) 210, 2 );
+    }
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyDescriptorTable( t );
+    vhDestroyTexture( fallback );
+    vhDestroyTexture( out1 );
+    vhDestroyTexture( out2 );
+    vhDestroyShader( cs );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST_F( Bindless, UAB_Retire_IgnoresUnrelatedGpuWork )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+    constexpr uint32_t reqUAB = VRHI_UAB_SAMPLED_IMAGE | VRHI_UAB_UPDATE_UNUSED_WHILE_PENDING;
+    if ( ( g_vhDeviceInfo.bindlessUpdateAfterBind & reqUAB ) != reqUAB ) UTEST_SKIP( "UAB sampled image unsupported" );
+    if ( !vrhi_test::VhGpuGate( utest_result ).Supported() ) UTEST_SKIP( "Timeline semaphore unsupported" );
+
+    TestLogCapture logs;
+    vhDescriptorTable t = vhCreateBindlessTextureTable( 4, 0, true );
+
+    auto makeTexture = []( const char* name, uint8_t value )
+    {
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( 16 );
+        memset( data->data(), value, 16 );
+        vhCreateTexture2D( tex, name, { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        return tex;
+    };
+    vhTexture texA = makeTexture( "TexA_UABUnrelated", 45 );
+    vhTexture fallback = makeTexture( "Fallback_UABUnrelated", 215 );
+
+    vhTexture outA = vhAllocTexture();
+    vhCreateTexture2D( outA, "OutA_UABUnrelated", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhTexture outB = vhAllocTexture();
+    vhCreateTexture2D( outB, "OutB_UABUnrelated", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhTexture outFallback = vhAllocTexture();
+    vhCreateTexture2D( outFallback, "OutFallback_UABUnrelated", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csBindlessSrc = R"(
+        Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = g_Tex[0][id.xy];
+        }
+    )";
+
+    const char* csUnrelatedSrc = R"(
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = 0.5f;
+        }
+    )";
+
+    std::vector< uint32_t > spirvA, spirvB;
+    std::string error;
+    ASSERT_TRUE( vhCompileShader( "CS_UABBindlessA", csBindlessSrc, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirvA, "main", {}, {}, &error ) );
+    ASSERT_TRUE( vhCompileShader( "CS_UABUnrelatedB", csUnrelatedSrc, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirvB, "main", {}, {}, &error ) );
+
+    vhShader csA = vhAllocShader();
+    vhCreateShader( csA, "CS_UABBindlessA", VRHI_SHADER_STAGE_COMPUTE, spirvA, "main" );
+
+    vhShader csB = vhAllocShader();
+    vhCreateShader( csB, "CS_UABUnrelatedB", VRHI_SHADER_STAGE_COMPUTE, spirvB, "main" );
+    vhFinish();
+
+    vhDescriptorTableBatch batch( t );
+    batch.SetTexture( 0, texA );
+    batch.Apply();
+
+    vhState stateA = g_state0;
+    stateA.SetProgram( vhCreateComputeProgram( csA ) );
+    vhState::TextureBinding tbOutA;
+    tbOutA.name = "g_Out";
+    tbOutA.texture = outA;
+    tbOutA.computeUAV = true;
+    tbOutA.formatOverride = nvrhi::Format::R8_UNORM;
+    stateA.SetTexture( 0, tbOutA );
+    stateA.SetDescriptorTable( 0, t );
+
+    const vhStateId sidA = 961;
+    vhSetState( sidA, stateA );
+
+    std::vector< uint32_t > reusable;
+    {
+        vrhi_test::VhGpuGate gateA( utest_result );
+        ASSERT_TRUE( gateA.Supported() );
+        gateA.WaitBefore();
+        vhDispatch( sidA, { 1, 1, 1 } );
+        vhFlush( true );
+        gateA.CaptureReader();
+        ASSERT_TRUE( gateA.Pending() );
+
+        batch.RetireTexture( 0, fallback, texA );
+        batch.Apply( reusable );
+        EXPECT_TRUE( reusable.empty() );
+        EXPECT_EQ( batch.pending, 1u );
+
+        gateA.Release();
+        ASSERT_TRUE( vrhi_test::WaitUntil( [&] { return !gateA.Pending(); } ) );
+        EXPECT_FALSE( gateA.TimedOut() );
+    }
+
+    vhState stateB = g_state0;
+    stateB.SetProgram( vhCreateComputeProgram( csB ) );
+    vhState::TextureBinding tbOutB;
+    tbOutB.name = "g_Out";
+    tbOutB.texture = outB;
+    tbOutB.computeUAV = true;
+    tbOutB.formatOverride = nvrhi::Format::R8_UNORM;
+    stateB.SetTexture( 0, tbOutB );
+
+    const vhStateId sidB = 962;
+    vhSetState( sidB, stateB );
+
+    {
+        vrhi_test::VhGpuGate gateB( utest_result );
+        ASSERT_TRUE( gateB.Supported() );
+        gateB.WaitBefore();
+        vhDispatch( sidB, { 1, 1, 1 } );
+        vhFlush( true );
+        gateB.CaptureReader();
+        ASSERT_TRUE( gateB.Pending() );
+
+        uint32_t waits = 0;
+        auto savedCallback = g_vhInit.fnProfileCallback;
+        g_vhInit.fnProfileCallback = [&]( const char* name, bool begin )
+        {
+            if ( begin && std::strcmp( name, "vhFinish_Wait" ) == 0 ) ++waits;
+        };
+
+        batch.Apply( reusable );
+        g_vhInit.fnProfileCallback = std::move( savedCallback );
+
+        EXPECT_TRUE( gateB.Pending() );
+        EXPECT_EQ( waits, 0u );
+        ASSERT_EQ( reusable.size(), 1u );
+        EXPECT_EQ( reusable[0], 0u );
+        EXPECT_EQ( batch.pending, 0u );
+        EXPECT_EQ( vhGetTextureNvrhiHandle( texA ), nullptr );
+
+        gateB.Release();
+        ASSERT_TRUE( vrhi_test::WaitUntil( [&] { return !gateB.Pending(); } ) );
+        EXPECT_FALSE( gateB.TimedOut() );
+    }
+
+    tbOutA.texture = outFallback;
+    stateA.SetTexture( 0, tbOutA );
+    vhSetState( sidA, stateA );
+    vhDispatch( sidA, { 1, 1, 1 } );
+
+    vhMem readA, readB, readFallback;
+    vhReadTextureSlow( outA, 0, 0, &readA );
+    vhReadTextureSlow( outB, 0, 0, &readB );
+    vhReadTextureSlow( outFallback, 0, 0, &readFallback );
+    vhFinish();
+
+    ASSERT_EQ( readA.size(), 16u );
+    ASSERT_EQ( readB.size(), 16u );
+    ASSERT_EQ( readFallback.size(), 16u );
+    for ( size_t i = 0; i < 16; i++ )
+    {
+        EXPECT_NEAR( readA[i], ( uint8_t ) 45, 2 );
+        EXPECT_NEAR( readB[i], ( uint8_t ) 128, 2 );
+        EXPECT_NEAR( readFallback[i], ( uint8_t ) 215, 2 );
+    }
+
+    vhSetState( sidA, g_state0, VRHI_DIRTY_ALL );
+    vhSetState( sidB, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyDescriptorTable( t );
+    vhDestroyTexture( fallback );
+    vhDestroyTexture( outA );
+    vhDestroyTexture( outB );
+    vhDestroyTexture( outFallback );
+    vhDestroyShader( csA );
+    vhDestroyShader( csB );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST_F( Bindless, NonUAB_SingleBatch_WriteAndRetire )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
+    vhDescriptorTable t = vhCreateBindlessTextureTable( 4, 0, false );
+
+    auto makeTexture = []( const char* name, uint8_t value )
+    {
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( 16 );
+        memset( data->data(), value, 16 );
+        vhCreateTexture2D( tex, name, { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        return tex;
+    };
+    vhTexture texA = makeTexture( "TexA_NonUABSingle", 60 );
+    vhTexture fallback = makeTexture( "Fallback_NonUABSingle", 190 );
+
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "Out_NonUABSingle", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            g_Out[id.xy] = g_Tex[0][id.xy];
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    ASSERT_TRUE( vhCompileShader( "CS_NonUABSingleBatch", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ) );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_NonUABSingleBatch", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhFinish();
+
+    TestLogCapture logs;
+    uint32_t waits = 0;
+    auto savedCallback = g_vhInit.fnProfileCallback;
+    g_vhInit.fnProfileCallback = [&]( const char* name, bool begin )
+    {
+        if ( begin && std::strcmp( name, "vhFinish_Wait" ) == 0 ) ++waits;
+    };
+
+    vhDescriptorTableBatch batch( t );
+    std::vector< uint32_t > reusable;
+    batch.Apply( reusable );
+    EXPECT_EQ( waits, 0u );
+    EXPECT_TRUE( reusable.empty() );
+    batch.Drain( reusable );
+    EXPECT_EQ( waits, 0u );
+    EXPECT_TRUE( reusable.empty() );
+
+    batch.SetTexture( 0, texA );
+    batch.RetireTexture( 0, fallback, texA );
+    batch.Apply( reusable );
+    EXPECT_EQ( waits, 1u );
+    ASSERT_EQ( reusable.size(), 1u );
+    EXPECT_EQ( reusable[0], 0u );
+    EXPECT_EQ( batch.pending, 0u );
+    EXPECT_EQ( vhGetTextureNvrhiHandle( texA ), nullptr );
+
+    batch.Apply( reusable );
+    EXPECT_EQ( waits, 1u );
+    EXPECT_TRUE( reusable.empty() );
+    batch.Drain( reusable );
+    EXPECT_EQ( waits, 1u );
+    EXPECT_TRUE( reusable.empty() );
+
+    g_vhInit.fnProfileCallback = std::move( savedCallback );
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = outTex;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+    state.SetDescriptorTable( 0, t );
+
+    const vhStateId sid = 963;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+
+    ASSERT_EQ( readData.size(), 16u );
+    for ( size_t i = 0; i < 16; i++ ) EXPECT_NEAR( readData[i], ( uint8_t ) 190, 2 );
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyDescriptorTable( t );
+    vhDestroyTexture( fallback );
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST_F( Bindless, Retire_BorrowedTextureStaysAlive )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
+    TestLogCapture logs;
+    vhDescriptorTable t = vhCreateBindlessTextureTable( 4 );
+
+    auto makeTexture = []( const char* name, uint8_t value )
+    {
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( 16 );
+        memset( data->data(), value, 16 );
+        vhCreateTexture2D( tex, name, { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        return tex;
+    };
+    vhTexture borrowedTex = makeTexture( "BorrowedTex", 77 );
+    vhTexture fallback = makeTexture( "Fallback_Borrowed", 225 );
+
+    vhTexture out1 = vhAllocTexture();
+    vhCreateTexture2D( out1, "Out1_Borrowed", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhTexture out2 = vhAllocTexture();
+    vhCreateTexture2D( out2, "Out2_Borrowed", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    vhTexture out3 = vhAllocTexture();
+    vhCreateTexture2D( out3, "Out3_Borrowed", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        struct PushConst { float4 slot; };
+        Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID, uniform PushConst pc : push_constant)
+        {
+            g_Out[id.xy] = g_Tex[uint(pc.slot.x)][id.xy];
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    ASSERT_TRUE( vhCompileShader( "CS_BorrowedRetire", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ) );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_BorrowedRetire", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhFinish();
+
+    vhDescriptorTableBatch batch( t );
+    batch.SetTexture( 0, borrowedTex );
+    batch.Apply();
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    state.SetPushConstants( glm::vec4( 0.0f ) );
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = out1;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+    state.SetDescriptorTable( 0, t );
+
+    const vhStateId sid = 964;
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    batch.RetireTexture( 0, fallback, VRHI_INVALID_HANDLE );
+    std::vector< uint32_t > reusable;
+    batch.Drain( reusable );
+    ASSERT_EQ( reusable.size(), 1u );
+    EXPECT_EQ( reusable[0], 0u );
+    EXPECT_EQ( batch.pending, 0u );
+    EXPECT_NE( vhGetTextureNvrhiHandle( borrowedTex ), nullptr );
+
+    batch.SetTexture( 1, borrowedTex );
+    batch.Apply();
+
+    tbOut.texture = out2;
+    state.SetTexture( 0, tbOut );
+    state.SetPushConstants( glm::vec4( 0.0f ) );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    tbOut.texture = out3;
+    state.SetTexture( 0, tbOut );
+    state.SetPushConstants( glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+
+    vhMem read1, read2, read3;
+    vhReadTextureSlow( out1, 0, 0, &read1 );
+    vhReadTextureSlow( out2, 0, 0, &read2 );
+    vhReadTextureSlow( out3, 0, 0, &read3 );
+    vhFinish();
+
+    ASSERT_EQ( read1.size(), 16u );
+    ASSERT_EQ( read2.size(), 16u );
+    ASSERT_EQ( read3.size(), 16u );
+    for ( size_t i = 0; i < 16; i++ )
+    {
+        EXPECT_NEAR( read1[i], ( uint8_t ) 77, 2 );
+        EXPECT_NEAR( read2[i], ( uint8_t ) 225, 2 );
+        EXPECT_NEAR( read3[i], ( uint8_t ) 77, 2 );
+    }
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyDescriptorTable( t );
+    vhDestroyTexture( borrowedTex );
+    vhDestroyTexture( fallback );
+    vhDestroyTexture( out1 );
+    vhDestroyTexture( out2 );
+    vhDestroyTexture( out3 );
+    vhDestroyShader( cs );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
+}
+
+UTEST_F( Bindless, Allocator_HeadlessChurnAndDrain )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Requires GPU" );
+
+    TestLogCapture logs;
+    vhDescriptorTable t = vhCreateBindlessTextureTable( 4 );
+
+    auto makeTexture = []( const char* name, uint8_t value )
+    {
+        vhTexture tex = vhAllocTexture();
+        vhMem* data = vhAllocMem( 16 );
+        memset( data->data(), value, 16 );
+        vhCreateTexture2D( tex, name, { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_NONE, data );
+        return tex;
+    };
+    vhTexture fallback = makeTexture( "Fallback_Churn", 200 );
+
+    vhTexture outTex = vhAllocTexture();
+    vhCreateTexture2D( outTex, "Out_Churn", { 4, 4 }, 1, nvrhi::Format::R8_UNORM, VRHI_TEXTURE_COMPUTE_WRITE );
+
+    const char* csSource = R"(
+        struct PushConst { float4 slot; };
+        Texture2D<float> g_Tex[] : register(t0, VRHI_BINDLESS_SPACE);
+        [[vk::image_format("r8")]] RWTexture2D<float> g_Out : register(u0, VRHI_STAGE_SPACE);
+
+        [numthreads(4, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID, uniform PushConst pc : push_constant)
+        {
+            g_Out[id.xy] = g_Tex[uint(pc.slot.x)][id.xy];
+        }
+    )";
+
+    std::vector< uint32_t > spirv;
+    std::string error;
+    ASSERT_TRUE( vhCompileShader( "CS_AllocatorChurn", csSource, VRHI_SHADER_STAGE_COMPUTE | VRHI_SHADER_SM_6_0, spirv, "main", {}, {}, &error ) );
+
+    vhShader cs = vhAllocShader();
+    vhCreateShader( cs, "CS_AllocatorChurn", VRHI_SHADER_STAGE_COMPUTE, spirv, "main" );
+    vhFinish();
+
+    vhBindlessAllocator alloc;
+    alloc.table = t;
+    alloc.fallback = fallback;
+    alloc.capacity = 4;
+
+    vhState state = g_state0;
+    state.SetProgram( vhCreateComputeProgram( cs ) );
+    vhState::TextureBinding tbOut;
+    tbOut.name = "g_Out";
+    tbOut.texture = outTex;
+    tbOut.computeUAV = true;
+    tbOut.formatOverride = nvrhi::Format::R8_UNORM;
+    state.SetTexture( 0, tbOut );
+    state.SetDescriptorTable( 0, t );
+
+    const vhStateId sid = 965;
+
+    for ( uint32_t iter = 0; iter < 12; iter++ )
+    {
+        std::string name = "ChurnTex_" + std::to_string( iter );
+        vhTexture tex = makeTexture( name.c_str(), ( uint8_t ) ( 20 + iter * 15 ) );
+
+        uint32_t slot = alloc.AllocTexture( tex );
+        if ( slot == VRHI_INVALID_HANDLE )
+        {
+            ASSERT_TRUE( vrhi_test::WaitUntil( [&]
+            {
+                alloc.Apply();
+                return !alloc.freeList.empty();
+            } ) );
+            slot = alloc.AllocTexture( tex );
+        }
+        ASSERT_NE( slot, VRHI_INVALID_HANDLE );
+        EXPECT_LE( alloc.highWater, 4u );
+        EXPECT_EQ( alloc.Allocated(), 1u );
+
+        alloc.Apply();
+
+        state.SetPushConstants( glm::vec4( ( float ) slot, 0.0f, 0.0f, 0.0f ) );
+        vhSetState( sid, state );
+        vhDispatch( sid, { 1, 1, 1 } );
+        vhFlush( true );
+
+        alloc.RetireTexture( slot, tex );
+        EXPECT_EQ( alloc.Allocated(), 0u );
+
+        alloc.Apply();
+        ASSERT_TRUE( vrhi_test::WaitUntil( [&]
+        {
+            alloc.Apply();
+            return alloc.pendingRetirements == 0u;
+        } ) );
+        EXPECT_EQ( vhGetTextureNvrhiHandle( tex ), nullptr );
+        EXPECT_FALSE( alloc.freeList.empty() );
+    }
+
+    vhTexture finalTex = makeTexture( "ChurnTex_Final", 90 );
+    uint32_t finalSlot = alloc.AllocTexture( finalTex );
+    ASSERT_NE( finalSlot, VRHI_INVALID_HANDLE );
+    alloc.Apply();
+
+    state.SetPushConstants( glm::vec4( ( float ) finalSlot, 0.0f, 0.0f, 0.0f ) );
+    vhSetState( sid, state );
+    vhDispatch( sid, { 1, 1, 1 } );
+    vhFlush( true );
+
+    alloc.RetireTexture( finalSlot, finalTex );
+    EXPECT_EQ( alloc.Allocated(), 0u );
+    EXPECT_EQ( alloc.pendingRetirements, 1u );
+
+    alloc.Drain();
+    EXPECT_EQ( alloc.pendingRetirements, 0u );
+    EXPECT_EQ( alloc.Allocated(), 0u );
+    EXPECT_EQ( alloc.batch.pending, 0u );
+    EXPECT_EQ( vhGetTextureNvrhiHandle( finalTex ), nullptr );
+
+    vhDispatch( sid, { 1, 1, 1 } );
+    vhMem readData;
+    vhReadTextureSlow( outTex, 0, 0, &readData );
+    vhFinish();
+    ASSERT_EQ( readData.size(), 16u );
+    for ( size_t i = 0; i < 16; i++ ) EXPECT_NEAR( readData[i], ( uint8_t ) 200, 2 );
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyDescriptorTable( t );
+    vhDestroyTexture( fallback );
+    vhDestroyTexture( outTex );
+    vhDestroyShader( cs );
+    vhFinish();
+    EXPECT_EQ( logs.ErrorCount(), 0 );
 }
