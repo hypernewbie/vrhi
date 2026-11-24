@@ -544,6 +544,46 @@ UTEST_F( Texture, Readback )
 }
 
 
+UTEST_F( Texture, ClearPlacedSrgbRenderTarget )
+{
+    if ( g_vhInit.nullMode ) UTEST_SKIP( "Texture clear readback requires GPU in Null RHI mode" );
+
+    const int32_t startErrors = g_vhErrorCounter.load();
+    vhTexture tex = vhAllocTexture();
+    vhCreateTexture2D( tex, "PlacedClear", { 4, 4 }, 1, nvrhi::Format::SBGRA8_UNORM, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL );
+    vhFlush( true );
+
+    const glm::u64vec2 req = vhGetTextureMemoryRequirements( tex );
+    ASSERT_GT( req.x, 0ull );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, req.x, "PlacedClearHeap" ) );
+    vhBindTextureMemory( tex, heap, 0 );
+
+    vhState state;
+    const vhStateId sid = 532;
+    state.SetColourAttachment( 0, tex )
+         .SetViewClear( VRHI_CLEAR_COLOR, glm::vec4( 0.25f, 0, 1, 1 ) );
+    vhSetState( sid, state );
+    vhClear( sid, VRHI_CLEAR_COLOR );
+    vhMem readData;
+    vhReadTextureSlow( tex, 0, 0, &readData );
+
+    vhSetState( sid, g_state0, VRHI_DIRTY_ALL );
+    vhDestroyTexture( tex );
+    vhDestroyHeap( heap );
+    vhFinish();
+    EXPECT_EQ( g_vhErrorCounter.load(), startErrors );
+
+    ASSERT_EQ( readData.size(), 4u * 4 * 4 );
+    for ( size_t i = 0; i < readData.size(); i += 4 )
+    {
+        ASSERT_EQ( readData[i + 0], 255 );
+        ASSERT_EQ( readData[i + 1], 0 );
+        ASSERT_NEAR( int( readData[i + 2] ), 137, 1 );
+        ASSERT_EQ( readData[i + 3], 255 );
+    }
+}
+
 UTEST_F( Texture, Allocation )
 {
 

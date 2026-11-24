@@ -1600,6 +1600,106 @@ UTEST_F( Bench, Bench_Frame_FullScene )
     vhFinish();
 }
 
+UTEST_F( Bench, Bench_Frame_AttachmentClears )
+{
+    if ( g_vhInit.nullMode ) { UTEST_SKIP( "Attachment clear benchmark requires a real device" ); }
+    if ( TestIsSoftwareVulkan() ) { UTEST_SKIP( "Skipped on software Vulkan" ); }
+
+    const int32_t startErrors = g_vhErrorCounter.load();
+    vhShader vs = BenchCompileShader( kBenchVS, VRHI_SHADER_STAGE_VERTEX, "ClearBenchVS" );
+    vhShader ps = BenchCompileShader( kBenchPS_Solid, VRHI_SHADER_STAGE_PIXEL, "ClearBenchPS" );
+    ASSERT_NE( vs, VRHI_INVALID_HANDLE );
+    ASSERT_NE( ps, VRHI_INVALID_HANDLE );
+    vhProgram program = vhCreateGfxProgram( vs, ps );
+    vhBuffer vb = BenchMakeVB( 3 );
+    vhHeap heap = vhAllocHeap();
+    ASSERT_TRUE( vhCreateHeap( heap, 16 * 1024 * 1024, "ClearBenchHeap" ) );
+
+    for ( int width : { 480, 960 } )
+    {
+        const int height = width * 9 / 16;
+        vhTexture rt[] = {
+            BenchMakeTex( width, height, nvrhi::Format::SBGRA8_UNORM, VRHI_TEXTURE_RT ),
+            BenchMakeTex( width, height, nvrhi::Format::SBGRA8_UNORM, VRHI_TEXTURE_RT | VRHI_TEXTURE_VIRTUAL )
+        };
+        vhFlush( true );
+        const glm::u64vec2 allocation = vhAllocBindTextureMemory( rt[1], heap );
+        ASSERT_GT( allocation.y, 0ull );
+        vhFlush( true );
+        ASSERT_TRUE( vhIsTextureMemoryBound( rt[1] ) );
+
+        vhTexture depth = BenchMakeTex( width, height, nvrhi::Format::D32, VRHI_TEXTURE_RT );
+        const vhStateId sid[] = { 74100, 74101 };
+        for ( int i = 0; i < 2; i++ )
+        {
+            vhState state;
+            state.SetColourAttachment( 0, rt[i] )
+                 .SetViewRect( glm::vec4( 0, 0, width, height ) )
+                 .SetViewClear( VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH, glm::vec4( 0.25f, 0.5f, 0.75f, 1.0f ), 1.0f )
+                 .SetStateFlags( VRHI_STATE_WRITE_MASK )
+                 .SetVertexBuffer( vb, 0 )
+                 .SetProgram( program );
+            if ( i == 0 ) state.SetDepthAttachment( depth );
+            vhSetState( sid[i], state );
+        }
+
+        const int passes = 8;
+        const int frames = std::min( 64, g_benchConfig.iters );
+        auto frame = [&]( bool clear )
+        {
+            for ( int i = 0; i < passes; i++ )
+            {
+                if ( clear ) vhClear( sid[i % 2], i == 0 ? VRHI_CLEAR_COLOR | VRHI_CLEAR_DEPTH : VRHI_CLEAR_COLOR );
+                vhDraw( sid[i % 2], 3 );
+            }
+            vhFlush( true );
+        };
+
+        for ( int f = 0; f < g_benchConfig.warmup; f++ ) frame( true );
+        vhFinish();
+
+        for ( bool clear : { false, true } )
+        {
+            BenchTimer timer;
+            for ( int f = 0; f < frames; f++ )
+            {
+                timer.Begin();
+                frame( clear );
+                timer.Sample();
+            }
+            char label[64];
+            snprintf( label, sizeof( label ), "Bench_Frame_AttachmentClears_%dx%d_%s", width, height, clear ? "ClearDraw" : "Draw" );
+            timer.Print( label, passes );
+            vhFinish();
+        }
+
+        vhMem expected, actual;
+        vhReadTextureSlow( rt[0], 0, 0, &expected );
+        vhReadTextureSlow( rt[1], 0, 0, &actual );
+        const size_t bytes = size_t( width ) * height * 4;
+        EXPECT_EQ( expected.size(), bytes );
+        EXPECT_EQ( actual.size(), bytes );
+        if ( expected.size() == bytes && actual.size() == bytes )
+        {
+            EXPECT_EQ( memcmp( expected.data(), actual.data(), bytes ), 0 );
+        }
+
+        vhSetState( sid[0], g_state0, VRHI_DIRTY_ALL );
+        vhSetState( sid[1], g_state0, VRHI_DIRTY_ALL );
+        vhDestroyTexture( rt[0] );
+        vhDestroyTexture( rt[1] );
+        vhDestroyTexture( depth );
+        vhHeapFree( heap, allocation.x );
+    }
+
+    vhDestroyHeap( heap );
+    vhDestroyBuffer( vb );
+    vhDestroyShader( vs );
+    vhDestroyShader( ps );
+    vhFinish();
+    EXPECT_EQ( startErrors, g_vhErrorCounter.load() );
+}
+
 // ==========================================================================
 // §H — Backend latency
 // ==========================================================================
