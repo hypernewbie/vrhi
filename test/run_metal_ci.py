@@ -18,6 +18,9 @@ REQUIRED_TESTS = {
     "Bindless.MetalDescriptorTableClearKeepsSlotAlive",
     "Bindless.MetalRejectsUpdateAfterBind",
     "Bindless.NonUAB_Fenced_WriteBetweenDispatches",
+    "Bindless.NonUAB_SingleBatch_WriteAndRetire",
+    "Bindless.Retire_BorrowedTextureStaysAlive",
+    "Bindless.Allocator_HeadlessChurnAndDrain",
     "Buffer.PartialByteWrites_PreserveNeighbours",
     "Graphics.IndependentBlendUnequalTargets",
     "Graphics.IndependentBlend",
@@ -45,6 +48,7 @@ ALLOWED_SKIPS_BY_REASON = {
     "No sampled-image update-after-bind support": {"Bindless.UpdateAfterBind_WriteAcrossFrames"},
     "UAB sampled image unsupported": {
         "Bindless.UAB_IntraFrame_WriteBetweenDispatches", "Bindless.UAB_CrossFrame_NoFence",
+        "Bindless.UAB_Retire_GatedInFlightReader", "Bindless.UAB_Retire_IgnoresUnrelatedGpuWork",
     },
     "Requires Vulkan device extensions": {"RHI.ExtraDeviceExtensions"},
     "Requires Vulkan drawIndirectCount feature queries": {"RHI.IndirectCountCapability"},
